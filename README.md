@@ -33,7 +33,9 @@ gets a new version, or two of your own findings contradict each other, it tells 
 The principle is simple. Nothing counts as valid until it has been reviewed by you.
 
 It runs on your own computer with a model you pick, local or rented. It is free and open source, and
-it is for anyone who needs some reliable research done. This is the research harness for the rest of us.
+it is for anyone who needs some reliable research done.
+
+This is The Research Harness For The Rest Of Us.
 
 → **[LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md)**: how to use it day to day
 → **[LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md)**: for programmers, how a program talks to it
