@@ -308,9 +308,33 @@ public final class Researcher {
         return sb.toString();
     }
 
+    /** The search counters when the run started; the differences are this run's. */
+    final int unreachableAtStart = org.researchzosho.tools.WebSearchTool.UNREACHABLE.get(),
+            fallbackAtStart = org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get(),
+            braveAtStart = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get(),
+            searxAtStart = org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get();
+
+    /** "## Web search": which backend the run searched through, when that is worth knowing: the fallback, or none at all. */
+    String webSearchSection(Ask ask) {
+        if (!ask.web()) return "";
+        int none = org.researchzosho.tools.WebSearchTool.UNREACHABLE.get() - unreachableAtStart;
+        int fb = org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get() - fallbackAtStart;
+        int brave = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get() - braveAtStart;
+        int searx = org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get() - searxAtStart;
+        if (fb > 0) return "## Web search\n\n" + fb + (fb == 1 ? " search" : " searches") + " went through the built-in fallback (Wikipedia, Crossref and OpenAlex: reference pages and papers, no web engine)"
+                + (brave + searx > 0 ? ", " + (brave + searx) + " through " + (brave > 0 ? "Brave" : "SearXNG") : "")
+                + ". A Brave Search API key or a SearXNG (`researchzosho search start`) searches the whole web.";
+        if (none > 0 && brave + searx == 0) return "## Web search\n\nNo search backend answered at " + org.researchzosho.tools.WebSearchTool.endpoint() + " (" + none
+                + (none == 1 ? " search" : " searches") + " failed). This run read only the documents on the shelves. "
+                + "`researchzosho setup` adds a Brave Search API key or starts SearXNG.";
+        return "";
+    }
+
     String assemble(Ask ask, Synthesis syn, String evidence, Budget budget, List<String> notes) {
         String text = syn.text();
         String languages = languagesSection(evidence);
+        String web = webSearchSection(ask);
+        if (!web.isEmpty()) { languages = languages.isEmpty() ? web : web + "\n\n" + languages; notes.add("web search: no backend answered"); log.accept(notes.get(notes.size() - 1)); }
         if (!languages.isEmpty()) { notes.add("languages: " + Lanes.describe(Lanes.languagesRead(evidence))); log.accept(notes.get(notes.size() - 1)); }
         if (store == null) return languages.isEmpty() ? text : text + "\n\n" + languages;
         List<String> locators = new ArrayList<>();
@@ -693,7 +717,8 @@ public final class Researcher {
                 + "shelf_search finds them; read_pages reads one in full. " + (web ? "Search the shelves BEFORE the web: what the person shelved outranks what a search engine ranks. " : "The web is closed for this ask: the shelves are the whole corpus. ")
                 + "Cite a shelved document by its title and its file:// or raw/ locator.\n\n";
         StringBuilder sb = new StringBuilder();
-        sb.append("You are a researcher working for a library. Read-only: you have ").append(shelves ? "shelf_search, " : "").append(web ? "web_search, web_fetch, " : "").append("read_pages, note and done.\n\n").append(shelvesText);
+        sb.append("You are a researcher working for a library. Read-only: you have ").append(shelves ? "shelf_search, " : "").append(web ? "web_search, scholar_search, web_fetch, " : "").append("read_pages, note and done.\n\n").append(shelvesText);
+        if (web) sb.append("scholar_search finds papers, books and chapters by DOI in Crossref and OpenAlex: the primary literature a web engine ranks low. Use it as well as web_search whenever the question touches a literature (medicine, science, history, law, the humanities), then web_fetch the DOI or landing page to read.\n\n");
         sb.append(broad
                 ? "SURVEY: run several DIFFERENT " + search + " queries covering the facets and phrasings of your sub-question, then " + fetch
                   + " the most promising sources. Map the landscape — the positions, where sources agree and where they disagree."
@@ -1237,7 +1262,7 @@ public final class Researcher {
                 var search = new org.researchzosho.tools.WebSearchTool().focus(focus);
                 var fetch = new org.researchzosho.tools.WebFetchTool().focus(focus);
                 last.set(search);
-                return List.of(search, fetch);
+                return List.of(search, new org.researchzosho.tools.ScholarSearchTool(), fetch);
             }
             @Override public BooleanSupplier exhausted() {
                 var s = last.get();

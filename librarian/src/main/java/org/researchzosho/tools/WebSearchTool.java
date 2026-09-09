@@ -11,7 +11,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import org.researchzosho.Config;
 
@@ -68,6 +70,94 @@ public final class WebSearchTool implements Tool {
         return caps.size() >= 4;
     }
 
+    /** Session-wide count of searches that found NO backend at all (SearXNG down, no Brave key, fallback off): the report says so. */
+    public static final java.util.concurrent.atomic.AtomicInteger UNREACHABLE = new java.util.concurrent.atomic.AtomicInteger();
+    /** Which backend answered, session-wide: the report says which one a run searched through. */
+    public static final java.util.concurrent.atomic.AtomicInteger BRAVE_USED = new java.util.concurrent.atomic.AtomicInteger(),
+            SEARXNG_USED = new java.util.concurrent.atomic.AtomicInteger(), FALLBACK_USED = new java.util.concurrent.atomic.AtomicInteger();
+    /** When SearXNG last failed to answer at all; for a minute after that the fallback is tried first, so a firewalled address does not cost 30 s per search. */
+    private static volatile long searxDownAt;
+
+    /** The built-in fallback (Wikipedia's search, no key, no install) is on unless RESEARCHZOSHO_FALLBACK_SEARCH=off. */
+    public static boolean fallbackOn() {
+        String v = Config.get("RESEARCHZOSHO_FALLBACK_SEARCH");
+        return v == null || !(v.equalsIgnoreCase("off") || v.equalsIgnoreCase("false") || v.equals("0"));
+    }
+
+    /**
+     * The fallback: Wikipedia's own search API in the language of the query, plus the scholarly literature from
+     * Crossref and OpenAlex. No key and no install, so it works on a fresh machine, and all three answer reliably.
+     * Narrower than a web engine: encyclopedia pages, whose references a run can follow, and papers by DOI.
+     * Measured 2026-09-09 before choosing it: DuckDuckGo's HTML page, the usual scraping fallback, answers the
+     * second query from a home box with a CAPTCHA. Used only when Brave is not configured and SearXNG did not
+     * answer. Returns null when nothing answers.
+     */
+    String fallbackSearch(String query, int limit) {
+        if (!fallbackOn() || endpointOverride != null) return null;
+        List<String[]> rows = new ArrayList<>();
+        try {
+            String lang = languageOf(query);
+            String wiki = lang == null ? "en" : switch (lang) { case "ja", "zh", "ko", "ru", "ar", "th", "he", "el" -> lang; default -> "en"; };
+            HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create("https://" + wiki + ".wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit="
+                            + Math.min(limit, 20) + "&srsearch=" + URLEncoder.encode(query, StandardCharsets.UTF_8)))
+                    .timeout(Duration.ofSeconds(20))
+                    .header("User-Agent", ScholarSearch.UA)
+                    .header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() == 200) rows.addAll(parseFallback(resp.body(), wiki));
+        } catch (Exception ignored) { }
+        int half = Math.max(2, limit / 2);
+        if (rows.size() > half) rows = new ArrayList<>(rows.subList(0, half));   // leave room for the papers
+        for (ScholarSearch.Row r : ScholarSearch.merged(query, limit)) rows.add(new String[]{r.title(), r.url(), r.snippet()});
+        if (rows.isEmpty()) return null;
+        StringBuilder sb = new StringBuilder("results for \"" + query + "\" (built-in fallback: Wikipedia, then papers from Crossref and OpenAlex — follow the pages' references for primary sources):\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
+        int shown = 0, refused = 0;
+        var rules = org.researchzosho.librarian.SourceRules.live();
+        for (String[] r : rows) {
+            if (shown >= limit) break;
+            if (rules.refused(r[1])) { refused++; continue; }
+            shown++;
+            sb.append(shown).append(". ").append(r[0]).append('\n')
+              .append("   ").append(r[1]).append("  [").append(org.researchzosho.librarian.SourceTier.of(r[1])).append(rules.trusted(r[1]) ? ", trusted by the person" : "").append("]\n");
+            if (!r[2].isEmpty()) sb.append("   ").append(r[2]).append('\n');
+        }
+        if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
+        sb.append(org.researchzosho.librarian.Fence.close("SEARCH RESULTS")).append('\n').append(org.researchzosho.librarian.Fence.rule("SEARCH RESULTS")).append('\n');
+        FALLBACK_USED.incrementAndGet();
+        return sb.toString();
+    }
+
+    /** {title, url, snippet} rows from Wikipedia's search JSON. */
+    static List<String[]> parseFallback(String json, String wiki) {
+        List<String[]> out = new ArrayList<>();
+        try {
+            for (JsonNode h : M.readTree(json).path("query").path("search")) {
+                String title = h.path("title").asText("");
+                if (title.isEmpty()) continue;
+                String url = "https://" + wiki + ".wikipedia.org/wiki/" + URLEncoder.encode(title.replace(' ', '_'), StandardCharsets.UTF_8).replace("+", "%20").replace("%2F", "/").replace("%3A", ":").replace("%28", "(").replace("%29", ")").replace("%2C", ",");
+                String snippet = untag(h.path("snippet").asText(""));
+                if (snippet.length() > 240) snippet = snippet.substring(0, 240) + "…";
+                out.add(new String[]{title, url, snippet});
+            }
+        } catch (Exception ignored) { }
+        return out;
+    }
+
+    private static String untag(String s) {
+        String t = s.replaceAll("<[^>]+>", "");
+        StringBuilder sb = new StringBuilder();
+        var m = java.util.regex.Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);").matcher(t);
+        while (m.find()) {
+            String e = m.group(1); String rep;
+            try {
+                rep = switch (e) { case "amp" -> "&"; case "lt" -> "<"; case "gt" -> ">"; case "quot" -> "\""; case "apos" -> "'"; case "nbsp" -> " ";
+                    default -> new String(Character.toChars(e.startsWith("#x") ? Integer.parseInt(e.substring(2), 16) : Integer.parseInt(e.substring(1)))); };
+            } catch (Exception ex) { rep = m.group(0); }
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(rep));
+        }
+        m.appendTail(sb);
+        return sb.toString().replaceAll("\\s+", " ").strip();
+    }
+
     /** A test points the tool at a local server; production leaves this null. */
     static volatile String endpointOverride = null;
 
@@ -101,6 +191,7 @@ public final class WebSearchTool implements Tool {
             if (resp.statusCode() != 200) return null;   // 401/429/5xx → SearXNG carries on
             JsonNode rs = M.readTree(resp.body()).path("web").path("results");
             if (!rs.isArray() || rs.isEmpty()) return null;
+            BRAVE_USED.incrementAndGet();
             StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
             int shown = 0, refused = 0;
             var rules = org.researchzosho.librarian.SourceRules.live();
@@ -190,6 +281,10 @@ public final class WebSearchTool implements Tool {
             }
             return steered(query, brave);
         }
+        if (endpointOverride == null && System.currentTimeMillis() - searxDownAt < 60_000) {
+            String fb = fallbackSearch(query, limit);
+            if (fb != null) return steered(query, fb);
+        }
         String lang = languageOf(query);
         // a query in a non-Latin script tells the engine its language, or it answers with whatever matches the bytes
         // (measured: a Japanese query with no language came back as Brazilian news and a Microsoft forum)
@@ -205,7 +300,11 @@ public final class WebSearchTool implements Tool {
                         .timeout(Duration.ofSeconds(30)).header("Accept", "application/json").GET().build(),
                         HttpResponse.BodyHandlers.ofString());
             } catch (Exception e) {
+                searxDownAt = System.currentTimeMillis();
+                String fb = fallbackSearch(query, limit);
+                if (fb != null) return steered(query, fb);
                 queried.remove(query.strip().toLowerCase());   // a failed search must stay retryable
+                UNREACHABLE.incrementAndGet();
                 return "ERROR: search backend unreachable at " + endpoint() + " (" + e + "). Is the SearXNG "
                         + "container running (docker start searxng)?";
             }
@@ -223,6 +322,8 @@ public final class WebSearchTool implements Tool {
         }
         JsonNode results = body.path("results");
         if (!results.isArray() || results.isEmpty()) {
+            String fb = fallbackSearch(query, limit);
+            if (fb != null) return steered(query, fb);
             // A failed search must not burn its slot in the repetition guard — the query was never answered.
             queried.remove(query.strip().toLowerCase());
             String down = degradedEngines(body);
@@ -236,6 +337,7 @@ public final class WebSearchTool implements Tool {
             }
             return "no results for: " + query;
         }
+        SEARXNG_USED.incrementAndGet();
         StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
         int shown = 0, refused = 0;
         var rules = org.researchzosho.librarian.SourceRules.live();

@@ -43,6 +43,10 @@ public final class Setup {
         String chat(String base, String model, String key);
         /** Whether {@code base} answers an embeddings request. */
         boolean embeds(String base, String key);
+        /** Whether a SearXNG at {@code base} answers a JSON search (it needs json in search.formats). */
+        default boolean searxng(String base) { return false; }
+        /** Whether the Brave Search API accepts {@code key}. */
+        default boolean brave(String key) { return false; }
     }
 
     /** What setup does to the machine. */
@@ -55,6 +59,10 @@ public final class Setup {
         default boolean have(String command) { return "claude".equals(command) && haveClaude(); }
         /** Run a host's own registration command; "connected" or its output, "!reason" on failure. */
         default String register(String command, List<String> args) throws Exception { return "claude".equals(command) ? claudeMcpAdd(args) : "!" + command + " is not available"; }
+        /** Whether docker is on this machine. */
+        default boolean haveDocker() { return false; }
+        /** Start SearXNG through docker on {@code port}; the address, or "!reason". */
+        default String startSearxng(int port) { return "!docker is not on this machine"; }
     }
 
     /** The programs that can be registered from the command line: their command, their name, and how they take an MCP server. */
@@ -102,6 +110,21 @@ public final class Setup {
                     return text.isBlank() ? "!the server answered but said nothing" : text.strip();
                 } catch (Exception e) { return "!" + plain(e); }
             }
+            @Override public boolean searxng(String base) {
+                try {
+                    HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/search?q=ready&format=json"))
+                            .timeout(Duration.ofSeconds(15)).header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
+                    return r.statusCode() == 200 && M.readTree(r.body()).has("results");
+                } catch (Exception e) { return false; }
+            }
+            @Override public boolean brave(String key) {
+                try {
+                    HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create("https://api.search.brave.com/res/v1/web/search?count=1&q=ready"))
+                            .timeout(Duration.ofSeconds(15)).header("Accept", "application/json").header("X-Subscription-Token", key.strip()).GET().build(),
+                            HttpResponse.BodyHandlers.ofString());
+                    return r.statusCode() == 200;
+                } catch (Exception e) { return false; }
+            }
             @Override public boolean embeds(String base, String key) {
                 try {
                     var body = M.createObjectNode(); body.put("input", "ready"); body.put("model", "default");
@@ -122,6 +145,8 @@ public final class Setup {
                 var plan = Service.plan(Service.os(), Service.resolveExec(null), port, 3, Path.of(System.getProperty("user.home")));
                 return Service.run("install", plan, out);
             }
+            @Override public boolean haveDocker() { return Searx.haveDocker(); }
+            @Override public String startSearxng(int port) { return Searx.start(port); }
             @Override public boolean haveClaude() { return have("claude"); }
             @Override public String claudeMcpAdd(List<String> args) throws Exception { return register("claude", args); }
             @Override public boolean have(String command) {
@@ -253,7 +278,41 @@ public final class Setup {
         }
         out.println();
 
-        // 3. embeddings
+        // 3. web search, in the order that serves the person best: the Brave Search API (best results, a key,
+        //    no install) first; then SearXNG (free, private: one already running, or started through Docker);
+        //    then the built-in fallback, which needs nothing and is the weakest. A run never comes back
+        //    empty for want of a search backend without the wizard having said so.
+        String braveKey = Config.get("RESEARCHZOSHO_BRAVE_KEY");
+        boolean haveBrave = braveKey != null && !braveKey.isBlank() && probe.brave(braveKey);
+        if (haveBrave) out.println("  Web search: the Brave Search API key you have works.");
+        else {
+            out.println("  Research runs search the web. The Brave Search API gives the best results and has a free plan");
+            out.println("  (https://brave.com/search/api/).");
+            String typed = ask("  Paste a Brave API key, or press Enter to skip", "");
+            if (!typed.isBlank()) {
+                if (probe.brave(typed)) { Config.set("RESEARCHZOSHO_BRAVE_KEY", typed); haveBrave = true; out.println("  Web search: Brave."); }
+                else out.println("  Brave did not accept that key.");
+            }
+        }
+        String searx = Config.get("RESEARCHZOSHO_SEARXNG");
+        String searxAt = searx != null && !searx.isBlank() ? searx : "http://localhost:" + Searx.DEFAULT_PORT;
+        boolean haveSearx = probe.searxng(searxAt);
+        if (haveSearx) { out.println("  SearXNG answers at " + searxAt + (haveBrave ? ": the fallback behind Brave." : ": web search goes through it.")); Config.set("RESEARCHZOSHO_SEARXNG", searxAt); }
+        else if (acts.haveDocker() && yesNo(haveBrave ? "  Also start SearXNG with Docker, as the fallback? (free, and your searches stay on this machine)"
+                                                    : "  Start SearXNG with Docker? (free, and your searches stay on this machine)", !haveBrave)) {
+            out.print("  Starting SearXNG… "); out.flush();
+            String r = acts.startSearxng(Searx.DEFAULT_PORT);
+            if (r.startsWith("!")) out.println("no: " + r.substring(1));
+            else { haveSearx = true; Config.set("RESEARCHZOSHO_SEARXNG", r); out.println("it answers at " + r + "."); }
+        }
+        if (!haveBrave && !haveSearx) {
+            out.println("  Web search will use the built-in fallback: Wikipedia plus the papers in Crossref and OpenAlex, no key");
+            out.println("  and no install. It finds reference pages and the literature, not the whole web; a Brave key or SearXNG");
+            out.println("  does that. Run setup again when you have one. RESEARCHZOSHO_FALLBACK_SEARCH=off turns the fallback off.");
+        }
+        out.println();
+
+        // 4. embeddings
         String embed = Config.get("RESEARCHZOSHO_EMBED");
         boolean haveEmbed = embed != null && !embed.isBlank() && !embed.equalsIgnoreCase("off") && probe.embeds(embed, key);
         if (!haveEmbed && base != null && probe.embeds(base, key)) { embed = base; haveEmbed = true; }
@@ -267,7 +326,7 @@ public final class Setup {
         }
         out.println();
 
-        // 4. the service
+        // 5. the service
         boolean serviceInstalled = false;
         if (offerService && yesNo("Run it as a service that starts when you log in? (needed for research runs and for other programs)", true)) {
             int rc = acts.installService(port, out);
@@ -276,7 +335,7 @@ public final class Setup {
             out.println();
         }
 
-        // 5. Programs that use the library. Claude Code, Codex and Gemini CLI can each be registered from the command
+        // 6. Programs that use the library. Claude Code, Codex and Gemini CLI can each be registered from the command
         //    line, so when one is installed the wizard offers to do that. Every other program gets the lines it needs, printed.
         boolean anyDone = false;
         if (offerClaude) for (Host h : HOSTS) {
@@ -305,11 +364,11 @@ public final class Setup {
             out.println("    over stdio:  command \"" + acts.launcher() + "\" with the argument \"mcp\"");
             out.println("    as JSON:     {\"mcpServers\": {\"librarian\": {\"command\": \"" + acts.launcher().replace("\\", "\\\\") + "\", \"args\": [\"mcp\"]}}}");
             if (serviceInstalled) out.println("    over HTTP:   http://127.0.0.1:" + port + "/rpc with a token from: researchzosho reader token <did>");
-            out.println("  The web pages need no program: http://127.0.0.1:" + port + "/ once the service runs. codezaiku chat has the library's tools built in.");
+            out.println("  The web pages need no program: http://127.0.0.1:" + port + "/ once the service runs. codezaiku chat connects to the service (codezaiku install researchzosho sets it up).");
             out.println();
         }
 
-        // 6. the first document and the first answer
+        // 7. the first document and the first answer
         String doc = ask("Add a document now? (a file path, or leave blank)", "");
         if (!doc.isBlank()) {
             Path d = Path.of(doc.replaceFirst("^~", System.getProperty("user.home")));

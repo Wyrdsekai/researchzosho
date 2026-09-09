@@ -26,7 +26,7 @@ public final class McpServer {
     private static final ObjectMapper M = new ObjectMapper();
     private static final String PROTOCOL_VERSION = "2024-11-05";
     public static final String SERVER_NAME = "researchzosho";
-    public static final String SERVER_VERSION = "0.1.0";
+    public static final String SERVER_VERSION = "0.1.1";
 
     private McpServer() { }
 

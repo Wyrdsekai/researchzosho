@@ -47,6 +47,7 @@ public final class LibrarianCli {
               export <id> [--pdf|--md] [--beginner|--familiar] [--out FILE]
                                            an entry, or a reading of it, as a Markdown or PDF file
               sharpen <question…>          a rough question in, a better one out — a brief to run, what it assumed, what you already hold; runs nothing
+              search [status|start|stop|test <query>|papers <query>]   which web search backend answers; SearXNG through Docker; the literature by DOI
               explain <id> [--beginner|--familiar|--written] [--fresh]
                                            an entry explained for a reader at that level — from the library only, checked
               explain "<term>" [--in <id>] [--now|--full]
@@ -357,6 +358,57 @@ public final class LibrarianCli {
                     System.out.println("\nthe question to run is in " + out + " — edit it if you like, then send it:");
                     System.out.println("  researchzosho research ask \"$(cat " + out + ")\"" + (s.mode().equals("depth") ? " --depth" : "") + (s.size().equals("quick") ? " --quick" : ""));
                     System.out.println("  (or paste it into the Research page, or pass it to library_research)");
+                }
+                case "search" -> {
+                    // which backend a search would use, and SearXNG through Docker by hand
+                    String op = args.length > 2 ? args[2] : "status";
+                    switch (op) {
+                        case "status" -> {
+                            String bk = org.researchzosho.Config.get("RESEARCHZOSHO_BRAVE_KEY");
+                            System.out.println("  Brave Search API: " + (bk == null || bk.isBlank() ? "no key (RESEARCHZOSHO_BRAVE_KEY)" : "a key is set; used first"));
+                            String ep = org.researchzosho.tools.WebSearchTool.endpoint();
+                            System.out.println("  SearXNG: " + ep + " " + (Searx.answers(ep) ? "answers" : "does not answer") + "; docker container " + Searx.CONTAINER + ": " + Searx.state() + (Searx.haveDocker() ? "" : " (no docker here)"));
+                            System.out.println("  built-in fallback: " + (org.researchzosho.tools.WebSearchTool.fallbackOn() ? "on (RESEARCHZOSHO_FALLBACK_SEARCH=off turns it off)" : "off"));
+                            System.out.println("  order: Brave, then SearXNG, then the fallback. `researchzosho search test \"a query\"` shows which one answers.");
+                            return 0;
+                        }
+                        case "start" -> {
+                            boolean fresh = java.util.Arrays.asList(args).contains("--fresh");
+                            int port = Searx.DEFAULT_PORT;
+                            for (int i = 3; i < args.length; i++) if (args[i].matches("\\d+")) port = Integer.parseInt(args[i]);
+                            System.out.print("starting SearXNG through docker… "); System.out.flush();
+                            String r = Searx.start(port, fresh);
+                            if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
+                            org.researchzosho.Config.set("RESEARCHZOSHO_SEARXNG", r);
+                            System.out.println("it answers at " + r + " (saved as RESEARCHZOSHO_SEARXNG; the container restarts with the machine)");
+                            if (!Searx.settingsNote.isEmpty()) System.out.println("  " + Searx.settingsNote);
+                            return 0;
+                        }
+                        case "stop" -> { String r = Searx.stop(); System.out.println(r.startsWith("!") ? r.substring(1) : "SearXNG stopped (researchzosho search start brings it back)"); return r.startsWith("!") ? 1 : 0; }
+                        case "test" -> {
+                            if (args.length < 4) { System.err.println("usage: researchzosho search test <query…>"); return 2; }
+                            String q = String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length));
+                            var tool = new org.researchzosho.tools.WebSearchTool();
+                            var M = new com.fasterxml.jackson.databind.ObjectMapper();
+                            int b0 = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get(), s0 = org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get(), f0 = org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get();
+                            long t0 = System.currentTimeMillis();
+                            String r = tool.execute(M.createObjectNode().put("query", q).put("limit", 5));
+                            String which = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get() > b0 ? "Brave" : org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get() > s0 ? "SearXNG" : org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get() > f0 ? "the built-in fallback" : "no backend";
+                            System.out.println("answered by " + which + " in " + (System.currentTimeMillis() - t0) + " ms");
+                            System.out.println(r);
+                            return 0;
+                        }
+                        case "papers" -> {
+                            if (args.length < 4) { System.err.println("usage: researchzosho search papers <query…>"); return 2; }
+                            String q = String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length));
+                            long t0 = System.currentTimeMillis();
+                            String r = new org.researchzosho.tools.ScholarSearchTool().execute(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("query", q).put("limit", 8));
+                            System.out.println("Crossref and OpenAlex in " + (System.currentTimeMillis() - t0) + " ms");
+                            System.out.println(r);
+                            return 0;
+                        }
+                        default -> { System.err.println("usage: researchzosho search [status | start [port] [--fresh] | stop | test <query…> | papers <query…>]"); return 2; }
+                    }
                 }
                 case "sources" -> {
                     String op = args.length > 2 ? args[2] : "list";

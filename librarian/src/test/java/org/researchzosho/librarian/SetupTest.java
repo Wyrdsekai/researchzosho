@@ -23,12 +23,18 @@ class SetupTest {
         @Override public List<String> models(String base, String key) { return base.equals(answering) ? ids : null; }
         @Override public String chat(String base, String model, String key) { return base.equals(answering) ? "ready" : "!nothing is answering at that address"; }
         @Override public boolean embeds(String base, String key) { return embeds && base.equals(answering); }
+        String searx = null; String braveKey = null;                 // what answers a search probe, if anything
+        @Override public boolean searxng(String base) { return searx != null && base.equals(searx); }
+        @Override public boolean brave(String key) { return braveKey != null && key.equals(braveKey); }
     }
 
     static final class FakeActs implements Setup.Acts {
         boolean claude = true; int installed = 0; List<String> mcpArgs;
         java.util.Set<String> hosts = null;                       // null: only claude, as before
         java.util.Map<String, List<String>> registered = new java.util.LinkedHashMap<>();
+        boolean docker = false; String searxStarted = "!no docker";
+        @Override public boolean haveDocker() { return docker; }
+        @Override public String startSearxng(int port) { return searxStarted; }
         @Override public int installService(int port, PrintStream out) { installed++; out.println("installed (fake) on " + port); return 0; }
         @Override public boolean haveClaude() { return claude; }
         @Override public String claudeMcpAdd(List<String> args) { mcpArgs = new ArrayList<>(args); return "connected"; }
@@ -82,6 +88,7 @@ class SetupTest {
                 "https://api.example.com",                // the server
                 "sk-test-123",                            // the key
                 "big-model",                              // which model
+                "",                                       // no web search backend
                 "",                                       // no embeddings server
                 "n"                                       // no service
         )) + "\n";
@@ -101,7 +108,7 @@ class SetupTest {
         Path doc = home.resolve("lead.txt");
         Files.writeString(doc, "Lead paint was banned for residential use in the United States in 1978.");
         var acts = new FakeActs(); acts.claude = false;
-        String script = String.join("\n", List.of("", "", "", "n", doc.toString(), "when was lead paint banned")) + "\n";
+        String script = String.join("\n", List.of("", "", "", "", "n", doc.toString(), "when was lead paint banned")) + "\n";
         String out = run(home, script, new FakeProbe("http://localhost:8080", List.of("m"), false), acts, false, true, true);
         assertTrue(out.contains("Shelved lead.txt."), out.substring(Math.max(0, out.length() - 900)));
         assertTrue(out.contains("1978"), "the first answer shows the document: " + out.substring(Math.max(0, out.length() - 900)));
@@ -127,5 +134,26 @@ class SetupTest {
         assertEquals(java.util.List.of("mcp", "add", "librarian", "--", "/opt/rz/bin/researchzosho", "mcp"), acts.registered.get("codex"), "codex over stdio");
         assertTrue(acts.registered.get("gemini").contains("-t") && acts.registered.get("gemini").contains("http") && acts.registered.get("gemini").stream().anyMatch(a -> a.startsWith("Authorization: Bearer ")), acts.registered.get("gemini").toString());
         assertTrue(out.contains("Other programs."), "and the lines any other MCP program needs are printed");
+    }
+
+    @Test
+    void webSearchWalksTheLadderBraveThenSearxngThenTheFallback(@TempDir Path home) throws Exception {
+        var probe = new FakeProbe("http://localhost:11434", java.util.List.of("m"), false);
+        var acts = new FakeActs();
+        String out = run(home, "", probe, acts, true, true, true);                 // no key, no SearXNG, no docker
+        assertTrue(out.contains("Paste a Brave API key"), "Brave is asked for first: " + out);
+        assertTrue(out.contains("Web search will use the built-in fallback: Wikipedia plus the papers"), out);
+        probe.searx = "http://localhost:8888";
+        out = run(home, "", probe, acts, true, true, true);
+        assertTrue(out.contains("SearXNG answers at http://localhost:8888: web search goes through it."), out);
+        assertFalse(out.contains("built-in fallback"), "with SearXNG the fallback is not mentioned");
+        probe.searx = null; acts.docker = true; acts.searxStarted = "http://127.0.0.1:8888";
+        out = run(home, "", probe, acts, true, true, true);
+        assertTrue(out.contains("Starting SearXNG… it answers at http://127.0.0.1:8888."), "docker is offered and taken by default: " + out);
+        java.nio.file.Files.createDirectories(home.resolve(".researchzosho"));
+        java.nio.file.Files.writeString(home.resolve(".researchzosho").resolve("config"), "RESEARCHZOSHO_BRAVE_KEY = BSA-test\n");
+        probe.braveKey = "BSA-test"; probe.searx = "http://localhost:8888";
+        out = run(home, "", probe, acts, true, true, true);
+        assertTrue(out.contains("the Brave Search API key you have works") && out.contains("the fallback behind Brave"), out);
     }
 }

@@ -40,6 +40,11 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and others; any that
   speaks the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a
   model you can still ask what the library has and read it; research runs need the model.
+- A web search backend, for research runs that go to the web. This matters as much as the model: a
+  run can only read what a search finds. The choices, best first: a Brave Search API key
+  (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
+  one with Docker), or the built-in fallback, which searches Wikipedia and the scholarly literature
+  only. Section 2 explains.
 - Optional: an embeddings server, if you want search by meaning as well as by keywords.
 
 ## 2. Setup
@@ -55,14 +60,56 @@ Setup asks a few questions. Each has a default answer; press Enter to accept it.
 1. Where the library folder goes.
 2. Which model server to use. Setup looks on the usual local ports and tests the server with one
    call before saving the address.
-3. Whether search works by meaning (needs an embeddings server) or by words only.
-4. Whether to run ResearchZosho as a service that starts when you log in.
-5. Which programs to connect. If Claude Code, Codex or Gemini CLI is installed, setup can register
+3. Which web search backend to use. Setup asks for a Brave Search API key first. Then it looks for
+   SearXNG on its usual local port, and if Docker is installed offers to start one. With neither, it
+   says that the built-in fallback will be used.
+4. Whether search works by meaning (needs an embeddings server) or by words only.
+5. Whether to run ResearchZosho as a service that starts when you log in.
+6. Which programs to connect. If Claude Code, Codex or Gemini CLI is installed, setup can register
    the library with it. For any other program that speaks MCP, setup prints the command line and the
    JSON to enter.
 
 Then setup adds one document you name and answers a question about it. Run setup again at any time
 to change one of these answers.
+
+### Web search
+
+Research runs find their sources through a search backend. A run can only read what a search
+finds, so this choice matters as much as the model. ResearchZosho tries them in this order:
+
+1. **The Brave Search API.** The best results. A key from https://brave.com/search/api/ (there is a
+   free plan) goes in `RESEARCHZOSHO_BRAVE_KEY`, or into setup. The key is sent only to Brave.
+2. **SearXNG**, a search engine you run yourself. Free, and your queries stay on your machine.
+   Setup starts it with Docker when Docker is installed, and so does:
+
+   ```
+   researchzosho search start
+   ```
+
+   This starts the official container on port 8888 with a settings file ResearchZosho writes. That
+   file turns on the JSON format the search tool needs, and picks the engines that answered from a
+   home machine when we measured them: Seznam, Naver, Yandex, Yahoo and Wikipedia. SearXNG's own
+   default engines (DuckDuckGo, Google, Qwant, Startpage, Brave) answered the first query with a
+   CAPTCHA and stayed suspended, so they are off. The file is `~/.researchzosho/searxng/settings.yml`;
+   edit it if you like. A SearXNG elsewhere goes in `RESEARCHZOSHO_SEARXNG`.
+3. **The built-in fallback**, when neither is set: Wikipedia's own search, in the language of the
+   query, followed by papers from Crossref and OpenAlex. No key and no install, and all three answer
+   reliably, but it finds encyclopedia pages and the literature, not the whole web. A run follows
+   the pages' references for primary sources. `RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off.
+
+With a key and a SearXNG both set, Brave is used and SearXNG is the fallback. The report's "Web
+search" section says when a run went through the fallback, or when no backend answered.
+
+Separately from all three, every research run also has `scholar_search`: Crossref and OpenAlex,
+papers and books by DOI. It is there in every configuration, because a web engine ranks the primary
+literature low or not at all, and a DOI is a source the library can resolve and check.
+
+```
+researchzosho search                 # which backend answers, and the container's state
+researchzosho search test <query>    # one search, and which backend answered it
+researchzosho search papers <query>  # the literature by DOI
+researchzosho search stop            # stop the container
+```
 
 ## 3. The basic loop
 
@@ -508,7 +555,9 @@ itself, use the web pages or `codezaiku chat`.
 Anyone or any program that uses the library is a reader. You decide who may read and who may write.
 
 The web pages and the vault need no program. To talk to the library, `codezaiku chat` runs on a local
-model, for free, and has the library's tools built in.
+model, for free, and connects to the service: what the library holds is pushed into each turn,
+`/librarian` asks it, and `/research` files runs with it. `codezaiku install researchzosho` sets that
+up, including the write token the chat needs to file runs.
 
 Claude Code, Codex and Gemini CLI can use the library directly, without the service running:
 

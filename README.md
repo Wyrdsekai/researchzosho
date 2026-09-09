@@ -44,8 +44,8 @@ This is The Research Harness For The Rest Of Us.
 
 ## What you can do with it
 
-**Send it a question.** It works out what needs answering, reads in parallel, and
-writes it up in sections. It keeps going until the job is done, or as long as you allow it. It
+**Send it a question.** It works out what needs answering, reads in parallel (the web, and the
+scholarly literature by DOI through Crossref and OpenAlex), and writes it up in sections. It keeps going until the job is done, or as long as you allow it. It
 will also attempt to read sources in different languages, especially when it detects a non-english
 language may be associated with the question - it will state which languages its sources were in.
 
@@ -92,7 +92,10 @@ There is a small HTTP service with Python and Java clients for everything else.
 
 You need Java 21 or newer, and a model server that speaks the OpenAI chat API for the research runs:
 a local one (llama.cpp, Ollama, LM Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini,
-OpenRouter and others). Querying what the library already has works without a model.
+OpenRouter and others). For research runs, a web search backend, which matters as much as the model: a Brave Search
+API key (free plan), or SearXNG (setup starts one with Docker). With neither, the built-in fallback
+searches Wikipedia and the scholarly literature only. Querying what the library already has works
+without a model.
 
 ```
 git clone https://github.com/Wyrdsekai/researchzosho.git
@@ -103,8 +106,8 @@ bin/researchzosho setup
 When it is done, open `http://127.0.0.1:4649/` in a browser.
 
 `setup` asks a few questions, each with an answer already filled in. Where the library installs. Which
-model it uses, which it will check for. Whether search is by meaning and/or keyword. Whether to run it
-as a service. Which programs to connect. Then it shelves a document you name and answers a question
+model it uses, which it will check for. Which web search backend. Whether search is by meaning and/or
+keyword. Whether to run it as a service. Which programs to connect. Then it shelves a document you name and answers a question
 about it.  Run it again any time to change one thing; `--yes` takes every default.
 
 The release will install on Linux, macOS and Windows. If you already use
@@ -121,7 +124,7 @@ you are most likely to touch:
 | `RESEARCHZOSHO_EMBED` | an embeddings server, so search works by meaning as well as by words; `off` for words only |
 | `RESEARCHZOSHO_LIBRARY` | where the library folder is (default `~/researchzosho-library`) |
 | `research.workers` / `research.pause` / `research.window` | how research runs share the model: how many questions at once, a pause switch, the hours it may work. Set with `researchzosho research …`; they take effect at once |
-| `RESEARCHZOSHO_SEARXNG` / `RESEARCHZOSHO_BRAVE_KEY` | a web search backend |
+| `RESEARCHZOSHO_BRAVE_KEY` / `RESEARCHZOSHO_SEARXNG` | the web search backend: a Brave Search API key (used first), a SearXNG address (default `http://localhost:8888`; `researchzosho search start` runs one with Docker); with neither, the built-in fallback, Wikipedia plus Crossref and OpenAlex (`RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off) |
 | `RESEARCHZOSHO_API_KEY` | the key for a hosted API; it is sent only to that server |
 | `RESEARCHZOSHO_FETCH_PRIVATE` | `deny` to stop it fetching addresses on your own network |
 | `RESEARCHZOSHO_FETCH_MAX_BYTES` | the largest document it will download (default 25 MB) |
@@ -154,8 +157,9 @@ Nothing to buy. In this order:
   with its sources, have it explained, see the map, send a question, download a write-up. Nothing
   to install, and the way to let the rest of the house use the library.
 - **Obsidian or SoloMD**, open the folder `researchzosho vault`
-- **`codezaiku chat`**, to talk to the library on a local model, for free. It has the library's
-  tools built in.
+- **`codezaiku chat`**, to talk to the library on a local model, for free. It connects to the
+  service: what the library holds is pushed into each turn, `/librarian` asks it, and `/research`
+  files runs with it.
 - **Claude Code, Codex or Gemini CLI**, if you have one. `setup` connects it; every session then has
   the library's tools. Any other program that speaks MCP connects the same way.
 

@@ -1,12 +1,13 @@
 // Root build — ResearchZosho (研究蔵書). Java 21 floor, Gradle Kotlin DSL, two modules.
 val jacksonVersion = "2.21.1"
-version = "0.1.0"   // the root carries it too: the bundle file is named from it
+// the root carries the version too: the Central bundle file is named from it
+version = "0.1.1"
 
 subprojects {
     apply(plugin = "java")
 
     group = "org.researchzosho"
-    version = "0.1.0"
+    version = "0.1.1"
 
     // 21 is the FLOOR, stated as `options.release` rather than a toolchain pin: a Gradle toolchain is an
     // EXACT match, and a box holding only JDK 25 could not build at all under `languageVersion = 21`
