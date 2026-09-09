@@ -1,0 +1,83 @@
+name: Release
+
+# Attest published release artifacts with Sigstore (keyless).
+#
+# This workflow BUILDS NOTHING. The artifact is built and tried on real machines before the release is
+# published. After publication this workflow downloads it, checks it against the release's own
+# SHA256SUMS, signs the hash with Sigstore keyless signing, and uploads <asset>.sigstore.json beside it.
+#
+# What the signature means: "the ResearchZosho release workflow, at this tag, blessed these exact
+# bytes." It is an authenticity statement from the project's CI identity, not build provenance,
+# because this runner did not build the bytes. The predicate says so.
+#
+# Verify, from any machine with the GitHub CLI (2.49+):
+#   gh attestation verify researchzosho-X.Y.Z.tar.gz --repo Wyrdsekai/researchzosho \
+#     --predicate-type https://researchzosho.org/attestation/release/v1
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch: {}     # gh workflow run release.yml --ref vX.Y.Z  (the ref MUST be the tag)
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  attest:
+    name: Attest the tarball
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ -n "$RELEASE_TAG" ]; then TAG="$RELEASE_TAG"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then TAG="$GITHUB_REF_NAME"
+          else echo "workflow_dispatch must run on a tag ref (got $GITHUB_REF)" >&2; exit 1; fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download asset + checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p assets
+          gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern 'researchzosho-[0-9]*.tar.gz' --dir assets
+          gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern 'SHA256SUMS*' --dir assets
+          ls -lh assets
+
+      - name: Verify checksum before attesting
+        id: asset
+        run: |
+          cd assets
+          FILE=$(find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n')
+          [ "$(printf '%s\n' "$FILE" | grep -c .)" -eq 1 ] || { echo "expected exactly one tarball" >&2; exit 1; }
+          EXPECTED=$(awk -v f="$FILE" '$2 == f { print $1 }' SHA256SUMS*)
+          [ -n "$EXPECTED" ] || { echo "$FILE is not in SHA256SUMS; refusing to attest" >&2; exit 1; }
+          ACTUAL=$(sha256sum "$FILE" | awk '{ print $1 }')
+          [ "$EXPECTED" = "$ACTUAL" ] || { echo "checksum mismatch for $FILE; refusing to attest" >&2; exit 1; }
+          echo "file=$FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Attest
+        id: attest
+        uses: actions/attest@v3
+        with:
+          subject-path: assets/${{ steps.asset.outputs.file }}
+          predicate-type: 'https://researchzosho.org/attestation/release/v1'
+          predicate: >-
+            {"tag": "${{ steps.tag.outputs.tag }}",
+             "checksumSource": "release SHA256SUMS, verified pre-attestation",
+             "builder": "built and tried on real machines before publish, not by this runner",
+             "attestedBy": "post-publish attestation via .github/workflows/release.yml"}
+
+      - name: Upload bundle to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BUNDLE="${{ steps.attest.outputs.bundle-path }}"
+          [ -n "$BUNDLE" ] && [ -f "$BUNDLE" ] || { echo "no bundle" >&2; exit 1; }
+          OUT="assets/${{ steps.asset.outputs.file }}.sigstore.json"
+          cp "$BUNDLE" "$OUT"
+          gh release upload "${{ steps.tag.outputs.tag }}" "$OUT" --repo "$GITHUB_REPOSITORY" --clobber

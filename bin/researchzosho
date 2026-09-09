@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# ResearchZosho — 研究蔵書. The Librarian's command; `zosho` is the short form.
+#
+# The dev launcher: hides the JVM/classpath plumbing and builds on first use, so the documented
+# commands are the commands you type:
+#
+#   bin/researchzosho status
+#   bin/researchzosho serve --port 4649
+#   bin/researchzosho service install
+#
+# The classpath is cached in .researchzosho-cp and rebuilt whenever a source file is newer than the
+# cache, so an edit-run cycle needs no manual gradle step. A release ships gradle's start script instead.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export RESEARCHZOSHO_LAUNCHER="$REPO_ROOT/bin/researchzosho"   # `service install` runs THIS launcher as the service
+
+# The caller's directory is argument data (`add ./paper.pdf`), so stand in REPO_ROOT only for the build.
+CALLER_PWD="$PWD"
+cd "$REPO_ROOT"
+
+CP_CACHE="$REPO_ROOT/.researchzosho-cp"
+GRADLE="./gradlew"
+# Both flags, matching what librarian/build.gradle.kts gives the released launcher.
+JAVA_OPTS="${RESEARCHZOSHO_JAVA_OPTS:-${CODEZAIKU_JAVA_OPTS:---add-opens java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED}}"
+
+die() { echo "researchzosho: $*" >&2; exit 1; }
+
+# RESEARCHZOSHO_JAVA: an explicit JVM binary. Also the defense on a shared box: a `pkill java` matches the
+# process NAME, so a symlink to the JDK named without "java" keeps an overnight run alive through
+# someone else's sweep. CODEZAIKU_JAVA is honoured for installs from before the split.
+JAVA_BIN="${RESEARCHZOSHO_JAVA:-${CODEZAIKU_JAVA:-java}}"
+command -v "$JAVA_BIN" >/dev/null 2>&1 || die "$JAVA_BIN not found — ResearchZosho needs a JDK 21+ on PATH (or RESEARCHZOSHO_JAVA)"
+
+# Rebuild when any source is newer than the cached classpath, when the cache is missing, or when the
+# cache no longer points anywhere real (it holds ABSOLUTE paths; a moved checkout preserves mtimes,
+# so without this check the launcher would die with ClassNotFoundException forever).
+needs_build() {
+  [[ ! -s "$CP_CACHE" ]] && return 0
+  local first
+  first="$(cut -d: -f1 < "$CP_CACHE")"
+  [[ -z "$first" || ! -e "$first" ]] && return 0
+  [[ "$first" != "$REPO_ROOT"/* ]] && return 0
+  [[ -n "$(find librarian/src -newer "$CP_CACHE" -type f -print -quit 2>/dev/null)" ]] && return 0
+  [[ librarian/build.gradle.kts -nt "$CP_CACHE" ]] && return 0
+  return 1
+}
+
+if needs_build; then
+  echo "researchzosho: building…" >&2
+  # gradle finds its JVM through JAVA_HOME or PATH; the launcher may know it only through RESEARCHZOSHO_JAVA
+  if [[ -z "${JAVA_HOME:-}" ]]; then
+    real="$(readlink -f "$(command -v "$JAVA_BIN")" 2>/dev/null || true)"
+    [[ -n "$real" && -x "$(dirname "$real")/../bin/java" ]] && export JAVA_HOME="$(cd "$(dirname "$real")/.." && pwd)"
+  fi
+  "$GRADLE" -q :librarian:classes --console=plain >&2 || die "build failed"
+  "$GRADLE" -q :librarian:printCp --no-daemon --console=plain 2>/dev/null | tail -1 > "$CP_CACHE" \
+    || die "could not resolve the classpath"
+  [[ -s "$CP_CACHE" ]] || die "classpath came back empty"
+fi
+
+CP="$(cat "$CP_CACHE")"
+cd "$CALLER_PWD"
+exec "$JAVA_BIN" $JAVA_OPTS -cp "$CP" org.researchzosho.Main "$@"

@@ -1,0 +1,24 @@
+digraph loop {
+  graph [bgcolor="#f7f3ea", pad="0.4", nodesep="0.4", ranksep="0.5", fontname="DejaVu Serif", dpi=144];
+  node  [shape=box, style="rounded,filled", fillcolor="#fffdf7", color="#c9c2b3", fontname="DejaVu Serif", fontsize=13, fontcolor="#1e1b16", margin="0.24,0.14", penwidth=1.2];
+  edge  [color="#6b6459", fontname="DejaVu Serif", fontsize=11, fontcolor="#6b6459", arrowsize=0.8, penwidth=1.2];
+
+  A [label="You ask a question"];
+  B [label="It reads and takes notes.\nEach note says which page it came from."];
+  C [label="It checks each claim against its source\nand writes the report."];
+  D [label="The report arrives.\nIts claims go on the shelves, under your subjects."];
+  E [label="You decide: keep or dispute each claim", style="rounded,filled", fillcolor="#c3402f", color="#c3402f", fontcolor="#ffffff", penwidth=0, margin="0.3,0.16", fontsize=14];
+  F [label="You use what you kept:\nask, the map, explain."];
+  G [label="Open questions\nIt could not answer these.", style="rounded,filled,dashed"];
+  H [label="New subjects\nNone of yours fit.\nAccept or drop them.", style="rounded,filled,dashed"];
+
+  A -> B -> C -> D -> E -> F;
+  F -> A [label="  next question", constraint=false];
+  C -> G [style=dashed, arrowhead=onormal];
+  G -> A [style=dashed, arrowhead=onormal, label="  ask again", constraint=false];
+  D -> H [style=dashed, arrowhead=onormal];
+  H -> D [style=dashed, arrowhead=onormal, label="  then the claims\n  are filed", constraint=false];
+  F -> E [style=dashed, arrowhead=onormal, label="  a source changed", constraint=false];
+  { rank=same; C; G; }
+  { rank=same; D; H; }
+}

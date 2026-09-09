@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# zosho — the short form of researchzosho.
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/researchzosho" "$@"

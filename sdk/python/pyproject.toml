@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "researchzosho"
+version = "0.1.0"
+description = "ResearchZosho client — The Librarian's library protocol (contract 1.3). Research Harness For The Rest Of Us."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["researchzosho*"]

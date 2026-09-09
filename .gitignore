@@ -1,0 +1,26 @@
+# Java / Gradle
+build/
+*/build/
+.gradle/
+*/.gradle/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+
+# the dev launcher's cached classpath (absolute paths)
+.researchzosho-cp
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+
+# Claude Code
+.claude/

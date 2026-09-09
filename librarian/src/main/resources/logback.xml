@@ -1,0 +1,17 @@
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <!-- stderr, not stdout: keeps logs off the program-output channel (required for the stdio MCP
+             server, whose JSON-RPC protocol owns stdout; harmless elsewhere since runners merge 2>&1). -->
+        <target>System.err</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level %logger{0} - %msg%n</pattern>
+        </encoder>
+    </appender>
+    <!-- PDFBox/FontBox warn on every CJK font table they do not support ("Format 14 cmap table
+         is not supported") — fourteen lines per Japanese paper, none actionable. Errors still show. -->
+    <logger name="org.apache.pdfbox" level="ERROR"/>
+    <logger name="org.apache.fontbox" level="ERROR"/>
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>
