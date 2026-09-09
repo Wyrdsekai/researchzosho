@@ -5,7 +5,7 @@
 
 # ResearchZosho
 
-研究蔵書, *the research holdings.* Research Harness For The Rest Of Us.
+研究蔵書, *the research holdings.* The Research Harness For The Rest Of Us.
 
 Three people, one problem.
 
@@ -35,24 +35,7 @@ The principle is simple. Nothing counts as valid until it has been reviewed by y
 It runs on your own computer with a model you pick, local or rented. It is free and open source, and
 it is for anyone who needs some reliable research done. This is the research harness for the rest of us.
 
-## How it goes
-
-1. **Ask.** Type a question in the browser, or run `researchzosho research ask "…"`. Not sure how to best
-   to ask it? The "Sharpen it first" request takes your question and gives you a more precise one to submit.
-2. **Read.** The report shows up on the pages when it is done, with its sources.
-3. **Decide.** Its claims land in your inbox. Keep the good ones, dispute the bad ones. A claim
-   does not count until you have reviewed it.
-4. **Use.** `ask` answers from what you kept. The map shows how it connects. Your next question
-   starts from there.
-5. **Check in now and then.** Open questions it could not answer. New subjects it finds. Claims
-   whose source changed.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/loop-dark.png">
-  <img alt="The loop: you ask a question. It reads and takes notes. It checks each claim against its source and writes the report. The report arrives and its claims go on the shelves under your subjects. You decide: keep or dispute each claim. You use what you kept: ask, the map, explain. Then the next question. Side steps: open questions it could not answer, to ask again; new subjects when none of yours fit, to accept or drop; and a claim comes back to you when its source changed." src="docs/brand/loop.png" width="860">
-</picture>
-
-→ **[LIBRARIAN_DRIVING.md](docs/LIBRARIAN_DRIVING.md)**: how to use it day to day
+→ **[LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md)**: how to use it day to day
 → **[LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md)**: for programmers, how a program talks to it
 
 ---

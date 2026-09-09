@@ -2,7 +2,7 @@
 
 This is the document for programmers. It describes how a program talks to a ResearchZosho library:
 what it can ask, what comes back, and what a program can count on staying the same between
-releases. If you only want to use the library yourself, start with [LIBRARIAN_DRIVING.md](LIBRARIAN_DRIVING.md).
+releases. If you only want to use the library yourself, start with [LIBRARIAN_HOWTOUSE.md](LIBRARIAN_HOWTOUSE.md).
 
 **§1–§6 are the normative wire text (§6 names the transports; the daemon extensions in it are marked as such).** Patron runtimes mirror these tables; anything else in this
 document is explanation.
@@ -177,7 +177,7 @@ forms; the jobs listing and `crews/run` are this daemon's own, not every librari
 
 SDKs: `sdk/python` (`researchzosho` on PyPI, standard library only) and `researchzosho-client`
 (Java, Jackson only). Both are transport and types; neither holds library logic. The product is
-**ResearchZosho** (研究蔵書: the research holdings; "Research Harness For The Rest Of Us"); The
+**ResearchZosho** (研究蔵書: the research holdings; "The Research Harness For The Rest Of Us"); The
 Librarian is its voice.
 
 ## 7. Directories and peers

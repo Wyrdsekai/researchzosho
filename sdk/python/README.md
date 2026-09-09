@@ -1,6 +1,6 @@
 # researchzosho (Python)
 
-**ResearchZosho** — 研究蔵書, the research holdings. Research Harness For The Rest Of Us.
+**ResearchZosho** — 研究蔵書, the research holdings. The Research Harness For The Rest Of Us.
 
 A thin client for The Librarian over HTTP — the library protocol, contract 1.0
 (`docs/LIBRARY_PROTOCOL.md`). Transport and types only; the library's one implementation lives

@@ -20,7 +20,7 @@ Read these before you change anything:
 1. [README.md](README.md), what it does and who it is for.
 2. [docs/LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md). Sections 1 to 6 are the contract other
    programs rely on. Be careful with changes that could affect others: add, or bump the contract number.
-3. [docs/LIBRARIAN_DRIVING.md](docs/LIBRARIAN_DRIVING.md), how a person uses it day to day.
+3. [docs/LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md), how a person uses it day to day.
 4. [CONTRIBUTING.md](CONTRIBUTING.md), what makes a change easy to take.
 
 ## Build and run

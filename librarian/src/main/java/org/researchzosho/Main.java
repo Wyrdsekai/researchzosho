@@ -3,7 +3,7 @@ package org.researchzosho;
 import org.researchzosho.librarian.LibrarianCli;
 
 /**
- * ResearchZosho — 研究蔵書, the research holdings. "Research Harness For The Rest Of Us."
+ * ResearchZosho — 研究蔵書, the research holdings. "The Research Harness For The Rest Of Us."
  * The Librarian is its voice. This is the {@code researchzosho} command ({@code zosho} for
  * short); {@code codezaiku librarian …} is an alias of it, not the other way round (the operator,
  * 2026-09-05). Its own repo since 2026-09-06.
