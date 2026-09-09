@@ -204,6 +204,9 @@ public final class Export {
             return f;
         }
 
+        /** Whether some font on this box can show the character (the box may have a Latin family and no CJK one). */
+        boolean canShow(int cp) { return fontFor(regular, cp) != null; }
+
         /** The font that shows this character: the family's own, the wide fallback, or null when nothing can. */
         PDFont fontFor(PDFont family, int cp) {
             String ch = new String(Character.toChars(cp));

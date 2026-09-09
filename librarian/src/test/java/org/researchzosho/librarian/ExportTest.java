@@ -43,9 +43,10 @@ class ExportTest {
             assertTrue(got.contains("The gears were cut by hand"), got);
             assertTrue(got.contains("a dividing plate") && got.contains("Sources"), got);
             assertTrue(got.contains("page 1"), "the footer numbers the pages");
-            boolean unicodeFont = Export.Fonts.load(doc).unicode;
-            if (unicodeFont) assertTrue(got.contains("歯車"), "with a CJK font on the box the Japanese survives: " + got);
-            else assertTrue(got.contains("???"), "without one it degrades to question marks, not a crash");
+            // a box may have a Latin TrueType family and still no CJK font (GitHub's ubuntu runner): judge by the glyph
+            boolean cjk = Export.Fonts.load(doc).canShow('歯');
+            if (cjk) assertTrue(got.contains("歯車"), "with a CJK font on the box the Japanese survives: " + got);
+            else assertTrue(got.contains("???"), "without one it degrades to question marks, not a crash: " + got);
         }
     }
 

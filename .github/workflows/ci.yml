@@ -30,10 +30,10 @@ jobs:
           - os: macos-latest
             java: '25'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Only GitHub-owned actions: the Wyrdsekai org allows no third-party actions. setup-java's own
       # cache keeps the Gradle wrapper and dependencies between runs; gradle/actions is not needed.
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
