@@ -31,9 +31,11 @@ jobs:
             java: '25'
     steps:
       - uses: actions/checkout@v4
+      # Only GitHub-owned actions: the Wyrdsekai org allows no third-party actions. setup-java's own
+      # cache keeps the Gradle wrapper and dependencies between runs; gradle/actions is not needed.
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ matrix.java }}
-      - uses: gradle/actions/setup-gradle@v4
+          cache: gradle
       - run: ./gradlew :librarian:test :client:test --console=plain
