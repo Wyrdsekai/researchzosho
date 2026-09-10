@@ -124,8 +124,9 @@ researchzosho search stop            # stop the container
 ### Search by meaning
 
 Search by words finds a claim by the words in it. Search by meaning also finds it when the question uses
-other words, or another language. It needs an embeddings server. `researchzosho embed status` says what
-is configured; `embed start` runs one with Docker; `embed test` measures it; `embed stop` stops it.
+other words, or another language. It needs an embeddings server: the setting is `RESEARCHZOSHO_EMBED`,
+the address of any server that answers the OpenAI embeddings call, or `off`. `researchzosho embed status`
+says what is configured; `embed start` runs one with Docker; `embed test` measures it; `embed stop` stops it.
 After starting one, `researchzosho rebuild` indexes the library with it (the nightly housekeeping
 would do that on its own the next night).
 
