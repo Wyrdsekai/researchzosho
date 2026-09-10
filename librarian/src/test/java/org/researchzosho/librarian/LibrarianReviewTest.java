@@ -328,4 +328,40 @@ class LibrarianReviewTest {
         assertTrue(filed.notes().stream().anyMatch(n -> n.kind().equals("source-check") && n.text().contains("first time this library cites newsite.example") && n.text().contains("Newsite — about us")), filed.notes().toString());
         assertEquals(1, searched.size(), "one search, for the one first-seen web host (arxiv is scholarly and needs none): " + searched);
     }
+
+    @Test
+    void aReplyCutOffMidArrayKeepsItsWholeCandidates_andAnUnparseableOneIsLogged() throws Exception {
+        String cut = """
+            [{"title": "Model A aligns at word level", "claim": "Model A aligns at the word level.",
+              "claim_type": "extraction", "confidence": "high", "volatility": "slow", "sources": ["https://huggingface.co/a"]},
+             {"title": "Model B", "claim": "Model B aligns at character level.", "claim_type": "extraction", "confidence": "high", "volatility": "slow",
+              "sources": ["https://huggingface.co/b"]},
+             {"title": "Half a third", "claim": "cut off he""";
+        var arr = LibrarianReview.salvageArray(cut);
+        assertNotNull(arr); assertEquals(2, arr.size(), "the two whole objects, not the torn third");
+        assertNull(LibrarianReview.salvageArray("I could not find any claims."));
+        assertNull(LibrarianReview.salvageArray("[{\"title\": \"no closing brace"));
+        // through the review: salvaged candidates become drafts, and the problem is on the crews log
+        Investigation inv = admitted("viable JA aligners?", "Model A aligns at word level. https://huggingface.co/a and https://huggingface.co/b");
+        var out = new LibrarianReview(store, index, judge(cut, "{\"verdict\":\"independent\"}"), "librarian:t").review(inv);
+        assertEquals(2, out.keptDraft().size(), out.toString());
+        assertTrue(out.problems().get(0).startsWith("extraction was cut off; 2 whole"), out.problems().toString());
+        String log = java.nio.file.Files.readString(store.root().resolve("catalog").resolve("crews.log"));
+        assertTrue(log.contains("review") && log.contains("extraction was cut off"), log);
+        // nothing parseable at all: logged with the reply's head, nothing written
+        var none = new LibrarianReview(store, index, judge("Sorry, here are the claims in prose: the model aligns words.", "{}"), "librarian:t").review(admitted("q2", "body https://x.example/1"));
+        assertTrue(none.keptDraft().isEmpty() && none.problems().get(0).contains("the reply began: Sorry, here are"), none.problems().toString());
+    }
+
+    @Test
+    void theRecordIsFittedSoTheReplyStillFitsTheWindow() {
+        String dense = "https://example.org/a-long-url-with-numbers-12345 日本語の長い文章 ".repeat(3000);   // ~150k chars
+        String small = LibrarianReview.forExtraction(dense, 8_192);
+        int allowed = (int) ((8_192 - LibrarianReview.EXTRACT_TOKENS - LibrarianReview.PROMPT_TOKENS) * 2.8);
+        assertTrue(small.length() <= allowed + 200, "fitted to " + small.length() + " chars for an 8k slot, allowed about " + allowed);
+        assertTrue(small.contains("characters cut from the middle"), small.substring(0, 80));
+        String big = LibrarianReview.forExtraction(dense, 131_072);
+        assertEquals(dense.length(), big.length(), "a large window keeps the whole record");
+        assertTrue(LibrarianReview.forExtraction(dense, 2_048).length() >= 4_000, "never below the floor, even for a tiny window");
+    }
 }

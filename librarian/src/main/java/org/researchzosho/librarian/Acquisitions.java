@@ -186,13 +186,19 @@ public final class Acquisitions {
     static List<String> editionCitations(String text) {
         List<String> out = new ArrayList<>();
         if (text == null) return out;
+        // Only LIST ITEMS under the heading count, and the list ends at the first line that is not one. A worker's
+        // "Sources: <url>" line followed by its prose used to turn every later sentence naming a year into a
+        // citation — 36 of a write-up's 90 references were "SUMMARY: The sources establish…" (2026-09-10).
         boolean inSources = false;
         for (String raw : text.split("\\r?\\n")) {
             String line = raw.strip();
-            if (line.matches("(?i)^#*\\s*(sources|references|参考文献|出典|引用文献)\\b.*")) { inSources = true; continue; }
-            if (inSources && line.matches("^#+\\s.*")) { inSources = false; continue; }
+            if (line.matches("(?i)^#*\\s*(sources( cited)?|references|参考文献|出典|引用文献)\\b:?\\s*$")) { inSources = true; continue; }
             if (!inSources) continue;
-            String c = line.replaceAll("^[-*\\d.)\\s]+", "").strip();
+            if (line.isEmpty()) continue;
+            boolean item = line.matches("^([-*•]|\\d+[.)]|\\[\\d+\\])\\s+.*");
+            if (!item) { inSources = false; continue; }
+            String c = line.replaceAll("^([-*•]|\\d+[.)]|\\[\\d+\\])\\s+", "").strip();
+            if (c.startsWith("cite:")) { if (!out.contains(c)) out.add(c); continue; }   // the record's own "Sources cited" list, already in locator form
             if (c.length() < 12 || c.contains("http") || !c.matches(".*\\b(1[5-9]\\d\\d|20\\d\\d)\\b.*")) continue;
             out.add("cite:" + compress(c, 200));
         }

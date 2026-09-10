@@ -156,7 +156,8 @@ public final class LibrarianDaemon {
             var abs = Abstracts.run(store, Abstracts.driveWriter(client), null);   // only a subject whose shelf changed is rewritten (hash-guarded)
             Crews.log(store, "settle " + jobId, investigationId + ": " + out.accepted().size() + " claim(s) accepted, " + out.disputed().size() + " disputed, "
                     + out.keptDraft().size() + " kept as draft; subjects on " + cat.grounded() + " (" + cat.proposals() + " proposed); triples " + triples.filled() + "/" + triples.asked()
-                    + "; retractions " + ret.retracted() + "/" + ret.checked() + " checked; summaries " + abs.written() + " rewritten", System.currentTimeMillis() - t0);
+                    + "; retractions " + ret.retracted() + "/" + ret.checked() + " checked; summaries " + abs.written() + " rewritten"
+                    + (out.problems().isEmpty() ? "" : "; review problems: " + out.problems().size() + " (see the review lines above)"), System.currentTimeMillis() - t0);
         } catch (Exception e) {
             Crews.log(store, "settle " + jobId, investigationId + ": could not settle now (" + e.getMessage() + "); the housekeeping will", System.currentTimeMillis() - t0);
         }

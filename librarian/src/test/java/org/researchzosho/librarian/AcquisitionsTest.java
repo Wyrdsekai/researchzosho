@@ -142,4 +142,16 @@ class AcquisitionsTest {
                 + "again https://a.org/x.");
         assertEquals(java.util.List.of("https://a.org/x", "https://b.org/y"), urls);
     }
+
+    @Test
+    void onlyListItemsUnderASourcesHeadingAreEditionCitations() {
+        // a worker's summary: "Sources:" with a URL, then prose naming years — none of it is a citation
+        String summary = "SUMMARY: The ban took effect in 1978.\nSources: https://www.cpsc.gov/ban\nThe 1971 Act (Pub. L. 91-695) came first and the 1978 rule (16 CFR 1303) followed.\nA 1999 JCI paper reviewed both.\n";
+        assertEquals(java.util.List.of(), Acquisitions.editionCitations(summary), "prose after a Sources line is not a list of citations");
+        // the classicist's list: items under the heading, until the list ends
+        String sources = "## Sources\n\n- Hosaka Toshiko, 字幕翻訳で失われる要素, 日本語と日本語教育 44, Keio University, 2016\n- Gilgamesh, tablet XI, trans. George (Penguin 2003)\n- https://example.org/a-url-is-not-an-edition\n\nThe discussion resumed in 2020 with more work.\n";
+        var cites = Acquisitions.editionCitations(sources);
+        assertEquals(2, cites.size(), cites.toString());
+        assertTrue(cites.get(0).startsWith("cite:Hosaka Toshiko") && cites.get(1).startsWith("cite:Gilgamesh"), cites.toString());
+    }
 }

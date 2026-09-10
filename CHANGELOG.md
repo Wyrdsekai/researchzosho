@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3
+
+Fixed
+- A worker's "Sources:" line followed by prose no longer turns every later sentence with a year into a reference row (36 of one write-up's 90 references were junk).
+- The claim extraction fits the record to the drive's context window with room for the reply; on an 8k-token slot the prompt used to fill all but a few dozen tokens and the extraction came back empty.
+- A claim extraction cut off mid-reply keeps its whole candidates instead of yielding nothing; when the reply cannot be read at all, the review logs the reason and the reply's first words (`review` lines in `catalog/crews.log`; the settle line counts them).
+
 ## 0.1.2
 
 Added

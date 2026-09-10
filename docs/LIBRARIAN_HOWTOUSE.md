@@ -40,6 +40,12 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and others; any that
   speaks the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a
   model you can still ask what the library has and read it; research runs need the model.
+  Size matters in a particular way. Measured on the same five questions: a 27B-class model and a 9B
+  both get the facts right, but the 9B's write-ups yield fewer claims (10 against 25) and almost no
+  citation the checker can read (1 against 26), because the steps that judge a write-up ask for
+  structured answers a small model mangles. A 27B-class model, local or hosted, does the whole job.
+  Give the model server a context of 16,000 tokens or more per request; a smaller one leaves the
+  review too little room.
 - A web search backend, for research runs that go to the web. This matters as much as the model: a
   run can only read what a search finds. The choices, best first: a Brave Search API key
   (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
@@ -518,7 +524,10 @@ researchzosho settle                     # then file the waiting claims under th
 You can also edit `catalog/subjects.md` directly.
 
 Everything the housekeeping does is logged in `catalog/crews.log`. Steps that need a model are
-skipped when no model is available.
+skipped when no model is available. When a write-up arrives with no claims, or fewer than you
+expected, the `review` lines there say why: the extraction was cut off, could not be read, or each
+claim rested on one web source and waits in the Inbox for you. The `settle` line that follows counts
+those problems.
 
 ## 12. Sharing the model
 

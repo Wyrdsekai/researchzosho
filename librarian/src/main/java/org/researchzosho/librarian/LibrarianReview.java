@@ -86,11 +86,18 @@ public final class LibrarianReview {
                 disputed = new ArrayList<>(), dupes = new ArrayList<>(), problems = new ArrayList<>();
         List<String> invUrls = Acquisitions.urls(inv.body());
 
-        JsonNode arr = parseArray(judge.extract(inv.body()));
+        String rawExtraction = judge.extract(inv.body());
+        JsonNode arr = parseArray(rawExtraction);
         if (arr == null) {
-            problems.add("extraction unparseable — investigation left in draft");
+            arr = salvageArray(rawExtraction);   // a reply cut off mid-array (a small drive's long answer) keeps its whole objects
+            if (arr != null) problems.add("extraction was cut off; " + arr.size() + " whole candidate(s) salvaged");
+        }
+        if (arr == null) {
+            problems.add("extraction unparseable — investigation left in draft; the reply began: " + Acquisitions.compress(rawExtraction == null ? "" : rawExtraction, 160));
+            logProblems(inv, problems);
             return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
         }
+        if (arr.isEmpty()) problems.add("extraction returned no candidates; the reply began: " + Acquisitions.compress(rawExtraction, 160));
 
         List<String> findingIds = new ArrayList<>(inv.findings());
         for (JsonNode c : arr) {
@@ -312,6 +319,7 @@ public final class LibrarianReview {
         store.write(new Investigation(inv.id(), inv.title(), Finding.State.accepted, inv.writer(),
                 inv.recordedAt(), findingIds, inv.open(), inv.body()));
         store.regenerateIndex();
+        logProblems(inv, problems);
         store.circulate("review", inv.id() + " → " + accepted.size() + " accepted, "
                 + kept.size() + " draft, " + disputed.size() + " disputed");
         return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
@@ -365,6 +373,9 @@ public final class LibrarianReview {
      * answered 400 exceed_context_size, so three Tokyo Vice write-ups sat in draft with no claims). What is still
      * over the window is cut in the middle, head and tail kept: the answer opens the record and the references close it.
      */
+    /** The reply budget of an extraction, and the prompt's own words around the record. */
+    static final int EXTRACT_TOKENS = 1_600, PROMPT_TOKENS = 700;
+
     static String forExtraction(String body, int contextWindow) {
         String b = body == null ? "" : body;
         for (String appendix : new String[]{"\n## Worker findings", "\n## Sources cited"}) {
@@ -375,7 +386,10 @@ public final class LibrarianReview {
                 b = b.substring(0, i) + (refs >= 0 ? "\n" + b.substring(refs + 1) : "");
             }
         }
-        int cap = Math.max(20_000, (Math.max(contextWindow, 8_000) - 3_500) * 3);   // ~3 chars a token, generous for CJK
+        // What fits beside the reply: the window less the reply's budget (EXTRACT_TOKENS) and the prompt's own words,
+        // at 2.8 chars a token — a record dense with URLs and Japanese runs near 3. A 20,000-character floor used to
+        // fill an 8,192-token slot to the last 39 tokens and the extraction was cut off at once (a 9B, 2026-09-10).
+        int cap = Math.max(4_000, (int) ((Math.max(contextWindow, 4_096) - EXTRACT_TOKENS - PROMPT_TOKENS) * 2.8));
         if (b.length() <= cap) return b;
         int half = cap / 2;
         return b.substring(0, half) + "\n\n…[" + (b.length() - cap) + " characters cut from the middle of the record]…\n\n" + b.substring(b.length() - half);
@@ -423,7 +437,7 @@ public final class LibrarianReview {
             @Override public String extract(String investigationBody) {
                 var msgs = M.createArrayNode();
                 msgs.addObject().put("role", "user").put("content", extractPrompt(forExtraction(investigationBody, drive.contextWindow())));
-                return drive.classify(msgs, 1600);
+                return drive.classify(msgs, EXTRACT_TOKENS);
             }
             @Override public String compare(String candidate, String neighbors) {
                 var msgs = M.createArrayNode();
@@ -494,6 +508,36 @@ public final class LibrarianReview {
         } catch (Exception e) {
             return fallback;
         }
+    }
+
+    /** Why a review produced less than it might have, on the crews log — a 9B's empty reviews were silent (2026-09-10). */
+    private void logProblems(Investigation inv, List<String> problems) {
+        if (problems.isEmpty()) return;
+        try { Crews.log(store, "review", inv.id() + ": " + String.join("; ", problems), 0); } catch (Exception ignored) { }
+    }
+
+    /**
+     * The whole objects of a JSON array that was cut off before its closing bracket: everything up to the last
+     * {@code }} that closes a top-level object, then {@code ]}. Null when not even one object is whole.
+     */
+    static JsonNode salvageArray(String raw) {
+        if (raw == null) return null;
+        int a = raw.indexOf('[');
+        if (a < 0) return null;
+        int depth = 0, lastClose = -1;
+        boolean inString = false;
+        for (int i = a + 1; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (inString) { if (c == '\\') i++; else if (c == '"') inString = false; continue; }
+            if (c == '"') inString = true;
+            else if (c == '{') depth++;
+            else if (c == '}') { depth--; if (depth == 0) lastClose = i; }
+        }
+        if (lastClose < 0) return null;
+        try {
+            JsonNode n = M.readTree(raw.substring(a, lastClose + 1) + "]");
+            return n.isArray() && !n.isEmpty() ? n : null;
+        } catch (Exception e) { return null; }
     }
 
     private static JsonNode parseArray(String raw) {
