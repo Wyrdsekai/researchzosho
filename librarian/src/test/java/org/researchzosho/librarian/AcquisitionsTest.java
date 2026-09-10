@@ -105,7 +105,7 @@ class AcquisitionsTest {
         store.init();
         Acquisitions.refuse(store, "what are the viable JA aligners?", "zero sources fetched");
         String frontier = Files.readString(store.frontierFile());
-        assertTrue(frontier.contains("[gap] re-run on a healthy substrate"), frontier);
+        assertTrue(frontier.contains("[report] re-run on a healthy substrate"), frontier);
         assertTrue(frontier.contains("viable JA aligners"), frontier);
         assertTrue(Files.readString(store.circulationFile()).contains("intake-refused"));
     }

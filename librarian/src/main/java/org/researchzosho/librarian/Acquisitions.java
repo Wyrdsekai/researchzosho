@@ -94,7 +94,7 @@ public final class Acquisitions {
     /** Record a refusal: frontier gap + circulation. The question stays alive, attributed to substrate. */
     public static void refuse(LibraryStore store, String question, String reason) {
         try {
-            store.frontier("gap", "re-run on a healthy substrate — \"" + compress(question, 160)
+            store.frontier("report", "re-run on a healthy substrate — \"" + compress(question, 160)
                     + "\" (refused at intake: " + reason + ")");
         } catch (IOException ignored) {
             // the frontier is best-effort here; the refusal itself already happened

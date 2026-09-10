@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -304,18 +305,92 @@ public final class LibraryProtocol {
         switch (op) {
             case "list" -> {
                 Patrons.check(store, patron, Patrons.Level.read);
+                Map<String, String> f = new HashMap<>();
+                for (String k : List.of("type", "show", "report", "fate", "who", "subject", "language", "q")) if (args.hasNonNull(k)) f.put(k, args.path(k).asText());
+                f.putIfAbsent("show", "all");
                 ArrayNode qs = r.putArray("questions");
-                for (var t : frontierList()) qs.add(t);
+                for (var t : frontierList(args.path("hints").asBoolean(false))) if (matches(t, f)) qs.add(t);
+            }
+            case "tidy" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                r.put("removed", Frontier.tidy(store));
             }
             case "add" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
                 String q = reqStr(args, "question").strip();
                 if (q.length() < 12) throw ProtocolError.invalidArgs("The question is too short to file.");
-                store.frontier("gap " + patron.writer(), q);
+                store.frontier("person " + patron.writer(), q);
                 r.put("filed", true);
                 r.put("question", q);
             }
-            default -> throw ProtocolError.invalidArgs("op must be list or add.");
+            case "drop", "next", "later", "park", "unpark" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String q = reqStr(args, "question").strip();
+                boolean ok = switch (op) {
+                    case "drop" -> Frontier.drop(store, q, patron.writer());
+                    case "next" -> Frontier.next(store, q);
+                    case "later" -> Frontier.later(store, q);
+                    case "park" -> Frontier.park(store, q);
+                    default -> Frontier.unpark(store, q);
+                };
+                if (!ok) throw ProtocolError.notFound("No open question reads exactly: " + q + (op.equals("unpark") ? " (or it is not parked)" : ""));
+                r.put(op.equals("drop") ? "dropped" : op.equals("park") ? "parked" : op.equals("unpark") ? "unparked" : "moved", true);
+                r.put("question", q);
+            }
+            default -> throw ProtocolError.invalidArgs("op must be list, add, drop, next, later, park, unpark or tidy.");
+        }
+        return r;
+    }
+
+    /**
+     * library_serials: the searches the housekeeping keeps running. op=list; op=add files {name, query, every_days};
+     * op=remove stops one. A kept search is re-run on its cadence and whatever is new is listed for the person.
+     */
+    public ObjectNode serials(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                ArrayNode arr = r.putArray("searches");
+                for (Serials.Shelf sh : Serials.shelves(store)) {
+                    ObjectNode o = arr.addObject();
+                    o.put("name", sh.slug()); o.put("query", sh.query()); o.put("every_days", sh.everyDays()); o.put("last", sh.lastChecked());
+                    o.put("parked", sh.parked()); o.put("due", sh.due(java.time.LocalDate.now()));
+                }
+            }
+            case "add" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String name = reqStr(args, "name").strip().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "-").replaceAll("^-+|-+$", "");
+                String query = reqStr(args, "query").strip();
+                int every = args.path("every_days").asInt(7);
+                if (name.isEmpty() || query.length() < 3) throw ProtocolError.invalidArgs("A kept search needs a name and a query.");
+                if (every < 1 || every > 365) throw ProtocolError.invalidArgs("every_days must be between 1 and 365.");
+                Serials.add(store, name, query, every);
+                r.put("kept", true); r.put("name", name); r.put("query", query); r.put("every_days", every);
+            }
+            case "remove" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String name = reqStr(args, "name").strip();
+                if (!Serials.remove(store, name)) throw ProtocolError.notFound("No kept search is named " + name);
+                r.put("removed", true); r.put("name", name);
+            }
+            case "park", "unpark" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String name = reqStr(args, "name").strip();
+                if (!Serials.setParked(store, name, op.equals("park"))) throw ProtocolError.notFound("No kept search is named " + name + (op.equals("park") ? " (or it is parked already)" : " (or it is not parked)"));
+                r.put("name", name); r.put("parked", op.equals("park"));
+            }
+            case "every" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String name = reqStr(args, "name").strip();
+                int every = args.path("every_days").asInt(0);
+                if (every < 1 || every > 365) throw ProtocolError.invalidArgs("every_days must be between 1 and 365.");
+                if (!Serials.setEvery(store, name, every)) throw ProtocolError.notFound("No kept search is named " + name);
+                r.put("name", name); r.put("every_days", every);
+            }
+            default -> throw ProtocolError.invalidArgs("op must be list, add, every, park, unpark or remove.");
         }
         return r;
     }
@@ -659,6 +734,24 @@ public final class LibraryProtocol {
         jobs.migrate();
         ObjectNode r = envelope();
         String id = args.hasNonNull("job_id") ? args.get("job_id").asText().strip() : "";
+        String op = args.path("op").asText("").toLowerCase(Locale.ROOT);
+        if (op.equals("pause") || op.equals("resume")) {   // the runner: queued runs wait, a running one holds at its next turn
+            Patrons.check(store, patron, Patrons.Level.write);
+            org.researchzosho.Config.set(ResearchSettings.PAUSE, op.equals("pause") ? "on" : "off");
+            r.put("paused", op.equals("pause"));
+            return r;
+        }
+        if (op.equals("stop")) {   // one run: a queued one never starts, a running one ends at its next turn
+            Patrons.check(store, patron, Patrons.Level.write);
+            if (id.isEmpty()) throw ProtocolError.invalidArgs("stop needs job_id.");
+            ObjectNode j = jobs.get(id);
+            if (j == null || !Jobs.visibleTo(patron, j)) throw ProtocolError.notFound("job " + id);
+            String now = jobs.stop(id, patron.writer());
+            if (now == null) throw ProtocolError.invalidArgs("Job " + id + " is not queued or running; it is " + j.path("state").asText() + ".");
+            r.put("job_id", id); r.put("state", now);
+            return r;
+        }
+        r.put("paused", ResearchSettings.paused());
         if (!id.isEmpty()) {
             ObjectNode j = jobs.get(id);
             if (j == null) throw ProtocolError.notFound("job " + id);
@@ -701,6 +794,7 @@ public final class LibraryProtocol {
         counts.put("investigation", countFiles(store.investigationsDir(), ".md"));
         counts.put("article", countFiles(store.articlesDir(), ".md"));
         counts.put("raw", countFiles(store.rawDir(), ".md"));
+        r.put("version", org.researchzosho.Version.string());
         counts.put("subject", (int) Related.counts(store).size());
         r.put("last_updated", lastUpdated());
         return r;
@@ -1036,18 +1130,242 @@ public final class LibraryProtocol {
         return out;
     }
 
-    List<ObjectNode> frontierList() throws IOException {
+    /**
+     * The OPEN questions, in queue order: a line the explorer researched or a person dropped carries an {@code ⇒ explored}
+     * mark and is not open. Each carries its {@code type}, whether it is {@code parked}, its {@code position},
+     * {@code tonight} when the explorer's next run takes it, and the facets a person filters on: the report that left it
+     * ({@code report}, {@code report_title}, {@code report_fate}: kept, waiting, disputed, retired, none), the
+     * {@code perspective} it was asked from, its {@code subjects}, its {@code language}, and {@code similar} (the first
+     * question of a group that reads alike, with {@code similar_n}). With {@code hints}, {@code answered} names the
+     * accepted or draft claim that already answers it, when the shelves hold one (a search per question).
+     */
+    List<ObjectNode> frontierList() throws IOException { return frontierList(false); }
+
+    List<ObjectNode> frontierList(boolean hints) throws IOException {
         List<ObjectNode> out = new ArrayList<>();
-        if (!Files.exists(store.frontierFile())) return out;
-        var pat = java.util.regex.Pattern.compile("^- (\\d{4}-\\d{2}-\\d{2}) \\[([^\\]]*)\\] (.*)$");
-        for (String line : Files.readAllLines(store.frontierFile(), StandardCharsets.UTF_8)) {
-            var m = pat.matcher(line);
-            if (!m.matches()) continue;
+        List<Frontier.Line> open = new ArrayList<>();
+        for (Frontier.Line l : Frontier.read(store)) if (l.open()) open.add(l);
+        java.util.Set<String> tonight = new java.util.HashSet<>();
+        for (Crews.Bundle b : Crews.plan(open.stream().filter(Frontier.Line::researchable).toList(), Crews.explorerBudget())) for (Frontier.Line l : b.all()) tonight.add(l.text());
+        Map<String, List<Frontier.Line>> alike = Frontier.similar(open);
+        Map<String, String> headOf = new HashMap<>();
+        for (var e : alike.entrySet()) for (Frontier.Line l : e.getValue()) headOf.put(l.text(), e.getKey());
+        Map<String, Investigation> reports = new HashMap<>();
+        Map<String, String> fates = new HashMap<>();
+        Map<String, List<String>> reportSubjects = new HashMap<>();
+        Vocabulary vocab = Vocabulary.read(store.subjectsFile());
+        LibrarianIndex index = hints && !open.isEmpty() ? new LibrarianIndex(store) : null;
+        int pos = 0;
+        for (Frontier.Line l : open) {
             ObjectNode o = M.createObjectNode();
-            o.put("date", m.group(1)); o.put("kind", m.group(2)); o.put("text", m.group(3));
+            o.put("date", l.date()); o.put("kind", l.kind()); o.put("text", l.text());
+            o.put("type", l.type()); o.put("parked", l.parked()); o.put("position", ++pos); o.put("tonight", tonight.contains(l.text()));
+            if (l.type().equals("asked")) o.put("asked", Frontier.asks(l));
+            String origin = l.origin();
+            List<String> subjects = new ArrayList<>();
+            if (origin != null) {
+                Investigation inv = reports.computeIfAbsent(origin, id -> { try { return store.investigation(id); } catch (IOException e) { return null; } });
+                o.put("report", origin);
+                if (inv != null) o.put("report_title", inv.title());
+                o.put("report_fate", fates.computeIfAbsent(origin, id -> fate(inv)));
+                subjects.addAll(reportSubjects.computeIfAbsent(origin, id -> subjectsOf(inv)));
+            }
+            for (String slug : subjectsInText(vocab, Frontier.bare(l.text()))) if (!subjects.contains(slug)) subjects.add(slug);
+            ArrayNode sj = o.putArray("subjects"); for (String x : subjects) sj.add(x);
+            String who = Frontier.perspective(l.text());
+            if (who != null) o.put("perspective", who);
+            o.put("language", Frontier.language(l.text()));
+            String head = headOf.get(l.text());
+            if (head != null) { o.put("similar", head); o.put("similar_n", alike.get(head).size()); }
+            if (index != null) {
+                var hit = answeredBy(index, Frontier.bare(l.text()));
+                if (hit != null) { ObjectNode a = o.putObject("answered"); a.put("id", hit.id()); a.put("title", hit.title()); a.put("state", hit.state()); }
+            }
             out.add(o);
         }
         return out;
+    }
+
+    /**
+     * library_inbox: the claims waiting for a decision — drafts, and accepted claims whose review went stale — with the
+     * facets a person sorts them by, and the decisions themselves. op=list takes the filters; op=accept, dispute (with
+     * {@code why}) and retire take {@code ids[]} (or one {@code id}), or {@code report} for every waiting claim of one
+     * investigation, at write access. A decision is signed "person" as at the command line: the patron is acting for
+     * the keeper, and the audit trail names them in {@code decided_by}.
+     */
+    public ObjectNode inbox(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Map<String, String> f = new HashMap<>();
+                for (String k : List.of("report", "subject", "kind", "tier", "confidence", "writer", "state", "language", "q")) if (args.hasNonNull(k)) f.put(k, args.path(k).asText());
+                ArrayNode items = r.putArray("items");
+                for (var o : inboxList()) if (inboxMatches(o, f)) items.add(o);
+            }
+            case "accept", "dispute", "retire" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                List<String> ids = new ArrayList<>();
+                for (var x : args.path("ids")) if (!x.asText("").isBlank()) ids.add(x.asText());
+                if (args.hasNonNull("id") && !args.path("id").asText().isBlank()) ids.add(args.path("id").asText());
+                String report = args.path("report").asText("");
+                if (!report.isEmpty()) for (var o : inboxList()) if (o.path("report").asText("").startsWith(report)) ids.add(o.path("id").asText());
+                if (ids.isEmpty()) throw ProtocolError.invalidArgs("Name what to decide: ids[], id, or report.");
+                String why = args.path("why").asText("").strip();
+                if (op.equals("dispute") && why.isEmpty()) throw ProtocolError.invalidArgs("A dispute needs why.");
+                Council c = new Council(store);
+                ArrayNode decided = r.putArray("decided");
+                for (String id : new java.util.LinkedHashSet<>(ids)) {
+                    if (store.finding(id) == null) throw ProtocolError.notFound("No claim " + id);
+                    Finding f = switch (op) { case "accept" -> c.accept(id); case "retire" -> c.retire(id); default -> c.dispute(id, why); };
+                    ObjectNode d = decided.addObject(); d.put("id", f.id()); d.put("state", f.state().name()); d.put("title", f.title());
+                }
+                r.put("decision", op.equals("accept") ? "accepted" : op.equals("retire") ? "retired" : "disputed");
+                r.put("decided_by", patron.writer());
+            }
+            default -> throw ProtocolError.invalidArgs("op must be list, accept, dispute or retire.");
+        }
+        return r;
+    }
+
+    /**
+     * The inbox rows with their facets: {@code id, title, state, stale, kind, tier, confidence, writer, date, subjects[],
+     * language, sources}, and the report the claim came from ({@code report}, {@code report_title}) when one did.
+     * Oldest first, as the Council lists them.
+     */
+    List<ObjectNode> inboxList() throws IOException {
+        Map<String, Investigation> byFinding = new HashMap<>();
+        for (Path ip : sorted(store.investigationsDir(), ".md")) {
+            Investigation inv; try { inv = store.investigation(stem(ip)); } catch (Exception e) { continue; }
+            if (inv != null) for (String fid : inv.findings()) byFinding.putIfAbsent(fid, inv);
+        }
+        List<ObjectNode> out = new ArrayList<>();
+        for (Council.Row row : new Council(store).inbox()) {
+            Finding f = store.finding(row.id());
+            if (f == null) continue;
+            ObjectNode o = M.createObjectNode();
+            o.put("id", f.id()); o.put("title", f.title()); o.put("state", f.state().name()); o.put("stale", row.stale());
+            o.put("kind", f.claimType().name()); o.put("tier", row.tier().name()); o.put("confidence", f.confidence().name());
+            o.put("writer", f.writer()); o.put("date", f.recordedAt().length() >= 10 ? f.recordedAt().substring(0, 10) : f.recordedAt());
+            ArrayNode sj = o.putArray("subjects"); for (String x : f.subjects()) sj.add(x);
+            o.put("language", Frontier.language(f.title()));
+            o.put("sources", f.sources().size());
+            Investigation inv = byFinding.get(f.id());
+            if (inv != null) { o.put("report", inv.id()); o.put("report_title", inv.title()); }
+            out.add(o);
+        }
+        return out;
+    }
+
+    /**
+     * Whether an inbox row passes a filter: {@code report} (an id or its prefix), {@code subject}, {@code kind} (the claim
+     * type), {@code tier}, {@code confidence}, {@code writer} (matched as text), {@code state} (draft or stale),
+     * {@code language}, {@code q} (words that must all appear in the title). Empty or missing keys match everything.
+     */
+    static boolean inboxMatches(ObjectNode o, Map<String, String> f) {
+        String report = f.getOrDefault("report", "");
+        if (!report.isEmpty() && !o.path("report").asText("").startsWith(report)) return false;
+        String subject = f.getOrDefault("subject", "");
+        if (!subject.isEmpty()) { boolean has = false; for (var x : o.path("subjects")) if (x.asText().equals(subject)) has = true; if (!has) return false; }
+        for (String k : List.of("kind", "tier", "confidence", "language")) { String v = f.getOrDefault(k, ""); if (!v.isEmpty() && !o.path(k).asText("").equals(v)) return false; }
+        String writer = f.getOrDefault("writer", "");
+        if (!writer.isEmpty() && !o.path("writer").asText("").toLowerCase(Locale.ROOT).contains(writer.toLowerCase(Locale.ROOT))) return false;
+        String state = f.getOrDefault("state", "");
+        if (state.equals("stale") && !o.path("stale").asBoolean()) return false;
+        if (state.equals("draft") && o.path("stale").asBoolean()) return false;
+        String q = f.getOrDefault("q", "").strip().toLowerCase(Locale.ROOT);
+        if (!q.isEmpty()) { String t = o.path("title").asText().toLowerCase(Locale.ROOT); for (String w : q.split("\\s+")) if (!t.contains(w)) return false; }
+        return true;
+    }
+
+    /** What became of the report that left a question: kept (a claim of it was accepted), waiting (its claims sit in the inbox), disputed, retired, or none. */
+    String fate(Investigation inv) {
+        if (inv == null) return "gone";
+        if (inv.findings().isEmpty()) return "none";
+        boolean accepted = false, draft = false, disputed = false;
+        for (String id : inv.findings()) {
+            Finding f; try { f = store.finding(id); } catch (IOException e) { f = null; }
+            if (f == null) continue;
+            switch (f.state()) { case accepted -> accepted = true; case draft -> draft = true; case disputed -> disputed = true; default -> { } }
+        }
+        return accepted ? "kept" : draft ? "waiting" : disputed ? "disputed" : "retired";
+    }
+
+    private List<String> subjectsOf(Investigation inv) {
+        List<String> out = new ArrayList<>();
+        if (inv == null) return out;
+        for (String id : inv.findings()) {
+            try { Finding f = store.finding(id); if (f != null) for (String sj : f.subjects()) if (!out.contains(sj)) out.add(sj); } catch (IOException ignored) { }
+        }
+        return out;
+    }
+
+    /** Subjects named in a question: a vocabulary slug, its spaced form, or one of its other names appears in the text (four letters or more). */
+    static List<String> subjectsInText(Vocabulary vocab, String text) {
+        List<String> out = new ArrayList<>();
+        if (vocab == null || vocab.isEmpty()) return out;
+        String t = " " + Vocabulary.norm(text).replaceAll("[^\\p{L}\\p{N}]+", " ") + " ";
+        for (Vocabulary.Term term : vocab.terms().values()) {
+            List<String> names = new ArrayList<>(term.also());
+            names.add(term.slug().replace("--", " ").replace('-', ' '));
+            for (String n : names) {
+                String nn = Vocabulary.norm(n).replaceAll("[^\\p{L}\\p{N}]+", " ").strip();
+                if (nn.length() < 4 && !nn.codePoints().anyMatch(cp -> Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN)) continue;
+                if (nn.isEmpty()) continue;
+                if (t.contains(" " + nn + " ") || (nn.length() >= 4 && nn.codePoints().anyMatch(cp -> Character.UnicodeScript.of(cp) == Character.UnicodeScript.HAN) && t.contains(nn))) { out.add(term.slug()); break; }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * The accepted or draft claim that may already answer a question: among the floored search's top hits, the one whose
+     * TITLE shares enough words with the question. The floor alone is too loose — on a live shelf it named a claim for 35
+     * of 40 questions, a third of them about something else (2026-09-09); a title overlap of 0.08 kept the ones a person
+     * would want to read first and dropped those.
+     */
+    static final double ANSWERED_OVERLAP = 0.08;
+
+    private static LibrarianIndex.Hit answeredBy(LibrarianIndex index, String question) {
+        try {
+            LibrarianIndex.Hit best = null; double bestOverlap = 0;
+            var qt = Frontier.terms(question);
+            for (var h : index.searchStrict(question, 3, null, "finding")) {
+                if (!"accepted".equals(h.state()) && !"draft".equals(h.state())) continue;
+                double o = Frontier.jaccard(qt, Frontier.terms(h.title()));
+                if (o >= ANSWERED_OVERLAP && o > bestOverlap) { best = h; bestOverlap = o; }
+            }
+            return best;
+        } catch (IOException ignored) { }
+        return null;
+    }
+
+    /**
+     * Whether a listed question passes a filter: {@code type}, {@code show} (queued, parked, all), {@code report}
+     * (an investigation id, or its prefix), {@code fate}, {@code who} (a perspective, matched as text), {@code subject},
+     * {@code language}, {@code q} (words that must all appear). Empty or missing keys match everything.
+     */
+    static boolean matches(ObjectNode o, Map<String, String> f) {
+        String type = f.getOrDefault("type", "");
+        if (!type.isEmpty() && !o.path("type").asText().equals(type)) return false;
+        String show = f.getOrDefault("show", "queued");
+        if (show.equals("queued") && o.path("parked").asBoolean()) return false;
+        if (show.equals("parked") && !o.path("parked").asBoolean()) return false;
+        String report = f.getOrDefault("report", "");
+        if (!report.isEmpty() && !o.path("report").asText("").startsWith(report)) return false;
+        String fate = f.getOrDefault("fate", "");
+        if (!fate.isEmpty() && !o.path("report_fate").asText("").equals(fate)) return false;
+        String who = f.getOrDefault("who", "");
+        if (!who.isEmpty() && !o.path("perspective").asText("").toLowerCase(Locale.ROOT).contains(who.toLowerCase(Locale.ROOT))) return false;
+        String subject = f.getOrDefault("subject", "");
+        if (!subject.isEmpty()) { boolean has = false; for (var x : o.path("subjects")) if (x.asText().equals(subject)) has = true; if (!has) return false; }
+        String lang = f.getOrDefault("language", "");
+        if (!lang.isEmpty() && !o.path("language").asText("").equals(lang)) return false;
+        String q = f.getOrDefault("q", "").strip().toLowerCase(Locale.ROOT);
+        if (!q.isEmpty()) { String t = o.path("text").asText().toLowerCase(Locale.ROOT); for (String w : q.split("\\s+")) if (!t.contains(w)) return false; }
+        return true;
     }
 
     private static boolean touches(String text, String question) {

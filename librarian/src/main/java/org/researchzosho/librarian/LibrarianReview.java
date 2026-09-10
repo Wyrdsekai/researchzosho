@@ -308,9 +308,7 @@ public final class LibrarianReview {
         }
 
         // record what was left open, promote the run record, refresh the human index
-        for (String open : inv.open()) {
-            try { store.frontier("gap", open + " (from " + inv.id() + ")"); } catch (IOException ignored) { }
-        }
+        try { Frontier.fromReport(store, inv.id(), inv.open()); } catch (IOException ignored) { }   // a no-op when the run already filed them
         store.write(new Investigation(inv.id(), inv.title(), Finding.State.accepted, inv.writer(),
                 inv.recordedAt(), findingIds, inv.open(), inv.body()));
         store.regenerateIndex();

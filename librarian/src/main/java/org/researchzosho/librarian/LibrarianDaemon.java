@@ -96,7 +96,11 @@ public final class LibrarianDaemon {
         for (JsonNode c : a.path("collections")) if (c.isTextual()) colls.add(c.asText());
         var ask = new Researcher.Ask(question, a.path("mode").asText("broad"), a.path("max_turns").asInt(LibraryProtocol.DEFAULT_TURNS), subs, a.path("sources").asText("both"), colls, a.path("max_minutes").asInt(0));
         long t0 = System.currentTimeMillis();
-        var filed = Researcher.file(store, researcher(drive), ask, writer);
+        Researcher researcher = researcher(drive);
+        researcher.stopWhen(() -> jobs.stopRequested(jobId));
+        Researcher.Filed filed;
+        try { filed = Researcher.file(store, researcher, ask, writer); }
+        catch (Researcher.Stopped s) { return "stopped at turn"; }   // the worker marks the job stopped from the marker
         try { jobs.recordTurns(job.path("patron").asText(""), filed.result().turnsUsed()); } catch (IOException ignored) { }
         if (filed.admitted()) settle(filed.investigationId(), drive, jobId);
         Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() : " → refused: " + filed.reason()),
@@ -139,10 +143,16 @@ public final class LibrarianDaemon {
             if (inv == null) return;
             var client = new org.researchzosho.drive.DriveClient(drive, model);
             var idx = new LibrarianIndex(store);
+            // each step is model calls of up to RESEARCHZOSHO_DRIVE_TIMEOUT each; a stop asked meanwhile ends the settling at
+            // the next step, and the nightly housekeeping does the rest (a stopped run once sat here for minutes, J-0024)
             var out = new LibrarianReview(store, idx, LibrarianReview.driveJudge(client), "librarian:" + model).searcher(LibrarianReview.liveSearcher()).review(inv);
+            if (settleStopped(jobId, investigationId, "review", t0)) return;
             var cat = Cataloger.run(store, Cataloger.driveJudge(client), false);   // subjects from the vocabulary; new ones are proposals for the person
+            if (settleStopped(jobId, investigationId, "subjects", t0)) return;
             var triples = Triples.fill(store, Triples.driveExtractor(client), 40);
+            if (settleStopped(jobId, investigationId, "triples", t0)) return;
             var ret = Retractions.check(store, Retractions.live(), 40, java.time.LocalDate.now());   // a retracted source disputes the claim, no model involved
+            if (settleStopped(jobId, investigationId, "retractions", t0)) return;
             var abs = Abstracts.run(store, Abstracts.driveWriter(client), null);   // only a subject whose shelf changed is rewritten (hash-guarded)
             Crews.log(store, "settle " + jobId, investigationId + ": " + out.accepted().size() + " claim(s) accepted, " + out.disputed().size() + " disputed, "
                     + out.keptDraft().size() + " kept as draft; subjects on " + cat.grounded() + " (" + cat.proposals() + " proposed); triples " + triples.filled() + "/" + triples.asked()
@@ -150,6 +160,13 @@ public final class LibrarianDaemon {
         } catch (Exception e) {
             Crews.log(store, "settle " + jobId, investigationId + ": could not settle now (" + e.getMessage() + "); the housekeeping will", System.currentTimeMillis() - t0);
         }
+    }
+
+    /** True, and logged, when a stop was asked for the job while it was settling: the steps done stay done, the rest waits for the housekeeping. */
+    private boolean settleStopped(String jobId, String investigationId, String after, long t0) {
+        if (!jobs.stopRequested(jobId)) return false;
+        Crews.log(store, "settle " + jobId, investigationId + ": stopped by the person after " + after + "; the housekeeping does the rest", System.currentTimeMillis() - t0);
+        return true;
     }
 
     /** The kura, 64 px, for the tab: the mark's small form, bundled so the daemon needs no static files. */
@@ -188,7 +205,7 @@ public final class LibrarianDaemon {
         if (crewHour >= 0) {
             d.crews = Crews.nightly(store, crewHour, () -> {
                 try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not file the crews job: " + e, 0); }
-            });
+            }, () -> { try { return d.jobs.active().isEmpty(); } catch (Exception e) { return false; } });   // the auto-update waits for an idle daemon
             d.crews.start();
         }
         return d;
@@ -296,6 +313,8 @@ public final class LibrarianDaemon {
                     case "perspectives" -> p.perspectives(body);
                     case "sharpen" -> p.sharpen(body);
                     case "explain" -> p.explain(body);
+                    case "serials" -> p.serials(body);
+                    case "inbox" -> p.inbox(body);
                     default -> throw ProtocolError.notFound("route " + path);
                 };
             } else {

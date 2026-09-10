@@ -32,9 +32,11 @@ class SetupTest {
         boolean claude = true; int installed = 0; List<String> mcpArgs;
         java.util.Set<String> hosts = null;                       // null: only claude, as before
         java.util.Map<String, List<String>> registered = new java.util.LinkedHashMap<>();
-        boolean docker = false; String searxStarted = "!no docker";
+        boolean docker = false; String searxStarted = "!no docker"; String embedStarted = "!no docker"; int embedStarts = 0; boolean gpu = true;
         @Override public boolean haveDocker() { return docker; }
+        @Override public boolean embedGpu() { return gpu; }
         @Override public String startSearxng(int port) { return searxStarted; }
+        @Override public String startEmbed(int port) { embedStarts++; return embedStarted; }
         @Override public int installService(int port, PrintStream out) { installed++; out.println("installed (fake) on " + port); return 0; }
         @Override public boolean haveClaude() { return claude; }
         @Override public String claudeMcpAdd(List<String> args) { mcpArgs = new ArrayList<>(args); return "connected"; }
@@ -155,5 +157,32 @@ class SetupTest {
         probe.braveKey = "BSA-test"; probe.searx = "http://localhost:8888";
         out = run(home, "", probe, acts, true, true, true);
         assertTrue(out.contains("the Brave Search API key you have works") && out.contains("the fallback behind Brave"), out);
+    }
+
+    @Test
+    void withDockerAndNoEmbedderTheWizardOffersToStartOne(@TempDir Path home) throws Exception {
+        // the model server does not embed; Docker is here: the offer, taken by the default answer
+        var acts = new FakeActs(); acts.docker = true; acts.embedStarted = "http://127.0.0.1:" + Embed.DEFAULT_PORT;
+        String out = run(home, "", new FakeProbe("http://localhost:11434", List.of("qwen3"), false), acts, true, false, false);
+        assertTrue(out.contains("Start an embeddings server with Docker"), out);
+        assertEquals(1, acts.embedStarts);
+        assertTrue(out.contains("Search by meaning is on"), out);
+        String cfg = Files.readString(home.resolve(".researchzosho").resolve("config"));
+        assertTrue(cfg.contains("embed = http://127.0.0.1:" + Embed.DEFAULT_PORT), cfg);
+        // Docker there but the start fails: the address question, and words only when it is left blank
+        acts = new FakeActs(); acts.docker = true; acts.embedStarted = "!docker: no space left";
+        out = run(home.resolve("b"), "", new FakeProbe("http://localhost:11434", List.of("qwen3"), false), acts, true, false, false);
+        assertTrue(out.contains("no: docker: no space left") && out.contains("Search is by words"), out);
+        // Docker but no GPU: no offer either — the CPU image is too slow to offer unasked
+        acts = new FakeActs(); acts.docker = true; acts.gpu = false;
+        out = run(home.resolve("d"), "", new FakeProbe("http://localhost:11434", List.of("qwen3"), false), acts, true, false, false);
+        assertFalse(out.contains("Start an embeddings server with Docker"), out);
+        assertEquals(0, acts.embedStarts);
+        // no Docker: no offer, the address question as before
+        acts = new FakeActs();
+        out = run(home.resolve("c"), "", new FakeProbe("http://localhost:11434", List.of("qwen3"), false), acts, true, false, false);
+        assertFalse(out.contains("Start an embeddings server with Docker"), out);
+        assertEquals(0, acts.embedStarts);
+        assertTrue(out.contains("Search is by words"), out);
     }
 }

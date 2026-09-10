@@ -45,7 +45,14 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
   one with Docker), or the built-in fallback, which searches Wikipedia and the scholarly literature
   only. Section 2 explains.
-- Optional: an embeddings server, if you want search by meaning as well as by keywords.
+- Optional: an embeddings server, if you want search by meaning as well as by keywords. With Docker
+  and an NVIDIA card, setup starts one for you (Text Embeddings Inference serving Qwen3-Embedding-0.6B;
+  the model downloads once, about 1.2 GB). Without a GPU, `researchzosho embed start --cpu` runs the
+  CPU image, measured at a tenth of a chunk a second (a thousand documents: more than a day); an
+  embeddings server on another machine is the better answer. Any server that answers the OpenAI embeddings call works. The server matters more than the
+  model: the same 0.6B model measured 13 chunks a second under llama.cpp and 115 under Text Embeddings
+  Inference on the same card, so a library of a thousand documents re-indexes in two minutes instead of
+  twenty.
 
 ## 2. Setup
 
@@ -63,7 +70,10 @@ Setup asks a few questions. Each has a default answer; press Enter to accept it.
 3. Which web search backend to use. Setup asks for a Brave Search API key first. Then it looks for
    SearXNG on its usual local port, and if Docker is installed offers to start one. With neither, it
    says that the built-in fallback will be used.
-4. Whether search works by meaning (needs an embeddings server) or by words only.
+4. Whether search works by meaning or by words only. If your model server also embeds, that is used.
+   Otherwise, with Docker and an NVIDIA card, setup offers to start an embeddings server
+   (`researchzosho embed start` does the same later); without those it asks for an address, and with
+   none search is by words.
 5. Whether to run ResearchZosho as a service that starts when you log in.
 6. Which programs to connect. If Claude Code, Codex or Gemini CLI is installed, setup can register
    the library with it. For any other program that speaks MCP, setup prints the command line and the
@@ -110,6 +120,28 @@ researchzosho search test <query>    # one search, and which backend answered it
 researchzosho search papers <query>  # the literature by DOI
 researchzosho search stop            # stop the container
 ```
+
+### Search by meaning
+
+Search by words finds a claim by the words in it. Search by meaning also finds it when the question uses
+other words, or another language. It needs an embeddings server. `researchzosho embed status` says what
+is configured; `embed start` runs one with Docker; `embed test` measures it; `embed stop` stops it.
+After starting one, `researchzosho rebuild` indexes the library with it (the nightly housekeeping
+would do that on its own the next night).
+
+### Updating
+
+`researchzosho status` and the page footer say when a newer release exists. To install it:
+
+```
+researchzosho update            # the installed release, the latest, and the mode
+researchzosho update now        # download, verify against the release's checksums, swap in, restart the service
+researchzosho update auto on    # the service updates itself after each housekeeping, when no run is active
+```
+
+The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. The library and the settings are
+never touched by an update. On Windows, stop the service first (`researchzosho service uninstall`), run
+`researchzosho update now`, then `researchzosho service install`.
 
 ## 3. The basic loop
 
@@ -265,7 +297,28 @@ researchzosho retire <id>
 - Retire: the claim is removed from answers. The record of it is kept.
 
 A claim is not counted as known until you accept it. What you have accepted is what the library
-answers from.
+answers from. A draft is also accepted on its own when a later run finds the same claim from an
+independent source.
+
+The same decisions, on every surface:
+
+| | see what is waiting | decide |
+|---|---|---|
+| command line | `researchzosho inbox` | `accept <id…>`, `accept --all`, `accept --report I-…` (every waiting claim of one report) · `dispute <id> "<why>"` · `retire <id…>`, `retire --report I-…` |
+| web pages | the Inbox page | tick any number, then "Accept the ticked ones", "Retire the ticked ones", or "Dispute" with a reason; a report's heading ticks all of its claims |
+| a program (MCP or HTTP) | `library_inbox` with `op` list | `library_inbox` with `op` accept, dispute (`why`), or retire, and `ids`, one `id`, or `report` |
+| the files | the claim's file under `findings/` in the library folder | change its `state:` line: `draft` to `accepted`, `disputed`, or `retired`; the nightly housekeeping re-reads the files, `researchzosho refresh` does it now (a removed file leaves the search too) |
+
+Sorting a full inbox: the Inbox page, `researchzosho inbox`, and `library_inbox` filter the same way
+as the open questions (section 11): by the report the claim came from (grouped, one box per report),
+why it waits (a new claim, or a review that went stale), the kind of claim, the strongest source's
+tier, confidence, who wrote it, subject, language, and words in the title. On the command line:
+`inbox --report I-0025 --kind extraction --tier reference --confidence high --writer explorer
+--state draft --subject lead-paint --language english --grep "lead paint" --by-report`.
+
+The two pages point at each other: a report's group on the Open questions page links to its claims
+in the Inbox, and a report's group in the Inbox links to its open questions. Accepting a report's
+claims is what turns its questions' "what became of it" from "still in the inbox" to "kept".
 
 ## 7. Asking what the library already has
 
@@ -375,6 +428,80 @@ On Sundays there are two more: a list of accepted claims that look like duplicat
 documents older than a month that nothing refers to. The housekeeping never merges, deletes or
 decides. `researchzosho raw prune` deletes the documents on the second list, when you run it.
 
+### What will run tonight
+
+Two of the steps do research on their own. The serials step re-runs the searches you keep, on the
+cadence you gave each one. The explorer step takes open questions from a queue. Nothing else searches
+the web at night.
+
+The queue: every open question has a type, a place in the order, and a state. The types are `report`
+(a run left it open), `asked` (the library could not answer it at the desk; counts how often),
+`person` (you added it), `dispute` (what would settle a disputed claim), and `check` (a re-read found
+the source does not support a claim; a chore for the Inbox, never researched). The explorer takes
+`report`, `asked` (once asked twice, `RESEARCHZOSHO_EXPLORER_MIN_ASKS`) and `person`; the set is
+`RESEARCHZOSHO_EXPLORER_TYPES`. A parked question stays on the list but is never taken until you
+unpark it. The questions a report leaves open are filed parked: a report leaves five to ten of them,
+one per perspective, and nothing runs on them until you look. `RESEARCHZOSHO_REPORT_QUESTIONS=queued`
+files them straight into the queue instead. The explorer takes the queue in order, `RESEARCHZOSHO_EXPLORER_PER_NIGHT` runs a night
+(default 2; 0 turns it off); `researchzosho questions budget <n>` changes that, and `questions
+tonight <n>` for one night only. Related questions share a run: the questions one report left open, or
+questions whose words overlap, ride together as one run's sub-questions, up to eight, so one run
+answers several. `RESEARCHZOSHO_EXPLORER_MINUTES` caps each run's minutes (default none).
+
+To see the plan before it runs:
+
+```
+researchzosho tonight
+```
+
+It lists the searches due tonight and the ones not yet due, the open questions the explorer will
+take and how many wait, how many accepted claims will be re-read, and the weekly or monthly extras.
+The Runs page shows the same. `researchzosho crews` runs the housekeeping now.
+
+### Sorting a long list of open questions
+
+A few reports leave dozens of questions. The Open questions page, `researchzosho questions list`,
+and `library_frontier` sort them the same eight ways:
+
+| filter | what it does |
+|---|---|
+| left by | the report that left the question; the page groups by report, and one box ticks the whole group |
+| what became of it | whether that report was kept (a claim of it accepted), is still in the inbox, was disputed, or was retired |
+| asked from | the perspective the planner asked it from, the `[Historian of Science]` tag |
+| subject | the subjects of the report's claims, and any subject named in the question |
+| reads alike | questions whose words overlap fold under the first of them; open the fold to see them |
+| maybe answered already | a claim on the shelves that already answers the question, found by search |
+| language | the language the question is in, or asks for ("in Japanese-language sources") |
+| words | words that must all appear in the question |
+
+On the page each filter is a row of links with counts; the counts say what a click would show. On the
+command line: `questions list --report I-0016 --fate kept --who historian --subject vae --language
+japanese --grep "lead paint" --by-report --hints` (`--hints` runs the search; `--parked` shows parked
+questions, `--all` everything). Over MCP or HTTP, `library_frontier` takes the same names
+(`report`, `fate`, `who`, `subject`, `language`, `q`, `show`, `hints`).
+
+Before 0.1.2, a report's questions were filed twice (once by the run, once by the review). The page
+says when it finds second copies; `researchzosho questions tidy` removes them.
+
+### Setting and unsetting what runs on its own
+
+There are two kinds: a kept search, and an open question. Each can be set or unset four ways.
+
+| | a kept search | an open question |
+|---|---|---|
+| command line | `researchzosho shelf add <name> <query> [days]` · `shelf list` · `shelf every <name> <days>` · `shelf park <name>` · `shelf unpark <name>` · `shelf remove <name>` | `researchzosho questions list [filters]` (numbered, tonight's marked) · `questions add <question>` · `questions next|later|park|unpark|drop <number>` · `questions tidy` · `questions budget <n>` · `questions tonight <n>` |
+| web pages | the Open questions page: "Keep a search"; beside each one, its every-N-days field with "Change", "Park" or "Back in the rotation", and "Stop keeping it" | the same page: the eight filters above, grouped by report; tick any number, then "Send as runs now", "Run next", "Later", "Park" or "Back in the queue", "Drop"; the nightly budget and tonight's override; "Add an open question" |
+| a program (MCP or HTTP) | `library_serials` with `op` list, add `{name, query, every_days}`, every `{name, every_days}`, park or unpark `{name}`, or remove `{name}` | `library_frontier` with `op` list (with the filters; each question carries type, parked, position, tonight, report, report_fate, perspective, subjects, language, similar), add, next, later, park, unpark, drop `{question}`, or tidy |
+| the files | `catalog/shelves.md` in the library folder, one line each: `- name \| query \| every N days \| last YYYY-MM-DD`, with `\| parked` at the end to park one | `frontier/OPEN.md`, one line each: `- YYYY-MM-DD [kind] question`; a line ending `⇒ explored …` is closed |
+
+A parked search is kept and shown but does not run until you put it back; the questions' park works
+the same way.
+
+The files are plain markdown; edit them in any editor and the next housekeeping reads them. The vault
+has a `Housekeeping` note that shows both lists and says where the files are, so an Obsidian or
+SoloMD user can find them; the vault itself is a view and editing it changes nothing. A dropped
+question stays in the file, marked dropped, so it is not filed again.
+
 The review, catalog, triples and abstracts steps also run as soon as a write-up arrives, so you do not
 have to wait for the night. `researchzosho settle` runs them by hand for any write-ups still waiting.
 
@@ -401,10 +528,17 @@ computer. These settings can be changed while a run is in progress:
 researchzosho research workers 2              # how many readers work at once (default 3)
 researchzosho research pause                  # hold everything at the next step
 researchzosho research resume
+researchzosho research stop J-0031             # end one run at its next step; a queued one never starts
 researchzosho research window 22:00-07:00     # only start runs in these hours
 researchzosho research window off
 researchzosho research                        # show the settings and what is running
 ```
+
+The Runs page has the same: "Pause the runner" and "Resume", and a "Stop" beside each run that is
+queued or going. A stopped run is recorded as stopped, not failed. If the stop comes after the
+write-up landed, while its claims are being reviewed and catalogued, those steps end at the next one
+and the nightly housekeeping finishes them. Over MCP or HTTP, `library_job`
+takes `op` stop with `job_id`, pause, or resume.
 
 The settings are stored in your config file. A running question follows a changed setting at its next
 step.
@@ -490,9 +624,10 @@ Open `http://127.0.0.1:4649/` in a browser. The pages are:
 | Search | Search of the library. |
 | Entry | A claim, write-up, summary or saved document in full, with its sources, notes, review and connections. |
 | Subjects | The subject list. |
-| Open | Open questions. |
+| Inbox | Claims waiting for a decision, grouped by the report they came from and filtered nine ways. Tick any number, then accept, retire, or dispute them with a reason. |
+| Open | The searches kept up to date, and the open questions, grouped by the report that left them and filtered eight ways: tick any number, then send them as runs, reorder, park, or drop them. |
 | Changes | What changed, newest first. |
-| Runs | Research runs, running and finished. |
+| Runs | What the housekeeping will do tonight; research runs, running and finished. "Pause the runner" holds every run at its next turn until "Resume"; "Stop" beside a run ends that one. |
 | Research | Send a question, or sharpen it first. |
 | Map | The map. |
 
@@ -500,8 +635,8 @@ Every entry has "Read it: beginner · familiar · as written" and a Download lin
 
 ### Sign-in
 
-As shipped there is no sign-in. Anyone who can open the pages can read the library and send
-questions. The home page says so. To require a sign-in before a question can be sent:
+Access is open as shipped, and the home page says so. To require a sign-in before a question can
+be sent:
 
 ```
 researchzosho web signin on

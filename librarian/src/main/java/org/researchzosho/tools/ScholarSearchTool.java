@@ -17,8 +17,8 @@ public final class ScholarSearchTool implements Tool {
 
     @Override public String description() {
         return "Search the scholarly literature (Crossref and OpenAlex): papers, books and chapters, each with its DOI, "
-                + "venue, year and authors. Use it whenever the question touches a literature — medicine, science, history, "
-                + "law, the humanities — because its hits are primary sources a web engine ranks low. Then web_fetch the "
+                + "venue, year and authors. Use it whenever the question touches a literature: medicine, science, history, "
+                + "law, the humanities: because its hits are primary sources a web engine ranks low. Then web_fetch the "
                 + "DOI or landing page to read.";
     }
 

@@ -113,7 +113,7 @@ public final class Inventory {
                 new Finding.Review(round, "inventory", "disputed", d.contentHash(), Instant.now().toString()), d.body(), d.triple(), d.notes());
         store.write(signed);
         index.upsert(signed);
-        store.frontier("dispute inventory", f.id() + " — the cited source does not support it: " + reason.strip() + " (re-read the source; retire or re-source)");
+        store.frontier("check", f.id() + " — the cited source does not support it: " + reason.strip() + " (re-read the source; retire or re-source)");
         store.circulate("inventory-disputed", f.id());
     }
 

@@ -36,7 +36,7 @@ class ScholarSearchTest {
         assertEquals("Ban on Lead-Containing Paint", rows.get(0).title());
         assertEquals("https://doi.org/10.1177/000992287801700602", rows.get(0).url());
         assertEquals("Clinical Pediatrics, 1978 (journal article)", rows.get(0).snippet());
-        assertEquals("The Lancet, 2004 — Horton, Smith, Jones et al. (journal article)", rows.get(1).snippet(), "three authors, then et al.");
+        assertEquals("The Lancet, 2004: Horton, Smith, Jones et al. (journal article)", rows.get(1).snippet(), "three authors, then et al.");
     }
 
     @Test
@@ -44,7 +44,7 @@ class ScholarSearchTest {
         List<ScholarSearch.Row> rows = ScholarSearch.parseOpenAlex(OPENALEX);
         assertEquals(2, rows.size());
         assertEquals("10.1002/gps.2582", rows.get(1).doi(), "the DOI without the resolver prefix");
-        assertEquals("International Journal of Geriatric Psychiatry, 2010 — Tareef Alaama, Christopher D. Brymer", rows.get(1).snippet());
+        assertEquals("International Journal of Geriatric Psychiatry, 2010: Tareef Alaama, Christopher D. Brymer", rows.get(1).snippet());
     }
 
     @Test

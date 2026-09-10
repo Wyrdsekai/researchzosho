@@ -185,11 +185,18 @@ public final class Service {
         return base.startsWith("researchzosho") || base.startsWith("zosho") ? "" : "librarian ";
     }
 
-    /** The launcher to run as the service: this launcher, else a pre-split codezaiku's sibling, else one on PATH. */
+    /**
+     * The launcher to run as the service: the one named, else this launcher (the dev script announces itself), else the
+     * one beside this program's own jar (an installed program, whatever PATH says — on a fresh macOS install the shell
+     * that ran the installer had no PATH entry yet, and `service install` could not find itself, 2026-09-09), else a
+     * pre-split codezaiku's sibling, else one on PATH.
+     */
     public static String resolveExec(String explicit) {
         if (explicit != null && !explicit.isBlank()) return explicit;
         String own = System.getenv("RESEARCHZOSHO_LAUNCHER");
         if (own != null && !own.isBlank()) return own;
+        Path beside = besideOwnJar();
+        if (beside != null) return beside.toString();
         String env = System.getenv("CODEZAIKU_LAUNCHER");
         if (env != null && !env.isBlank()) {
             Path sibling = Path.of(env).resolveSibling("researchzosho");
@@ -208,6 +215,14 @@ public final class Service {
             }
         }
         throw new IllegalStateException("cannot find the researchzosho launcher — pass --exec <path to researchzosho>");
+    }
+
+    /** {@code <root>/bin/researchzosho} (or {@code .bat}) next to the jar this program runs from, when it is an installed tree. */
+    static Path besideOwnJar() {
+        Path root = Updater.root();
+        if (root == null) return null;
+        Path p = root.resolve("bin").resolve(os() == Os.windows ? "researchzosho.bat" : "researchzosho");
+        return Files.isRegularFile(p) ? p.toAbsolutePath() : null;
     }
 
     /** install | uninstall | status. Returns the process exit code. */

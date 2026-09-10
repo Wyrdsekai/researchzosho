@@ -86,7 +86,7 @@ public final class ScholarSearch {
                 if (y.isNumber()) s.append(s.length() > 0 ? ", " : "").append(y.asInt());
                 List<String> authors = new ArrayList<>();
                 for (JsonNode a : w.path("author")) { if (authors.size() >= 3) break; String f = a.path("family").asText(""); if (!f.isEmpty()) authors.add(f); }
-                if (!authors.isEmpty()) s.append(s.length() > 0 ? " — " : "").append(String.join(", ", authors)).append(w.path("author").size() > 3 ? " et al." : "");
+                if (!authors.isEmpty()) s.append(s.length() > 0 ? ": " : "").append(String.join(", ", authors)).append(w.path("author").size() > 3 ? " et al." : "");
                 String type = w.path("type").asText("");
                 if (!type.isEmpty()) s.append(s.length() > 0 ? " (" : "(").append(type.replace('-', ' ')).append(')');
                 out.add(new Row(title, url, s.toString(), doi));
@@ -112,7 +112,7 @@ public final class ScholarSearch {
                 if (w.path("publication_year").isNumber()) s.append(s.length() > 0 ? ", " : "").append(w.path("publication_year").asInt());
                 List<String> authors = new ArrayList<>();
                 for (JsonNode a : w.path("authorships")) { if (authors.size() >= 3) break; String n = a.path("author").path("display_name").asText(""); if (!n.isEmpty()) authors.add(n); }
-                if (!authors.isEmpty()) s.append(s.length() > 0 ? " — " : "").append(String.join(", ", authors)).append(w.path("authorships").size() > 3 ? " et al." : "");
+                if (!authors.isEmpty()) s.append(s.length() > 0 ? ": " : "").append(String.join(", ", authors)).append(w.path("authorships").size() > 3 ? " et al." : "");
                 out.add(new Row(title, url, s.toString(), doi));
             }
         } catch (Exception ignored) { }

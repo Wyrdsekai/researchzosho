@@ -23,6 +23,6 @@ public final class WebAccess {
     }
 
     /** The line the home page and the installer show while the pages are open. */
-    public static final String OPEN_NOTICE = "Anyone who can open these pages can read the library and send questions.";
-    public static final String OPEN_HOWTO = "To ask people to sign in before sending questions, run: researchzosho web signin on";
+    public static final String OPEN_NOTICE = "Access is open.";
+    public static final String OPEN_HOWTO = "To require sign-in, run: researchzosho web signin on";
 }

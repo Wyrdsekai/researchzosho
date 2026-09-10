@@ -29,6 +29,17 @@ class SerialsTest {
         assertFalse(checked.due(LocalDate.of(2026, 9, 10)));
         assertTrue(checked.due(LocalDate.of(2026, 9, 15)));
         assertEquals(checked, Serials.Shelf.fromLine(checked.toLine()));
+        // parked: kept, shown, never due; the line carries the mark; unpark puts it back
+        assertTrue(Serials.setParked(store, "keigo", true));
+        assertFalse(Serials.setParked(store, "keigo", true), "parking twice is a no-op");
+        var parked = Serials.shelves(store).get(0);
+        assertTrue(parked.parked() && !parked.due(LocalDate.of(2026, 9, 2)));
+        assertTrue(parked.toLine().endsWith("| parked"), parked.toLine());
+        assertEquals(parked, Serials.Shelf.fromLine(parked.toLine()));
+        assertTrue(Serials.setEvery(store, "keigo", 3) && Serials.shelves(store).get(0).parked(), "a cadence change keeps it parked");
+        assertTrue(Serials.setParked(store, "keigo", false));
+        assertTrue(Serials.shelves(store).get(0).due(LocalDate.of(2026, 9, 2)));
+        assertFalse(Serials.setParked(store, "nope", true));
     }
 
     @Test

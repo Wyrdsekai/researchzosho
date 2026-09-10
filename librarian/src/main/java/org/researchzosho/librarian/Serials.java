@@ -27,13 +27,16 @@ public final class Serials {
 
     private Serials() { }
 
-    public record Shelf(String slug, String query, int everyDays, String lastChecked) {
+    public record Shelf(String slug, String query, int everyDays, String lastChecked, boolean parked) {
+        public Shelf(String slug, String query, int everyDays, String lastChecked) { this(slug, query, everyDays, lastChecked, false); }
+        /** Due tonight: on its cadence, and not parked (a parked search is kept, shown, and never run until unparked). */
         boolean due(LocalDate today) {
+            if (parked) return false;
             if (lastChecked == null || lastChecked.isBlank() || lastChecked.equals("-")) return true;
             try { return !LocalDate.parse(lastChecked).plusDays(everyDays).isAfter(today); }
             catch (Exception e) { return true; }
         }
-        String toLine() { return "- " + slug + " | " + query + " | every " + everyDays + " days | last " + lastChecked; }
+        String toLine() { return "- " + slug + " | " + query + " | every " + everyDays + " days | last " + lastChecked + (parked ? " | parked" : ""); }
         static Shelf fromLine(String line) {
             String l = line.strip();
             if (!l.startsWith("-")) return null;
@@ -41,13 +44,15 @@ public final class Serials {
             if (p.length < 2) return null;
             int every = 7;
             String last = "-";
+            boolean parked = false;
             for (int i = 2; i < p.length; i++) {
+                if (p[i].strip().equalsIgnoreCase("parked")) parked = true;
                 var m = java.util.regex.Pattern.compile("every\\s+(\\d+)").matcher(p[i]);
                 if (m.find()) every = Integer.parseInt(m.group(1));
                 var d = java.util.regex.Pattern.compile("last\\s+(\\S+)").matcher(p[i]);
                 if (d.find()) last = d.group(1);
             }
-            return new Shelf(p[0].strip(), p[1].strip(), every, last);
+            return new Shelf(p[0].strip(), p[1].strip(), every, last, parked);
         }
     }
 
@@ -73,7 +78,7 @@ public final class Serials {
 
     static void writeShelves(LibraryStore store, List<Shelf> shelves) throws IOException {
         StringBuilder sb = new StringBuilder("# Living shelves — subscriptions the serials crew keeps current\n\n"
-                + "One per line: `- slug | query | every N days | last YYYY-MM-DD`. `researchzosho serials` checks the due ones.\n\n");
+                + "One per line: `- slug | query | every N days | last YYYY-MM-DD [| parked]`. `researchzosho serials` checks the due ones; a parked one waits.\n\n");
         for (Shelf s : shelves) sb.append(s.toLine()).append('\n');
         Files.createDirectories(shelvesFile(store).getParent());
         Files.writeString(shelvesFile(store), sb.toString(), StandardCharsets.UTF_8);
@@ -85,6 +90,33 @@ public final class Serials {
             cur.add(new Shelf(slug, query, everyDays, "-"));
             return cur;
         });
+    }
+
+    /** Change how often a kept search runs, keeping its last-run date; false when no shelf has that slug. */
+    public static boolean setEvery(LibraryStore store, String slug, int everyDays) throws IOException {
+        boolean[] found = {false};
+        updateShelves(store, cur -> {
+            for (int i = 0; i < cur.size(); i++) if (cur.get(i).slug().equals(slug)) { cur.set(i, new Shelf(slug, cur.get(i).query(), everyDays, cur.get(i).lastChecked(), cur.get(i).parked())); found[0] = true; }
+            return cur;
+        });
+        return found[0];
+    }
+
+    /** Park a kept search (kept, shown, never run) or put it back in the rotation; false when no shelf has that slug or it already is. */
+    public static boolean setParked(LibraryStore store, String slug, boolean parked) throws IOException {
+        boolean[] found = {false};
+        updateShelves(store, cur -> {
+            for (int i = 0; i < cur.size(); i++) if (cur.get(i).slug().equals(slug) && cur.get(i).parked() != parked) { Shelf s = cur.get(i); cur.set(i, new Shelf(s.slug(), s.query(), s.everyDays(), s.lastChecked(), parked)); found[0] = true; }
+            return cur;
+        });
+        return found[0];
+    }
+
+    /** Stop keeping a search; false when no shelf has that slug. */
+    public static boolean remove(LibraryStore store, String slug) throws IOException {
+        boolean[] found = {false};
+        updateShelves(store, cur -> { found[0] = cur.removeIf(x -> x.slug().equals(slug)); return cur; });
+        return found[0];
     }
 
     /** Every locator the library already holds — raw captures and everything cited by findings/investigations. */
@@ -138,7 +170,7 @@ public final class Serials {
                 known.add(norm(url));
                 arrivals.add(new Arrival(s.slug(), url, hit.length > 1 ? hit[0] : ""));
             }
-            all.set(i, new Shelf(s.slug(), s.query(), s.everyDays(), today.toString()));
+            all.set(i, new Shelf(s.slug(), s.query(), s.everyDays(), today.toString(), s.parked()));
             changed = true;
         }
         if (!arrivals.isEmpty()) {
@@ -188,7 +220,7 @@ public final class Serials {
         switch (args[2]) {
             case "list" -> {
                 var all = shelves(store);
-                if (all.isEmpty()) { System.out.println("no living shelves — `librarian shelf add <slug> <query> [days]`"); return 0; }
+                if (all.isEmpty()) { System.out.println("no living shelves — `researchzosho shelf add <name> <query> [days]`"); return 0; }
                 for (Shelf s : all) System.out.println("  " + s.toLine().substring(2));
                 return 0;
             }
@@ -199,10 +231,29 @@ public final class Serials {
                 if (args[end - 1].matches("\\d+")) { every = Integer.parseInt(args[end - 1]); end--; }
                 String query = String.join(" ", java.util.Arrays.copyOfRange(args, 4, end));
                 add(store, args[3], query, every);
-                System.out.println("living shelf '" + args[3] + "': \"" + query + "\" every " + every + " days — `librarian serials` checks it");
+                System.out.println("living shelf '" + args[3] + "': \"" + query + "\" every " + every + " days — `researchzosho serials` checks it");
                 return 0;
             }
-            default -> { System.err.println("usage: researchzosho shelf add|list"); return 2; }
+            case "every" -> {
+                if (args.length < 5 || !args[4].matches("\\d+")) { System.err.println("usage: researchzosho shelf every <name> <days>"); return 2; }
+                if (!setEvery(store, args[3], Integer.parseInt(args[4]))) { System.err.println("no kept search is named " + args[3]); return 1; }
+                System.out.println(args[3] + " now runs every " + args[4] + " days");
+                return 0;
+            }
+            case "park", "unpark" -> {
+                if (args.length < 4) { System.err.println("usage: researchzosho shelf " + args[2] + " <name>"); return 2; }
+                boolean park = args[2].equals("park");
+                if (!setParked(store, args[3], park)) { System.err.println("no kept search is named " + args[3] + (park ? " (or it is parked already)" : " (or it is not parked)")); return 1; }
+                System.out.println(park ? "parked: " + args[3] + " is kept but will not run until researchzosho shelf unpark " + args[3] : "back in the rotation: " + args[3]);
+                return 0;
+            }
+            case "remove", "drop" -> {
+                if (args.length < 4) { System.err.println("usage: researchzosho shelf remove <name>"); return 2; }
+                if (!remove(store, args[3])) { System.err.println("no kept search is named " + args[3]); return 1; }
+                System.out.println("no longer kept: " + args[3]);
+                return 0;
+            }
+            default -> { System.err.println("usage: researchzosho shelf add <name> <query> [days] | list | every <name> <days> | park <name> | unpark <name> | remove <name>"); return 2; }
         }
     }
 

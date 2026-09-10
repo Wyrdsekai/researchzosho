@@ -30,7 +30,7 @@ class DemandLoopTest {
         assertFalse(again.get("filed_as_demand").asBoolean());
         List<Frontier.Line> open = Frontier.read(store);
         assertEquals(1, open.size());
-        assertTrue(open.get(0).kind().startsWith("demand ×2"), open.get(0).kind());
+        assertTrue(open.get(0).kind().startsWith("asked ×2"), open.get(0).kind());
         assertEquals(2, Frontier.asks(open.get(0)));
         assertTrue(open.get(0).researchable(), "asked twice → the explorer may take it");
         // a one-off question is recorded but NOT researchable: one patron's whim is not acquisition demand
@@ -59,7 +59,7 @@ class DemandLoopTest {
         Crews.Researcher stub = (q, writer) -> { asked.add(q); assertEquals("crew:explorer", writer); return q.contains("second") ? null : "I-0009-x"; };
         String out = Crews.explore(store, stub, 2);
         assertEquals(2, asked.size(), "two per night");
-        assertTrue(out.contains("2 explored, 1 admitted"), out);
+        assertTrue(out.contains("2 run(s) for 2 question(s), 1 admitted"), out);
         assertTrue(out.contains("1 still open"), out);
         var lines = Frontier.read(store);
         assertFalse(lines.get(0).open()); assertTrue(lines.get(0).explored().contains("I-0009-x"));
@@ -68,7 +68,7 @@ class DemandLoopTest {
         assertTrue(lines.get(3).open() && !lines.get(3).researchable(), "a dispute line is not for the explorer");
         // the next night takes the third and stops
         asked.clear();
-        assertTrue(Crews.explore(store, stub, 2).contains("1 explored"));
+        assertTrue(Crews.explore(store, stub, 2).contains("1 run(s) for 1 question(s)"));
         assertEquals(List.of("third open question about tech-noir register"), asked);
         assertTrue(Crews.explore(store, stub, 2).contains("nothing open"));
         assertTrue(Files.readString(store.frontierFile()).contains("⇒ explored"));

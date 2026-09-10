@@ -107,7 +107,10 @@ class PagesTest {
             assertTrue(readingBody.contains("/explain?term=file&in=F-0001-gears&rung=beginner"), "terms link onward");
             Explain.DRIVES = () -> null;
             assertTrue(get(c, base + "/subjects", null).body().contains("how the gears were made"));
-            assertTrue(get(c, base + "/questions", null).body().contains("tooth profiles first"));
+            var qp = get(c, base + "/questions", null);
+            assertTrue(qp.body().contains("tooth profiles first"));
+            assertTrue(qp.headers().firstValue("Content-Security-Policy").orElse("").contains("script-src 'unsafe-inline'"), "a pick form's \"all\" box needs its inline handler allowed");
+            assertFalse(get(c, base + "/changes", null).headers().firstValue("Content-Security-Policy").orElse("").contains("script-src"), "other pages stay script-free");
             assertTrue(get(c, base + "/changes", null).body().contains("F-0002-teeth"));
             assertTrue(get(c, base + "/jobs", null).body().contains("Nothing is running"));
             var map = get(c, base + "/map?focus=gears", null);

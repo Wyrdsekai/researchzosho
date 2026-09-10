@@ -63,6 +63,10 @@ public final class Setup {
         default boolean haveDocker() { return false; }
         /** Start SearXNG through docker on {@code port}; the address, or "!reason". */
         default String startSearxng(int port) { return "!docker is not on this machine"; }
+        /** Start the embeddings server through docker on {@code port}; the address, or "!reason". */
+        default String startEmbed(int port) { return "!docker is not on this machine"; }
+        /** Whether docker here can run the GPU embeddings image (an NVIDIA card and its container runtime). */
+        default boolean embedGpu() { return false; }
     }
 
     /** The programs that can be registered from the command line: their command, their name, and how they take an MCP server. */
@@ -147,6 +151,8 @@ public final class Setup {
             }
             @Override public boolean haveDocker() { return Searx.haveDocker(); }
             @Override public String startSearxng(int port) { return Searx.start(port); }
+            @Override public String startEmbed(int port) { return Embed.start(port, false); }
+            @Override public boolean embedGpu() { return Embed.gpu(); }
             @Override public boolean haveClaude() { return have("claude"); }
             @Override public String claudeMcpAdd(List<String> args) throws Exception { return register("claude", args); }
             @Override public boolean have(String command) {
@@ -188,6 +194,13 @@ public final class Setup {
         if (line == null) return dflt == null ? "" : dflt;
         line = line.strip();
         return line.isEmpty() ? (dflt == null ? "" : dflt) : line;
+    }
+
+    /** The fallback of the embeddings step: an address the person has, or words only. */
+    private void askEmbedAddress(String key) throws IOException {
+        String typed = ask("  An embeddings server lets search work by meaning, not just by words. Address? (or leave blank for words only)", "");
+        if (!typed.isBlank() && probe.embeds(typed, key)) { Config.set("RESEARCHZOSHO_EMBED", typed); out.println("  Search by meaning is on."); }
+        else { Config.set("RESEARCHZOSHO_EMBED", "off"); out.println("  Search is by words. `researchzosho embed start` starts a server with Docker later, or run setup again with an address."); }
     }
 
     boolean yesNo(String question, boolean dflt) throws IOException {
@@ -320,9 +333,18 @@ public final class Setup {
             out.println("  Search by meaning is on: embeddings at " + embed + ".");
             Config.set("RESEARCHZOSHO_EMBED", embed);
         } else {
-            String typed = ask("  An embeddings server lets search work by meaning, not just by words. Address? (or leave blank for words only)", "");
-            if (!typed.isBlank() && probe.embeds(typed, key)) { Config.set("RESEARCHZOSHO_EMBED", typed); out.println("  Search by meaning is on."); }
-            else { Config.set("RESEARCHZOSHO_EMBED", "off"); out.println("  Search is by words. Run setup again if you add an embeddings server later."); }
+            // one already started this way answers on its port; else Docker can start one; else an address, or words only
+            String own = "http://127.0.0.1:" + Embed.DEFAULT_PORT;
+            if (probe.embeds(own, key)) {
+                Config.set("RESEARCHZOSHO_EMBED", own); out.println("  Search by meaning is on: the embeddings server started with Docker answers at " + own + ".");
+            } else if (acts.haveDocker() && acts.embedGpu() && yesNo("  Start an embeddings server with Docker on your GPU, so search works by meaning as well as by words? (the model downloads once, about 1.2 GB)", true)) {
+                out.print("  Starting it… "); out.flush();
+                String r = acts.startEmbed(Embed.DEFAULT_PORT);
+                if (r.startsWith("!")) { out.println("no: " + r.substring(1)); askEmbedAddress(key); }
+                else { Config.set("RESEARCHZOSHO_EMBED", r); out.println("it answers at " + r + ". Search by meaning is on."); }
+            } else {
+                askEmbedAddress(key);
+            }
         }
         out.println();
 

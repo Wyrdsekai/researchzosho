@@ -152,6 +152,11 @@ public final class Researcher {
     private final java.util.Set<String> laneRan = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Tools tools;
     private final Consumer<String> log;
+    /** Set by the daemon for a job: true when a person asked for the run to stop; checked before every turn, on every worker. */
+    private volatile java.util.function.BooleanSupplier stopWhen = () -> false;
+    public void stopWhen(java.util.function.BooleanSupplier s) { this.stopWhen = s == null ? () -> false : s; }
+    /** Thrown at a turn boundary when the run was stopped; carries no evidence, the job ledger says who stopped it. */
+    public static final class Stopped extends RuntimeException { public Stopped() { super("stopped by the person"); } }
     private final int workers;
     private final LibraryStore store;   // for the cite-check's raw captures and independence clusters; null in a bare unit test
     private final List<String> unaffordableFromPlan = java.util.Collections.synchronizedList(new ArrayList<>());
@@ -271,7 +276,7 @@ public final class Researcher {
         var inv = Acquisitions.admit(store, new LibrarianIndex(store), ask.question(), answer, writer, r.evidence());
         if (!r.openQuestions().isEmpty()) {
             store.write(new Investigation(inv.id(), inv.title(), inv.state(), inv.writer(), inv.recordedAt(), inv.findings(), r.openQuestions(), inv.body()));
-            for (String q : r.openQuestions()) store.frontier("gap", Acquisitions.compress(q, 200) + " (left open by " + inv.id() + ")");
+            Frontier.fromReport(store, inv.id(), r.openQuestions());   // once; parked unless RESEARCHZOSHO_REPORT_QUESTIONS=queued
         }
         return new Filed(inv.id(), "", r);
     }
@@ -551,6 +556,7 @@ public final class Researcher {
                         out.add(found);
                     }
                 } catch (Exception e) {
+                    if (e.getCause() instanceof Stopped s) throw s;
                     out.add("SUB-QUESTION: " + open.get(i) + "\nSUMMARY: unavailable (worker "
                             + (e instanceof java.util.concurrent.TimeoutException ? "timed out" : "failed: " + e.getMessage()) + ")");
                     log.accept("worker: " + Acquisitions.compress(open.get(i), 60) + " — " + e.getClass().getSimpleName());
@@ -626,6 +632,8 @@ public final class Researcher {
             try {
                 turnsRun++;
                 assistant = chat(history, deadline ? (closingNote ? noteAndDone : onlyDone) : all, outBudget(history, nctx));
+            } catch (Stopped e) {
+                throw e;   // a person stopped the run: out of the worker, out of the round, out of the run
             } catch (Exception e) {
                 log.accept("worker: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                 break;
@@ -845,6 +853,8 @@ public final class Researcher {
             trimHistory(history, nctx);
             try {
                 assistant = chat(history, deadline ? onlyDone : all, outBudget(history, nctx));
+            } catch (Stopped e) {
+                throw e;
             } catch (Exception e) {
                 log.accept("synthesis: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                 break;
@@ -1108,6 +1118,7 @@ public final class Researcher {
      * not retried: it is the drive's answer, not the wire's.
      */
     private ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens) {
+        if (stopWhen.getAsBoolean()) { log.accept("stopped: a person stopped this run; ending at this turn"); throw new Stopped(); }
         ResearchSettings.awaitUnpaused(log);
         try { throttle.enter(workersNow()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("interrupted"); }
         long t0 = System.currentTimeMillis();

@@ -26,7 +26,7 @@ public final class McpServer {
     private static final ObjectMapper M = new ObjectMapper();
     private static final String PROTOCOL_VERSION = "2024-11-05";
     public static final String SERVER_NAME = "researchzosho";
-    public static final String SERVER_VERSION = "0.1.1";
+    public static final String SERVER_VERSION = "0.1.2";
 
     private McpServer() { }
 
@@ -189,10 +189,51 @@ public final class McpServer {
                         prop("triple", "object", "Optional {subject, predicate, object}: the claim as an edge of the graph (library_map). Without it the nightly triples crew derives one."),
                         patronProp())));
         tools.add(tool("library_frontier",
-                "The open questions — op=list returns them; op=add files a gap attributed to the patron (write access).",
+                "The queue of open questions the housekeeping's explorer researches a few of each night — op=list returns them in queue order with type, parked, position, tonight, "
+                + "the report that left each (report, report_title, report_fate: kept | waiting | disputed | retired | none), perspective, subjects, language, and similar (the head of a group that reads alike); "
+                + "list takes filters: type, show (queued | parked | all, default all), report (an id or its prefix), fate, who (perspective text), subject, language, q (words); hints=true adds answered {id, title, state} where a claim on the shelves already answers a question. "
+                + "op=add queues one attributed to the patron; op=next moves one to the head; op=later to the tail; op=park keeps one out of the explorer's reach; op=unpark returns it; "
+                + "op=drop closes one without researching it; op=tidy removes duplicate lines (write access). A report's leftover questions are filed parked.",
                 schema(new String[]{},
-                        prop("op", "string", "list (default) | add."),
-                        prop("question", "string", "For add: the open question."),
+                        prop("op", "string", "list (default) | add | next | later | park | unpark | drop | tidy."),
+                        prop("question", "string", "For add, next, later, park, unpark, drop: the question, exactly as listed."),
+                        prop("type", "string", "For list: report | asked | person | dispute | check."),
+                        prop("show", "string", "For list: queued | parked | all (default all)."),
+                        prop("report", "string", "For list: only questions left by this investigation (an id, or its prefix such as I-0016)."),
+                        prop("fate", "string", "For list: kept | waiting | disputed | retired | none — what became of the report that left the question."),
+                        prop("who", "string", "For list: the perspective the question was asked from, matched as text."),
+                        prop("subject", "string", "For list: a subject slug."),
+                        prop("language", "string", "For list: english, japanese, … — the language a question is in or asks for."),
+                        prop("q", "string", "For list: words that must all appear in the question."),
+                        prop("hints", "boolean", "For list: look each question up on the shelves and add answered when a claim already answers it."),
+                        patronProp())));
+        tools.add(tool("library_inbox",
+                "The claims waiting for the keeper's decision — drafts, and accepted claims whose review went stale — and the decisions. op=list returns items[] {id, title, state, stale, kind, tier, confidence, writer, date, subjects, language, sources, report, report_title}, "
+                + "oldest first, with filters report (an investigation id or its prefix), subject, kind (extraction | synthesis | interpretation | speculation), tier, confidence, writer, state (draft | stale), language, q (words in the title). "
+                + "op=accept puts claims into every answer from now on; op=dispute files why; op=retire keeps them on disk and out of every answer — each takes ids[] (or id), or report for every waiting claim of one investigation (write access).",
+                schema(new String[]{},
+                        prop("op", "string", "list (default) | accept | dispute | retire."),
+                        arrayProp("ids", "For accept, dispute, retire: the claim ids."),
+                        prop("id", "string", "One claim id, instead of ids."),
+                        prop("report", "string", "For list: only claims from this investigation; for a decision: every waiting claim of it."),
+                        prop("why", "string", "For dispute: the reason (required)."),
+                        prop("subject", "string", "For list: a subject slug."),
+                        prop("kind", "string", "For list: the claim type."),
+                        prop("tier", "string", "For list: the strongest source's tier."),
+                        prop("confidence", "string", "For list: low | medium | high."),
+                        prop("writer", "string", "For list: who wrote the claim, matched as text (crew:explorer, person, …)."),
+                        prop("state", "string", "For list: draft | stale."),
+                        prop("language", "string", "For list: the language of the claim's title."),
+                        prop("q", "string", "For list: words that must all appear in the title."),
+                        patronProp())));
+        tools.add(tool("library_serials",
+                "The searches the housekeeping keeps running on a cadence and reports what is new from — op=list (each with parked and due); op=add {name, query, every_days} keeps one; "
+                + "op=every {name, every_days} changes its cadence; op=park {name} keeps it without running it, op=unpark {name} puts it back in the rotation; op=remove {name} stops keeping it (write access).",
+                schema(new String[]{},
+                        prop("op", "string", "list (default) | add | every | park | unpark | remove."),
+                        prop("name", "string", "A short name for the search (letters, digits, dashes)."),
+                        prop("query", "string", "For add: the search query."),
+                        prop("every_days", "integer", "For add: how often to re-run it (default 7)."),
                         patronProp())));
         tools.add(tool("library_subjects",
                 "The controlled vocabulary: {id, label, broader, narrower[], count}. Facets (the part before '--') "
@@ -249,10 +290,12 @@ public final class McpServer {
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
                         patronProp())));
         tools.add(tool("library_job",
-                "One job from the ledger ({job}: state queued|running|done|failed, elapsed_s, result when finished), or "
-                + "your jobs ({jobs[]}) when job_id is omitted.",
+                "One job from the ledger ({job}: state queued|running|done|failed|stopped, elapsed_s, result when finished), or "
+                + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends at its next turn. "
+                + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access).",
                 schema(new String[]{},
-                        prop("job_id", "string", "The job to read, e.g. J-0007."),
+                        prop("op", "string", "read (default) | stop | pause | resume."),
+                        prop("job_id", "string", "The job to read or stop, e.g. J-0007."),
                         patronProp())));
         tools.add(tool("library_status",
                 "library_id, library_name, contract, counts by kind and state, last_updated.",
@@ -320,6 +363,8 @@ public final class McpServer {
             case "library_established" -> p.established(args);
             case "library_submit" -> p.submit(args);
             case "library_frontier" -> p.frontier(args);
+            case "library_inbox" -> p.inbox(args);
+            case "library_serials" -> p.serials(args);
             case "library_subjects" -> p.subjects(args);
             case "library_status" -> p.status(args);
             case "library_changes" -> p.changes(args);

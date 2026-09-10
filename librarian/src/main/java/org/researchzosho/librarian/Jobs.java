@@ -308,6 +308,36 @@ public final class Jobs {
 
     public void pickUp() { pickUpFiled(); }
 
+    /** The marker a stop request leaves for a running job; the runner reads it between turns, so a CLI or a page can stop a daemon's run. */
+    Path stopMarker(String id) { return activeDir().resolve(id + ".stop"); }
+
+    /** Whether a stop was asked for {@code id}. */
+    public boolean stopRequested(String id) { return Files.exists(stopMarker(id)); }
+
+    /**
+     * Stop a job. A queued one is finished at once as {@code stopped}; a running one gets the marker and ends at its next
+     * turn (its worker threads share the check). Returns the state it is in now: stopped, stopping, or null when no such
+     * job is active.
+     */
+    public synchronized String stop(String id, String who) throws IOException {
+        ObjectNode j = get(id);
+        if (j == null) return null;
+        String st = j.path("state").asText();
+        if ("queued".equals(st)) {
+            queue.remove(id);
+            j.put("state", "stopped"); j.put("result", "stopped by " + who + " before it started"); j.put("is_error", false);
+            j.put("ended_at", Instant.now().toString());
+            finish(j);
+            return "stopped";
+        }
+        if ("running".equals(st)) {
+            Files.createDirectories(activeDir());
+            Files.writeString(stopMarker(id), who + " " + Instant.now() + "\n", StandardCharsets.UTF_8);
+            return "stopping";
+        }
+        return null;
+    }
+
     private synchronized void pickUpFiled() {
         try {
             migrate();
@@ -350,6 +380,12 @@ public final class Jobs {
                         if (queue.size() > 1) wait = held ? 5_000 : 0;   // something else to do: no wait — unless it is all held asks
                         j = null;
                     }
+                    if (j != null && stopRequested(id)) {   // stopped while it waited: never starts
+                        Files.deleteIfExists(stopMarker(id));
+                        j.put("state", "stopped"); j.put("result", "stopped before it started"); j.put("is_error", false); j.put("ended_at", Instant.now().toString());
+                        finish(j); j = null; wait = 0;
+                        if (queue.isEmpty()) continue;
+                    }
                     if (j != null) {
                         j.put("state", "running"); j.put("started_at", Instant.now().toString());
                         if (!drive.isEmpty()) j.put("drive", drive);
@@ -370,8 +406,10 @@ public final class Jobs {
                 // 2026-09-03 — the worker thread died on the null and took the queue with it)
                 ObjectNode after = get(id);
                 if (after != null) j = after;
-                j.put("state", error ? "failed" : "done"); j.put("result", result == null ? "" : result);
-                j.put("is_error", error); j.put("ended_at", Instant.now().toString());
+                boolean stopped = stopRequested(id);
+                Files.deleteIfExists(stopMarker(id));
+                j.put("state", stopped ? "stopped" : error ? "failed" : "done"); j.put("result", stopped ? "stopped by the person at a turn" + (result == null || result.isBlank() ? "" : " — " + result) : result == null ? "" : result);
+                j.put("is_error", error && !stopped); j.put("ended_at", Instant.now().toString());
                 finish(j);
             } catch (InterruptedException e) {
                 return;

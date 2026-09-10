@@ -459,8 +459,48 @@ public final class LibrarianIndex {
                 }
             }
         }
+        n += dropGone();
         stamp(now);
         return n;
+    }
+
+    /**
+     * Forget entries whose files are gone: a claim or write-up removed by hand, a raw capture deleted. Part of every
+     * refresh, so a file-level edit reaches the search without the full rebuild (20 minutes on the live shelf, all of it
+     * waiting on the embedder). Chunks go with their parent. Returns how many entries were dropped.
+     */
+    synchronized int dropGone() throws IOException {
+        int gone = 0;
+        try (Directory dir = FSDirectory.open(store.luceneDir())) {
+            if (!DirectoryReader.indexExists(dir)) return 0;
+            List<String> missing = new ArrayList<>();
+            try (DirectoryReader r = DirectoryReader.open(dir)) {
+                var ids = org.apache.lucene.index.MultiTerms.getTerms(r, F_ID);
+                if (ids != null) {
+                    var te = ids.iterator();
+                    for (org.apache.lucene.util.BytesRef b = te.next(); b != null; b = te.next()) {
+                        String id = b.utf8ToString();
+                        if (id.contains("#")) continue;   // a chunk: its parent decides
+                        if (!fileFor(id)) missing.add(id);
+                    }
+                }
+            }
+            if (missing.isEmpty()) return 0;
+            try (IndexWriter w = openWriter(dir, analyzer)) {
+                for (String id : missing) { w.deleteDocuments(new Term(F_ID, id), new Term(F_PARENT, id)); gone++; }
+            }
+        }
+        return gone;
+    }
+
+    /** Whether the file an index entry came from is still there. */
+    private boolean fileFor(String id) {
+        Path p;
+        if (id.startsWith("F-")) p = store.findingsDir().resolve(id + ".md");
+        else if (id.startsWith("I-")) p = store.investigationsDir().resolve(id + ".md");
+        else if (id.startsWith("A-")) p = store.articlesDir().resolve(id + ".md");
+        else p = store.rawDir().resolve(id);
+        return Files.exists(p);
     }
 
     public synchronized int rebuild() throws IOException {

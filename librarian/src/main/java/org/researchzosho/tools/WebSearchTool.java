@@ -109,7 +109,7 @@ public final class WebSearchTool implements Tool {
         if (rows.size() > half) rows = new ArrayList<>(rows.subList(0, half));   // leave room for the papers
         for (ScholarSearch.Row r : ScholarSearch.merged(query, limit)) rows.add(new String[]{r.title(), r.url(), r.snippet()});
         if (rows.isEmpty()) return null;
-        StringBuilder sb = new StringBuilder("results for \"" + query + "\" (built-in fallback: Wikipedia, then papers from Crossref and OpenAlex — follow the pages' references for primary sources):\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
+        StringBuilder sb = new StringBuilder("results for \"" + query + "\" (built-in fallback: Wikipedia, then papers from Crossref and OpenAlex: follow the pages' references for primary sources):\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
         int shown = 0, refused = 0;
         var rules = org.researchzosho.librarian.SourceRules.live();
         for (String[] r : rows) {
@@ -274,7 +274,7 @@ public final class WebSearchTool implements Tool {
         if (brave != null) {
             if (!sweepNoted && looksBatched(query)) {
                 sweepNoted = true;
-                brave += "\nNOTE: this query names several distinct items at once — engines require ALL "
+                brave += "\nNOTE: this query names several distinct items at once: engines require ALL "
                         + "terms, so batched queries surface homepages, not data. Search for ONE page "
                         + "listing all the items (\"list of …\" / \"comparison of …\"), or query ONE "
                         + "item at a time.";
@@ -329,7 +329,7 @@ public final class WebSearchTool implements Tool {
             String down = degradedEngines(body);
             if (!down.isEmpty()) {
                 DEGRADED_EVENTS.incrementAndGet();
-                return "SEARCH BACKEND DEGRADED — no results came back because the upstream engines are "
+                return "SEARCH BACKEND DEGRADED: no results came back because the upstream engines are "
                         + "currently rate-limited or blocked (" + down + "). This is a TRANSIENT infrastructure "
                         + "problem, not evidence that the information does not exist: do NOT conclude the answer "
                         + "is unavailable and do NOT answer from memory. Try a different phrasing, or fetch a "
@@ -355,7 +355,7 @@ public final class WebSearchTool implements Tool {
         if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
         if (!sweepNoted && looksBatched(query)) {
             sweepNoted = true;
-            sb.append("\nNOTE: this query names several distinct items at once — engines require ALL terms, "
+            sb.append("\nNOTE: this query names several distinct items at once: engines require ALL terms, "
                     + "so batched queries surface homepages, not data. Search for ONE page listing all the "
                     + "items (\"list of …\" / \"comparison of …\"), or query ONE item at a time.");
         }

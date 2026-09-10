@@ -218,9 +218,23 @@ public final class Vault {
             .append("Editing a note here changes nothing in the library. To accept, dispute or retire a claim, use the inbox (`researchzosho inbox`) ")
             .append("or the editor's agent panel connected to the library over MCP. Your own notes in this folder are left alone.\n\n")
             .append("- [[Inbox]] — ").append(drafts).append(" draft, ").append(disputed).append(" disputed\n")
+            .append("- [[Housekeeping]] — the searches kept up to date and the open questions the explorer draws from\n")
             .append("- Findings: ").append(findings.size()).append(" · Investigations: ").append(investigations.size()).append(" · Sources: ").append(sourceNoteByLocator.size()).append(" · Subjects: ").append(bySubject.size()).append('\n')
             .append("- Folders: `Findings/`, `Investigations/`, `Sources/`, `Subjects/`, `Things/` (people, places, works and the rest, with what connects them)\n");
         notes.put("Home.md", home.toString());
+        // what the housekeeping keeps running, and the questions it draws from: a read-only view of two catalog files
+        StringBuilder hk = new StringBuilder("---\n"); kv(hk, "type", "housekeeping"); kv(hk, "title", "Housekeeping");
+        hk.append("---\n# Housekeeping\n\nWhat runs on its own each night. To change it, edit the library's own files (plain markdown, one line each), ")
+          .append("or use `researchzosho shelf add|every|park|unpark|remove` and `researchzosho questions add|next|later|park|unpark|drop|budget|tonight`, the Open questions page, or the library's MCP tools.\n\n")
+          .append("## Searches kept up to date\n\n`").append(store.root().resolve("catalog").resolve("shelves.md")).append("` — one line each: `- name | query | every N days | last YYYY-MM-DD [| parked]`\n\n");
+        List<Serials.Shelf> kept = Serials.shelves(store);
+        if (kept.isEmpty()) hk.append("- none yet\n");
+        for (Serials.Shelf s : kept) hk.append("- ").append(s.parked() ? "*(parked)* " : "").append("**").append(s.slug()).append("**: ").append(s.query()).append(" (every ").append(s.everyDays()).append(" days, last ").append(s.lastChecked()).append(")\n");
+        hk.append("\n## Open questions\n\n`").append(store.frontierFile()).append("` — one line each: `- YYYY-MM-DD [kind] question`; a line ending `⇒ explored …` is closed\n\n");
+        int shown = 0;
+        try { for (Frontier.Line l : Frontier.read(store)) if (l.open()) { hk.append("- ").append(l.parked() ? "*(parked)* " : "").append("`").append(l.type()).append("` ").append(l.text()).append(!l.parked() && !l.researchable() ? " *(waits: " + (l.type().equals("asked") ? "asked once" : "a type the explorer leaves to you") + ")*" : "").append("\n"); shown++; } } catch (IOException ignored) { }
+        if (shown == 0) hk.append("- none\n");
+        notes.put("Housekeeping.md", hk.toString());
         StringBuilder inbox = new StringBuilder("---\n"); kv(inbox, "type", "inbox"); kv(inbox, "title", "Inbox");
         inbox.append("---\n# Inbox\n\nWaiting for your decision. Decide at the command line: `researchzosho accept <id>` · `dispute <id> <why>` · `retire <id>`.\n\n## Drafts\n\n");
         for (Finding f : findings) if (f.state() == Finding.State.draft) inbox.append("- [[Findings/").append(f.id()).append("|").append(f.title()).append("]]\n");

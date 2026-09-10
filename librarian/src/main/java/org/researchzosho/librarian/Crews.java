@@ -35,28 +35,45 @@ public final class Crews {
 
     public record Step(String name, String outcome, long ms) { }
 
-    /** How the explorer researches one open question: returns the investigation id, or null when refused. */
-    public interface Researcher { String research(String question, String writer) throws Exception; }
+    /** How the explorer researches one open question, or a bundle of related ones: returns the investigation id, or null when refused. */
+    public interface Researcher {
+        String research(String question, String writer) throws Exception;
+        /** A bundle: one run whose workers take {@code subQuestions} (the head question first); by default the head alone. */
+        default String research(String question, List<String> subQuestions, String writer) throws Exception { return research(question, writer); }
+    }
 
     /** The real one: the library's own runner on the drive, submitted through the acquisitions gate. */
     public static Researcher driveResearcher(LibraryStore store, String driveUrl, String model, int maxTurns) {
-        return (question, writer) -> {
-            var runner = new org.researchzosho.librarian.Researcher(
-                    org.researchzosho.librarian.Researcher.drive(driveUrl, model),
-                    org.researchzosho.librarian.Researcher.judgeDrive(driveUrl, model),
-                    org.researchzosho.librarian.Researcher.webTools(), line -> log(store, "explorer", line, 0), store);
-            var ask = new org.researchzosho.librarian.Researcher.Ask(question, "broad", maxTurns, List.of());
-            return org.researchzosho.librarian.Researcher.file(store, runner, ask, writer).investigationId();
+        return new Researcher() {
+            @Override public String research(String question, String writer) throws Exception { return research(question, List.of(), writer); }
+            @Override public String research(String question, List<String> subQuestions, String writer) throws Exception {
+                var runner = new org.researchzosho.librarian.Researcher(
+                        org.researchzosho.librarian.Researcher.drive(driveUrl, model),
+                        org.researchzosho.librarian.Researcher.judgeDrive(driveUrl, model),
+                        org.researchzosho.librarian.Researcher.webTools(), line -> log(store, "explorer", line, 0), store);
+                var ask = new org.researchzosho.librarian.Researcher.Ask(question, "broad", maxTurns, subQuestions, "both", List.of(), explorerMinutes());
+                return org.researchzosho.librarian.Researcher.file(store, runner, ask, writer).investigationId();
+            }
         };
     }
 
-    /** Open questions researched per night; 0 turns the explorer off. */
-    static final int EXPLORER_PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_PER_NIGHT", 2);
+    /** Open questions (bundles) researched per night, read when the run starts so a change applies tonight; 0 turns the explorer off. */
+    public static int explorerPerNight() { return org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_PER_NIGHT", 2); }
+    /** A one-night override: {@code explorer.tonight} in the config file, used once and cleared. 0 = none. */
+    public static int explorerTonight() { return org.researchzosho.Config.getInt("explorer.tonight", 0); }
+    /** What the next run will take: the override when set, else the standing number. */
+    public static int explorerBudget() { int t = explorerTonight(); return t > 0 ? t : explorerPerNight(); }
+    static void clearTonight() { try { if (explorerTonight() > 0) org.researchzosho.Config.set("explorer.tonight", "0"); } catch (Exception ignored) { } }
+    static final int EXPLORER_PER_NIGHT = explorerPerNight();
     static final int EXPLORER_TURNS = org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_TURNS", 30);
+    /** A wall-clock ceiling per explorer run in minutes; 0 = none. */
+    public static int explorerMinutes() { return org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_MINUTES", 0); }
+    /** The most questions one bundle carries: the head and up to this many related ones (the runner takes 8 sub-questions). */
+    static final int BUNDLE_MAX = 8;
 
     /** Run every crew once, now. Returns what each step did. */
     public static List<Step> runAll(LibraryStore store, String driveUrl, String model) {
-        return runAll(store, driveUrl, model, driveResearcher(store, driveUrl, model, EXPLORER_TURNS), EXPLORER_PER_NIGHT);
+        return runAll(store, driveUrl, model, driveResearcher(store, driveUrl, model, EXPLORER_TURNS), explorerBudget());
     }
 
     /** Which extra cadences tonight carries: weekly on {@code RESEARCHZOSHO_CREWS_WEEKLY_DAY} (7 = Sunday), monthly on day 1. */
@@ -156,23 +173,56 @@ public final class Crews {
      * The explorer: research the oldest open [demand]/[gap] questions, at most {@code perNight},
      * and mark each explored with what it produced. Today's gap is tomorrow's shelf.
      */
-    static String explore(LibraryStore store, Researcher researcher, int perNight) throws Exception {
-        if (perNight <= 0) return "off (RESEARCHZOSHO_EXPLORER_PER_NIGHT=0)";
-        List<Frontier.Line> open = new ArrayList<>();
-        for (Frontier.Line l : Frontier.read(store)) if (l.researchable()) open.add(l);
-        if (open.isEmpty()) return "nothing open on the frontier";
-        int done = 0, admitted = 0;
-        StringBuilder sb = new StringBuilder();
-        for (Frontier.Line l : open) {
-            if (done >= perNight) break;
-            String id;
-            try { id = researcher.research(l.text(), "crew:explorer"); }
-            catch (Exception e) { id = null; sb.append(" [").append(Acquisitions.compress(l.text(), 40)).append(": ").append(e.getMessage()).append("]"); }
-            Frontier.markExplored(store, l.text(), id == null ? "(refused at intake)" : id);
-            done++;
-            if (id != null) { admitted++; sb.append(' ').append(id); }
+    /** A bundle: the head question and the related open questions that ride along in the same run. */
+    public record Bundle(Frontier.Line head, List<Frontier.Line> more) {
+        public List<Frontier.Line> all() { List<Frontier.Line> l = new ArrayList<>(); l.add(head); l.addAll(more); return l; }
+        /** The run's question: the head, without the note a report appended. */
+        public String question() { return Frontier.strip(head.text()); }
+        public List<String> subQuestions() { List<String> s = new ArrayList<>(); for (Frontier.Line l : all()) s.add(Frontier.strip(l.text())); return s; }
+    }
+
+    /**
+     * The explorer's plan for {@code perNight} runs: the queue in file order, each head gathering the related questions
+     * behind it (the same report left them open, or their terms overlap), up to {@link #BUNDLE_MAX} in a run. Bundled
+     * questions leave the queue with their head, so one run answers several instead of each getting a thin one.
+     */
+    public static List<Bundle> plan(List<Frontier.Line> open, int perNight) {
+        List<Bundle> out = new ArrayList<>();
+        List<Frontier.Line> left = new ArrayList<>(open);
+        while (!left.isEmpty() && out.size() < perNight) {
+            Frontier.Line head = left.remove(0);
+            List<Frontier.Line> more = new ArrayList<>();
+            for (var it = left.iterator(); it.hasNext() && more.size() < BUNDLE_MAX - 1; ) {
+                Frontier.Line l = it.next();
+                if (Frontier.related(head, l)) { more.add(l); it.remove(); }
+            }
+            out.add(new Bundle(head, more));
         }
-        return done + " explored, " + admitted + " admitted:" + sb + (open.size() > done ? " (" + (open.size() - done) + " still open)" : "");
+        return out;
+    }
+
+    static String explore(LibraryStore store, Researcher researcher, int perNight) throws Exception {
+        try {
+            if (perNight <= 0) return "off (RESEARCHZOSHO_EXPLORER_PER_NIGHT=0)";
+            List<Frontier.Line> open = new ArrayList<>();
+            for (Frontier.Line l : Frontier.read(store)) if (l.researchable()) open.add(l);
+            if (open.isEmpty()) return "nothing open on the frontier";
+            List<Bundle> bundles = plan(open, perNight);
+            int done = 0, admitted = 0, questions = 0;
+            StringBuilder sb = new StringBuilder();
+            for (Bundle b : bundles) {
+                String id;
+                try { id = b.more().isEmpty() ? researcher.research(b.question(), "crew:explorer") : researcher.research(b.question(), b.subQuestions(), "crew:explorer"); }
+                catch (Exception e) { id = null; sb.append(" [").append(Acquisitions.compress(b.question(), 40)).append(": ").append(e.getMessage()).append("]"); }
+                for (Frontier.Line l : b.all()) Frontier.markExplored(store, l.text(), id == null ? "(refused at intake)" : id);
+                done++; questions += b.all().size();
+                if (id != null) { admitted++; sb.append(' ').append(id).append(b.more().isEmpty() ? "" : " (" + b.all().size() + " questions in one run)"); }
+            }
+            int stillOpen = open.size() - questions;
+            return done + " run(s) for " + questions + " question(s), " + admitted + " admitted:" + sb + (stillOpen > 0 ? " (" + stillOpen + " still open)" : "");
+        } finally {
+            clearTonight();   // a one-night override is spent whether the run went well or not
+        }
     }
 
     interface Work { String run() throws Exception; }
@@ -224,7 +274,10 @@ public final class Crews {
     }
 
     /** The nightly scheduler thread; daemon, so it never keeps a JVM alive. {@code fire} runs (or enqueues) the crews. */
-    public static Thread nightly(LibraryStore store, int hour, Runnable fire) {
+    public static Thread nightly(LibraryStore store, int hour, Runnable fire) { return nightly(store, hour, fire, () -> true); }
+
+    /** As above; {@code idle} says whether no run is active, which is when the auto-update may swap the program. */
+    public static Thread nightly(LibraryStore store, int hour, Runnable fire, java.util.function.BooleanSupplier idle) {
         Thread t = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
@@ -232,6 +285,8 @@ public final class Crews {
                     log(store, "nightly", "begin (" + LocalDateTime.now().withNano(0) + ")", 0);
                     Service.rotate(org.researchzosho.Config.home().resolve("logs").resolve("librarian-serve.log"), 20L * 1024 * 1024);
                     fire.run();
+                    // the quiet moment: the housekeeping is done; in auto mode a newer release is swapped in and the service restarts
+                    try { Updater.maybeAuto(store, idle.getAsBoolean()); } catch (Throwable e) { log(store, "update", "FAILED: " + e, 0); }
                 } catch (InterruptedException e) {
                     return;
                 } catch (Throwable e) {
