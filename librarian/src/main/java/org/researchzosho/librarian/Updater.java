@@ -31,7 +31,8 @@ public final class Updater {
     private Updater() { }
 
     public static final String REPO = "Wyrdsekai/researchzosho";
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
+            .followRedirects(HttpClient.Redirect.NORMAL).build();   // a GitHub release asset is a 302 to its store; without this `update now` said "HTTP 302" (dolores, 2026-09-10)
 
     /** check | auto | off */
     public static String mode() {

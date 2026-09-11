@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+Fixed
+- `researchzosho update now` failed with "HTTP 302": a GitHub release asset is served through a redirect and the downloader did not follow it. The update check was unaffected. On 0.1.2 and 0.1.3, update with the install one-liner instead.
+
 ## 0.1.3
 
 Fixed
