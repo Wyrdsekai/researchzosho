@@ -40,6 +40,7 @@ class LibrarianClientTest {
                 "---\nurl: https://example.org/hosaka2016\ntitle: Hosaka 2016\nfetched_at: 2026-09-01T10:00:00Z\nfetched_by: test\n---\nThe paper text.\n", StandardCharsets.UTF_8);
         Files.writeString(store.subjectsFile(), "# Subjects\n\n- japanese--keigo — the honorific system\n", StandardCharsets.UTF_8);
         new LibrarianIndex(store).rebuild();
+        Patrons.setDefault(store, Patrons.Level.read);   // a restricted library: only Household A writes (the shipped default is write)
         Patrons.set(store, "did:key:zW", "Household A", Patrons.Level.write);
         token = Patrons.issueToken(store, "did:key:zW");
         daemon = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
