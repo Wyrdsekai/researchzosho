@@ -234,6 +234,9 @@ public final class Setup {
             store.init();
             out.println("  Made a new library at " + libPath + ".");
         }
+        String currentName = store.identity().name();
+        String name = ask("  What is this library called? (shown on its pages and to programs)", currentName);
+        if (!name.strip().equals(currentName)) { store.setName(name); out.println("  Named " + name.strip() + "."); }
         out.println();
 
         // 2. the model

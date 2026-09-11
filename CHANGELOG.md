@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.5
+
+Changed
+- Programs are open as shipped, like the pages: a caller not on the access list can read, ask, file runs and submit claims. Before, an unlisted program could only read, so a Claude Code registered by hand was refused when it filed a run. `researchzosho reader default read` or `deny` restricts; `reader allow <did> write <name>` lets a named program through.
+
+Added
+- The library has a name of its own: setup asks for it, `researchzosho name <a name>` changes it, and it is the `name:` line of `catalog/library.md`. The pages and `library_name` show it. Until set, the folder's name is used, as before.
+
+Fixed
+- The Runs page and the home page said "Nothing is running" while a run filed by a program (Claude Code, the chat) was going: the browser saw only runs filed from the browser. It sees every run now.
+- With `web signin on`, a browser that had not signed in could still send questions when the default level allowed writing. It now reads at most until it signs in.
+
 ## 0.1.4
 
 Fixed

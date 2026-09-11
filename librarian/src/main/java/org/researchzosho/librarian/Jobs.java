@@ -460,6 +460,9 @@ public final class Jobs {
     /** A patron may see its own jobs and the crews'. */
     public static boolean visibleTo(Patrons.Patron patron, ObjectNode j) {
         String owner = j.path("patron").asText();
-        return patron.anonymous() || patron.person() || owner.isEmpty() || patron.did().equals(owner);
+        // the person, an anonymous caller and someone in the browser see every run; a named program sees its own.
+        // The browser used to see only runs filed from the browser: the Runs page said "Nothing is running" while
+        // a program's run had been going for half an hour (2026-09-11)
+        return patron.anonymous() || patron.person() || patron.web() || owner.isEmpty() || patron.did().equals(owner);
     }
 }

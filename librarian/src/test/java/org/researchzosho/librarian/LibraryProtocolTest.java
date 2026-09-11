@@ -150,9 +150,11 @@ class LibraryProtocolTest {
 
     @Test
     void submitNeedsSourcesAndWriteAccess(@TempDir Path tmp) throws Exception {
-        var p = new LibraryProtocol(shelf(tmp));
+        var store = shelf(tmp);
+        Patrons.setDefault(store, Patrons.Level.read);   // the keeper restricted the library: an unlisted patron reads only
+        var p = new LibraryProtocol(store);
         String patron = "\"patron\":{\"did\":\"did:key:zW\",\"name\":\"W\",\"runtime\":\"wyrdsekai\"}";
-        // default policy is read: a named patron may not write until listed
+        // with the default at read, a named patron may not write until listed
         var fb = assertThrows(ProtocolError.class, () -> p.submit(args("{\"claim\":\"Korean honorifics are handled the same way in subtitles.\",\"sources\":[\"https://example.org/k\"]," + patron + "}")));
         assertEquals("forbidden", fb.code);
         Patrons.set(p.store(), "did:key:zW", "W", Patrons.Level.write);
@@ -235,5 +237,13 @@ class LibraryProtocolTest {
         assertTrue(text.contains("Keigo has no direct English equivalent"));
         assertEquals("not_found", assertThrows(ProtocolError.class, () -> p.resourcesRead("finding://F-0000-x")).code);
         assertEquals(3, p.resourceTemplates().get("resourceTemplates").size());
+    }
+
+    @Test
+    void asShippedAnUnlistedProgramMayWrite(@TempDir Path tmp) throws Exception {
+        var p = new LibraryProtocol(shelf(tmp));
+        String patron = "\"patron\":{\"did\":\"did:key:zNew\",\"name\":\"a program registered by hand\",\"runtime\":\"claude\"}";
+        var r = p.frontier(args("{\"op\":\"add\",\"question\":\"What did the Antikythera gear cutters use for the tooth profiles?\"," + patron + "}"));
+        assertTrue(r.path("filed").asBoolean(), "open as shipped: the pages and programs alike: " + r);
     }
 }

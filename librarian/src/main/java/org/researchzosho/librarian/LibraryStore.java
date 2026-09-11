@@ -118,6 +118,22 @@ public final class LibraryStore {
         return new Identity(id, name);
     }
 
+    /**
+     * Name the library: the {@code name:} line of {@code catalog/library.md}, which the pages, the status and every
+     * protocol answer show as {@code library_name}. Without one the name is the folder's, and a folder made before the
+     * split was called codezaiku-library, which read as a product label on the pages (2026-09-11). Blank = the folder.
+     */
+    public synchronized void setName(String name) throws IOException {
+        identity();   // makes sure the file and the id exist
+        Path p = libraryFile();
+        String text = Files.readString(p, StandardCharsets.UTF_8);
+        String clean = name == null ? "" : name.strip().replaceAll("\\s+", " ");
+        String line = clean.isEmpty() ? "" : "name: " + clean + "\n";
+        if (text.matches("(?s).*(?m)^name: .*")) text = text.replaceFirst("(?m)^name: .*\\n?", line);
+        else text = text.replaceFirst("(?m)^(id: .*\\n)", "$1" + line.replace("$", "\\$"));
+        Files.writeString(p, text, StandardCharsets.UTF_8);
+    }
+
     /** Create the tree and seed the catalog files. Idempotent — never touches existing content. */
     public synchronized void init() throws IOException {
         for (Path d : new Path[]{rawDir(), extractsDir(), findingsDir(), investigationsDir(),

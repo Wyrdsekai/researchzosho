@@ -44,6 +44,7 @@ class DirectoryTest {
     @Test
     void publishingNeedsAWriterAndARealAddress(@TempDir Path tmp) throws Exception {
         LibraryStore dir = new LibraryStore(tmp.resolve("dir")); dir.init();
+        Patrons.setDefault(dir, Patrons.Level.read);   // a directory that lists only who it knows
         LibrarianDaemon d = LibrarianDaemon.start(dir, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
         try {
             LibraryStore ours = new LibraryStore(tmp.resolve("ours")); ours.init();

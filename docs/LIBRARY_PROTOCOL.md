@@ -35,7 +35,7 @@ default: read
 
 Three levels, ordered `deny < read < write`. Reading covers ask, search, get, read, established,
 subjects, status and listing the frontier. Writing covers submit and filing a frontier gap. An
-anonymous or unlisted patron gets `default`. Over stdio the did is self-asserted: the list decides
+anonymous or unlisted patron gets `default`, which is `write` as shipped (the keeper may set `read` or `deny`). Over stdio the did is self-asserted: the list decides
 what a *named* patron may do; proving the name is the transport's job and comes with http/sse.
 
 ## 2. Every response carries provenance

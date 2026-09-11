@@ -78,7 +78,7 @@ public final class Patrons {
 
     public static Policy load(LibraryStore store) throws IOException {
         Path p = file(store);
-        Level dflt = Level.read;
+        Level dflt = Level.write;   // open as shipped, like the pages; `researchzosho reader default read|deny` restricts
         List<Entry> listed = new ArrayList<>();
         if (!Files.exists(p)) return new Policy(dflt, listed);
         for (String line : Files.readAllLines(p, StandardCharsets.UTF_8)) {
@@ -113,6 +113,9 @@ public final class Patrons {
         if (patron.person()) return;   // the keeper of the library, on their own machine
         if (patron.web() && !WebAccess.signInRequired()) return;   // the pages are open: a browser counts as the person
         Level have = load(store).levelFor(patron);
+        // the sign-in is on: a browser that has not signed in reads at most, whatever the default says — that is what
+        // "web signin on" promises (with the default at write it used to let anyone send questions anyway)
+        if (patron.web() && have.ordinal() > Level.read.ordinal()) have = Level.read;   // "web" is the browser that has not signed in
         if (have.ordinal() >= need.ordinal()) return;
         String who = patron.anonymous() ? "An anonymous patron" : "Patron " + patron.did();
         throw ProtocolError.forbidden(who + " may not " + (need == Level.write ? "write to" : "read")

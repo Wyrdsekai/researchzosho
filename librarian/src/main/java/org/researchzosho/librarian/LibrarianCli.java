@@ -22,6 +22,7 @@ public final class LibrarianCli {
               version                      which ResearchZosho this is
               init                         create the library (the consent act — research runs then submit)
               status                       counts, drafts, stale reviews, problems
+              name [<name…>]               the library's name, shown on its pages and to programs (the folder's until set)
               refresh                      re-index what changed or was removed on disk (seconds)
               rebuild                      rebuild the whole search index + INDEX.md from files (re-embeds everything)
               ask <question…>              what the library has on it, with sources and states
@@ -308,6 +309,14 @@ public final class LibrarianCli {
                 return verb.equals("status") ? 0 : 1;
             }
             switch (verb) {
+                case "name" -> {
+                    // the library's name, on its pages and in every answer; the folder's name until set
+                    if (args.length < 3) { var id = store.identity(); System.out.println(id.name() + "  (" + id.id() + "; researchzosho name <a name…> changes it; the folder is " + store.root() + ")"); return 0; }
+                    String n = String.join(" ", java.util.Arrays.copyOfRange(args, 2, args.length)).strip();
+                    store.setName(n);
+                    System.out.println(n.isEmpty() ? "the library is named after its folder again: " + store.identity().name() : "the library is now called " + store.identity().name() + " (catalog/library.md carries it; the pages show it after their next load)");
+                    return 0;
+                }
                 case "init" -> {
                     store.init();
                     System.out.println("library initialized at " + store.root());

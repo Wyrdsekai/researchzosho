@@ -707,7 +707,7 @@ final class Pages {
     private static String researchForm(LibraryStore store, Patrons.Patron patron, String q, String note) throws IOException {
         StringBuilder b = new StringBuilder();
         if (note != null) b.append("<p class=\"err\">").append(esc(note)).append("</p>");
-        if (patron.anonymous() && WebAccess.signInRequired() && Patrons.load(store).dflt().ordinal() < Patrons.Level.write.ordinal()) {
+        if (patron.web() && WebAccess.signInRequired()) {
             b.append("<p>To ask for research you need to <a href=\"/login\">sign in</a> first.</p>");
         }
         b.append("<p class=\"k\">A question that takes real reading. The library reads, checks every source it uses, and saves the answer as a write-up you can read here.</p>");
@@ -1199,8 +1199,8 @@ final class Pages {
     static String page(LibraryStore store, Patrons.Patron patron, String title, String body, int refresh, String to, boolean wide) throws IOException {
         String name = store.identity().name();
         String meta = refresh > 0 ? "<meta http-equiv=\"refresh\" content=\"" + refresh + (to == null ? "" : ";url=" + esc(to)) + "\">" : "";
-        String who = patron.web() ? "open to everyone · <a href=\"/login\">sign in</a>"
-                : patron.anonymous() ? "<a href=\"/login\">sign in</a>"
+        String who = patron.web() && !WebAccess.signInRequired() ? "open to everyone · <a href=\"/login\">sign in</a>"
+                : patron.web() || patron.anonymous() ? "<a href=\"/login\">sign in</a>"
                 : esc(patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/logout\">sign out</a>";
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc(title == null ? name : title + " — " + name) + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><style>" + CSS + "</style></head><body>"

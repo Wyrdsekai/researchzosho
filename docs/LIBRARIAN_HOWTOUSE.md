@@ -44,8 +44,14 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   both get the facts right, but the 9B's write-ups yield fewer claims (10 against 25) and almost no
   citation the checker can read (1 against 26), because the steps that judge a write-up ask for
   structured answers a small model mangles. A 27B-class model, local or hosted, does the whole job.
-  Give the model server a context of 16,000 tokens or more per request; a smaller one leaves the
-  review too little room.
+  On a 16 GB card, where a 27B at 4-bit does not fit, three choices measured well on the same
+  questions: gpt-oss-20b (right, eight claims, about five minutes a question, 13 GB in use with two
+  16,000-token slots), Gemma 4 26B-A4B (right and the most careful writer, ten claims, about nine
+  times slower), and Gemma 4 12B (right, ten claims, six times slower, 9 GB in use). Measured and
+  not recommended: Qwen3 14B and Mistral Small 24B got a fact wrong and Mistral needs 19 GB with a
+  working context; the 27B at 3-bit was careful but slow and missed twice; Phi-4-reasoning-plus and
+  the 8B and 9B models copied the prompt's own words or answered from memory without sources. Give the model server a context of 16,000 tokens or more per
+  request; a smaller one leaves the review too little room.
 - A web search backend, for research runs that go to the web. This matters as much as the model: a
   run can only read what a search finds. The choices, best first: a Brave Search API key
   (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
@@ -70,7 +76,9 @@ researchzosho setup
 
 Setup asks a few questions. Each has a default answer; press Enter to accept it.
 
-1. Where the library folder goes.
+1. Where the library folder goes, and what the library is called. The name is what the pages and
+   programs show; `researchzosho name <a name>` changes it later, and it is the `name:` line of
+   `catalog/library.md`.
 2. Which model server to use. Setup looks on the usual local ports and tests the server with one
    call before saving the address.
 3. Which web search backend to use. Setup asks for a Brave Search API key first. Then it looks for
@@ -654,8 +662,11 @@ researchzosho reader token <did>         # make a token for a person; they enter
 researchzosho web signin off
 ```
 
-Reading stays open as long as the library's default access level is `read`. `researchzosho reader
-default deny` closes reading too.
+Programs are open too, as shipped: anyone who can reach the service can read, ask, and file runs.
+To restrict that, set the default level for callers not on the list: `researchzosho reader default
+read` (they can read and ask, not file runs or submit claims) or `researchzosho reader default deny`
+(nothing without a name on the list). Then `researchzosho reader allow <did> write <name>` lets a
+named program through. The list is `catalog/patrons.md`; `reader list` shows it.
 
 ### Waiting and double sends
 
@@ -711,6 +722,10 @@ claude mcp add --scope user librarian -- researchzosho mcp
 codex mcp add librarian -- researchzosho mcp
 gemini mcp add -s user librarian researchzosho mcp
 ```
+
+A program registered this way can do everything, as shipped. If you have restricted the library
+with `researchzosho reader default read` or `deny`, allow it by name: the refusal it gets names its
+id, and `researchzosho reader allow <did> write "Claude Code"` puts it on the list.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the
 argument `mcp`. In JSON form:

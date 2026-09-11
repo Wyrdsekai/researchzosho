@@ -233,7 +233,7 @@ public final class LibrarianDaemon {
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie
                 Map<String, String> form = Pages.form(bodyText, x.getRequestHeaders().getFirst("Content-Type"));
                 Patrons.Patron who = patron(x, M.createObjectNode());
-                if (who.anonymous() && !WebAccess.signInRequired()) who = Patrons.Patron.WEB;   // the pages are open, as shipped
+                if (who.anonymous()) who = Patrons.Patron.WEB;   // someone in the browser who has not signed in; Patrons.check decides what that may do
                 Pages.handle(x, this, store, who, query(x), form);
                 return;
             }

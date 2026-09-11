@@ -172,6 +172,7 @@ class DemandLoopTest {
     @Test
     void anOvernightAskFiledOverStdioIsPickedUpByTheDaemonsWorker(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
+        Patrons.setDefault(store, Patrons.Level.read);   // restricted: only the listed writer may file a run
         Patrons.set(store, "did:key:zW", "W", Patrons.Level.write);
         var p = new LibraryProtocol(store);
         String patron = "\"patron\":{\"did\":\"did:key:zW\"}";
@@ -283,5 +284,15 @@ class DemandLoopTest {
         assertEquals("done", jobs.get(b).get("state").asText());
         assertFalse(overlap.get(), "the second crews run waited for the first");
         jobs.stop();
+    }
+
+    @Test
+    void theBrowserSeesEveryRunAProgramFiled() {
+        ObjectNode j = M.createObjectNode(); j.put("job_id", "J-0002"); j.put("patron", "did:key:local-claude-3fa");
+        assertTrue(Jobs.visibleTo(Patrons.Patron.WEB, j), "the Runs page shows a program's run");
+        assertTrue(Jobs.visibleTo(Patrons.Patron.PERSON, j));
+        assertTrue(Jobs.visibleTo(Patrons.Patron.ANONYMOUS, j));
+        assertTrue(Jobs.visibleTo(new Patrons.Patron("did:key:local-claude-3fa", "", "claude"), j), "its own");
+        assertFalse(Jobs.visibleTo(new Patrons.Patron("did:key:other", "", "x"), j), "another named program does not");
     }
 }

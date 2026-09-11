@@ -125,4 +125,20 @@ class LibraryStoreTest {
         assertTrue(s.nextFindingId("again").startsWith("F-0009-"));
         assertTrue(s.nextInvestigationId("inv").startsWith("I-0001-"));
     }
+
+    @Test
+    void theLibraryCanBeNamedAndKeepsItsId(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("codezaiku-library")); store.init();
+        var before = store.identity();
+        assertEquals("codezaiku-library", before.name(), "the folder's name until set");
+        store.setName("  Family   history ");
+        var named = store.identity();
+        assertEquals("Family history", named.name());
+        assertEquals(before.id(), named.id(), "naming never changes the id");
+        store.setName("The Antikythera shelf");
+        assertEquals("The Antikythera shelf", store.identity().name(), "renaming replaces, not appends");
+        assertEquals(1, Files.readString(store.libraryFile()).split("(?m)^name: ").length - 1, "one name: line");
+        store.setName("");
+        assertEquals("codezaiku-library", store.identity().name(), "blank = the folder again");
+    }
 }
