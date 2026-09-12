@@ -95,4 +95,5 @@ Stop-Process -Id $http.Id -Force -ErrorAction SilentlyContinue
 # (ten of them found on the test box, 2026-09-11)
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath) { [Environment]::SetEnvironmentVariable('Path', (($userPath -split ';') | Where-Object { $_ -and -not $_.StartsWith($W) }) -join ';', 'User') }
-Write-Output "  $P passed, $F failed   (work dir $W)"
+# the work dir goes with a clean pass (a day of passes left 7 GB on the test box); a failed one keeps it for reading
+if ($F -eq 0) { Remove-Item -Recurse -Force $W -ErrorAction SilentlyContinue; Write-Output "  $P passed, $F failed" } else { Write-Output "  $P passed, $F failed   (work dir kept: $W)" }

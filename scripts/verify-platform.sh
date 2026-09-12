@@ -87,5 +87,6 @@ expect "service came back" "running\|active\|loaded\|installed" "$Z" service sta
 check "service uninstall" "$Z" service uninstall
 fi
 kill $(cat "$W/http.pid") 2>/dev/null
-echo "  $P passed, $F failed   (work dir $W)"
+# the work dir goes with a clean pass (a day of passes left 14 GB on one box); a failed one keeps it for reading
+if [ "$F" -eq 0 ]; then rm -rf "$W"; echo "  $P passed, $F failed"; else echo "  $P passed, $F failed   (work dir kept: $W)"; fi
 [ $F -eq 0 ]

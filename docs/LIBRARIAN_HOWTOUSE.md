@@ -590,33 +590,46 @@ seconds until it answers, and says "waiting for the model" on its record and on 
 it does; the nightly housekeeping skips the steps that need it; sharpen, perspectives and explain
 tell you at once.
 
-On a Linux machine with an NVIDIA card and Docker, setup offers to serve the model on demand when
-it finds no server, and `researchzosho model install` does the same later:
+Setup offers to serve the model on demand when it finds no server, and `researchzosho model
+install` does the same later, on all three platforms:
 
 ```
-researchzosho model install                 # the measured model for this card, downloaded once, served on demand
-researchzosho model status                  # the proxy, the model, whether the card is in use right now
+researchzosho model install                 # the measured model for this machine, downloaded once, served on demand
+researchzosho model status                  # the proxy, the model, whether the memory is in use right now
 researchzosho model stop                    # unload now; the next request starts it again
-researchzosho model uninstall               # remove the service; the model files in ~/models stay
+researchzosho model uninstall               # remove the service; the model files in ~/models stay; the drive goes back
+researchzosho model check                   # every model file and pinned build still resolves where the rows say
 ```
+
+Every download is checked against a recorded sha256 and refused on a mismatch, as the one-line
+installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless told
+`--force`.
 
 What it puts in place is a small proxy, [llama-swap](https://github.com/mostlygeek/llama-swap),
-as a user service on port 8211, with llama.cpp behind it: the first request starts the server, and
-20 idle minutes after the last one it stops, so the card is free in between. The drive is set to
-`http://127.0.0.1:8211`. `--idle-minutes` changes the wait, `--gpu <index>` picks a card on a
-machine with several, `--file <gguf>` serves a model file you already have, and `--share` makes
-the proxy answer on every interface so other machines can use this card. A machine that already
-has a proxy on 8211, from CodeZaiku's `model serve install` or from an earlier setup, is used as it
-is; nothing is installed twice.
+as a service that starts with your session on port 8211, with llama.cpp behind it: the first request
+starts the server, and 20 idle minutes after the last one it stops, so the memory is free in
+between. The drive is set to `http://127.0.0.1:8211`. What runs behind the proxy depends on the
+machine:
+
+| platform | the server | the service | sized by |
+|---|---|---|---|
+| Linux with an NVIDIA card and Docker | llama.cpp's CUDA container | a `systemd --user` unit | the card's memory |
+| macOS | llama.cpp's own Metal build | a launchd agent | seven tenths of unified memory |
+| Windows x64 | llama.cpp's own Vulkan build, any card | a logon task | the NVIDIA card's memory, else half the RAM |
+
+`--idle-minutes` changes the wait, `--gpu <index>` picks a card on a Linux machine with several,
+`--file <gguf>` serves a model file you already have, and `--share` makes the proxy answer on every
+interface so other machines can use this one. A machine that already has a proxy on 8211, from
+CodeZaiku's `model serve install` or from an earlier setup, is used as it is; nothing is installed
+twice.
 
 Every program points at the proxy and never at a server directly, so moving the model to another
-machine is one address in each program's settings: install on the machine with the card with
+machine is one address in each program's settings: install on the machine with the memory with
 `--share`, and set `drive = http://<that machine>:8211` everywhere else. Measured on a 27B at
 4-bit on an RTX 6000 Ada: the model list answers at once, the first request after a quiet spell
 answers in about 25 seconds including the load, the next in half a second, and the card is empty
-again 20 minutes after the last request. On macOS and Windows the install prints the llama.cpp
-line for the card instead; run it yourself and set the drive to it. Ollama does the same on its
-own (`OLLAMA_KEEP_ALIVE`); the guide's measurements are on llama.cpp.
+again 20 minutes after the last request. Ollama does the same on its own (`OLLAMA_KEEP_ALIVE`);
+the guide's measurements are on llama.cpp.
 
 ### Two models
 

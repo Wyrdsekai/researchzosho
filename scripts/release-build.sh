@@ -18,6 +18,8 @@ done
 grep -q "researchzosho:$VER\b" docker-compose.yml || { echo "docker-compose.yml does not name researchzosho:$VER" >&2; exit 1; }
 grep -q "\"identifier\": \"ghcr.io/wyrdsekai/researchzosho:$VER\"" server.json || { echo "server.json's image is not :$VER" >&2; exit 1; }
 ./gradlew -q :librarian:installDist
+# every model row and pinned build the on-demand install would fetch must still resolve (a row went 404 upstream once, 2026-09-12)
+librarian/build/install/researchzosho/bin/researchzosho model check
 rm -rf dist && mkdir -p dist
 tar czf "dist/researchzosho-$VER.tar.gz" -C librarian/build/install researchzosho
 # the builds with their own Java runtime, one per platform, from the tarball just made (scripts/package-runtime.sh)

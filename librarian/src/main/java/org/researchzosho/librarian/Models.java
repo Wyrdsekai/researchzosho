@@ -26,8 +26,8 @@ public final class Models {
 
     public static final List<Tier> TIERS = List.of(
         new Tier("24 GB or more", 24, List.of(
-            new Choice("Qwen3.8-27B at 4-bit", "Qwen3.8-27B-Q4_K_M.gguf", "the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file",
-                llama("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8-27B-Q4_K_M.gguf", 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'")))),
+            new Choice("Qwen3.8-27B at 4-bit", "Qwen3.8-27B-UD-Q4_K_M.gguf", "the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file",
+                llama("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8-27B-UD-Q4_K_M.gguf", 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'")))),
         new Tier("16 GB", 16, List.of(
             new Choice("gpt-oss-20b", "gpt-oss-20b-F16.gguf", "right, 8 claims, about 5 minutes a question; 13 GB in use with two 16k slots — the choice when speed matters",
                 llama("unsloth/gpt-oss-20b-GGUF", "gpt-oss-20b-F16.gguf", 32768, 2, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'")),
