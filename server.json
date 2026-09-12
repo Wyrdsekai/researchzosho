@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.wyrdsekai/researchzosho",
+  "name": "io.github.Wyrdsekai/researchzosho",
   "title": "ResearchZosho",
   "description": "The research librarian for the rest of us: reads, keeps and questions your sources.",
   "websiteUrl": "https://researchzosho.org",
@@ -13,7 +13,7 @@
     {
       "registryType": "npm",
       "identifier": "@wyrdsekai/researchzosho-mcp",
-      "version": "0.1.6",
+      "version": "0.1.6-1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"

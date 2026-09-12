@@ -29,6 +29,8 @@ const ENV = 'RESEARCHZOSHO';
 const REPO = 'Wyrdsekai/researchzosho';
 const SITE = 'https://researchzosho.org';
 const VERSION = require('../package.json').version;
+/** The release this launcher starts: the package version without an npm-only suffix (0.1.6-1 is the launcher, 0.1.6 the release). */
+const RELEASE = VERSION.replace(/-.*$/, '');
 const WIN = process.platform === 'win32';
 const HOME = os.homedir();
 
@@ -56,7 +58,7 @@ function installed() {
   } else {
     found.push(path.join(HOME, '.local', 'bin', TOOL), path.join('/usr/local/bin', TOOL), path.join('/usr/bin', TOOL), startScript(path.join('/opt', TOOL)));
   }
-  found.push(startScript(path.join(cacheRoot(), `${TOOL}-${VERSION}`, TOOL)));
+  found.push(startScript(path.join(cacheRoot(), `${TOOL}-${RELEASE}`, TOOL)));
   return found.find(runnable) || null;
 }
 
@@ -117,16 +119,16 @@ function platformBuild() {
 async function download() {
   const major = javaMajor();
   const noJava = major ? `java ${major} found; ${TITLE} needs Java 21 or newer.` : `java not found; ${TITLE} needs Java 21 or newer on PATH (https://adoptium.net).`;
-  const base = process.env[`${ENV}_DOWNLOAD_BASE`] || `https://github.com/${REPO}/releases/download/v${VERSION}`;
-  let tar = `${TOOL}-${VERSION}.tar.gz`;
+  const base = process.env[`${ENV}_DOWNLOAD_BASE`] || `https://github.com/${REPO}/releases/download/v${RELEASE}`;
+  let tar = `${TOOL}-${RELEASE}.tar.gz`;
   if (major < 21) {
     const build = platformBuild();
     if (!build) { say(noJava); say(`Install ${TITLE} itself and this launcher will start it:  ${SITE}`); process.exit(1); }
-    tar = `${TOOL}-${VERSION}-${build}.tar.gz`;
+    tar = `${TOOL}-${RELEASE}-${build}.tar.gz`;
     say(`${noJava} Fetching the ${build} build that carries its own runtime.`);
   }
   const root = cacheRoot();
-  const dest = path.join(root, `${TOOL}-${VERSION}`);
+  const dest = path.join(root, `${TOOL}-${RELEASE}`);
   const part = path.join(root, `.part-${process.pid}`);
   fs.mkdirSync(part, { recursive: true });
   try {
@@ -174,7 +176,7 @@ function run(script, args) {
 (async () => {
   const args = process.argv.slice(2);
   if (args[0] === '--help' || args[0] === '-h') {
-    process.stderr.write(`usage: npx @wyrdsekai/${TOOL}-mcp\nStarts \`${TOOL} mcp\` (the MCP server over stdio), installing ${TITLE} ${VERSION} first when it is not on this machine.\n`);
+    process.stderr.write(`usage: npx @wyrdsekai/${TOOL}-mcp\nStarts \`${TOOL} mcp\` (the MCP server over stdio), installing ${TITLE} ${RELEASE} first when it is not on this machine.\n`);
     process.exit(0);
   }
   if (args[0] === '--version') { process.stderr.write(`${TOOL}-mcp ${VERSION}\n`); process.exit(0); }
@@ -183,7 +185,7 @@ function run(script, args) {
     const v = installedVersion(script);
     say(`starting ${script} mcp${v ? ` (${TITLE} ${v})` : ''}`);
     // the registry lists this launcher as VERSION; an older install on the machine is what actually answers
-    if (v && v !== VERSION) say(`note: the installed ${TITLE} is ${v}, this launcher is ${VERSION}; \`${TOOL} update now\` brings the install up to date`);
+    if (v && v !== RELEASE) say(`note: the installed ${TITLE} is ${v}, this launcher starts ${RELEASE}; \`${TOOL} update now\` brings the install up to date`);
   } else script = await download();
   run(script, ['mcp', ...args]);
 })().catch((e) => { say(e.message); process.exit(1); });

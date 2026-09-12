@@ -17,7 +17,7 @@ LABEL org.opencontainers.image.title="ResearchZosho" \
       org.opencontainers.image.url="https://researchzosho.org" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.version="${VERSION}" \
-      io.modelcontextprotocol.server.name="io.github.wyrdsekai/researchzosho"
+      io.modelcontextprotocol.server.name="io.github.Wyrdsekai/researchzosho"
 # poppler for PDFs (the library uses pdftotext when it is there); curl and tar for `update` and the tests
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils curl ca-certificates tar \
     && rm -rf /var/lib/apt/lists/*

@@ -14,7 +14,7 @@ published and builds nothing.
 | `<asset>.sigstore.json` | the release workflow, after publication |
 | `ghcr.io/wyrdsekai/researchzosho:X.Y.Z` | the release workflow, from the attested tarball |
 | `@wyrdsekai/researchzosho-mcp@X.Y.Z` on npm | the release workflow, from `npm/` |
-| `io.github.wyrdsekai/researchzosho` in the MCP Registry | the release workflow, from `server.json` |
+| `io.github.Wyrdsekai/researchzosho` in the MCP Registry | the release workflow, from `server.json` |
 
 The version lives in `build.gradle.kts`; `npm/package.json`, `server.json` and `docker-compose.yml`
 must name the same one, and `release-build.sh` refuses to build when they do not. The workflow
@@ -67,7 +67,7 @@ Both need a first step by a person:
    Then, on npmjs.com, the package's settings: Trusted publisher → GitHub Actions, organization
    `Wyrdsekai`, repository `researchzosho`, workflow `release.yml`. From the next release the
    workflow publishes; a version already on npm is left alone.
-2. **MCP Registry.** `io.github.wyrdsekai/*` is granted to an owner of the GitHub organization.
+2. **MCP Registry.** `io.github.Wyrdsekai/*` is granted to an owner of the GitHub organization.
    The first publish is by hand from the repository root: `mcp-publisher login github`, then
    `mcp-publisher publish`. In the workflow, `mcp-publisher login github-oidc` needs nothing
    further. The registry is in preview and may reset; a reset means publishing again from the tag.

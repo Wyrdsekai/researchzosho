@@ -13,6 +13,7 @@ const { spawn, spawnSync } = require('child_process');
 const TOOL = 'researchzosho', ENV = 'RESEARCHZOSHO';
 const LAUNCHER = path.join(__dirname, '..', 'bin', 'index.js');
 const VERSION = require('../package.json').version;
+const RELEASE = VERSION.replace(/-.*$/, '');   // the release the launcher fetches; the package may carry an npm-only suffix
 const WIN = process.platform === 'win32';
 const EXPECT_TOOL = 'library_ask';
 
@@ -71,7 +72,7 @@ test('an installed program is started with mcp, found through the installer pref
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /^FAKE mcp\s*$/, r.stdout);
   assert.match(r.stderr, /starting .*mcp \(.* 0\.0\.1\)/, 'the installed version is read off its lib, through the wrapper: ' + r.stderr);
-  assert.match(r.stderr, /installed .* is 0\.0\.1, this launcher is /, 'an install older than the launcher is said out loud: ' + r.stderr);
+  assert.match(r.stderr, /installed .* is 0\.0\.1, this launcher starts /, 'an install older than the launcher is said out loud: ' + r.stderr);
 });
 
 test('an installed program on PATH is preferred over a download', async () => {
@@ -110,12 +111,12 @@ test('a release is fetched, checked against SHA256SUMS, unpacked once, and speak
     let r = await runLauncher(env, lines);
     assert.strictEqual(r.status, 0, r.stderr);
     assert.match(r.stderr, /checksum verified/);
-    assert.match(r.stderr, new RegExp(`installed .*${TOOL}-${VERSION.replace(/\./g, '\\.')}`));
+    assert.match(r.stderr, new RegExp(`installed .*${TOOL}-${RELEASE.replace(/\./g, '\\.')}`));
     const replies = r.stdout.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
     const tools = replies.find((m) => m.id === 2);
     assert.ok(tools && tools.result && tools.result.tools.length > 0, r.stdout);
     assert.ok(tools.result.tools.some((t) => t.name === EXPECT_TOOL), tools.result.tools.map((t) => t.name).join(' '));
-    assert.ok(fs.existsSync(path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${VERSION}`, TOOL, 'bin')), 'unpacked under the launcher cache');
+    assert.ok(fs.existsSync(path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${RELEASE}`, TOOL, 'bin')), 'unpacked under the launcher cache');
     if (TOOL === 'researchzosho') assert.ok(fs.existsSync(path.join(home, 'library', 'catalog')), 'a library was made for the client');
     // the second start finds the unpacked release: nothing is fetched again
     const before = hits.length;
@@ -129,14 +130,14 @@ test('a release is fetched, checked against SHA256SUMS, unpacked once, and speak
 test('a tarball the SHA256SUMS does not vouch for is refused and nothing is kept', { skip }, async () => {
   const home = tmp(); const bad = tmp(); const hits = [];
   for (const f of fs.readdirSync(DIST)) if (f.endsWith('.tar.gz')) fs.copyFileSync(path.join(DIST, f), path.join(bad, f));
-  fs.writeFileSync(path.join(bad, 'SHA256SUMS'), `${'0'.repeat(64)}  ${TOOL}-${VERSION}.tar.gz\n`);
+  fs.writeFileSync(path.join(bad, 'SHA256SUMS'), `${'0'.repeat(64)}  ${TOOL}-${RELEASE}.tar.gz\n`);
   const server = await serve(bad, hits);
   try {
     const r = await runLauncher({ ...bareEnv(home), [`${ENV}_DOWNLOAD_BASE`]: `http://127.0.0.1:${server.address().port}` }, '');
     assert.notStrictEqual(r.status, 0);
     assert.match(r.stderr, /checksum mismatch/);
     assert.strictEqual(r.stdout, '', 'nothing on stdout');
-    assert.ok(!fs.existsSync(path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${VERSION}`)), 'nothing kept');
+    assert.ok(!fs.existsSync(path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${RELEASE}`)), 'nothing kept');
   } finally { server.close(); }
 });
 
@@ -152,8 +153,8 @@ function withoutJava(env, home) {
 }
 
 const PLATFORM = (() => { const os = { linux: 'linux', darwin: 'macos', win32: 'windows' }[process.platform]; const arch = { x64: 'x64', arm64: 'arm64' }[process.arch]; return os && arch ? `${os}-${arch}` : null; })();
-const RUNTIME_ASSET = DIST && PLATFORM ? path.join(DIST, `${TOOL}-${VERSION}-${PLATFORM}.tar.gz`) : null;
-const skipRuntime = !DIST ? skip : (RUNTIME_ASSET && fs.existsSync(RUNTIME_ASSET) ? false : `no ${TOOL}-${VERSION}-${PLATFORM}.tar.gz in LAUNCHER_TEST_DIST`);
+const RUNTIME_ASSET = DIST && PLATFORM ? path.join(DIST, `${TOOL}-${RELEASE}-${PLATFORM}.tar.gz`) : null;
+const skipRuntime = !DIST ? skip : (RUNTIME_ASSET && fs.existsSync(RUNTIME_ASSET) ? false : `no ${TOOL}-${RELEASE}-${PLATFORM}.tar.gz in LAUNCHER_TEST_DIST`);
 
 test('without Java 21 on the machine, the build with its own runtime is fetched and runs on it', { skip: skipRuntime }, async () => {
   const home = tmp(); const hits = [];
@@ -168,8 +169,8 @@ test('without Java 21 on the machine, the build with its own runtime is fetched 
     const r = await runLauncher(env, lines);
     assert.strictEqual(r.status, 0, r.stderr);
     assert.match(r.stderr, /java (17 found|not found).*carries its own runtime/);
-    assert.ok(hits.some((h) => h.endsWith(`${TOOL}-${VERSION}-${PLATFORM}.tar.gz`)), hits.join(' '));
-    const jre = path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${VERSION}`, TOOL, 'jre', 'bin', WIN ? 'java.exe' : 'java');
+    assert.ok(hits.some((h) => h.endsWith(`${TOOL}-${RELEASE}-${PLATFORM}.tar.gz`)), hits.join(' '));
+    const jre = path.join(home, `.${TOOL}`, 'launcher', `${TOOL}-${RELEASE}`, TOOL, 'jre', 'bin', WIN ? 'java.exe' : 'java');
     assert.ok(fs.existsSync(jre), 'the runtime came with it');
     const replies = r.stdout.split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l));
     const tools = replies.find((m) => m.id === 2);
