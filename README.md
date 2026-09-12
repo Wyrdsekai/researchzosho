@@ -174,6 +174,13 @@ whose sections 1 to 6 are the contract and keep working across releases:
   `Librarian("http://127.0.0.1:4649", token=…)`.
 - **Java** (`client/`): `org.researchzosho:client`, then `LibrarianClient`.
 
+## The family
+
+ResearchZosho is part of [Wyrdsekai](https://wyrdsekai.org), and its sibling is
+[CodeZaiku](https://codezaiku.org), a coding and development harness that runs on local models or
+hosted APIs: code, review, research and guarded ops. `codezaiku install researchzosho` puts this library beside it,
+and the two share a model server, so one on-demand model on a machine serves both.
+
 ## Licence
 
 Apache 2.0. See [LICENSE](LICENSE). ResearchZosho includes no model. You supply a model server and
