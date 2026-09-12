@@ -21,13 +21,24 @@ on:
 
 permissions:
   contents: write
-  id-token: write
+  id-token: write        # Sigstore, npm trusted publishing, the MCP Registry's OIDC login
   attestations: write
+  packages: write        # the image on ghcr.io
 
 jobs:
   attest:
-    name: Attest the tarball
+    name: Attest ${{ matrix.artifact }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false     # one unattested artifact must not hide the others
+      matrix:
+        include:
+          - { artifact: tarball,      pattern: 'researchzosho-[0-9]*[0-9].tar.gz' }
+          - { artifact: linux-x64,    pattern: 'researchzosho-*-linux-x64.tar.gz' }
+          - { artifact: linux-arm64,  pattern: 'researchzosho-*-linux-arm64.tar.gz' }
+          - { artifact: macos-x64,    pattern: 'researchzosho-*-macos-x64.tar.gz' }
+          - { artifact: macos-arm64,  pattern: 'researchzosho-*-macos-arm64.tar.gz' }
+          - { artifact: windows-x64,  pattern: 'researchzosho-*-windows-x64.tar.gz' }
     steps:
       - name: Resolve tag
         id: tag
@@ -44,7 +55,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p assets
-          gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern 'researchzosho-[0-9]*.tar.gz' --dir assets
+          gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern '${{ matrix.pattern }}' --dir assets
           gh release download "${{ steps.tag.outputs.tag }}" --repo "$GITHUB_REPOSITORY" --pattern 'SHA256SUMS*' --dir assets
           ls -lh assets
 
@@ -53,7 +64,7 @@ jobs:
         run: |
           cd assets
           FILE=$(find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n')
-          [ "$(printf '%s\n' "$FILE" | grep -c .)" -eq 1 ] || { echo "expected exactly one tarball" >&2; exit 1; }
+          [ "$(printf '%s\n' "$FILE" | grep -c .)" -eq 1 ] || { echo "expected exactly one asset for '${{ matrix.pattern }}', got: $FILE" >&2; exit 1; }
           EXPECTED=$(awk -v f="$FILE" '$2 == f { print $1 }' SHA256SUMS*)
           [ -n "$EXPECTED" ] || { echo "$FILE is not in SHA256SUMS; refusing to attest" >&2; exit 1; }
           ACTUAL=$(sha256sum "$FILE" | awk '{ print $1 }')
@@ -81,3 +92,91 @@ jobs:
           OUT="assets/${{ steps.asset.outputs.file }}.sigstore.json"
           cp "$BUNDLE" "$OUT"
           gh release upload "${{ steps.tag.outputs.tag }}" "$OUT" --repo "$GITHUB_REPOSITORY" --clobber
+
+  # The same bytes, in a container: the attested tarball unpacked on a Java runtime, pushed to ghcr.io as
+  # wyrdsekai/researchzosho:<version> and :latest. Nothing is compiled here either.
+  image:
+    name: Image on ghcr.io
+    needs: attest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
+      - name: Resolve version
+        id: v
+        run: |
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          echo "ver=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Download the attested tarball
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p ctx
+          gh release download "v${{ steps.v.outputs.ver }}" --repo "$GITHUB_REPOSITORY" --pattern "researchzosho-${{ steps.v.outputs.ver }}.tar.gz" --pattern 'SHA256SUMS' --dir ctx
+          cd ctx && sha256sum -c --ignore-missing SHA256SUMS
+          cp ../packaging/docker/entrypoint.sh .
+      - name: Build and push
+        run: |
+          echo "${{ github.token }}" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker buildx create --use
+          docker buildx build --platform linux/amd64,linux/arm64 -f packaging/docker/Dockerfile \
+            --build-arg VERSION="${{ steps.v.outputs.ver }}" \
+            -t "ghcr.io/wyrdsekai/researchzosho:${{ steps.v.outputs.ver }}" -t ghcr.io/wyrdsekai/researchzosho:latest \
+            --push ctx
+
+  # The npm launcher (npm/): the package version is the release's; trusted publishing signs it with this workflow's
+  # identity (no token; set up once on npmjs.com for the package, after its first publish by hand — RELEASING.md).
+  # A version already on npm — the first one, published by hand — is left alone.
+  launcher:
+    name: Launcher on npm
+    needs: attest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+      - name: npm 11.5+ (trusted publishing)
+        run: npm install -g npm@latest && npm --version
+      - name: The launcher names this release
+        run: |
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          V=$(node -p "require('./npm/package.json').version")
+          [ "$V" = "${TAG#v}" ] || { echo "npm/package.json says $V, the release is ${TAG#v}" >&2; exit 1; }
+          cd npm && npm test
+      - name: Publish
+        working-directory: npm
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "@wyrdsekai/researchzosho-mcp@$V" version >/dev/null 2>&1; then echo "already on npm: $V"; exit 0; fi
+          npm publish --access public
+
+  # The MCP Registry entry (server.json): the npm launcher and the image it names must exist first.
+  registry:
+    name: MCP Registry
+    needs: [launcher, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
+      - name: mcp-publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher --help | head -1
+      - name: server.json names this release
+        run: |
+          TAG="${{ github.event.release.tag_name || github.ref_name }}"
+          V=$(jq -r .version server.json)
+          [ "$V" = "${TAG#v}" ] || { echo "server.json says $V, the release is ${TAG#v}" >&2; exit 1; }
+          ./mcp-publisher validate
+      - name: Publish
+        run: |
+          ./mcp-publisher login github-oidc
+          for i in 1 2 3 4 5 6; do ./mcp-publisher publish && exit 0; echo "retry $i: npm may still be propagating"; sleep 30; done
+          exit 1
+

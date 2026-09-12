@@ -1,5 +1,5 @@
 #!/bin/bash
-# ResearchZosho 0.1.2 platform pass. Args: <dir with researchzosho-X.Y.Z.tar.gz + SHA256SUMS + install script> <version>
+# ResearchZosho platform pass. Args: <dir with researchzosho-X.Y.Z*.tar.gz + SHA256SUMS> <version> [<install script>, default <dir>/install]
 # Installs through the one-liner from a local HTTP server, drives the new verbs on a fresh library, fetches the pages,
 # installs the service, swaps in a fake next version through `update now`, checks the service came back, uninstalls.
 set -u
@@ -9,10 +9,10 @@ check() { local name="$1"; shift; local out; if out=$("$@" 2>&1); then pass "$na
 expect() { local name="$1" want="$2"; shift 2; local out; out=$("$@" 2>&1); if echo "$out" | grep -q -- "$want"; then pass "$name"; else fail "$name" "wanted '$want', got: $(echo "$out" | tail -2 | tr '\n' ' ')"; fi; }
 W=$(mktemp -d); export HOME_SAVE="$HOME"
 export RESEARCHZOSHO_PREFIX="$W/prefix" RESEARCHZOSHO_CONFIG="$W/config" RESEARCHZOSHO_LIBRARY="$W/lib"
-mkdir -p "$W/www"; cp "$DIST/researchzosho-$VER.tar.gz" "$DIST/SHA256SUMS" "$W/www/"
-# a fake next release: the same program under the next version's name, its own checksum
-cp "$DIST/researchzosho-$VER.tar.gz" "$W/www/researchzosho-$NEXT.tar.gz"
-( cd "$W/www" && (sha256sum "researchzosho-$NEXT.tar.gz" 2>/dev/null || shasum -a 256 "researchzosho-$NEXT.tar.gz") >> SHA256SUMS )
+mkdir -p "$W/www"; cp "$DIST"/researchzosho-"$VER"*.tar.gz "$DIST/SHA256SUMS" "$W/www/"
+# a fake next release: the same programs under the next version's name (the tarball and every platform build), their own checksums
+for f in "$DIST"/researchzosho-"$VER"*.tar.gz; do cp "$f" "$W/www/$(basename "$f" | sed "s/$VER/$NEXT/")"; done
+( cd "$W/www" && (sha256sum researchzosho-"$NEXT"*.tar.gz 2>/dev/null || shasum -a 256 researchzosho-"$NEXT"*.tar.gz) >> SHA256SUMS )
 PORT=$(( 20000 + RANDOM % 20000 )); ( cd "$W/www" && python3 -m http.server $PORT --bind 127.0.0.1 >/dev/null 2>&1 & echo $! > "$W/http.pid" ); sleep 1
 export RESEARCHZOSHO_DOWNLOAD_BASE="http://127.0.0.1:$PORT"
 echo "== install $VER from the one-liner (local server)"
@@ -51,6 +51,24 @@ expect "http frontier filters" "Antikythera" curl -s -X POST "http://127.0.0.1:$
 expect "http inbox" "items" curl -s -X POST "http://127.0.0.1:$PORT2/v1/inbox" -H 'Content-Type: application/json' -d '{"op":"list"}'
 expect "http serials parked flag" "parked" curl -s -X POST "http://127.0.0.1:$PORT2/v1/serials" -H 'Content-Type: application/json' -d '{"op":"list"}'
 kill $(cat "$W/serve.pid") 2>/dev/null; sleep 1
+echo "== the build with its own Java runtime: installed on request, runs with no Java of its own, updates to its own kind"
+RT="$W/prefix-rt"
+check "install (own runtime)" env RESEARCHZOSHO_VERSION="$VER" RESEARCHZOSHO_RUNTIME=1 RESEARCHZOSHO_PREFIX="$RT" sh "$INSTALL"
+expect "the runtime came with it" "java" ls "$RT/share/researchzosho/jre/bin"
+expect "version (own runtime, JAVA_HOME pointing nowhere)" "$VER" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
+if [ "$(uname)" = Darwin ]; then
+  # What a copy saved through a browser meets: every file quarantined, then Gatekeeper's verdict at exec. The runtime's
+  # binaries are Temurin's own, signed and notarized by Eclipse Adoptium (Developer ID), and jlink copies them unchanged;
+  # everything we add is jars and text, which Gatekeeper does not assess. So no signing of our own — and this proves it.
+  find "$RT/share/researchzosho" -type f -exec xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;" {} \; 2>/dev/null
+  expect "the runtime's java carries a Developer ID signature" "Authority=Developer ID Application" codesign -dvv "$RT/share/researchzosho/jre/bin/java"
+  check "every Mach-O in the build has a valid signature" sh -c 'for f in $(find "$1" -type f); do file -b "$f" | grep -q Mach-O || continue; codesign --verify --strict "$f" || exit 1; done' _ "$RT/share/researchzosho"
+  expect "runs with every file quarantined" "$VER" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
+fi
+check "init (own runtime)" env RESEARCHZOSHO_CONFIG="$W/config-rt" RESEARCHZOSHO_LIBRARY="$W/lib-rt" "$RT/bin/researchzosho" init
+expect "update now keeps its own runtime" "$NEXT" env RESEARCHZOSHO_CONFIG="$W/config-rt" RESEARCHZOSHO_LIBRARY="$W/lib-rt" "$RT/bin/researchzosho" update now "$NEXT" --no-restart
+expect "the runtime is still there after the update" "java" ls "$RT/share/researchzosho/jre/bin"
+expect "version after the update (own runtime)" "$NEXT\|$VER" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
 echo "== the service, and the update path with a restart"
 # never on a box that already runs the service: the unit name is shared, and an uninstall here would remove the live one
 LIVE=""

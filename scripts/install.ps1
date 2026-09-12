@@ -21,13 +21,23 @@ $prefix = if ($env:RESEARCHZOSHO_PREFIX) { $env:RESEARCHZOSHO_PREFIX }
 # One plain line, not a PowerShell error record: this is the first thing a new user sees from us.
 function Die($m) { [Console]::Error.WriteLine("researchzosho: $m"); exit 1 }
 
-# Java is the one thing not included. Say so before downloading something you cannot run.
+# Java 21 or newer on the machine gets the small tarball. Without it -- or with $env:RESEARCHZOSHO_RUNTIME set -- the
+# x64 build that carries its own Java runtime is installed instead.
+$javaOk = $false; $jv = 0
 $java = Get-Command java -ErrorAction SilentlyContinue
-if (-not $java) { Die 'java not found. ResearchZosho needs Java 21 or newer on PATH (https://adoptium.net)' }
-# java prints its version to stderr, which Stop treats as an error; relax it for this one call.
-$jvLine = & { $ErrorActionPreference = 'Continue'; (& java -version) 2>&1 | Select-Object -First 1 }
-$jv = "$jvLine" -replace '.*version "(\d+).*', '$1'
-if ([int]$jv -lt 21) { Die "java $jv found. ResearchZosho needs 21 or newer" }
+if ($java) {
+    # java prints its version to stderr, which Stop treats as an error; relax it for this one call.
+    $jvLine = & { $ErrorActionPreference = 'Continue'; (& java -version) 2>&1 | Select-Object -First 1 }
+    $jv = "$jvLine" -replace '.*version "(\d+).*', '$1'
+    if ([int]$jv -ge 21) { $javaOk = $true }
+}
+$runtime = ''
+if ($env:RESEARCHZOSHO_RUNTIME -or -not $javaOk) {
+    $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    if ("$arch" -eq 'X64') { $runtime = 'windows-x64' }
+    elseif (-not $java) { Die "java not found, and there is no build with its own runtime for Windows $arch. ResearchZosho needs Java 21 or newer on PATH (https://adoptium.net)" }
+    else { Die "java $jv found, and there is no build with its own runtime for Windows $arch. ResearchZosho needs 21 or newer" }
+}
 
 $ver = $env:RESEARCHZOSHO_VERSION
 if (-not $ver -and -not $base) {
@@ -38,11 +48,13 @@ if (-not $ver -and -not $base) {
 if (-not $base) { $base = "https://github.com/$repo/releases/download/v$ver" }
 
 $tar = "researchzosho-$ver.tar.gz"
+if ($runtime) { $tar = "researchzosho-$ver-$runtime.tar.gz"; Write-Host "researchzosho: installing the $runtime build, which carries its own Java runtime" }
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("researchzosho-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp | Out-Null
 try {
     Write-Host "researchzosho: downloading $tar"
-    Invoke-WebRequest "$base/$tar" -OutFile "$tmp\$tar" -UseBasicParsing
+    try { Invoke-WebRequest "$base/$tar" -OutFile "$tmp\$tar" -UseBasicParsing }
+    catch { if ($runtime) { Die "download failed: $base/$tar`n  This release may carry no build with its own runtime for $runtime. Install Java 21 or newer (https://adoptium.net) and run this again." } else { Die "download failed: $base/$tar ($_)" } }
     Invoke-WebRequest "$base/SHA256SUMS" -OutFile "$tmp\SHA256SUMS" -UseBasicParsing
 
     # A download that does not match is not installed.

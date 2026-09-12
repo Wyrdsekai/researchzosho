@@ -263,6 +263,7 @@ public final class Setup {
             out.println("  No model server was found on the usual local ports.");
             out.println("  A local server (llama.cpp, Ollama, LM Studio) or a hosted API that speaks the OpenAI chat API");
             out.println("  (OpenAI, DeepSeek, Gemini, OpenRouter…) both work. A hosted API needs its key.");
+            for (String line : Models.describe(Models.cardGb()).split("\n")) out.println("  " + line);   // the measured choice for this card
             String typed = ask("  Where is your model server? (an address such as http://localhost:11434 or https://api.openai.com/v1, or leave blank)", "");
             if (!typed.isBlank()) {
                 base = typed;
@@ -366,7 +367,10 @@ public final class Setup {
         if (offerClaude) for (Host h : HOSTS) {
             if (!acts.have(h.command()) || !yesNo(h.name() + " is installed. Connect it to the library?", true)) continue;
             String who = System.getProperty("user.name", "me");
-            String did = "did:key:local-" + h.command() + "-" + Long.toHexString(Double.doubleToLongBits(Math.random())).substring(0, 12);
+            // one identity per machine, person and program — setup run three times listed one person's Claude Code three times
+            // writers, each with a token (dolores, 2026-09-11); the same line is rewritten, its token reissued
+            String did = Patrons.localDid(h.command(), who);
+            for (Patrons.Entry e : Patrons.load(store).listed()) if (e.name().equals(who + " (" + h.name() + ")") && e.did().startsWith("did:key:local-" + h.command() + "-")) { did = e.did(); break; }
             Patrons.set(store, did, who + " (" + h.name() + ")", Patrons.Level.write);
             List<String> args = new ArrayList<>();
             String url = "http://127.0.0.1:" + port + "/rpc";

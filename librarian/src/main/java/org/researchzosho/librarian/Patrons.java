@@ -122,6 +122,13 @@ public final class Patrons {
                 + " this library; the person who keeps it edits catalog/patrons.md.");
     }
 
+    /** The did setup gives a program on this machine: stable across runs of setup (host, user and program hashed), never random. */
+    public static String localDid(String command, String user) {
+        String host = System.getenv().getOrDefault("HOSTNAME", System.getenv().getOrDefault("COMPUTERNAME", ""));
+        if (host.isEmpty()) { try { host = java.net.InetAddress.getLocalHost().getHostName(); } catch (Exception e) { host = "host"; } }
+        return "did:key:local-" + command + "-" + sha256(host + "\n" + user + "\n" + command).substring(0, 12);
+    }
+
     // ---- editing (the CLI) ----
 
     public static synchronized void set(LibraryStore store, String did, String name, Level level) throws IOException {

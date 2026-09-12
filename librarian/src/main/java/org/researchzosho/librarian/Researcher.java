@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -124,6 +125,33 @@ public final class Researcher {
     /** Turns kept back from the workers: the synthesis, its closing turn and the cite-check. */
     static final int RESERVE = SYNTH_TURNS + 1 + CHECK_TURNS;
     static final int MIN_WORKER_TURNS = 4;
+    /** A second-round worker needs this long to fetch and read, not only search. */
+    static final int MIN_ROUND_TWO_MINUTES = 4;
+    /** Second-round sub-question → pages the first round named and did not read; the worker starts by fetching them. */
+    private final Map<String, List<String>> seedsOf = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /**
+     * Pages the evidence names beside the words of {@code sub}: a first-round worker that could not fetch a source
+     * usually names it ("the PDF … https://… was not fetched"), and the critic then asks for exactly that. Up to four
+     * URLs from the lines that share the most distinctive words with the sub-question.
+     */
+    static List<String> seedsFor(String sub, String evidence) {
+        Set<String> st = new java.util.HashSet<>();
+        for (String w : Frontier.terms(sub)) if (w.length() >= 5) st.add(w);
+        Map<String, Integer> score = new LinkedHashMap<>();
+        java.util.regex.Pattern url = java.util.regex.Pattern.compile("https?://[^\\s)\\]>\"']+");
+        for (String line : evidence.split("\n")) {
+            java.util.regex.Matcher m = url.matcher(line);
+            if (!m.find()) continue;
+            int shared = 0; for (String w : Frontier.terms(line)) if (st.contains(w)) shared++;
+            if (shared < 2) continue;
+            m.reset();
+            while (m.find()) { String u = m.group().replaceAll("[.,;:]+$", ""); score.merge(u, shared, Math::max); }
+        }
+        List<String> out = new ArrayList<>(score.keySet());
+        out.sort((a, b) -> Integer.compare(score.get(b), score.get(a)));
+        return out.size() > 4 ? new ArrayList<>(out.subList(0, 4)) : out;
+    }
     /** What a worker's bounces cost beyond its cap (the note bounce is two turns and most workers take it — J-0007). */
     static final int BOUNCE_TURNS = 2;
     static final boolean PERSPECTIVES = !"off".equalsIgnoreCase(org.researchzosho.Config.get("RESEARCHZOSHO_PERSPECTIVES", "on"));
@@ -159,6 +187,27 @@ public final class Researcher {
     public static final class Stopped extends RuntimeException { public Stopped() { super("stopped by the person"); } }
     private final int workers;
     private final LibraryStore store;   // for the cite-check's raw captures and independence clusters; null in a bare unit test
+    /** Where the run stands, for the job record: set by the daemon; a client reads it to know when to poll again. */
+    private volatile Consumer<ObjectNode> onProgress = null;
+    public void onProgress(Consumer<ObjectNode> sink) { this.onProgress = sink; }
+    private volatile String phase = "";
+    private volatile int round = 0, workersTotal = 0;
+    private final java.util.concurrent.atomic.AtomicInteger workersDone = new java.util.concurrent.atomic.AtomicInteger();
+    private volatile Budget currentBudgetForProgress = null;
+    /** Publish the run's state: the phase, the round, workers finished of this round, turns used of the ceiling. */
+    private void progress(String phase) {
+        this.phase = phase;
+        Consumer<ObjectNode> sink = onProgress;
+        if (sink == null) return;
+        Budget b = currentBudgetForProgress;
+        ObjectNode o = J.createObjectNode();
+        o.put("phase", phase);
+        o.put("round", round); o.put("rounds", ROUNDS);
+        o.put("workers_done", workersDone.get()); o.put("workers_total", workersTotal);
+        o.put("turns_used", b == null ? 0 : b.used()); o.put("turns_ceiling", b == null ? 0 : b.ceiling());
+        o.put("at", java.time.Instant.now().toString());
+        try { sink.accept(o); } catch (Exception ignored) { }
+    }
     private final List<String> unaffordableFromPlan = java.util.Collections.synchronizedList(new ArrayList<>());
     private java.util.Set<String> wallsSeenAtStart = null;
     private final java.util.concurrent.atomic.AtomicInteger readsInRun = new java.util.concurrent.atomic.AtomicInteger();   // shelf pages read this run — sources too
@@ -208,6 +257,9 @@ public final class Researcher {
         String knownBlock = known == null ? "" : known;
 
         // 1. Plan
+        currentBudgetForProgress = budget;
+        round = 0; workersTotal = 0; workersDone.set(0);
+        progress("planning");
         List<String> open = plan(ask, knownBlock, budget);
         int subCount = open.size();
         log.accept("plan: " + open.size() + " sub-question(s), " + workersNow() + " worker(s), " + ask.ceilings());
@@ -217,11 +269,21 @@ public final class Researcher {
         List<String> unaffordable = new ArrayList<>();
         unaffordableFromPlan.clear();
         int rounds = 0;
+        seedsOf.clear();
         for (int round = 1; round <= ROUNDS && !open.isEmpty(); round++) {
             rounds = round;
+            // With a deadline and a second round possible, the first round stops at three fifths of the time, so the
+            // critic's questions can be READ, not just searched: on a 60-minute run the first round's six workers took
+            // 27 minutes and the write-up's reserve then covered the rest, and the four second-round workers got one
+            // search each (dolores, I-0002, 2026-09-11).
+            if (round == 1 && ROUNDS > 1 && budget.deadlineMs() > 0) budget.roundDeadline(System.currentTimeMillis() + (budget.deadlineMs() - System.currentTimeMillis()) * 3 / 5);
+            else budget.roundDeadline(0);
+            this.round = round; workersTotal = open.size(); workersDone.set(0);
+            progress("workers");
             evidence.addAll(investigateAll(ask, open, budget));
             open.clear();
             if (round == ROUNDS || budget.workersTimeUp() || (!budget.unbounded() && budget.left() <= budget.reserve())) break;
+            progress("critic");
             List<String> missing = critic(ask, evidence, budget);
             if (missing.isEmpty()) { log.accept("critic: coverage sufficient after round " + round); break; }
             // A second round needs room to search AND read: measured (J-0011) three round-2 workers got two
@@ -232,19 +294,29 @@ public final class Researcher {
                 log.accept("critic: " + missing.size() + " gap(s) but " + budget.left() + " turns left — recorded as open questions, not researched thinly");
                 break;
             }
+            double minutesEach = budget.minutesLeftForWorkers() / Math.max(1, (missing.size() + workersNow() - 1) / workersNow());
+            if (minutesEach < MIN_ROUND_TWO_MINUTES) {
+                unaffordable.addAll(missing);
+                log.accept("critic: " + missing.size() + " gap(s) but " + String.format("%.0f", budget.minutesLeftForWorkers()) + " minute(s) left for workers — recorded as open questions, not researched thinly");
+                break;
+            }
+            for (String q : missing) { List<String> seeds = seedsFor(q, String.join("\n", evidence)); if (!seeds.isEmpty()) { seedsOf.put(q, seeds); log.accept("round " + (round + 1) + ": \"" + Acquisitions.compress(q, 50) + "\" starts from " + seeds.size() + " page(s) named in round " + round); } }
             open.addAll(missing);
             subCount += missing.size();
             log.accept("critic: " + missing.size() + " gap(s) → round " + (round + 1));
         }
 
         // 4. Synthesis
+        progress("synthesis");
         String evidenceText = String.join("\n\n", evidence);
-        Synthesis syn = synthesize(ask, knownBlock, evidenceText, budget);
+        Synthesis syn = synthesize(ask, knownBlock, evidence, budget);
         notes.add("synthesis: " + (syn.done ? "finished" : "cut off") + ", " + syn.sections.size() + " section(s)");
         log.accept(notes.get(notes.size() - 1));
         // 5. The harness's own sections: references numbered and clustered for independence, the evidence table,
         //    and the cite-check of the model's sentences against the captured sources.
+        progress("cite-check");
         String answer = assemble(ask, syn, evidenceText, budget, notes);
+        progress("filing");
         List<String> openAll = new ArrayList<>(unaffordableFromPlan); openAll.addAll(unaffordable);
         return new Result(syn.done, answer, evidenceText, budget.used(), subCount, rounds, List.copyOf(notes), List.copyOf(openAll));
     }
@@ -437,6 +509,10 @@ public final class Researcher {
             rows++;
         }
         // the cite-check: the model's cited sentences against the captured sources, on the judge
+        List<String> pieces = new ArrayList<>(java.util.Arrays.asList(evidence.split("(?m)^(?=SUB-QUESTION: )")));
+        pieces.removeIf(String::isBlank);
+        List<String> coverageFlags = coverageCheck(text, pieces);
+        for (String f : coverageFlags) { notes.add("coverage: " + f); log.accept(notes.get(notes.size() - 1)); }
         CiteCheck.Outcome cc = CiteCheck.run(store, text, refs, judge, budget);
         String checked = "cite-check: " + cc.checked() + " cited sentence(s) read against their source — " + cc.supported() + " supported, "
                 + cc.unsupported() + " not supported (marked), " + (cc.checked() - cc.supported() - cc.unsupported()) + " undecidable from the excerpt; "
@@ -447,6 +523,10 @@ public final class Researcher {
         if (!cc.problems().isEmpty()) {
             out.append("\n\n## Cite-check\n\n").append(checked).append(".\n");
             for (String p : cc.problems()) out.append("- ").append(p).append('\n');
+        }
+        if (!coverageFlags.isEmpty()) {
+            out.append("\n\n## Coverage check\n\nThe answer claims an absence that the sub-investigations do not support:\n\n");
+            for (String f : coverageFlags) out.append("- ").append(f).append('\n');
         }
         if (rows > 0) out.append("\n\n").append(table);
         references.append(checked).append(".\n");
@@ -555,8 +635,10 @@ public final class Researcher {
                     } else {
                         out.add(found);
                     }
+                    workersDone.incrementAndGet(); progress("workers");
                 } catch (Exception e) {
                     if (e.getCause() instanceof Stopped s) throw s;
+                    workersDone.incrementAndGet(); progress("workers");
                     out.add("SUB-QUESTION: " + open.get(i) + "\nSUMMARY: unavailable (worker "
                             + (e instanceof java.util.concurrent.TimeoutException ? "timed out" : "failed: " + e.getMessage()) + ")");
                     log.accept("worker: " + Acquisitions.compress(open.get(i), 60) + " — " + e.getClass().getSimpleName());
@@ -590,10 +672,12 @@ public final class Researcher {
         if (lane != null) laneRan.add(lane.code());
         ArrayNode history = J.createArrayNode();
         history.addObject().put("role", "system").put("content", (lane == null ? "" : lane.register()) + workerRegister(ask));
+        List<String> seeds = seedsOf.getOrDefault(sub, List.of());
+        String seedBlock = seeds.isEmpty() ? "" : "\n\nPAGES NAMED IN THE FIRST ROUND AND NOT YET READ — start with web_fetch on these, and search only for what they do not settle:\n- " + String.join("\n- ", seeds);
         history.addObject().put("role", "user").put("content",
                 "RESEARCH QUESTION (the whole ask, for context):\n" + ask.question()
-                + "\n\nYOUR SUB-QUESTION — research THIS, and only this:\n" + sub
-                + "\n\nStart with " + (ask.shelves() && store != null ? "shelf_search" + (ask.web() ? ", then web_search" : "") : "web_search") + ". Note every fact the moment a fetched source shows it.");
+                + "\n\nYOUR SUB-QUESTION — research THIS, and only this:\n" + sub + seedBlock
+                + "\n\n" + (seeds.isEmpty() ? "Start with " : "Then, if needed, ") + (ask.shelves() && store != null ? "shelf_search" + (ask.web() ? ", then web_search" : "") : "web_search") + ". Note every fact the moment a fetched source shows it.");
         ArrayNode all = toolsArray(byName.values());
         ArrayNode onlyDone = toolsArray(List.of(done));
         ArrayNode noteAndDone = toolsArray(List.of(notebook, done));
@@ -810,7 +894,7 @@ public final class Researcher {
         String text() { return String.join("\n\n", sections); }
     }
 
-    private Synthesis synthesize(Ask ask, String known, String evidence, Budget budget) {
+    private Synthesis synthesize(Ask ask, String known, List<String> pieces, Budget budget) {
         SectionTool sections = new SectionTool();
         DoneTool done = new DoneTool("done",
                 "Finish the investigation. Pass CAVEATS: what stayed uncertain or conflicting, in a sentence or two. "
@@ -820,7 +904,7 @@ public final class Researcher {
         if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); }
         byName.put(sections.name(), sections);
         byName.put(done.name(), done);
-        String notes = fitNotes(List.of(evidence), drive.contextWindow());
+        String notes = coverage(pieces) + "\n" + fitNotes(pieces, drive.contextWindow());
 
         ArrayNode history = J.createArrayNode();
         history.addObject().put("role", "system").put("content",
@@ -1069,7 +1153,13 @@ public final class Researcher {
         private final AtomicInteger graces = new AtomicInteger();
         private volatile int expectedWorkers = 1;
         private volatile int roundCap = 0;
+        private volatile long roundDeadlineMs = 0;   // round one stops here when a second round may follow, so it has time left
         Budget(int total) { this(total, 0); }
+        /** Stop the workers of this round at {@code atMs} (0 = no round deadline); the run's own deadline still stands. */
+        void roundDeadline(long atMs) { roundDeadlineMs = atMs; }
+        long deadlineMs() { return deadlineMs; }
+        /** Minutes the workers still have before the write-up must start; a large number when there is no deadline. */
+        double minutesLeftForWorkers() { return deadlineMs == 0 ? 1e9 : (deadlineMs - wrapUpMs - System.currentTimeMillis()) / 60_000.0; }
         Budget(int total, int maxMinutes) {
             this.total = total <= 0 ? 0 : Math.max(4, total);
             this.deadlineMs = maxMinutes <= 0 ? 0 : System.currentTimeMillis() + maxMinutes * 60_000L;
@@ -1089,7 +1179,7 @@ public final class Researcher {
         /** The cite-check's share of the reserve. */
         int checkReserve() { return reserve() * CHECK_TURNS / RESERVE; }
         /** A WORKER's turn: refused once only the reserve is left (workers' bounces once ate it — measured, J-0006). */
-        boolean takeWorker() { if (workersTimeUp()) return false; return take(reserve()); }
+        boolean takeWorker() { if (workersTimeUp()) return false; if (roundDeadlineMs > 0 && System.currentTimeMillis() >= roundDeadlineMs) return false; return take(reserve()); }
         /** A SYNTHESIS turn: refused once only the cite-check's turns are left (it read zero sentences once — J-0007). */
         boolean takeSynthesis() { return take(checkReserve()); }
 
@@ -1104,6 +1194,8 @@ public final class Researcher {
         /** One unbudgeted closing turn per worker, so a spent budget still ends with a summary. */
         boolean grace() { return graces.incrementAndGet() <= MAX_SUB * ROUNDS; }
         int used() { return used.get() + graces.get(); }
+        /** The turn ceiling, 0 when there is none. */
+        int ceiling() { return total; }
         int left() { return unbounded() ? Integer.MAX_VALUE / 2 : Math.max(0, total - used.get()); }
         /** A fair share per worker of what is left after the synthesis reserve. */
         int perWorkerCap() { return Math.max(2, (left() - reserve()) / Math.max(1, expectedWorkers)); }
@@ -1234,21 +1326,114 @@ public final class Researcher {
         return s.substring(0, nl > lo / 2 ? nl : lo) + " …[trimmed to fit the context]";
     }
 
-    /** Fit the evidence into ~28% of the context window, each piece capped, the total capped. */
+    /**
+     * Fit the evidence into ~28% of the context window, FAIRLY: every piece (one worker's report) keeps its head —
+     * the sub-question and the summary — and the pieces share the room, a short one giving its surplus to the long
+     * ones. Before this the whole evidence was one piece cut from the tail, so on a five-lane run through a 32k slot the
+     * fourth and fifth reports never reached the writer, and the answer called those lanes untested while their
+     * reports held 17 sources (dolores, I-0002, 2026-09-11).
+     */
     static String fitNotes(List<String> pieces, int ctxTokens) {
         int total = Math.max(2000, (int) (Math.max(ctxTokens, 8000) * 0.28));
-        int each = Math.max(400, total / Math.max(1, pieces.size()));
+        int n = Math.max(1, pieces.size());
+        int[] size = new int[n], give = new int[n];
+        for (int i = 0; i < n; i++) size[i] = estTokens(pieces.get(i));
+        // water-filling: the smallest first, each taking what it needs up to an even share of what is left
+        Integer[] order = new Integer[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        java.util.Arrays.sort(order, (a, b) -> Integer.compare(size[a], size[b]));
+        int left = total, remaining = n;
+        for (int k : order) { int share = left / remaining; give[k] = Math.min(size[k], share); left -= give[k]; remaining--; }
         StringBuilder sb = new StringBuilder();
-        int used = 0;
-        for (String f : pieces) {
-            String t = trimTokens(f, each);
-            int n = estTokens(t);
-            if (used + n > total) t = trimTokens(t, Math.max(200, total - used));
+        for (int i = 0; i < n; i++) {
+            String t = fitPiece(pieces.get(i), Math.max(150, give[i]));
             if (sb.length() > 0) sb.append("\n\n");
             sb.append(t);
-            used += estTokens(t);
         }
         return sb.toString();
+    }
+
+    /**
+     * One report, trimmed to {@code maxTokens}. A report is the SUB-QUESTION line, a SUMMARY (a paragraph, often a
+     * numbered list over several lines), then the NOTES — the lines with "— source:" that carry the evidence. The notes
+     * come first in the room (up to three quarters), the summary takes what is left (a quarter at most), the
+     * sub-question always. Measured on the dolores record: a summary-first cut kept 2 of 57 sources.
+     */
+    static String fitPiece(String piece, int maxTokens) {
+        if (estTokens(piece) <= maxTokens) return piece;
+        String[] lines = piece.split("\n");
+        List<String> summary = new ArrayList<>(), notes = new ArrayList<>();
+        String head = lines.length > 0 ? lines[0] : "";
+        for (int i = 1; i < lines.length; i++) { String l = lines[i]; if (l.startsWith("- ") && l.contains("— source: ")) notes.add(l); else if (!l.isBlank()) summary.add(l); }
+        int room = Math.max(60, maxTokens - estTokens(head) - 2);
+        StringBuilder out = new StringBuilder(head);
+        int notesRoom = notes.isEmpty() ? 0 : room * 3 / 4, usedNotes = 0, keptNotes = 0;
+        List<String> keptNoteLines = new ArrayList<>();
+        for (String l : notes) { int t = estTokens(l) + 1; if (usedNotes + t > notesRoom) break; keptNoteLines.add(l); usedNotes += t; keptNotes++; }
+        int summaryRoom = Math.max(40, room - usedNotes);
+        StringBuilder sum = new StringBuilder();
+        for (String l : summary) { if (sum.length() > 0) sum.append('\n'); sum.append(l); }
+        String summaryText = trimTokens(sum.toString(), summaryRoom);
+        if (!summaryText.isBlank()) out.append('\n').append(summaryText);
+        for (String l : keptNoteLines) out.append('\n').append(l);
+        int dropped = notes.size() - keptNotes;
+        if (dropped > 0) out.append("\n…[").append(dropped).append(" more note(s) of this report trimmed to fit; all of it is on the record]");
+        return out.toString();
+    }
+
+    /** The coverage block the writer sees first: every sub-investigation with how many sources it noted — so no lane can be called empty unread. */
+    static String coverage(List<String> pieces) {
+        StringBuilder b = new StringBuilder("COVERAGE — what each sub-investigation found (its notes follow; a lane listed with sources here has evidence, whatever is trimmed below):\n");
+        int i = 0;
+        for (String p : pieces) {
+            i++;
+            String head = p.startsWith("SUB-QUESTION: ") ? p.substring(14, Math.min(p.length(), p.indexOf('\n') < 0 ? p.length() : p.indexOf('\n'))) : "(unnamed)";
+            b.append("- #").append(i).append(" ").append(Acquisitions.compress(head, 140)).append(": ").append(sourcesNoted(p)).append(" source(s) noted\n");
+        }
+        return b.toString();
+    }
+
+    static int sourcesNoted(String piece) {
+        int c = 0; java.util.regex.Matcher m = java.util.regex.Pattern.compile("— source: ").matcher(piece);
+        while (m.find()) c++;
+        return c;
+    }
+
+    static final java.util.regex.Pattern SAYS_EMPTY = java.util.regex.Pattern.compile("(?i)[^.\\n]*\\b(no (direct |published |empirical )?evidence|found nothing|nothing (was )?found|no sources?|did not (find|surface|locate)|could not (find|locate)|remains? untested|not (been )?(tested|studied|examined))\\b[^.\\n]*");
+
+    /**
+     * After synthesis: every sentence in which the answer says a thing was not found, matched by its words against the
+     * sub-questions; when the matched sub-investigation noted three or more sources, that is a claim of absence over
+     * evidence the writer did not read. Returns one line per such case.
+     */
+    static List<String> coverageCheck(String answer, List<String> pieces) {
+        List<String> out = new ArrayList<>();
+        if (answer == null || pieces.isEmpty()) return out;
+        // the words that tell one sub-question from another: not the ones most heads share, and not the words of absence
+        List<Set<String>> heads = new ArrayList<>();
+        java.util.Map<String, Integer> df = new java.util.HashMap<>();
+        for (String p : pieces) {
+            String head = p.startsWith("SUB-QUESTION: ") ? p.substring(0, p.indexOf('\n') < 0 ? p.length() : p.indexOf('\n')) : p;
+            Set<String> ht = Frontier.terms(head); heads.add(ht);
+            for (String w : ht) df.merge(w, 1, Integer::sum);
+        }
+        Set<String> generic = Set.of("evidence", "found", "find", "sources", "source", "direct", "specific", "specifically", "question", "questions", "research",
+                "gathered", "whether", "remains", "remain", "untested", "surveyed", "literature", "studies", "study", "exact", "exactly", "any", "the", "and",
+                "how", "what", "which", "does", "did", "not", "nor", "was", "were", "been", "that", "this", "these", "those", "from", "with", "about", "into", "there");
+        java.util.regex.Matcher m = SAYS_EMPTY.matcher(answer);
+        while (m.find()) {
+            String sentence = m.group().strip();
+            Set<String> st = new java.util.HashSet<>(Frontier.terms(sentence));
+            st.removeIf(w -> generic.contains(w) || df.getOrDefault(w, 0) > Math.max(1, pieces.size() / 2));
+            List<String> hits = new ArrayList<>();
+            for (int i = 0; i < pieces.size(); i++) {
+                String p = pieces.get(i);
+                int shared = 0; for (String w : st) if (heads.get(i).contains(w)) shared++;
+                if (shared >= 3 && sourcesNoted(p) >= 3) hits.add("#" + (i + 1) + " (" + sourcesNoted(p) + " sources)");
+            }
+            if (!hits.isEmpty()) out.add("the answer says \"" + Acquisitions.compress(sentence, 160) + "\" while sub-investigation " + String.join(" and ", hits) + " noted sources on it (see Worker findings)");
+        }
+        return out;
     }
 
     // ---- the live adapters ----

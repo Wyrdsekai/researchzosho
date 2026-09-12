@@ -72,4 +72,31 @@ class JobStopTest {
             org.researchzosho.Config.invalidate();
         }
     }
+
+    @Test
+    void progressLandsOnTheRunningJobAndItsView(@TempDir Path tmp) throws Exception {
+        org.researchzosho.Config.invalidate();
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Patrons.set(store, "did:key:zA", "A", Patrons.Level.write);
+        Jobs[] holder = new Jobs[1];
+        Jobs jobs = new Jobs(store, (job, drive) -> {
+            String id = job.path("job_id").asText();
+            ObjectNode p = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+            p.put("phase", "workers"); p.put("round", 1); p.put("rounds", 2); p.put("workers_done", 2); p.put("workers_total", 5); p.put("turns_used", 41); p.put("turns_ceiling", 200);
+            holder[0].progress(id, p);
+            ObjectNode seen = holder[0].get(id);
+            assertEquals(41, seen.path("progress").path("turns_used").asInt(), "on the record while it runs");
+            assertEquals("round 1 of 2 · workers 2 of 5 done · 41 of 200 turns · workers", Pages.progressLine(seen.get("progress")));
+            return "done";
+        }, List.of(""), 1);
+        holder[0] = jobs;
+        String id = jobs.submit("research", "did:key:zA", args("{\"question\":\"first\"}"));
+        jobs.start();
+        try {
+            for (int i = 0; i < 200 && !"done".equals(jobs.get(id).path("state").asText()); i++) Thread.sleep(50);
+            ObjectNode v = Jobs.view(jobs.get(id));
+            assertEquals("done", v.get("state").asText());
+            assertEquals("workers", v.path("progress").path("phase").asText(), "the last progress stays on the finished record");
+        } finally { jobs.stop(); }
+    }
 }

@@ -1,0 +1,36 @@
+# ResearchZosho as a service, beside its embedder. The model server (a llama.cpp, Ollama or any OpenAI-style
+# endpoint) runs where your GPU is; name it in RESEARCHZOSHO_DRIVE. `researchzosho models` prints the measured
+# choice for a card.
+#
+#   mkdir -p library config && docker compose up -d
+#   open http://127.0.0.1:4649/
+#
+# For an NVIDIA card, swap the embedder's image tag for the one Text Embeddings Inference builds for it
+# (turing-1.8, 1.8 for Ampere, 89-1.8 for Ada, hopper-1.8) and uncomment the deploy block.
+services:
+  researchzosho:
+    image: ghcr.io/wyrdsekai/researchzosho:0.1.6
+    ports:
+      - "127.0.0.1:4649:4649"
+    volumes:
+      - ./library:/library
+      - ./config:/config
+    environment:
+      RESEARCHZOSHO_DRIVE: http://host.docker.internal:8080   # your model server; add /v1 if it wants it
+      RESEARCHZOSHO_MODEL: ""                                  # the model's name there, when the server offers several
+      RESEARCHZOSHO_EMBED: http://embed:80
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - embed
+    restart: unless-stopped
+  embed:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    command: ["--model-id", "Qwen/Qwen3-Embedding-0.6B", "--pooling", "last-token", "--max-client-batch-size", "128", "--max-batch-tokens", "2048", "--auto-truncate"]
+    volumes:
+      - ./embed:/data
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+    restart: unless-stopped

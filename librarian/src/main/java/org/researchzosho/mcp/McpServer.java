@@ -159,9 +159,16 @@ public final class McpServer {
                         patronProp())));
         tools.add(tool("library_get",
                 "One entry in full by id: body, every source with locator and edition, supersedes / superseded_by, "
-                + "subjects, related entries, and the review record {round, reviewer, decision, stale}.",
+                + "subjects, related entries, and the review record {round, reviewer, decision, stale}. An investigation also "
+                + "carries sections[] {heading, chars}, sources[] as rows {n, locator, title, edition, published, fetched, language, same_as}, "
+                + "claims[] (its findings with bodies) and open_questions[]. A write-up can run past what one call may carry: "
+                + "pass section (a heading; \"answer\" = the write-up without the harness's sections; \"workers\", \"references\", "
+                + "\"evidence\") to get one section, and offset / max_chars for a window of the body.",
                 schema(new String[]{"id"},
                         prop("id", "string", "F-… finding, I-… investigation, A-… article, or a raw file name."),
+                        prop("section", "string", "Optional: one section by heading, or \"answer\" for the write-up alone."),
+                        prop("offset", "integer", "Optional: start of the body window, in characters."),
+                        prop("max_chars", "integer", "Optional: at most this many characters of the body; chars and truncated say what was left."),
                         patronProp())));
         tools.add(tool("library_read",
                 "The captured raw text behind a source locator — the verbatim path: read the evidence, not only "

@@ -12,10 +12,15 @@ function Expect($name, $want, [scriptblock]$run) {
 $W = Join-Path $env:TEMP ("rzv-" + [guid]::NewGuid().ToString().Substring(0,8)); New-Item -ItemType Directory -Path "$W\www" | Out-Null
 $env:RESEARCHZOSHO_PREFIX = "$W\prefix"; $env:RESEARCHZOSHO_CONFIG = "$W\config"; $env:RESEARCHZOSHO_LIBRARY = "$W\lib"
 $env:RESEARCHZOSHO_JAVA = 'C:\tools\jdk25\bin\java.exe'; $env:Path = 'C:\tools\jdk25\bin;' + $env:Path
-Copy-Item "$Dist\researchzosho-$Ver.tar.gz" "$W\www\"; Copy-Item "$Dist\SHA256SUMS" "$W\www\"
-Copy-Item "$Dist\researchzosho-$Ver.tar.gz" "$W\www\researchzosho-$Next.tar.gz"
-$h = (Get-FileHash "$W\www\researchzosho-$Next.tar.gz" -Algorithm SHA256).Hash.ToLower()
-Add-Content "$W\www\SHA256SUMS" "$h  researchzosho-$Next.tar.gz"
+Copy-Item "$Dist\researchzosho-$Ver*.tar.gz" "$W\www\"; Copy-Item "$Dist\SHA256SUMS" "$W\www\"
+# a fake next release: the tarball and every platform build under the next version's name, their own checksums
+# ($asset, not $f: PowerShell variables are case-insensitive and $F is the failure counter — it was clobbered, 2026-09-11)
+foreach ($asset in Get-ChildItem "$Dist\researchzosho-$Ver*.tar.gz") {
+  $n = $asset.Name -replace [regex]::Escape($Ver), $Next
+  Copy-Item $asset.FullName "$W\www\$n"
+  $h = (Get-FileHash "$W\www\$n" -Algorithm SHA256).Hash.ToLower()
+  Add-Content "$W\www\SHA256SUMS" "$h  $n"
+}
 $port = Get-Random -Minimum 20000 -Maximum 40000
 $http = Start-Process -FilePath python -ArgumentList "-m http.server $port --bind 127.0.0.1" -WorkingDirectory "$W\www" -PassThru -WindowStyle Hidden
 Start-Sleep 2
@@ -69,5 +74,25 @@ Expect 'the swapped-in program answers' "$Next|$Ver" { & $Z --version }
 Expect 'service came back' 'running|Ready|Running|installed|active' { & $Z service status }
 Expect 'service uninstall' 'removed|uninstalled|stopped|gone' { & $Z service uninstall }
 }
+Write-Output "== the build with its own Java runtime: installed on request, runs with no Java of its own, updates to its own kind"
+$RT = "$W\prefix-rt"
+$env:RESEARCHZOSHO_VERSION = $Ver; $env:RESEARCHZOSHO_RUNTIME = '1'; $env:RESEARCHZOSHO_PREFIX = $RT
+# Write-Host lines do not reach a 2>&1 capture: judge by the exit code and by what landed on disk
+$out = (& "$Dist\install.ps1" 2>&1 | Out-String); if ($LASTEXITCODE -eq 0 -and (Test-Path "$RT\researchzosho\jre\bin\java.exe")) { Pass 'install (own runtime)' } else { Fail 'install (own runtime)' ($out -split "`n" | Select-Object -Last 3) }
+Remove-Item Env:RESEARCHZOSHO_VERSION; Remove-Item Env:RESEARCHZOSHO_RUNTIME; $env:RESEARCHZOSHO_PREFIX = "$W\prefix"
+$Z2 = "$RT\researchzosho\bin\researchzosho.bat"
+if (Test-Path "$RT\researchzosho\jre\bin\java.exe") { Pass 'the runtime came with it' } else { Fail 'the runtime came with it' "no jre under $RT" }
+$env:JAVA_HOME = 'C:\nonexistent'
+Expect 'version (own runtime, JAVA_HOME pointing nowhere)' $Ver { & $Z2 --version }
+$env:RESEARCHZOSHO_CONFIG = "$W\config-rt"; $env:RESEARCHZOSHO_LIBRARY = "$W\lib-rt"
+Expect 'init (own runtime)' 'library|initiali|ready|created' { & $Z2 init }
+Expect 'update now keeps its own runtime' $Next { & $Z2 update now $Next --no-restart }
+if (Test-Path "$RT\researchzosho\jre\bin\java.exe") { Pass 'the runtime is still there after the update' } else { Fail 'the runtime is still there after the update' 'jre gone' }
+Expect 'version after the update (own runtime)' "$Next|$Ver" { & $Z2 --version }
+Remove-Item Env:JAVA_HOME; $env:RESEARCHZOSHO_CONFIG = "$W\config"; $env:RESEARCHZOSHO_LIBRARY = "$W\lib"
 Stop-Process -Id $http.Id -Force -ErrorAction SilentlyContinue
+# the installer put this pass's prefix on the user PATH; take it off again, or every pass leaves a dead entry behind
+# (ten of them found on the test box, 2026-09-11)
+$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+if ($userPath) { [Environment]::SetEnvironmentVariable('Path', (($userPath -split ';') | Where-Object { $_ -and -not $_.StartsWith($W) }) -join ';', 'User') }
 Write-Output "  $P passed, $F failed   (work dir $W)"

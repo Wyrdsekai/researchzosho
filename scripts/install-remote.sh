@@ -20,16 +20,25 @@ PREFIX="${RESEARCHZOSHO_PREFIX:-}"
 die() { printf 'researchzosho: %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Java is the one thing not included. Say so before downloading something you cannot run.
-if ! have java; then
-    if have apt; then
-        die "java not found. ResearchZosho needs Java 21 or newer.
+# Java 21 or newer on the machine gets the small tarball. Without it — or with RESEARCHZOSHO_RUNTIME=1 — the build
+# for this platform that carries its own Java runtime is installed instead (Linux and macOS, x64 and arm64).
+java_ok() { have java || return 1; JV=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/'); [ "${JV:-0}" -ge 21 ] 2>/dev/null; }
+platform() { case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) echo linux-x64 ;; Linux-aarch64|Linux-arm64) echo linux-arm64 ;; Darwin-arm64) echo macos-arm64 ;; Darwin-x86_64) echo macos-x64 ;; *) echo "" ;; esac; }
+RUNTIME=""
+if [ -n "${RESEARCHZOSHO_RUNTIME:-}" ] || ! java_ok; then
+    RUNTIME=$(platform)
+    if [ -z "$RUNTIME" ]; then
+        if ! have java; then
+            if have apt; then
+                die "java not found, and there is no build with its own runtime for $(uname -s)/$(uname -m). ResearchZosho needs Java 21 or newer.
   On Debian or Ubuntu:  sudo apt install default-jre-headless   then run this again."
+            fi
+            die "java not found, and there is no build with its own runtime for $(uname -s)/$(uname -m). ResearchZosho needs Java 21 or newer on PATH (https://adoptium.net)"
+        fi
+        die "java ${JV:-?} found, and there is no build with its own runtime for $(uname -s)/$(uname -m). ResearchZosho needs 21 or newer"
     fi
-    die "java not found. ResearchZosho needs Java 21 or newer on PATH (https://adoptium.net)"
 fi
-JV=$(java -version 2>&1 | head -1 | sed -E 's/.*version "([0-9]+).*/\1/')
-[ "${JV:-0}" -ge 21 ] 2>/dev/null || die "java $JV found. ResearchZosho needs 21 or newer"
 have curl || die "curl not found"
 have tar  || die "tar not found"
 
@@ -42,11 +51,18 @@ fi
 [ -n "$BASE" ] || BASE="https://github.com/$REPO/releases/download/v$VER"
 
 TAR="researchzosho-$VER.tar.gz"
+if [ -n "$RUNTIME" ]; then
+    TAR="researchzosho-$VER-$RUNTIME.tar.gz"
+    printf 'researchzosho: installing the %s build, which carries its own Java runtime\n' "$RUNTIME"
+fi
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 printf 'researchzosho: downloading %s\n' "$TAR"
-curl -fsSL "$BASE/$TAR" -o "$TMP/$TAR" || die "download failed: $BASE/$TAR"
+curl -fsSL "$BASE/$TAR" -o "$TMP/$TAR" || {
+    [ -n "$RUNTIME" ] && die "download failed: $BASE/$TAR
+  This release may carry no build with its own runtime for $RUNTIME. Install Java 21 or newer (https://adoptium.net) and run this again."
+    die "download failed: $BASE/$TAR"; }
 curl -fsSL "$BASE/SHA256SUMS" -o "$TMP/SHA256SUMS" || die "no SHA256SUMS in the release. Refusing to install something unchecked"
 
 # A download that does not match is not installed: a broken download and a swapped one look the same until you check.

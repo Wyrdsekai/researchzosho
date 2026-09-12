@@ -213,6 +213,16 @@ public final class Jobs {
         throw new IOException("job file is not a JSON object: " + p);
     }
 
+    /** The runner's progress (phase, round, workers, turns) onto a running job's record — what a client polls. */
+    public synchronized void progress(String id, ObjectNode p) throws IOException {
+        Path a = activeDir().resolve(id + ".json");
+        if (!Files.exists(a)) return;
+        ObjectNode j = read(a);
+        if (!"running".equals(j.path("state").asText())) return;
+        j.set("progress", p);
+        writeActive(j);
+    }
+
     private synchronized void writeActive(ObjectNode j) throws IOException {
         Files.createDirectories(activeDir());
         Path target = activeDir().resolve(j.get("job_id").asText() + ".json");
@@ -445,6 +455,7 @@ public final class Jobs {
         long end = j.hasNonNull("ended_at") ? Instant.parse(j.get("ended_at").asText()).toEpochMilli() : System.currentTimeMillis();
         r.put("elapsed_s", Math.max(0, (end - start) / 1000));
         r.put("restarted", j.path("restarted").asInt(0));
+        if (j.has("progress") && j.get("progress").isObject()) r.set("progress", j.get("progress"));
         JsonNode q = j.path("args").get("question");
         if (q != null) r.put("question", q.asText());
         String st = j.path("state").asText();

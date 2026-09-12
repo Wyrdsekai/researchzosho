@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import java.util.ArrayList;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
@@ -245,5 +246,54 @@ class LibraryProtocolTest {
         String patron = "\"patron\":{\"did\":\"did:key:zNew\",\"name\":\"a program registered by hand\",\"runtime\":\"claude\"}";
         var r = p.frontier(args("{\"op\":\"add\",\"question\":\"What did the Antikythera gear cutters use for the tooth profiles?\"," + patron + "}"));
         assertTrue(r.path("filed").asBoolean(), "open as shipped: the pages and programs alike: " + r);
+    }
+
+    @Test
+    void anInvestigationComesStructuredAndBySection(@TempDir Path tmp) throws Exception {
+        LibraryStore store = shelf(tmp);
+        String body = "## Question\n\nHow is keigo subtitled?\n\n## Answer\n\nTranslators dissolve it (https://example.org/hosaka2016).\n\n"
+                + "## Sources\n\nhttps://example.org/hosaka2016\n\n"
+                + "## References\n\n[1] Hosaka 2016 on keigo — https://example.org/hosaka2016  (published 2016-03-01)\n"
+                + "[2] A blog — https://example.org/blog  (same text as [1])\n[3] Clark NM et al., Journal of Surgical Research 311:118-126 (2025) — https://example.org/clark\n\n3 source(s).\n\n"
+                + "## Worker findings (fan sub-investigations, verbatim)\n\nSUB-QUESTION: how?\nSUMMARY: dissolved.\n- keigo is dissolved — source: https://example.org/hosaka2016 — quote: \"敬語は字幕で消える\"\n";
+        store.write(new Investigation("I-0001-how-is-keigo-subtitled", "How is keigo subtitled?", Finding.State.accepted, "patron:did:key:zA", Instant.now().toString(),
+                List.of("F-0001-keigo-has-no-english-equivalent"), List.of("What about Korean?"), body));
+        var p = new LibraryProtocol(store);
+        var e = p.get(args("{\"id\":\"I-0001-how-is-keigo-subtitled\"}")).get("entry");
+        // the sections and their sizes
+        var heads = new ArrayList<String>(); for (var s : e.get("sections")) heads.add(s.get("heading").asText());
+        assertEquals(List.of("Question", "Answer", "Sources", "References", "Worker findings (fan sub-investigations, verbatim)"), heads);
+        assertEquals(body.length(), e.get("chars").asInt());
+        // the references as rows
+        var src = e.get("sources");
+        assertEquals(3, src.size(), src.toString());
+        assertEquals(1, src.get(0).get("n").asInt());
+        assertEquals("https://example.org/hosaka2016", src.get(0).get("locator").asText());
+        assertEquals("Hosaka 2016 on keigo", src.get(0).get("title").asText());
+        assertEquals("2016-03-01", src.get(0).get("published").asText());
+        assertTrue(src.get(0).get("fetched").asBoolean(), "the shelves hold its text");
+        assertEquals("ja", src.get(0).get("language").asText(), "the notes taken from it were Japanese");
+        assertFalse(src.get(1).get("fetched").asBoolean());
+        assertEquals(1, src.get(1).get("same_as").asInt());
+        assertTrue(src.get(1).get("published").isNull());
+        assertEquals("Clark NM et al., Journal of Surgical Research 311:118-126 (2025)", src.get(2).get("edition").asText(), "a citation with a year is an edition, not a title");
+        // the claims with bodies, and the questions left open
+        assertEquals("F-0001-keigo-has-no-english-equivalent", e.get("claims").get(0).get("id").asText());
+        assertTrue(e.get("claims").get(0).get("body").asText().contains("no direct English equivalent"));
+        assertEquals("What about Korean?", e.get("open_questions").get(0).asText());
+        // one section, the write-up alone, and a window
+        var ans = p.get(args("{\"id\":\"I-0001-how-is-keigo-subtitled\",\"section\":\"answer\"}")).get("entry");
+        assertTrue(ans.get("body").asText().startsWith("## Answer"), ans.get("body").asText());
+        assertFalse(ans.get("body").asText().contains("## References") || ans.get("body").asText().contains("## Question"), ans.get("body").asText());
+        var refs = p.get(args("{\"id\":\"I-0001-how-is-keigo-subtitled\",\"section\":\"references\"}")).get("entry");
+        assertTrue(refs.get("body").asText().startsWith("## References") && refs.get("body").asText().contains("[3] Clark"), refs.get("body").asText());
+        assertEquals("references", refs.get("section").asText());
+        var win = p.get(args("{\"id\":\"I-0001-how-is-keigo-subtitled\",\"offset\":3,\"max_chars\":8}")).get("entry");
+        assertEquals("Question", win.get("body").asText());
+        assertTrue(win.get("truncated").asBoolean());
+        assertEquals(body.length(), win.get("chars").asInt(), "chars is the whole body, so a caller can page");
+        var bad = assertThrows(ProtocolError.class, () -> p.get(args("{\"id\":\"I-0001-how-is-keigo-subtitled\",\"section\":\"nope\"}")));
+        assertEquals("invalid_args", bad.code);
+        assertTrue(bad.getMessage().contains("Question, Answer, Sources, References"), bad.getMessage());
     }
 }

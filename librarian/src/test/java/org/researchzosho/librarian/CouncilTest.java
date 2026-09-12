@@ -100,4 +100,20 @@ class CouncilTest {
         assertTrue(Files.exists(store.findingsDir().resolve("F-0001-a.md")));
         assertThrows(java.io.IOException.class, () -> new Council(store).accept("F-9999-absent"));
     }
+
+    @Test
+    void mcpOnAMachineWithNoLibraryMakesOne() throws Exception {
+        String realHome = System.getProperty("user.home");
+        java.io.InputStream realIn = System.in;
+        try {
+            System.setProperty("user.home", tmp.toString());
+            System.setIn(new java.io.ByteArrayInputStream(new byte[0]));   // the client closes at once: the server ends on EOF
+            assertFalse(Files.isDirectory(tmp.resolve("researchzosho-library")));
+            assertEquals(0, LibrarianCli.run(new String[]{"librarian", "mcp"}, "http://none", "m"));
+            assertTrue(Files.isDirectory(tmp.resolve("researchzosho-library").resolve("catalog")), "made on the way in");
+        } finally {
+            System.setProperty("user.home", realHome);
+            System.setIn(realIn);
+        }
+    }
 }

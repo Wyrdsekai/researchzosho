@@ -186,4 +186,33 @@ class SetupTest {
         assertEquals(0, acts.embedStarts);
         assertTrue(out.contains("Search is by words"), out);
     }
+
+    @Test
+    void theMeasuredModelTableAnswersByCard() {
+        assertEquals("24 GB or more", Models.tierFor(48).card());
+        assertEquals("16 GB", Models.tierFor(16).card());
+        assertEquals("16 GB", Models.tierFor(15.996).card(), "a 16 GB card reports 15,996 MB");
+        assertEquals("16 GB", Models.tierFor(23.4).card(), "under 24 is the 16 GB row");
+        assertEquals("8 GB", Models.tierFor(12).card());
+        assertEquals("4 GB", Models.tierFor(6).card());
+        assertEquals("2 GB", Models.tierFor(3).card());
+        assertNull(Models.tierFor(1));
+        String s = Models.describe(16);
+        assertTrue(s.contains("gpt-oss-20b") && s.contains("Gemma 4 26B-A4B") && s.contains("http://127.0.0.1:8080"), s);
+        assertTrue(Models.describe(0).contains("No NVIDIA card"), Models.describe(0));
+        assertTrue(Models.describe(1).contains("hosted model server"), Models.describe(1));
+        assertTrue(Models.describeAll().contains("not recommended"));
+    }
+
+    @Test
+    void setupRunTwiceListsOneWriterPerProgram(@TempDir Path home) throws Exception {
+        run(home, "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), new FakeActs(), true, true, true);
+        run(home, "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), new FakeActs(), true, true, true);
+        var store = new LibraryStore(home.resolve("researchzosho-library"));
+        long claude = Patrons.load(store).listed().stream().filter(e -> e.name().endsWith("(Claude Code)")).count();
+        assertEquals(1, claude, "one identity per machine and program, however often setup runs: " + Patrons.load(store).listed());
+        assertEquals(Patrons.localDid("claude", "me"), Patrons.localDid("claude", "me"));
+        assertTrue(Patrons.localDid("claude", "me").matches("did:key:local-claude-[0-9a-f]{12}"), Patrons.localDid("claude", "me"));
+        assertNotEquals(Patrons.localDid("claude", "me"), Patrons.localDid("gemini", "me"));
+    }
 }

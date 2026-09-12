@@ -29,7 +29,35 @@ public final class CiteCheck {
     private static final ObjectMapper M = new ObjectMapper();
     /** How many cited sentences to read at most; 0 (the default) = every one. A turn ceiling on the ask bounds it anyway. */
     static final int MAX_CHECKS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CITECHECK_MAX", 0);
-    private static final Pattern CITED = Pattern.compile("([^.!?\\n]*?\\(([^()]{3,200})\\)[^.!?\\n]*[.!?])");
+    /** Abbreviations whose period ends no sentence. */
+    private static final java.util.Set<String> ABBREV = java.util.Set.of("al", "e.g", "i.e", "cf", "vs", "etc", "no", "pp", "fig", "vol", "ca", "approx");
+
+    /**
+     * The sentences of a text, each with its citation parentheticals — split on . ! ? at paren depth zero followed by
+     * space or the end, never inside a parenthetical (a cited URL carries dots) and never after "et al." or "e.g.".
+     */
+    static List<String> sentences(String text) {
+        List<String> out = new ArrayList<>();
+        int depth = 0, start = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '(') depth++;
+            else if (c == ')') depth = Math.max(0, depth - 1);
+            else if (c == '\n') { if (i > start) out.add(text.substring(start, i)); start = i + 1; depth = 0; }
+            else if ((c == '.' || c == '!' || c == '?') && depth == 0) {
+                boolean end = i + 1 == text.length() || Character.isWhitespace(text.charAt(i + 1));
+                if (!end) continue;
+                if (c == '.') {   // an abbreviation's period
+                    int w = i; while (w > start && Character.isLetter(text.charAt(w - 1))) w--;
+                    String word = text.substring(w, i).toLowerCase(Locale.ROOT);
+                    if (word.length() == 1 || ABBREV.contains(word) || (w > start + 1 && text.charAt(w - 1) == '.' && ABBREV.contains(text.substring(Math.max(start, w - 2), i).toLowerCase(Locale.ROOT)))) continue;
+                }
+                out.add(text.substring(start, i + 1)); start = i + 1;
+            }
+        }
+        if (start < text.length()) out.add(text.substring(start));
+        return out;
+    }
     private static final Pattern PAREN = Pattern.compile("\\(([^()]{3,200})\\)");
     private static final Pattern URL = Pattern.compile("https?://\\S+");
 
@@ -113,39 +141,70 @@ public final class CiteCheck {
         catch (Exception e) { return null; }
     }
 
-    /** Check {@code text} (the report's sections) against {@code refs}; returns the annotated text and the tally. */
+    /**
+     * Check {@code text} (the report's sections) against {@code refs}; returns the annotated text and the tally.
+     *
+     * <p>The unit read is the CLAUSE a citation closes — from the sentence's start, or the previous citation, up to the
+     * parenthetical — not the whole sentence. A sentence that runs "(a) … (Read AI, 159,870 meetings); (b) no evidence
+     * was found …; (c) …" cites one source for its first clause only; read whole against that source it was marked
+     * unsupported for claims it never attributed to it (dolores, I-0002, 2026-09-11). A clause found unsupported is
+     * marked right after its citation.
+     */
     public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget) {
         List<String> problems = new ArrayList<>();
         int checked = 0, supported = 0, unsupported = 0, unmapped = 0;
-        Map<String, String> verdictBySentence = new LinkedHashMap<>();
-        Matcher m = CITED.matcher(text);
-        while (m.find() && (MAX_CHECKS <= 0 || checked < MAX_CHECKS)) {
-            String sentence = m.group(1).strip();
-            if (sentence.startsWith("##") || sentence.length() < 25) continue;
-            // the citation is the last parenthetical of the sentence; try it first, then the others
-            List<String> cites = new ArrayList<>();
+        Map<String, String> marked = new LinkedHashMap<>();   // sentence → the sentence with its markers
+        boolean stopped = false;
+        for (String raw : sentences(text)) {
+            if (stopped || (MAX_CHECKS > 0 && checked >= MAX_CHECKS)) break;
+            String sentence = raw.strip();
+            if (sentence.startsWith("##") || sentence.length() < 25 || !PAREN.matcher(sentence).find()) continue;
+            // every parenthetical that names a source closes a clause; the others are asides
+            List<int[]> spans = new ArrayList<>();   // [start of the clause, end of the parenthetical]
+            List<Ref> mapped = new ArrayList<>();
             Matcher pm = PAREN.matcher(sentence);
-            while (pm.find()) cites.add(0, pm.group(1));
-            Ref ref = null;
-            for (String cite : cites) { ref = map(cite, refs); if (ref != null) break; }
-            if (ref == null) { unmapped++; continue; }
-            String source;
-            try {
-                Path p = RawCapture.find(store, ref.locator());
-                if (p == null) { unmapped++; continue; }
-                source = RawCapture.read(p)[2];
-            } catch (Exception e) { unmapped++; continue; }
-            if (!budget.take()) { problems.add("cite-check stopped after " + checked + " check(s): the ask's budget is spent; " + (unmapped) + " unmapped so far"); break; }
-            checked++;
-            String verdict = judge(judge, sentence, excerpt(source, sentence));
-            if (verdict.equals("supported")) supported++;
-            else if (verdict.equals("unsupported")) { unsupported++; verdictBySentence.put(sentence, "unsupported"); problems.add("not supported by " + ref.locator() + ": " + Acquisitions.compress(sentence, 120)); }
-            // cannot-tell: neither counted nor marked — an excerpt can miss the passage
+            int clauseStart = 0;
+            while (pm.find()) {
+                Ref ref = map(pm.group(1), refs);
+                if (ref == null) continue;
+                spans.add(new int[]{clauseStart, pm.end()});
+                mapped.add(ref);
+                clauseStart = pm.end();
+            }
+            if (mapped.isEmpty()) { unmapped++; continue; }
+            StringBuilder out = new StringBuilder();
+            int copied = 0;
+            for (int i = 0; i < mapped.size(); i++) {
+                Ref ref = mapped.get(i);
+                int[] span = spans.get(i);
+                String clause = sentence.substring(span[0], span[1]).replaceFirst("^[\\s;:,—–-]+", "").strip();   // the clause, not the joint before it
+                if (clause.length() < 25 && mapped.size() > 1) clause = sentence.substring(0, span[1]).strip();   // a short clause reads with what leads to it
+                String source;
+                try {
+                    Path p = RawCapture.find(store, ref.locator());
+                    if (p == null) { unmapped++; continue; }
+                    source = RawCapture.read(p)[2];
+                } catch (Exception e) { unmapped++; continue; }
+                if (!budget.take()) { problems.add("cite-check stopped after " + checked + " check(s): the ask's budget is spent; " + (unmapped) + " unmapped so far"); stopped = true; break; }
+                checked++;
+                String verdict = judge(judge, clause, excerpt(source, clause));
+                if (verdict.equals("supported")) supported++;
+                else if (verdict.equals("unsupported")) {
+                    unsupported++;
+                    problems.add("not supported by " + ref.locator() + ": " + Acquisitions.compress(clause, 120));
+                    // the marker follows the citation it failed; a citation that closes the sentence keeps its full stop first
+                    int at = span[1] < sentence.length() && span[1] == sentence.length() - 1 && ".!?".indexOf(sentence.charAt(span[1])) >= 0 ? span[1] + 1 : span[1];
+                    out.append(sentence, copied, at).append(" [not supported by the cited source on check]");
+                    copied = at;
+                }
+                // cannot-tell: neither counted nor marked — an excerpt can miss the passage
+            }
+            if (copied > 0) { out.append(sentence.substring(copied)); marked.put(sentence, out.toString()); }
+            // ") ." — a citation closing a sentence whose stop sits after it — has the marker right after the stop, so the old
+            // shape ("(Foropoulos 2026). [not supported …]") is what a reader and the tests see
         }
         String out = text;
-        for (Map.Entry<String, String> e : verdictBySentence.entrySet()) {
-            out = out.replace(e.getKey(), e.getKey() + " [not supported by the cited source on check]");
-        }
+        for (Map.Entry<String, String> e : marked.entrySet()) out = out.replace(e.getKey(), e.getValue());
         return new Outcome(out, checked, supported, unsupported, unmapped, problems);
     }
 

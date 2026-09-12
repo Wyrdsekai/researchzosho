@@ -187,11 +187,75 @@ public final class LibraryProtocol {
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
         String id = reqStr(args, "id");
         if (!LibraryStore.safeName(id)) throw ProtocolError.invalidArgs("An id is a shelf name (F-…, I-…, A-…, or a raw file name), not a path.");
+        String section = args.path("section").asText("").strip();
+        int offset = args.path("offset").asInt(0);
+        int max = args.path("max_chars").asInt(0);
+        if (offset < 0 || max < 0) throw ProtocolError.invalidArgs("offset and max_chars are zero or positive numbers.");
         ObjectNode r = envelope();
         ObjectNode e = entry(id, kindOf(id), true);
         if (e == null) throw ProtocolError.notFound("id " + id);
+        // A record can run past what a tool call may carry (an investigation of 150,000 characters, measured 2026-09-11):
+        // a caller asks for one section, or a window of the body, and gets the whole list of sections either way.
+        String body = e.path("body").asText("");
+        if (!section.isEmpty()) {
+            String cut = sectionOf(body, section);
+            if (cut == null) throw ProtocolError.invalidArgs("No section \"" + section + "\" in " + id + "; the sections are: "
+                    + String.join(", ", sectionHeadings(body)) + (sectionHeadings(body).isEmpty() ? "(none: the body has no headings)" : "") + ". \"answer\" is the write-up without the harness's own sections.");
+            body = cut;
+            e.put("section", section);
+        }
+        e.put("chars", body.length());
+        if (offset > 0 || max > 0) {
+            int from = Math.min(offset, body.length());
+            int to = max > 0 ? Math.min(body.length(), from + max) : body.length();
+            e.put("offset", from);
+            e.put("truncated", to < body.length());
+            body = body.substring(from, to);
+        }
+        e.put("body", body);
         r.set("entry", e);
         return r;
+    }
+
+    /** The sections the harness itself appends to a write-up; "answer" is everything else. */
+    static final java.util.Set<String> HARNESS_SECTIONS = java.util.Set.of("question", "sources", "caveats", "cite-check", "coverage check", "evidence",
+            "references", "languages of the sources", "web search", "source requests", "worker findings", "sources cited", "answer (as submitted");
+
+    /** The "## " headings of a body, in order. */
+    static List<String> sectionHeadings(String body) {
+        List<String> out = new ArrayList<>();
+        for (String line : body.split("\n")) if (line.startsWith("## ")) out.add(line.substring(3).strip());
+        return out;
+    }
+
+    /**
+     * One section of a body by heading — exact, then by prefix, then by a word it contains, case-insensitively — or,
+     * for {@code answer}, every section that is the write-up's own; null when nothing matches.
+     */
+    static String sectionOf(String body, String name) {
+        String want = name.toLowerCase(Locale.ROOT).strip();
+        String[] parts = body.split("(?m)^(?=## )");
+        if (want.equals("answer") || want.equals("synthesis")) {
+            StringBuilder sb = new StringBuilder();
+            for (String part : parts) {
+                if (!part.startsWith("## ")) continue;
+                String h = headingOf(part);
+                boolean harness = false;
+                for (String x : HARNESS_SECTIONS) if (h.equals(x) || h.startsWith(x + " ") || h.startsWith(x + " (") || (x.endsWith("(") && h.startsWith(x))) { harness = true; break; }
+                if (!harness) sb.append(part.strip()).append("\n\n");
+            }
+            return sb.length() == 0 ? null : sb.toString().strip();
+        }
+        if (want.equals("workers")) want = "worker findings";
+        for (String part : parts) if (part.startsWith("## ") && headingOf(part).equals(want)) return part.strip();
+        for (String part : parts) if (part.startsWith("## ") && headingOf(part).startsWith(want)) return part.strip();
+        for (String part : parts) if (part.startsWith("## ") && headingOf(part).contains(want)) return part.strip();
+        return null;
+    }
+
+    private static String headingOf(String part) {
+        int nl = part.indexOf('\n');
+        return (nl < 0 ? part : part.substring(0, nl)).substring(3).strip().toLowerCase(Locale.ROOT);
     }
 
     /** library_read: the captured raw text behind a source locator — the verbatim path. */
@@ -894,7 +958,18 @@ public final class LibraryProtocol {
                 e.put("body", full ? inv.body() : Acquisitions.compress(inv.body(), 500));
                 ArrayNode fs = e.putArray("findings");
                 for (String fid : inv.findings()) fs.add(fid);
-                e.putArray("sources");
+                ArrayNode srcs = e.putArray("sources");
+                if (full) {
+                    // the record as a reader or a program needs it (asked for by a patron runtime, 2026-09-11): the sections
+                    // with their sizes, every reference as a row, the claims with their bodies, and the questions left open
+                    ArrayNode secs = e.putArray("sections");
+                    for (String[] sec : sectionSizes(inv.body())) { ObjectNode o = secs.addObject(); o.put("heading", sec[0]); o.put("chars", Integer.parseInt(sec[1])); }
+                    for (ObjectNode o : investigationSources(inv.body())) srcs.add(o);
+                    ArrayNode claims = e.putArray("claims");
+                    for (String fid : inv.findings()) { Finding f = store.finding(fid); if (f != null) claims.add(entry(f, false)); }
+                    ArrayNode open = e.putArray("open_questions");
+                    for (String q : inv.open()) open.add(q);
+                }
                 return e;
             }
             case "article" -> {
@@ -944,6 +1019,85 @@ public final class LibraryProtocol {
             }
             default -> { return null; }
         }
+    }
+
+    /** heading → chars, in order, for a write-up's "## " sections. */
+    static List<String[]> sectionSizes(String body) {
+        List<String[]> out = new ArrayList<>();
+        for (String part : body.split("(?m)^(?=## )")) {
+            if (!part.startsWith("## ")) continue;
+            int nl = part.indexOf('\n');
+            out.add(new String[]{(nl < 0 ? part : part.substring(0, nl)).substring(3).strip(), String.valueOf(part.strip().length())});
+        }
+        return out;
+    }
+
+    private static final java.util.regex.Pattern REF_LINE = java.util.regex.Pattern.compile("^\\[(\\d+)\\] (.*)$");
+    private static final java.util.regex.Pattern REF_PUBLISHED = java.util.regex.Pattern.compile("\\(published (\\d{4}-\\d{2}-\\d{2})[^)]*\\)");
+    private static final java.util.regex.Pattern REF_SAME = java.util.regex.Pattern.compile("\\(same text as \\[(\\d+)\\]\\)");
+    private static final java.util.regex.Pattern NOTE_LINE = java.util.regex.Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", java.util.regex.Pattern.MULTILINE);
+
+    /**
+     * The references of a write-up as rows: {@code {n, locator, title, edition, published, fetched, language, same_as, tier, rule, why}}.
+     * Read from the "## References" section the runner writes (one numbered line each); an older record without one
+     * gives its "## Sources cited" list, unnumbered. {@code fetched} says whether the shelves hold the page's text; {@code language}
+     * is the language of the notes the workers took from it.
+     */
+    List<ObjectNode> investigationSources(String body) {
+        List<ObjectNode> out = new ArrayList<>();
+        String refs = sectionOf(body, "references");
+        SourceRules rules = SourceRules.load(store);
+        // locator → language of the notes taken from it
+        Map<String, String> langOf = new HashMap<>();
+        java.util.regex.Matcher nm = NOTE_LINE.matcher(body);
+        while (nm.find()) {
+            String loc = nm.group(2).replaceAll("[),.;]+$", "");
+            java.util.regex.Matcher um = java.util.regex.Pattern.compile("(?:https?|file)://\\S+").matcher(loc);
+            String url = um.find() ? um.group().replaceAll("[),.;]+$", "") : loc;
+            langOf.putIfAbsent(url, Lanes.languageOf(url, nm.group(3) == null ? "" : nm.group(3)));
+        }
+        List<String[]> rows = new ArrayList<>();   // [n, rest]
+        if (refs != null) {
+            for (String line : refs.split("\n")) { java.util.regex.Matcher m = REF_LINE.matcher(line.strip()); if (m.matches()) rows.add(new String[]{m.group(1), m.group(2)}); }
+        } else {
+            String cited = sectionOf(body, "sources cited");
+            if (cited == null) cited = sectionOf(body, "sources");
+            int n = 0;
+            if (cited != null) for (String line : cited.split("\n")) { String t = line.strip(); if (t.startsWith("- ")) t = t.substring(2).strip(); if (t.contains("://") || t.startsWith("raw/")) rows.add(new String[]{String.valueOf(++n), t}); }
+        }
+        for (String[] row : rows) {
+            String rest = row[1];
+            // a URL, a raw capture, a shelved file by name, or a host and path a worker wrote without its scheme ("arxiv.org/html/2510.24011v1")
+            java.util.regex.Matcher um = java.util.regex.Pattern.compile("(?:https?|file)://\\S+|raw/\\S+|(?<=^| )[^\\s]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?)(?= |$)|(?<=^| )(?:[a-z0-9-]+\\.)+[a-z]{2,}/\\S*").matcher(rest);
+            if (!um.find()) continue;
+            String locator = um.group().replaceAll("[),.;]+$", "");
+            String head = rest.substring(0, um.start()).strip();
+            if (head.endsWith("—")) head = head.substring(0, head.length() - 1).strip();
+            String tail = rest.substring(um.end());
+            ObjectNode o = M.createObjectNode();
+            o.put("n", Integer.parseInt(row[0]));
+            o.put("locator", locator);
+            // the head is an edition citation (authors, a journal, a year) or the page's title; a citation carries a year
+            boolean isEdition = head.matches(".*\\b(1[5-9]\\d\\d|20\\d\\d)\\b.*") && (head.contains(",") || head.contains("("));
+            o.put("title", isEdition ? "" : head);
+            if (isEdition) o.put("edition", head); else o.putNull("edition");
+            java.util.regex.Matcher pm = REF_PUBLISHED.matcher(tail);
+            if (pm.find()) o.put("published", pm.group(1)); else o.putNull("published");
+            boolean fetched = false;
+            try { Path rp = RawCapture.find(store, locator); fetched = rp != null && org.researchzosho.tools.Fetch.wall(RawCapture.read(rp)[1], RawCapture.read(rp)[2]) == null; } catch (Exception ignored) { }
+            o.put("fetched", fetched);
+            String lang = langOf.get(locator);
+            if (lang == null) for (var en : langOf.entrySet()) if (en.getKey().startsWith(locator) || locator.startsWith(en.getKey())) { lang = en.getValue(); break; }
+            if (lang == null) o.putNull("language"); else o.put("language", lang);
+            java.util.regex.Matcher sm = REF_SAME.matcher(tail);
+            if (sm.find()) o.put("same_as", Integer.parseInt(sm.group(1))); else o.putNull("same_as");
+            o.put("tier", SourceTier.of(locator).name());
+            SourceRules.Rule rule = rules.ruleFor(locator);
+            if (rule != null) o.put("rule", rule.kind()); else o.putNull("rule");
+            o.put("why", "reference [" + row[0] + "] of the write-up");
+            out.add(o);
+        }
+        return out;
     }
 
     ObjectNode entry(Finding f, boolean full) throws IOException {

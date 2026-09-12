@@ -50,6 +50,7 @@ public final class LibrarianCli {
                                            an entry, or a reading of it, as a Markdown or PDF file
               sharpen <question…>          a rough question in, a better one out — a brief to run, what it assumed, what you already hold; runs nothing
               search [status|start|stop|test <query>|papers <query>]   which web search backend answers; SearXNG through Docker; the literature by DOI
+              models [--all]               which model to run on this machine's card, measured, with the command that serves it
               embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured; Text Embeddings Inference through Docker
               explain <id> [--beginner|--familiar|--written] [--fresh]
                                            an entry explained for a reader at that level — from the library only, checked
@@ -305,10 +306,22 @@ public final class LibrarianCli {
         }
         try {
             if (!verb.equals("init") && !Files.isDirectory(store.root())) {
-                System.out.println("no library at " + store.root() + " — run `researchzosho init` to create one");
-                return verb.equals("status") ? 0 : 1;
+                // an MCP client starting `researchzosho mcp` on a machine with no library (npx @wyrdsekai/researchzosho-mcp,
+                // 2026-09-11) never sees a refusal on stdout: the library is made, and stderr says so
+                if (verb.equals("mcp")) {
+                    store.init();
+                    System.err.println("[researchzosho-mcp] made a new library at " + store.root() + " (there was none; `researchzosho setup` names a model and a service)");
+                } else {
+                    System.out.println("no library at " + store.root() + " — run `researchzosho init` to create one");
+                    return verb.equals("status") ? 0 : 1;
+                }
             }
             switch (verb) {
+                case "models" -> {
+                    // which model to run on this card: measured, with the command that serves it
+                    System.out.print(java.util.Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describe(Models.cardGb()));
+                    return 0;
+                }
                 case "name" -> {
                     // the library's name, on its pages and in every answer; the folder's name until set
                     if (args.length < 3) { var id = store.identity(); System.out.println(id.name() + "  (" + id.id() + "; researchzosho name <a name…> changes it; the folder is " + store.root() + ")"); return 0; }

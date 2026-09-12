@@ -35,11 +35,15 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
 
 ## 1. What you need
 
-- Java 21 or newer.
+- Java 21 or newer — or nothing: each release also carries builds with their own Java runtime for Linux,
+  macOS and Windows (x64 and arm64). The install one-liners take one when the machine has no Java 21;
+  `RESEARCHZOSHO_RUNTIME=1` asks for it outright.
 - A model server that speaks the OpenAI chat API. This can be a local server (llama.cpp, Ollama, LM
   Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and others; any that
   speaks the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a
   model you can still ask what the library has and read it; research runs need the model.
+  `researchzosho models` reads your card's memory and prints the measured choice for it with the
+  command that serves it; setup prints the same when it finds no model server.
   Size matters in a particular way. Measured on the same five questions: a 27B-class model and a 9B
   both get the facts right, but the 9B's write-ups yield fewer claims (10 against 25) and almost no
   citation the checker can read (1 against 26), because the steps that judge a write-up ask for
@@ -50,7 +54,14 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   times slower), and Gemma 4 12B (right, ten claims, six times slower, 9 GB in use). Measured and
   not recommended: Qwen3 14B and Mistral Small 24B got a fact wrong and Mistral needs 19 GB with a
   working context; the 27B at 3-bit was careful but slow and missed twice; Phi-4-reasoning-plus and
-  the 8B and 9B models copied the prompt's own words or answered from memory without sources. Give the model server a context of 16,000 tokens or more per
+  the 8B and 9B models copied the prompt's own words or answered from memory without sources.
+  Smaller cards, measured the same way with one 16,000-token slot: on 8 GB, Qwen3.5 9B (right and
+  deep, ten claims, 5.9 GB in use) or Gemma 4 12B's smaller 4-bit file (right, 7.3 GB in use, slower);
+  on 4 GB, Gemma 4 E4B (right, nine claims, the best citation reader of the small models); on 2 GB,
+  Gemma 4 E2B got the claims right but wrote empty sections, and a hosted API is the better answer
+  that small. Measured and not recommended there: Qwen3 8B and Llama 3.1 8B (thin), Granite 4.1 8B
+  (needs 9.4 GB), Falcon-H1 7B and SmolLM3 3B (answered without fetching a source), Nemotron 3 Nano
+  4B and Granite 4.0 micro (mixed up the lead limits). Each drive saw each question once. Give the model server a context of 16,000 tokens or more per
   request; a smaller one leaves the review too little room.
 - A web search backend, for research runs that go to the web. This matters as much as the model: a
   run can only read what a search finds. The choices, best first: a Brave Search API key
@@ -363,6 +374,13 @@ researchzosho add ~/papers --collection thesis --register
 Supported formats: PDF, Word, PowerPoint, OpenDocument, EPUB, HTML and plain text. The library keeps
 the text, where it came from, when it was added, and the captions of figures and tables. A paper that
 prints its DOI has its citation looked up.
+
+PDFs read best with poppler's `pdftotext` on the machine (`apt install poppler-utils` on Debian and
+Ubuntu, `brew install poppler` on a Mac): the library uses it when it is there, for fetched pages and
+added files alike, and falls back to its built-in reader otherwise. A two-column report the built-in
+reader garbles usually comes out clean this way. A PDF the runner could not fetch at all (a server that
+never answers, a wall) is the case for `researchzosho add <file> --for <url>`: download it yourself,
+supply it, and the shelves re-check against it.
 
 Adding a folder makes a collection. With `--register`, the housekeeping checks the folder for new or
 changed files.
@@ -726,6 +744,26 @@ gemini mcp add -s user librarian researchzosho mcp
 A program registered this way can do everything, as shipped. If you have restricted the library
 with `researchzosho reader default read` or `deny`, allow it by name: the refusal it gets names its
 id, and `researchzosho reader allow <did> write "Claude Code"` puts it on the list.
+
+Setup gives each program one identity per machine and person (`did:key:local-claude-…`, the same
+however often setup runs), so `reader list` shows one line per program, not one per run of setup.
+A library set up before 0.1.5 carries `default: read` in `catalog/patrons.md` from the setup of
+the day: `researchzosho reader default write` opens it, as a fresh library is.
+
+A program that runs MCP servers through `npx` can start the library without installing it first:
+`npx -y @wyrdsekai/researchzosho-mcp` finds an installed ResearchZosho and starts `researchzosho mcp`, or
+fetches the release of the same version, checks it against the release's checksums and unpacks it under
+`~/.researchzosho/launcher`: the small tarball when the machine has Java 21, otherwise the build for the
+platform that carries its own runtime. A machine with no library gets one made.
+
+```
+claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
+```
+
+The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
+settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.6 mcp` is the same
+MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the
 argument `mcp`. In JSON form:

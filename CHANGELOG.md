@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.1.6
+
+Fixed
+- The write-up's author saw only the first sub-investigations' notes on a long run: the evidence was cut from the tail to fit the model's context, so on a five-lane run through a 32k slot the fourth and fifth reports never reached the writer and the answer called those lanes untested while they held 17 sources. Now every report keeps its head and shares the room, the writer sees a coverage line per sub-investigation first, and a sentence that claims nothing was found on a lane that noted three or more sources is listed in a "Coverage check" section of the write-up and on the log.
+- A second round of research got no reading time: the first round could run to the deadline's edge, and the critic's questions were then searched once and never fetched. With a deadline, the first round now stops at three fifths of the time; a second round is refused, and its questions recorded as open, when fewer than four minutes a worker remain; and each second-round worker starts by fetching the pages the first round named and could not read.
+- The cite-check read a whole sentence against the source its last citation named, so a sentence of the shape "(a) … (source); (b) no evidence was found …; (c) …" was marked unsupported for claims it never attributed to that source. It now reads the clause a citation closes, and marks that clause after its citation. Sentence boundaries no longer break on the dots inside a cited URL or after "et al.".
+- Setup minted a new identity for a program every time it ran, so a library set up three times listed three "(Claude Code)" writers for one person. The identity is now one per machine, person and program, and setup rewrites the same line.
+- A PDF the built-in reader garbled is read with poppler's `pdftotext` when the machine has it (`apt install poppler-utils`, `brew install poppler`); the built-in reader stays the fallback. `RESEARCHZOSHO_PDFTOTEXT=off` keeps to the built-in one.
+
+Added
+- `library_get` takes `section` (a heading, or `answer` for the write-up without the harness's own sections, `workers`, `references`, `evidence`), `offset` and `max_chars`, and every entry reports `chars`, so a program can read a 150,000-character investigation a section at a time instead of digesting one blob. An investigation now also carries `sections[]` (heading and size), `sources[]` as rows (number, locator, title or edition, published date, whether its text is on the shelves, the language of the notes taken from it, which reference it duplicates), `claims[]` (its findings with their bodies) and `open_questions[]`.
+- A running job's record and the Runs page carry `progress`: the phase (planning, workers, critic, synthesis, cite-check, filing), the round, workers finished of the round, and turns used of the ceiling — a client knows when to poll again.
+- `npx -y @wyrdsekai/researchzosho-mcp` starts the MCP server from any client that runs npm packages: the launcher finds an installed ResearchZosho, or fetches the release of the same version, checks it against the release's checksums and unpacks it under `~/.researchzosho/launcher`. `researchzosho mcp` on a machine with no library makes one instead of refusing. The library is listed in the MCP Registry as `io.github.wyrdsekai/researchzosho`.
+- Builds with their own Java runtime, one per platform (Linux and macOS on x64 and arm64, Windows x64): `researchzosho-<version>-<platform>.tar.gz`, about 60 MB, nothing to install first. The install one-liners take one when the machine has no Java 21 (`RESEARCHZOSHO_RUNTIME=1` asks for it), the npm launcher does the same, and `update now` on such an install stays on its own kind.
+- A container image, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the settings on volumes and the pages on 4649; `docker-compose.yml` runs it beside an embedder. Its `mcp` argument is the same server over stdio.
+- `researchzosho models`: the measured model choice for this machine's card (24 GB and up, 16, 8, 4, 2), with the command that serves it; `--all` prints every row. Setup prints the row for the card when it finds no model server.
+
+Changed
+- The pages say what they are: ResearchZosho in the header and the title, then the library's name.
+
+Note
+- A library set up before 0.1.5 has `default: read` in `catalog/patrons.md`, written by the setup of the day rather than chosen: a program without a token could read but not file runs. `researchzosho reader default write` opens it, as a fresh library is.
+
 ## 0.1.5
 
 Changed

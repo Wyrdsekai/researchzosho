@@ -90,7 +90,8 @@ There is a small HTTP service with Python and Java clients for everything else.
 
 ## Getting started
 
-You need Java 21 or newer, and a model server that speaks the OpenAI chat API for the research runs:
+You need a model server that speaks the OpenAI chat API for the research runs (Java 21 or newer too,
+unless you take a build that carries its own runtime, which the installer does for you when Java is missing):
 a local one (llama.cpp, Ollama, LM Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini,
 OpenRouter and others). For research runs, a web search backend, which matters as much as the model: a Brave Search
 API key (free plan), or SearXNG (setup starts one with Docker). With neither, the built-in fallback
@@ -146,6 +147,7 @@ can reach them can read and send questions. `researchzosho web signin on` turns 
 ```
 claude mcp add --transport http librarian http://127.0.0.1:4649/rpc --header "Authorization: Bearer <token>"
 codex mcp add librarian -- researchzosho mcp
+npx -y @wyrdsekai/researchzosho-mcp        # any client that runs npm packages; installs the release if needed
 gemini mcp add -t http librarian http://127.0.0.1:4649/rpc -H "Authorization: Bearer <token>"
 ```
 

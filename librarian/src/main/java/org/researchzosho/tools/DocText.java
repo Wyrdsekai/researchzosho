@@ -69,7 +69,55 @@ public final class DocText {
 
     // ---- PDF --------------------------------------------------------------------------
 
+    /** Set once: the poppler `pdftotext` on the PATH, or null. {@code RESEARCHZOSHO_PDFTOTEXT=off} keeps to PDFBox. */
+    private static volatile String pdftotext = "?";
+
+    static String pdftotext() {
+        if (!"?".equals(pdftotext)) return pdftotext;
+        String found = null;
+        if (!"off".equalsIgnoreCase(org.researchzosho.Config.get("RESEARCHZOSHO_PDFTOTEXT", ""))) {
+            String path = System.getenv().getOrDefault("PATH", "");
+            for (String dir : path.split(java.io.File.pathSeparator)) {
+                for (String name : new String[]{"pdftotext", "pdftotext.exe"}) {
+                    java.nio.file.Path c = java.nio.file.Path.of(dir.isBlank() ? "." : dir).resolve(name);
+                    if (java.nio.file.Files.isExecutable(c)) { found = c.toString(); break; }
+                }
+                if (found != null) break;
+            }
+        }
+        pdftotext = found;
+        return found;
+    }
+
+    /**
+     * A PDF's text: poppler's {@code pdftotext} when the box has it — a two-column audit report PDFBox garbled came out
+     * clean with it, in one line (dolores, 2026-09-11) — else PDFBox, always PDFBox for the title.
+     */
     static Doc pdf(byte[] bytes) {
+        String tool = pdftotext();
+        if (tool != null) {
+            java.nio.file.Path tmp = null;
+            try {
+                tmp = java.nio.file.Files.createTempFile("researchzosho-", ".pdf");
+                java.nio.file.Files.write(tmp, bytes);
+                Process pr = new ProcessBuilder(tool, "-enc", "UTF-8", "-q", tmp.toString(), "-").redirectErrorStream(false).start();
+                byte[] out;
+                try (java.io.InputStream in = pr.getInputStream()) { out = in.readNBytes(MAX_TEXT * 3); }
+                boolean done = pr.waitFor(120, java.util.concurrent.TimeUnit.SECONDS);
+                if (!done) pr.destroyForcibly();
+                String text = new String(out, java.nio.charset.StandardCharsets.UTF_8).replace("\f", "\n\n");
+                if (done && pr.exitValue() == 0 && text.strip().length() >= 20) {
+                    String title = "";
+                    try (PDDocument doc = Loader.loadPDF(bytes)) { if (doc.getDocumentInformation() != null && doc.getDocumentInformation().getTitle() != null) title = doc.getDocumentInformation().getTitle(); } catch (Exception ignored) { }
+                    if (title.isBlank()) title = firstLine(text);
+                    return new Doc(cap(text), title.strip(), "pdf");
+                }
+            } catch (Exception ignored) {
+                // fall through to PDFBox
+            } finally {
+                if (tmp != null) try { java.nio.file.Files.deleteIfExists(tmp); } catch (Exception ignored) { }
+            }
+        }
         try (PDDocument doc = Loader.loadPDF(bytes)) {
             PDFTextStripper stripper = new PDFTextStripper();
             stripper.setSortByPosition(true);

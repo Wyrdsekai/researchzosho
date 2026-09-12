@@ -98,6 +98,7 @@ public final class LibrarianDaemon {
         long t0 = System.currentTimeMillis();
         Researcher researcher = researcher(drive);
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
+        researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
         Researcher.Filed filed;
         try { filed = Researcher.file(store, researcher, ask, writer); }
         catch (Researcher.Stopped s) { return "stopped at turn"; }   // the worker marks the job stopped from the marker

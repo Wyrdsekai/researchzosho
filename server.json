@@ -1,0 +1,72 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wyrdsekai/researchzosho",
+  "title": "ResearchZosho",
+  "description": "The research librarian for the rest of us: reads, keeps and questions your sources.",
+  "websiteUrl": "https://researchzosho.org",
+  "repository": {
+    "url": "https://github.com/Wyrdsekai/researchzosho",
+    "source": "github"
+  },
+  "version": "0.1.6",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@wyrdsekai/researchzosho-mcp",
+      "version": "0.1.6",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RESEARCHZOSHO_LIBRARY",
+          "description": "The library folder (default ~/researchzosho-library)",
+          "isRequired": false,
+          "format": "filepath"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/wyrdsekai/researchzosho:0.1.6",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "stdio"
+      },
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-i",
+          "description": "Keep stdin open: the MCP stream",
+          "isRequired": true
+        },
+        {
+          "type": "named",
+          "name": "--rm",
+          "isRequired": true
+        },
+        {
+          "type": "named",
+          "name": "-v",
+          "value": "{library}:/library",
+          "description": "The library folder on the host",
+          "isRequired": true,
+          "variables": {
+            "library": {
+              "description": "Path of the library folder on the host",
+              "format": "filepath",
+              "isRequired": true
+            }
+          }
+        }
+      ],
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
+}

@@ -79,4 +79,35 @@ class UpdaterTest {
         assertEquals("check", Updater.mode());
         assertTrue(Updater.status().contains("installed:") && Updater.status().contains("mode:      check"), Updater.status());
     }
+
+    @Test
+    void anInstallWithItsOwnRuntimeTakesTheNextVersionsPlatformBuild(@TempDir Path tmp) throws Exception {
+        Path root = tmp.resolve("researchzosho"); fakeRoot(root, "0.1.1");
+        Files.createDirectories(root.resolve("jre").resolve("bin"));   // the mark of a build that carries its own Java
+        Path release = tmp.resolve("release"); Files.createDirectories(release);
+        Path stage = tmp.resolve("stage"); fakeRoot(stage.resolve("researchzosho"), "0.1.2");
+        Files.createDirectories(stage.resolve("researchzosho").resolve("jre").resolve("bin"));
+        String asset = "researchzosho-0.1.2-" + Updater.platformTag() + ".tar.gz";
+        assertEquals(0, new ProcessBuilder("tar", "czf", release.resolve(asset).toString(), "-C", stage.toString(), "researchzosho").inheritIO().start().waitFor());
+        // the plain tarball is there too, and must NOT be the one taken
+        Path plainStage = tmp.resolve("plain"); fakeRoot(plainStage.resolve("researchzosho"), "0.1.2");
+        assertEquals(0, new ProcessBuilder("tar", "czf", release.resolve("researchzosho-0.1.2.tar.gz").toString(), "-C", plainStage.toString(), "researchzosho").inheritIO().start().waitFor());
+        Files.writeString(release.resolve("SHA256SUMS"), Updater.sha256(release.resolve(asset)) + "  " + asset + "\n" + Updater.sha256(release.resolve("researchzosho-0.1.2.tar.gz")) + "  researchzosho-0.1.2.tar.gz\n");
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        java.util.List<String> asked = new java.util.ArrayList<>();
+        server.createContext("/", ex -> {
+            asked.add(ex.getRequestURI().getPath());
+            Path f = release.resolve(ex.getRequestURI().getPath().substring(1));
+            if (!Files.exists(f)) { ex.sendResponseHeaders(404, -1); ex.close(); return; }
+            byte[] b = Files.readAllBytes(f); ex.sendResponseHeaders(200, b.length); ex.getResponseBody().write(b); ex.close();
+        });
+        server.start();
+        try {
+            Updater.swapIn(root, "0.1.2", "http://127.0.0.1:" + server.getAddress().getPort(), new PrintStream(new ByteArrayOutputStream()));
+            assertTrue(asked.contains("/" + asset), asked.toString());
+            assertFalse(asked.contains("/researchzosho-0.1.2.tar.gz"), "the plain tarball was not taken: " + asked);
+            assertTrue(Files.isDirectory(root.resolve("jre")), "still carries its runtime");
+        } finally { server.stop(0); }
+        assertTrue(Updater.platformTag().matches("(linux|macos|windows)-(x64|arm64)"), Updater.platformTag());
+    }
 }

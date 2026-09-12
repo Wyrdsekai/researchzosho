@@ -459,4 +459,76 @@ class ResearcherTest {
             probe.stop(0);
         }
     }
+
+    @Test
+    void theWriterSeesEveryLane_fairFitKeepsEachReportsHeadAndTheCoverageCheckNamesAClaimOfAbsence() {
+        // five reports the size of the dolores run's, through a 32k slot: before, the whole evidence was one piece cut from the tail
+        String big = "- a fact — source: https://x.example/p — quote: \"…\"\n".repeat(400);   // ~20k chars each
+        List<String> pieces = new ArrayList<>();
+        for (int i = 1; i <= 5; i++) pieces.add("SUB-QUESTION: lane " + i + " " + (i == 4 ? "cohesion and asynchronous or delegated participation" : "topic " + i) + "\nSUMMARY: what lane " + i + " established\n" + big);
+        String fitted = Researcher.fitNotes(pieces, 32768);
+        for (int i = 1; i <= 5; i++) {
+            assertTrue(fitted.contains("SUB-QUESTION: lane " + i), "lane " + i + " reaches the writer");
+            assertTrue(fitted.contains("SUMMARY: what lane " + i + " established"), "lane " + i + "'s summary survives");
+        }
+        assertTrue(Researcher.estTokens(fitted) <= 32768 * 0.28 + 600, "within the cap: " + Researcher.estTokens(fitted));
+        // a short piece keeps everything and gives its surplus to the long ones
+        List<String> mixed = List.of("SUB-QUESTION: small\nSUMMARY: s\n- one — source: https://a", pieces.get(0), pieces.get(1));
+        String f2 = Researcher.fitNotes(mixed, 32768);
+        assertTrue(f2.contains("- one — source: https://a"), "the small report is whole");
+        assertTrue(Researcher.sourcesNoted(f2) > Researcher.sourcesNoted(fitted) / 5 * 2, "the long ones got the surplus");
+        // the coverage block names every lane with its source count
+        String cov = Researcher.coverage(pieces);
+        assertTrue(cov.contains("#4 lane 4 cohesion") && cov.contains("400 source(s) noted"), cov);
+        // the check: the sentence the dolores answer wrote, against the lane that had the evidence
+        List<String> flags = Researcher.coverageCheck("On the specific design concerns: … No evidence was found that async or delegated participation erodes team cohesion, nor that labels reduce trust. Other text.", pieces);
+        assertEquals(1, flags.size(), flags.toString());
+        assertTrue(flags.get(0).contains("#4") && flags.get(0).contains("400 sources"), flags.get(0));
+        assertTrue(Researcher.coverageCheck("Everything was found.", pieces).isEmpty());
+        assertTrue(Researcher.coverageCheck("No evidence was found on the price of tea.", pieces).isEmpty(), "an absence about something no lane covered is not flagged");
+    }
+
+    @Test
+    void roundTwoStartsFromThePagesRoundOneNamedAndIsRefusedWhenOnlyMinutesAreLeft() throws Exception {
+        // the first round's summaries, as the dolores run wrote them: the sources it could not read, named
+        String evidence = String.join("\n",
+                "SUB-QUESTION: Australia, New Zealand, Canada: How do the Australian Defence Force and others run lessons processes",
+                "SUMMARY: The ANAO 2011-12 audit report on Defence exercises (https://www.anao.gov.au/sites/default/files/201112%20Audit%20Report%20No%201.pdf) could not be fetched; it tracks lessons to closure.",
+                "- The Canadian DRDC paper 'A Canadian After-Action Review Process Improvement' at https://cradpdf.drdc-rddc.gc.ca/PDFS/unc141/p536564_A1b.pdf timed out — source: https://cradpdf.drdc-rddc.gc.ca/PDFS/unc141/p536564_A1b.pdf",
+                "- Israel's tahkir is led by the commander — source: https://example.org/idf-tahkir",
+                "- unrelated line with a url https://example.org/other");
+        List<String> anao = Researcher.seedsFor("The specific findings and numbers on lessons tracked to closure from the Australian National Audit Office 2011-12 report, which could not be extracted due to fetch errors.", evidence);
+        assertEquals(List.of("https://www.anao.gov.au/sites/default/files/201112%20Audit%20Report%20No%201.pdf"), anao, "the ANAO PDF the first round named");
+        List<String> drdc = Researcher.seedsFor("The content of the Canadian DRDC/CRAD paper 'A Canadian After-Action Review Process Improvement', which could not be fetched due to timeout errors.", evidence);
+        assertTrue(drdc.contains("https://cradpdf.drdc-rddc.gc.ca/PDFS/unc141/p536564_A1b.pdf"), drdc.toString());
+        assertTrue(Researcher.seedsFor("The price of tea in China", evidence).isEmpty(), "no shared words, no seeds");
+        // the time check: a run with a deadline whose write-up reserve leaves the workers a minute has no second round
+        var b = new Researcher.Budget(200, 10);
+        assertTrue(b.minutesLeftForWorkers() > 9 && b.minutesLeftForWorkers() <= 10);
+        b.wrapUp(9 * 60_000L);
+        assertTrue(b.minutesLeftForWorkers() < Researcher.MIN_ROUND_TWO_MINUTES, "one minute for the workers: the critic records open questions instead");
+        // a round deadline refuses a worker's turn without touching the run's own deadline
+        var r = new Researcher.Budget(200, 60);
+        r.roundDeadline(System.currentTimeMillis() - 1);
+        assertFalse(r.takeWorker(), "the round is over");
+        r.roundDeadline(0);
+        assertTrue(r.takeWorker(), "the next round takes turns again");
+        assertFalse(r.workersTimeUp());
+    }
+
+    @Test
+    void progressIsPublishedAtEveryPhaseForTheJobRecord() {
+        ScriptedDrive drive = new ScriptedDrive();
+        List<ObjectNode> seen = new ArrayList<>();
+        var researcher = new Researcher(drive, new FakeTools(), null, 2);
+        researcher.onProgress(seen::add);
+        researcher.run(new Researcher.Ask("How were the Antikythera gears cut, and by whom?", "broad", 60, List.of("how were the gears cut?", "who cut them?")), "");
+        List<String> phases = new ArrayList<>(); for (ObjectNode p : seen) if (phases.isEmpty() || !phases.get(phases.size() - 1).equals(p.get("phase").asText())) phases.add(p.get("phase").asText());
+        assertEquals(List.of("planning", "workers", "critic", "workers", "synthesis", "cite-check", "filing"), phases, phases.toString());
+        ObjectNode lastWorkers = null; for (ObjectNode p : seen) if (p.get("phase").asText().equals("workers")) lastWorkers = p;
+        assertEquals(2, lastWorkers.get("round").asInt());
+        assertEquals(lastWorkers.get("workers_total").asInt(), lastWorkers.get("workers_done").asInt(), "the round's workers all finished");
+        assertEquals(60, seen.get(seen.size() - 1).get("turns_ceiling").asInt());
+        assertTrue(seen.get(seen.size() - 1).get("turns_used").asInt() > 10);
+    }
 }

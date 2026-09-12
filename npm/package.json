@@ -1,0 +1,40 @@
+{
+  "name": "@wyrdsekai/researchzosho-mcp",
+  "version": "0.1.6",
+  "description": "Starts ResearchZosho, the research librarian for the rest of us, as an MCP server over stdio: npx @wyrdsekai/researchzosho-mcp",
+  "mcpName": "io.github.wyrdsekai/researchzosho",
+  "bin": {
+    "researchzosho-mcp": "bin/index.js"
+  },
+  "files": [
+    "bin",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test test/launcher.test.js"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Wyrdsekai/researchzosho.git",
+    "directory": "npm"
+  },
+  "homepage": "https://researchzosho.org",
+  "bugs": {
+    "url": "https://github.com/Wyrdsekai/researchzosho/issues"
+  },
+  "keywords": [
+    "mcp",
+    "modelcontextprotocol",
+    "research",
+    "library",
+    "citations",
+    "local-model"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
