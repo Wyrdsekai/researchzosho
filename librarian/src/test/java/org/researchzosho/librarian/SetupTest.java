@@ -192,13 +192,13 @@ class SetupTest {
 
     @Test
     void theMeasuredModelTableAnswersByCard() {
-        assertEquals("24 GB or more", Models.tierFor(48).card());
-        assertEquals("16 GB", Models.tierFor(16).card());
-        assertEquals("16 GB", Models.tierFor(15.996).card(), "a 16 GB card reports 15,996 MB");
-        assertEquals("16 GB", Models.tierFor(23.4).card(), "under 24 is the 16 GB row");
-        assertEquals("8 GB", Models.tierFor(12).card());
-        assertEquals("4 GB", Models.tierFor(6).card());
-        assertEquals("2 GB", Models.tierFor(3).card());
+        assertEquals("24 GB of VRAM or more", Models.tierFor(48).card());
+        assertEquals("16 GB of VRAM", Models.tierFor(16).card());
+        assertEquals("16 GB of VRAM", Models.tierFor(15.996).card(), "a 16 GB card reports 15,996 MB");
+        assertEquals("16 GB of VRAM", Models.tierFor(23.4).card(), "under 24 is the 16 GB row");
+        assertEquals("8 GB of VRAM", Models.tierFor(12).card());
+        assertEquals("4 GB of VRAM", Models.tierFor(6).card());
+        assertEquals("2 GB of VRAM", Models.tierFor(3).card());
         assertNull(Models.tierFor(1));
         String s = Models.describe(16);
         assertTrue(s.contains("gpt-oss-20b") && s.contains("Gemma 4 26B-A4B") && s.contains("http://127.0.0.1:8080"), s);

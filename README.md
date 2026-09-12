@@ -39,6 +39,7 @@ This is The Research Harness For The Rest Of Us.
 
 → **[LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md)**: how to use it day to day
 → **[LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md)**: for programmers, how a program talks to it
+→ **[MODELS.md](docs/MODELS.md)**: which model to run, by your graphics card's VRAM, from what we measured
 
 ---
 

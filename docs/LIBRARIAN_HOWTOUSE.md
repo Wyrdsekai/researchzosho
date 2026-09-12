@@ -631,6 +631,11 @@ answers in about 25 seconds including the load, the next in half a second, and t
 again 20 minutes after the last request. Ollama does the same on its own (`OLLAMA_KEEP_ALIVE`);
 the guide's measurements are on llama.cpp.
 
+### Which model
+
+`researchzosho models` prints the measured choice for the card it finds, with the command that serves it;
+the full list by VRAM (the graphics card's memory, not the computer's RAM) is in [MODELS.md](MODELS.md).
+
 ### Two models
 
 `RESEARCHZOSHO_JUDGE_DRIVE` names a second model server for planning, the critic, the write-up and the

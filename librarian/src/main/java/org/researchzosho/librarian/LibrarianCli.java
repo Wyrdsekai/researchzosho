@@ -40,6 +40,7 @@ public final class LibrarianCli {
                                            send a question; the service picks it up within seconds
               research                     how runs share the model: workers, pause, window; today's steps by reader; what is running
               research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them live — a running question follows at its next step; stop ends one run there
+              jobs [<J-…>]                 every run, queued and running first, then the last finished; one id: its state, progress, wait, and where its write-up went
               bib <id…>                    BibTeX for everything a finding or investigation cites (DOI / arXiv / PubMed resolved)
               perspectives <question…>     who studies this and what each would ask — sub-questions for the brief
               web [status | signin on|off]  the pages in a browser: open to everyone as shipped; signin on asks for a reader token before sending questions
@@ -382,6 +383,7 @@ public final class LibrarianCli {
                     }
                 }
                 case "research" -> { return research(store, args); }
+                case "jobs" -> { return jobs(store, args); }
                 case "explain" -> { return explain(store, args); }
                 case "sharpen" -> {
                     if (args.length < 3) { System.err.println("usage: researchzosho sharpen <question…>"); return 2; }
@@ -966,6 +968,53 @@ public final class LibrarianCli {
         }
         return 0;
     }
+
+    /** `researchzosho jobs [<J-…>]`: the runs, or one run — the line the CLI names after `research ask` (it was named and missing through 0.1.8). */
+    static int jobs(LibraryStore store, String[] args) throws Exception {
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String id = args.length > 2 ? args[2].strip() : "";
+        if (!id.isEmpty()) a.put("job_id", id); else a.put("limit", 10);
+        com.fasterxml.jackson.databind.JsonNode r;
+        try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        if (!id.isEmpty()) {
+            var j = r.path("job");
+            System.out.println(j.path("job_id").asText() + "  " + j.path("state").asText() + "  " + j.path("kind").asText() + (j.path("restarted").asInt(0) > 0 ? "  (restarted " + j.path("restarted").asInt() + "×)" : ""));
+            if (j.hasNonNull("question")) System.out.println("  question: " + j.get("question").asText());
+            System.out.println("  queued " + j.path("queued_at").asText() + (j.hasNonNull("started_at") ? " · started " + j.get("started_at").asText() : "") + (j.hasNonNull("ended_at") ? " · ended " + j.get("ended_at").asText() : "") + " · " + elapsed(j.path("elapsed_s").asLong()));
+            if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText());
+            if (j.hasNonNull("waiting")) System.out.println("  waiting: " + j.get("waiting").asText());
+            if (j.has("progress") && j.get("progress").isObject()) System.out.println("  progress: " + progressWords(j.get("progress")));
+            if (j.hasNonNull("investigation")) System.out.println("  write-up: " + j.get("investigation").asText() + "  (researchzosho export " + j.get("investigation").asText() + " --md, or the Runs page)");
+            if (j.hasNonNull("result") && !j.get("result").asText().isBlank()) System.out.println("  " + (j.path("is_error").asBoolean(false) ? "error: " : "result: ") + Acquisitions.compress(j.get("result").asText(), 300));
+            return 0;
+        }
+        int running = 0, queued = 0;
+        for (var j : r.path("active")) { if ("running".equals(j.path("state").asText())) running++; else queued++; }
+        System.out.println("jobs: " + running + " running, " + queued + " queued" + (r.path("paused").asBoolean(false) ? "  (research paused)" : ""));
+        for (var j : r.path("active")) System.out.println("  " + jobRow(j));
+        if (r.path("finished").size() > 0) { System.out.println("finished (newest first):"); for (var j : r.path("finished")) System.out.println("  " + jobRow(j)); }
+        if (r.path("active").size() == 0 && r.path("finished").size() == 0) System.out.println("  nothing has been filed yet");
+        return 0;
+    }
+
+    static String jobRow(com.fasterxml.jackson.databind.JsonNode j) {
+        StringBuilder b = new StringBuilder(j.path("job_id").asText()).append(" [").append(j.path("state").asText()).append("] ").append(j.path("kind").asText());
+        b.append(" · ").append(elapsed(j.path("elapsed_s").asLong()));
+        if (j.has("progress") && j.get("progress").isObject()) b.append(" · ").append(progressWords(j.get("progress")));
+        if (j.hasNonNull("waiting")) b.append(" · waiting for the model");
+        if (j.hasNonNull("question")) b.append(" · ").append(Acquisitions.compress(j.get("question").asText(), 70));
+        return b.toString();
+    }
+
+    static String progressWords(com.fasterxml.jackson.databind.JsonNode p) {
+        java.util.List<String> parts = new java.util.ArrayList<>();
+        var it = p.fields();
+        while (it.hasNext()) { var e = it.next(); parts.add(e.getKey().replace('_', ' ') + " " + (e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString())); }
+        return String.join(", ", parts);
+    }
+
+    static String elapsed(long s) { return s < 60 ? s + " s" : s < 3600 ? (s / 60) + " min" : String.format("%dh%02d", s / 3600, (s % 3600) / 60); }
 
     /** `researchzosho subjects proposed|accept|drop`: the cataloger's proposed subjects, and what the person does with them. */
     static int subjectsProposed(LibraryStore store, String[] args) throws Exception {

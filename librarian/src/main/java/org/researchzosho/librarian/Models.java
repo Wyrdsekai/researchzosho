@@ -25,25 +25,25 @@ public final class Models {
     }
 
     public static final List<Tier> TIERS = List.of(
-        new Tier("24 GB or more", 24, List.of(
+        new Tier("24 GB of VRAM or more", 24, List.of(
             new Choice("Qwen3.8-27B at 4-bit", "Qwen3.8-27B-UD-Q4_K_M.gguf", "the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file",
                 llama("unsloth/Qwen3.8-27B-GGUF", "Qwen3.8-27B-UD-Q4_K_M.gguf", 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'")))),
-        new Tier("16 GB", 16, List.of(
+        new Tier("16 GB of VRAM", 16, List.of(
             new Choice("gpt-oss-20b", "gpt-oss-20b-F16.gguf", "right, 8 claims, about 5 minutes a question; 13 GB in use with two 16k slots — the choice when speed matters",
                 llama("unsloth/gpt-oss-20b-GGUF", "gpt-oss-20b-F16.gguf", 32768, 2, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'")),
             new Choice("Gemma 4 26B-A4B at 4-bit", "gemma-4-26B-A4B-it-UD-IQ4_XS.gguf", "right and the most careful writer, 10 claims, about nine times slower; 14.6 GB in use",
                 llama("unsloth/gemma-4-26B-A4B-it-GGUF", "gemma-4-26B-A4B-it-UD-IQ4_XS.gguf", 32768, 2, "")),
             new Choice("Gemma 4 12B at 4-bit", "gemma-4-12b-it-Q4_K_M.gguf", "right, 10 claims, six times slower; 9 GB in use, the most room for context",
                 llama("unsloth/gemma-4-12b-it-GGUF", "gemma-4-12b-it-Q4_K_M.gguf", 32768, 2, "")))),
-        new Tier("8 GB", 8, List.of(
+        new Tier("8 GB of VRAM", 8, List.of(
             new Choice("Qwen3.5 9B at 4-bit", "Qwen3.5-9B-Q4_K_M.gguf", "right and deep, 10 claims, half its citations readable, about 11 minutes a question; 5.9 GB in use with one 16k slot",
                 llama("unsloth/Qwen3.5-9B-GGUF", "Qwen3.5-9B-Q4_K_M.gguf", 16384, 1, "--chat-template-kwargs '{\"enable_thinking\":false}'")),
             new Choice("Gemma 4 12B, smaller 4-bit file", "gemma-4-12b-it-IQ4_XS.gguf", "right, 10 claims, about 30 minutes a question; 7.3 GB in use with one 16k slot",
                 llama("unsloth/gemma-4-12b-it-GGUF", "gemma-4-12b-it-IQ4_XS.gguf", 16384, 1, "")))),
-        new Tier("4 GB", 4, List.of(
+        new Tier("4 GB of VRAM", 4, List.of(
             new Choice("Gemma 4 E4B at 4-bit", "gemma-4-E4B-it-Q4_K_M.gguf", "right, 9 claims, the best citation reader of the small models, about 6 minutes a question; 3.6 GB in use",
                 llama("unsloth/gemma-4-E4B-it-GGUF", "gemma-4-E4B-it-Q4_K_M.gguf", 16384, 1, "")))),
-        new Tier("2 GB", 2, List.of(
+        new Tier("2 GB of VRAM", 2, List.of(
             new Choice("Gemma 4 E2B at 4-bit", "gemma-4-E2B-it-Q4_K_M.gguf", "the claims came out right, but its write-ups were headings with no text; 2 GB in use. A hosted API is the better answer this small",
                 llama("unsloth/gemma-4-E2B-it-GGUF", "gemma-4-E2B-it-Q4_K_M.gguf", 16384, 1, ""))))
     );
@@ -83,7 +83,7 @@ public final class Models {
     }
 
     public static String describeAll() {
-        StringBuilder b = new StringBuilder("Measured choices by card, best first in each row:\n");
+        StringBuilder b = new StringBuilder("Measured choices by VRAM (the graphics card's memory, not the computer's RAM), best first in each row:\n");
         for (Tier t : TIERS) {
             b.append("\n").append(t.card()).append(":\n");
             for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n");

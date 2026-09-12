@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+Added
+- `researchzosho jobs [<J-…>]`: every run, queued and running first, then the last finished; one id shows its state, progress, wait line and where the write-up went. The CLI and the guide named this verb after every `research ask` through 0.1.8, and it did not exist.
+- MODELS.md and researchzosho.org/models: the measured list by VRAM (the graphics card's memory), the models measured and not recommended, what a server needs, hosted APIs. The `models` verb now says VRAM too.
+
 ## 0.1.8
 
 Fixed
