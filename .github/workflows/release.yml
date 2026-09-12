@@ -33,12 +33,14 @@ jobs:
       fail-fast: false     # one unattested artifact must not hide the others
       matrix:
         include:
-          - { artifact: tarball,      pattern: 'researchzosho-[0-9]*[0-9].tar.gz' }
-          - { artifact: linux-x64,    pattern: 'researchzosho-*-linux-x64.tar.gz' }
-          - { artifact: linux-arm64,  pattern: 'researchzosho-*-linux-arm64.tar.gz' }
-          - { artifact: macos-x64,    pattern: 'researchzosho-*-macos-x64.tar.gz' }
-          - { artifact: macos-arm64,  pattern: 'researchzosho-*-macos-arm64.tar.gz' }
-          - { artifact: windows-x64,  pattern: 'researchzosho-*-windows-x64.tar.gz' }
+          # pattern: what gh downloads (a glob; the plain tarball's would match the platform builds too, since "x64"
+          # ends in a digit — the 0.1.6 run refused six files); name: the one file the job attests, an exact expression
+          - { artifact: tarball,      pattern: 'researchzosho-*.tar.gz',              name: 'researchzosho-[0-9.]+\.tar\.gz' }
+          - { artifact: linux-x64,    pattern: 'researchzosho-*-linux-x64.tar.gz',    name: 'researchzosho-[0-9.]+-linux-x64\.tar\.gz' }
+          - { artifact: linux-arm64,  pattern: 'researchzosho-*-linux-arm64.tar.gz',  name: 'researchzosho-[0-9.]+-linux-arm64\.tar\.gz' }
+          - { artifact: macos-x64,    pattern: 'researchzosho-*-macos-x64.tar.gz',    name: 'researchzosho-[0-9.]+-macos-x64\.tar\.gz' }
+          - { artifact: macos-arm64,  pattern: 'researchzosho-*-macos-arm64.tar.gz',  name: 'researchzosho-[0-9.]+-macos-arm64\.tar\.gz' }
+          - { artifact: windows-x64,  pattern: 'researchzosho-*-windows-x64.tar.gz',  name: 'researchzosho-[0-9.]+-windows-x64\.tar\.gz' }
     steps:
       - name: Resolve tag
         id: tag
@@ -63,8 +65,8 @@ jobs:
         id: asset
         run: |
           cd assets
-          FILE=$(find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n')
-          [ "$(printf '%s\n' "$FILE" | grep -c .)" -eq 1 ] || { echo "expected exactly one asset for '${{ matrix.pattern }}', got: $FILE" >&2; exit 1; }
+          FILE=$(find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -printf '%f\n' | grep -E '^${{ matrix.name }}$' || true)
+          [ "$(printf '%s\n' "$FILE" | grep -c .)" -eq 1 ] || { echo "expected exactly one asset named like '${{ matrix.name }}', got: $FILE" >&2; exit 1; }
           EXPECTED=$(awk -v f="$FILE" '$2 == f { print $1 }' SHA256SUMS*)
           [ -n "$EXPECTED" ] || { echo "$FILE is not in SHA256SUMS; refusing to attest" >&2; exit 1; }
           ACTUAL=$(sha256sum "$FILE" | awk '{ print $1 }')
