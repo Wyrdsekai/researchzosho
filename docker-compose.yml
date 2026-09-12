@@ -9,7 +9,7 @@
 # (turing-1.8, 1.8 for Ampere, 89-1.8 for Ada, hopper-1.8) and uncomment the deploy block.
 services:
   researchzosho:
-    image: ghcr.io/wyrdsekai/researchzosho:0.1.6
+    image: ghcr.io/wyrdsekai/researchzosho:0.1.7
     ports:
       - "127.0.0.1:4649:4649"
     volumes:

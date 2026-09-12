@@ -697,6 +697,7 @@ final class Pages {
         if (j.hasNonNull("drive")) b.append(" · on ").append(esc(j.path("drive").asText()));
         b.append("</p>");
         if (live && j.has("progress")) b.append("<p class=\"k\">").append(esc(progressLine(j.get("progress")))).append("</p>");
+        if (live && j.hasNonNull("waiting")) b.append("<p class=\"k\">Waiting for the model: ").append(esc(j.get("waiting").asText())).append(". A model server that sleeps between uses is starting.</p>");
         if (j.hasNonNull("question")) b.append("<p><b>").append(esc(j.path("question").asText())).append("</b></p>");
         if (j.hasNonNull("investigation")) b.append("<p>The answer is saved as ").append(idLink(j.path("investigation").asText())).append(".</p>");
         if (j.hasNonNull("result") && !j.path("result").asText().isEmpty()) b.append("<h2>").append(j.path("is_error").asBoolean() ? "What went wrong" : "Result").append("</h2><div class=\"body\">").append(md(j.path("result").asText())).append("</div>");
@@ -1059,9 +1060,9 @@ final class Pages {
                 + (c.detail().isEmpty() ? "" : " <span class=\"k\">" + esc(Acquisitions.compress(c.detail(), 140)) + "</span>");
     }
 
-    private static String jobLine(JsonNode j) {
+    static String jobLine(JsonNode j) {
         String id = j.path("job_id").asText();
-        return "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a> " + badge(j.path("state").asText()) + " <span class=\"k\">" + esc(j.path("kind").asText()) + " · " + j.path("elapsed_s").asLong() + " s</span>"
+        return "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a> " + badge(j.path("state").asText()) + (j.hasNonNull("waiting") ? " <span class=\"badge\">waiting for the model</span>" : "") + " <span class=\"k\">" + esc(j.path("kind").asText()) + " · " + j.path("elapsed_s").asLong() + " s</span>"
                 + (j.hasNonNull("question") ? "<br>" + esc(Acquisitions.compress(j.path("question").asText(), 160)) : "")
                 + (j.hasNonNull("investigation") ? " → " + idLink(j.path("investigation").asText()) : "");
     }

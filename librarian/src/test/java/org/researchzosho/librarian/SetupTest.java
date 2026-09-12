@@ -43,6 +43,9 @@ class SetupTest {
         @Override public boolean have(String command) { return hosts != null ? hosts.contains(command) : "claude".equals(command) && claude; }
         @Override public String register(String command, List<String> args) { registered.put(command, new ArrayList<>(args)); if ("claude".equals(command)) mcpArgs = new ArrayList<>(args); return "connected"; }
         @Override public String launcher() { return "/opt/rz/bin/researchzosho"; }
+        String modelOffer = null; String modelServed = "!not on this machine";
+        @Override public String modelOffer() { return modelOffer; }
+        @Override public String modelServe(java.io.PrintStream out) { out.println("  (fake) installed"); return modelServed; }
     }
 
     private static String run(Path home, String script, Setup.Probe probe, FakeActs acts, boolean yes, boolean service, boolean claude) throws Exception {
@@ -214,5 +217,17 @@ class SetupTest {
         assertEquals(Patrons.localDid("claude", "me"), Patrons.localDid("claude", "me"));
         assertTrue(Patrons.localDid("claude", "me").matches("did:key:local-claude-[0-9a-f]{12}"), Patrons.localDid("claude", "me"));
         assertNotEquals(Patrons.localDid("claude", "me"), Patrons.localDid("gemini", "me"));
+    }
+
+    @Test
+    void withNoServerFoundSetupOffersToServeTheModelOnThisMachine(@TempDir Path home) throws Exception {
+        var acts = new FakeActs();
+        acts.modelOffer = "Serve gpt-oss-20b on this machine on demand: it downloads once (about 14 GB), starts when a run needs it, and stops after 20 idle minutes.";
+        acts.modelServed = "gpt-oss-20b";
+        String out = run(home, "", new FakeProbe("http://nowhere", List.of(), false), acts, true, false, false);
+        assertTrue(out.contains("Serve gpt-oss-20b on this machine on demand"), out);
+        String cfg = Files.readString(home.resolve(".researchzosho").resolve("config"));
+        assertTrue(cfg.contains("drive = http://127.0.0.1:8211") && cfg.contains("model = gpt-oss-20b"), cfg);
+        assertFalse(out.contains("Where is your model server?"), "the address question is skipped once the machine serves it: " + out);
     }
 }

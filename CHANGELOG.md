@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+
+Added
+- `researchzosho model install`: the model on this machine, on demand. On a Linux machine with an NVIDIA card and Docker it picks the measured model for the card, downloads it once, puts llama.cpp behind a small proxy (llama-swap) as a user service on port 8211, and sets the drive to it: the model comes up when a run needs it and goes away after 20 idle minutes, so the card is free in between and nothing has to be up all the time. Setup offers it when it finds no model server. `model status`, `model stop` and `model uninstall` beside it; `--share` lets other machines use this card, and a proxy already on 8211 is used as it is.
+- A run whose model server is not answering says so: "waiting for the model" on its record, in `library_job`, and on the Runs page, with the address and the retry cadence. A model server that sleeps between uses (llama-swap, Ollama) reads as starting, not stuck.
+- The guide has a section on letting the model server sleep: the library never needed it up all the time, and a proxy on the GPU machine that starts the server on demand and stops it when idle keeps the card free in between. Every program points at the proxy, so moving the model to another machine is one address.
+
 ## 0.1.6
 
 Fixed

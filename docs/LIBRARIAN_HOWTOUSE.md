@@ -582,6 +582,42 @@ step.
 Without any setting, the readers slow themselves down when the model slows to half its usual speed
 because something else is using the card.
 
+### Letting the model server sleep
+
+The model does not have to be up all the time. The library is written for a server that comes and
+goes: searching, reading and the pages never call it; a research run waits and asks again every 30
+seconds until it answers, and says "waiting for the model" on its record and on the Runs page while
+it does; the nightly housekeeping skips the steps that need it; sharpen, perspectives and explain
+tell you at once.
+
+On a Linux machine with an NVIDIA card and Docker, setup offers to serve the model on demand when
+it finds no server, and `researchzosho model install` does the same later:
+
+```
+researchzosho model install                 # the measured model for this card, downloaded once, served on demand
+researchzosho model status                  # the proxy, the model, whether the card is in use right now
+researchzosho model stop                    # unload now; the next request starts it again
+researchzosho model uninstall               # remove the service; the model files in ~/models stay
+```
+
+What it puts in place is a small proxy, [llama-swap](https://github.com/mostlygeek/llama-swap),
+as a user service on port 8211, with llama.cpp behind it: the first request starts the server, and
+20 idle minutes after the last one it stops, so the card is free in between. The drive is set to
+`http://127.0.0.1:8211`. `--idle-minutes` changes the wait, `--gpu <index>` picks a card on a
+machine with several, `--file <gguf>` serves a model file you already have, and `--share` makes
+the proxy answer on every interface so other machines can use this card. A machine that already
+has a proxy on 8211, from CodeZaiku's `model serve install` or from an earlier setup, is used as it
+is; nothing is installed twice.
+
+Every program points at the proxy and never at a server directly, so moving the model to another
+machine is one address in each program's settings: install on the machine with the card with
+`--share`, and set `drive = http://<that machine>:8211` everywhere else. Measured on a 27B at
+4-bit on an RTX 6000 Ada: the model list answers at once, the first request after a quiet spell
+answers in about 25 seconds including the load, the next in half a second, and the card is empty
+again 20 minutes after the last request. On macOS and Windows the install prints the llama.cpp
+line for the card instead; run it yourself and set the drive to it. Ollama does the same on its
+own (`OLLAMA_KEEP_ALIVE`); the guide's measurements are on llama.cpp.
+
 ### Two models
 
 `RESEARCHZOSHO_JUDGE_DRIVE` names a second model server for planning, the critic, the write-up and the
@@ -762,7 +798,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.6 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.7 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

@@ -67,6 +67,10 @@ public final class Setup {
         default String startEmbed(int port) { return "!docker is not on this machine"; }
         /** Whether docker here can run the GPU embeddings image (an NVIDIA card and its container runtime). */
         default boolean embedGpu() { return false; }
+        /** One sentence on serving a model on this machine on demand, or null when it cannot (ModelServer.offer). */
+        default String modelOffer() { return null; }
+        /** Set the model server on demand up; the model's name, or "!reason". */
+        default String modelServe(PrintStream out) { return "!not on this machine"; }
     }
 
     /** The programs that can be registered from the command line: their command, their name, and how they take an MCP server. */
@@ -153,6 +157,8 @@ public final class Setup {
             @Override public String startSearxng(int port) { return Searx.start(port); }
             @Override public String startEmbed(int port) { return Embed.start(port, false); }
             @Override public boolean embedGpu() { return Embed.gpu(); }
+            @Override public String modelOffer() { return ModelServer.offer(); }
+            @Override public String modelServe(PrintStream out) { return ModelServer.install(null, "all", ModelServer.DEFAULT_IDLE_MINUTES, false, out); }
             @Override public boolean haveClaude() { return have("claude"); }
             @Override public String claudeMcpAdd(List<String> args) throws Exception { return register("claude", args); }
             @Override public boolean have(String command) {
@@ -264,7 +270,14 @@ public final class Setup {
             out.println("  A local server (llama.cpp, Ollama, LM Studio) or a hosted API that speaks the OpenAI chat API");
             out.println("  (OpenAI, DeepSeek, Gemini, OpenRouter…) both work. A hosted API needs its key.");
             for (String line : Models.describe(Models.cardGb()).split("\n")) out.println("  " + line);   // the measured choice for this card
-            String typed = ask("  Where is your model server? (an address such as http://localhost:11434 or https://api.openai.com/v1, or leave blank)", "");
+            // this machine can serve it on demand: the model comes up when a run needs it and goes away after (ModelServer)
+            String offer = acts.modelOffer();
+            if (offer != null && yesNo("  " + offer + " Set it up?", true)) {
+                String r = acts.modelServe(out);
+                if (r.startsWith("!")) out.println("  not set up: " + r.substring(1));
+                else { base = ModelServer.URL; model = r; }
+            }
+            String typed = base != null ? "" : ask("  Where is your model server? (an address such as http://localhost:11434 or https://api.openai.com/v1, or leave blank)", "");
             if (!typed.isBlank()) {
                 base = typed;
                 if (!local(base) && (key == null || key.isBlank())) {

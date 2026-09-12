@@ -99,4 +99,22 @@ class JobStopTest {
             assertEquals("workers", v.path("progress").path("phase").asText(), "the last progress stays on the finished record");
         } finally { jobs.stop(); }
     }
+
+    @Test
+    void aRunWaitingForAModelThatDoesNotAnswerSaysSoOnItsRecord(@TempDir Path tmp) throws Exception {
+        org.researchzosho.Config.invalidate();
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Patrons.set(store, "did:key:zA", "A", Patrons.Level.write);
+        Jobs jobs = new Jobs(store, (job, drive) -> "ran", List.of("http://127.0.0.1:1"), 1);   // nothing listens on port 1
+        String id = jobs.submit("research", "did:key:zA", args("{\"question\":\"first\"}"));
+        jobs.start();
+        try {
+            ObjectNode j = null;
+            for (int i = 0; i < 100 && (j == null || !j.hasNonNull("waiting")); i++) { Thread.sleep(100); j = jobs.get(id); }
+            assertEquals("queued", j.path("state").asText(), "not started: the model never answered");
+            assertTrue(j.get("waiting").asText().startsWith("no model answers at http://127.0.0.1:1"), j.get("waiting").asText());
+            assertEquals(j.get("waiting").asText(), Jobs.view(j).get("waiting").asText(), "the view carries it");
+            assertTrue(Pages.jobLine(Jobs.view(j)).contains("waiting for the model"), "the Runs page says it");
+        } finally { jobs.stop(); }
+    }
 }

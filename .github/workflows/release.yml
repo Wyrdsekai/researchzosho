@@ -155,7 +155,7 @@ jobs:
         run: |
           V=$(node -p "require('./package.json').version")
           if npm view "@wyrdsekai/researchzosho-mcp@$V" version >/dev/null 2>&1; then echo "already on npm: $V"; exit 0; fi
-          npm publish --access public
+          npm publish --access public --tag latest   # required for a version with a suffix (0.1.6-1); harmless otherwise
 
   # The MCP Registry entry (server.json): the npm launcher and the image it names must exist first.
   registry:

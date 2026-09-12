@@ -382,7 +382,12 @@ public final class Jobs {
                     String kind = j.path("kind").asText();
                     boolean defer = false;
                     if ("crews".equals(kind) && index != 0) { defer = true; wait = 2_000; }
-                    if ("research".equals(kind) && !drive.isEmpty() && !Crews.driveAnswers(drive)) { defer = true; wait = 30_000; }
+                    if ("research".equals(kind) && !drive.isEmpty() && !Crews.driveAnswers(drive)) {
+                        defer = true; wait = 30_000;
+                        // say so on the record: a model server that sleeps between uses (llama-swap, Ollama) answers after a
+                        // start, and a run that sits a minute after a quiet night should read as waiting, not stuck
+                        if (!j.has("waiting")) { j.put("waiting", "no model answers at " + drive + " yet; asked again every 30 s, the run starts the moment it does"); writeActive(j); }
+                    }
                     boolean held = "research".equals(kind) && (ResearchSettings.paused() || !ResearchSettings.openNow());
                     if (held) { defer = true; wait = 30_000; }   // the person's pause or window: the ask waits, the crews still run
                     if (defer) {
@@ -397,6 +402,7 @@ public final class Jobs {
                         if (queue.isEmpty()) continue;
                     }
                     if (j != null) {
+                        j.remove("waiting");
                         j.put("state", "running"); j.put("started_at", Instant.now().toString());
                         if (!drive.isEmpty()) j.put("drive", drive);
                         writeActive(j);
@@ -456,6 +462,7 @@ public final class Jobs {
         r.put("elapsed_s", Math.max(0, (end - start) / 1000));
         r.put("restarted", j.path("restarted").asInt(0));
         if (j.has("progress") && j.get("progress").isObject()) r.set("progress", j.get("progress"));
+        if (j.hasNonNull("waiting")) r.put("waiting", j.get("waiting").asText());
         JsonNode q = j.path("args").get("question");
         if (q != null) r.put("question", q.asText());
         String st = j.path("state").asText();

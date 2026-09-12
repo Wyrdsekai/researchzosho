@@ -51,6 +51,9 @@ public final class LibrarianCli {
               sharpen <question…>          a rough question in, a better one out — a brief to run, what it assumed, what you already hold; runs nothing
               search [status|start|stop|test <query>|papers <query>]   which web search backend answers; SearXNG through Docker; the literature by DOI
               models [--all]               which model to run on this machine's card, measured, with the command that serves it
+              model install|status|stop|uninstall
+                                           the model on this machine, on demand: it comes up when a run needs it and goes away after 20 idle
+                                           minutes (install [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share])
               embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured; Text Embeddings Inference through Docker
               explain <id> [--beginner|--familiar|--written] [--fresh]
                                            an entry explained for a reader at that level — from the library only, checked
@@ -305,6 +308,7 @@ public final class LibrarianCli {
             } catch (Exception e) { System.err.println("setup: " + e.getMessage()); return 1; }
         }
         try {
+            if (verb.equals("model")) return ModelServer.command(args, 2, System.out);   // the machine's model server: no library needed
             if (!verb.equals("init") && !Files.isDirectory(store.root())) {
                 // an MCP client starting `researchzosho mcp` on a machine with no library (npx @wyrdsekai/researchzosho-mcp,
                 // 2026-09-11) never sees a refusal on stdout: the library is made, and stderr says so
