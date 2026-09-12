@@ -248,22 +248,52 @@ public final class Crews {
         }
     }
 
+    /** What a probe of a drive found: it answered a completion; it is reachable but still loading; or nothing is there. */
+    enum DriveState { ANSWERS, STARTING, DOWN }
+
     /** A functional probe, never a port check: llama.cpp answers 503 while loading. */
-    static boolean driveAnswers(String driveUrl) {
-        if (driveUrl == null || driveUrl.isBlank()) return false;
+    static boolean driveAnswers(String driveUrl) { return driveState(driveUrl) == DriveState.ANSWERS; }
+
+    /**
+     * The probe names the model: a bare llama-server ignores the field, but a router (llama-swap, Ollama)
+     * routes by it and answers 404 to a request that names none — which read as "does not answer" until 0.1.8.
+     * {@code local-model} is the alias {@code model install} writes, so an install that set no model still routes.
+     * A connection that succeeds but times out on the body, or a 503, is a server loading its model: STARTING.
+     */
+    static DriveState driveState(String driveUrl) {
+        return driveState(driveUrl, org.researchzosho.Config.get("RESEARCHZOSHO_MODEL", "local-model"), java.time.Duration.ofSeconds(20));
+    }
+
+    static DriveState driveState(String driveUrl, String model, java.time.Duration timeout) {
+        if (driveUrl == null || driveUrl.isBlank()) return DriveState.DOWN;
         try {
             var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build();
+            var body = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+            body.put("model", model == null || model.isBlank() ? "local-model" : model);
+            body.putArray("messages").addObject().put("role", "user").put("content", "hi");
+            body.put("max_tokens", 1);
             var req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(driveUrl.replaceAll("/+$", "") + "/v1/chat/completions"))
-                    .timeout(java.time.Duration.ofSeconds(20))
+                    .timeout(timeout)
                     .header("Content-Type", "application/json")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(
-                            "{\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_tokens\":1}"))
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body.toString()))
                     .build();
             var res = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());
-            return res.statusCode() == 200 && res.body().contains("\"choices\"");
+            if (res.statusCode() == 200 && res.body().contains("\"choices\"")) return DriveState.ANSWERS;
+            return res.statusCode() == 503 ? DriveState.STARTING : DriveState.DOWN;
+        } catch (java.net.http.HttpTimeoutException e) {
+            return e instanceof java.net.http.HttpConnectTimeoutException ? DriveState.DOWN : DriveState.STARTING;
         } catch (Exception e) {
-            return false;
+            return DriveState.DOWN;
         }
+    }
+
+    /** One phrase for the status line. */
+    static String driveLine(String driveUrl) {
+        return switch (driveState(driveUrl)) {
+            case ANSWERS -> " answers";
+            case STARTING -> " is starting (reachable, still loading its model) — research and the model crews start when it answers";
+            case DOWN -> " does not answer — research and the model crews wait for it";
+        };
     }
 
     /** Milliseconds until the next occurrence of {@code hour}:00 local time. */

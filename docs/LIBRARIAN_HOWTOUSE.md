@@ -811,7 +811,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.7 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.8 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

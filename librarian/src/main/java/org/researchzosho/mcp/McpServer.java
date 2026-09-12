@@ -26,7 +26,8 @@ public final class McpServer {
     private static final ObjectMapper M = new ObjectMapper();
     private static final String PROTOCOL_VERSION = "2024-11-05";
     public static final String SERVER_NAME = "researchzosho";
-    public static final String SERVER_VERSION = "0.1.2";
+    /** The release version from the jar manifest, so the server introduces itself as what it is (it said 0.1.2 through 0.1.7). */
+    public static final String SERVER_VERSION = org.researchzosho.Version.string();
 
     private McpServer() { }
 

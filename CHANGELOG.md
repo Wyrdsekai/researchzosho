@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.8
+
+Fixed
+- The drive probe named no model, so a drive behind a router that routes by model name (llama-swap, as `model install` sets it up; Ollama) answered 404 to the probe and read as "does not answer": research runs sat queued as "waiting for the model" forever, the nightly crews never ran, and `library_research` refused with "No model drive answers", while every real call, which does name the model, would have worked. The probe now names the configured model (`local-model`, the alias the install writes, when none is set). Seen on a real node on 2026-09-12: the fix means 0.1.7's own model install is usable by its own runs.
+- A drive that accepts the connection but has not finished loading its model (a 503, or a body that outlasts the probe's 20 seconds on a cold start) now reads as starting on the boot line, not as absent.
+- The MCP server introduced itself as 0.1.2 whatever the release; it now says the release's version.
+- `researchzosho model check` (which the release build runs) read a rate-limited host (HTTP 429) as a missing file; it now asks again, twice, twenty seconds apart, and then reports the row as not checked rather than gone.
+
 ## 0.1.7
 
 Added

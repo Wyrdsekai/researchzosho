@@ -268,7 +268,7 @@ public final class LibrarianCli {
         Service.recordPid();
         var id = store.identity();
         System.out.println("The Librarian is at " + d.url() + "  (" + id.id() + " — " + id.name() + ", contract " + LibraryProtocol.CONTRACT + ")");
-        System.out.println("  drive " + baseUrl + (Crews.driveAnswers(baseUrl) ? " answers" : " does not answer — research and the model crews wait for it"));
+        System.out.println("  drive " + baseUrl + Crews.driveLine(baseUrl));
         System.out.println("  jobs: " + d.describeWorkers() + "  (RESEARCHZOSHO_JOB_WORKERS, RESEARCHZOSHO_JOB_DRIVES)");
         System.out.println(hour < 0 ? "  housekeeping: off" : "  housekeeping: daily at " + String.format("%02d:00", hour) + " local (catalog/crews.log)");
         System.out.println("  tokens: researchzosho reader token <did>");
