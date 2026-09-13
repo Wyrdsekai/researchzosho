@@ -68,7 +68,13 @@ public final class Enrichment {
      * Generate contexts for every chunk of every raw capture that lacks one (up to {@code limit}
      * raw files, 0 = all). Writes as it goes, so an interrupted run keeps its progress.
      */
-    public static Outcome run(LibraryStore store, Contextualizer ctx, int limit) throws IOException {
+    public static Outcome run(LibraryStore store, Contextualizer ctx, int limit) throws IOException { return run(store, ctx, limit, () -> false); }
+
+    /** Raw files the nightly crew enriches at most; the rest wait for the next night. It had no cap and held a card for a whole morning (2026-09-13). */
+    public static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_ENRICH_PER_NIGHT", 20);
+
+    /** As above; {@code stop} is read between chunks, and a true ends the run where it stands (what was written stays). */
+    public static Outcome run(LibraryStore store, Contextualizer ctx, int limit, java.util.function.BooleanSupplier stop) throws IOException {
         int files = 0, gen = 0, skipped = 0;
         List<String> problems = new java.util.ArrayList<>();
         if (!Files.isDirectory(store.rawDir())) return new Outcome(0, 0, 0, problems);
@@ -84,9 +90,11 @@ public final class Enrichment {
             boolean touched = false;
             String head = Acquisitions.compress(r[2], 1200);
             Files.createDirectories(store.extractsDir());
+            if (stop.getAsBoolean()) { problems.add("stopped before " + name); break; }
             for (String chunk : chunks) {
                 String key = chunkKey(chunk);
                 if (have.containsKey(key)) { skipped++; continue; }
+                if (stop.getAsBoolean()) { problems.add("stopped in " + name); break; }
                 String c;
                 try {
                     c = ctx.situate(r[1].isEmpty() ? r[0] : r[1], head, chunk);

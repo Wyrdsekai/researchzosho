@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.10
+
+### Fixed
+
+- The nightly "enrich" step, which writes a retrieval context for every chunk of every captured page that lacks one, ran with no cap and held the model server for a whole morning on a library with a few hundred long captures. It now enriches at most `RESEARCHZOSHO_ENRICH_PER_NIGHT` files a night (default 20) and picks up where it left off the next night. A crews job that is stopped (`researchzosho research stop <J-…>`) now ends at its next chunk instead of running to completion.
+
 ## 0.1.9
 
 This release is about the cite-check and the instruments around it. Until now the checker could only tie a citation to a reference when the writer happened to cite a URL, so on a typical write-up it read about a fifth of the citations and skipped the rest. The writer now cites by number, the checker reads nearly everything, and every run leaves a ledger row and a trace so the effect of a change can be measured instead of argued.

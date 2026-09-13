@@ -72,7 +72,8 @@ public final class LibrarianDaemon {
                 }
             }
             case "crews" -> {
-                var steps = Crews.runAll(store, d, model);
+                String crewId = job.path("job_id").asText("");
+                var steps = Crews.runAll(store, d, model, () -> !crewId.isEmpty() && jobs.stopRequested(crewId));
                 StringBuilder sb = new StringBuilder();
                 for (var s : steps) sb.append(s.name()).append(": ").append(s.outcome()).append(" (").append(s.ms()).append("ms)\n");
                 return sb.toString();

@@ -76,6 +76,14 @@ public final class Crews {
         return runAll(store, driveUrl, model, driveResearcher(store, driveUrl, model, EXPLORER_TURNS), explorerBudget());
     }
 
+    /** As above, with {@code stop} read by the long steps: a stopped crews job ends at its next chunk, not its next night. */
+    public static List<Step> runAll(LibraryStore store, String driveUrl, String model, java.util.function.BooleanSupplier stop) {
+        STOP.set(stop);
+        try { return runAll(store, driveUrl, model); } finally { STOP.remove(); }
+    }
+    private static final ThreadLocal<java.util.function.BooleanSupplier> STOP = new ThreadLocal<>();
+    static java.util.function.BooleanSupplier stop() { java.util.function.BooleanSupplier s = STOP.get(); return s == null ? () -> false : s; }
+
     /** Which extra cadences tonight carries: weekly on {@code RESEARCHZOSHO_CREWS_WEEKLY_DAY} (7 = Sunday), monthly on day 1. */
     public record Cadence(boolean weekly, boolean monthly) {
         public static Cadence tonight(java.time.LocalDate d) {
@@ -139,8 +147,8 @@ public final class Crews {
                 return o.written() + " written, " + o.unchanged() + " unchanged" + (o.problems().isEmpty() ? "" : "; problems: " + String.join(" | ", o.problems()));
             }));
             steps.add(step(store, "enrich", () -> {
-                var o = Enrichment.run(store, Enrichment.driveContextualizer(new org.researchzosho.drive.DriveClient(driveUrl, model)), 0);
-                return o.chunksGenerated() + " context(s) across " + o.files() + " file(s)";
+                var o = Enrichment.run(store, Enrichment.driveContextualizer(new org.researchzosho.drive.DriveClient(driveUrl, model)), Enrichment.PER_NIGHT, stop());
+                return o.chunksGenerated() + " context(s) across " + o.files() + " file(s) (up to " + Enrichment.PER_NIGHT + " a night)" + (o.problems().stream().anyMatch(x -> x.startsWith("stopped")) ? "; stopped" : "");
             }));
         } else {
             String why = "skipped — no drive answers at " + (driveUrl == null ? "(unset)" : driveUrl);
