@@ -1126,7 +1126,7 @@ public final class LibraryProtocol {
             locs.add(s.locator());
         }
         // how many sources stand behind the claim once copies of one text are counted once
-        e.put("independent_sources", locs.isEmpty() ? 0 : Independence.independent(Independence.clusters(store, locs)));
+        e.put("independent_sources", locs.isEmpty() ? 0 : Independence.independent(store, locs));
         // when the inventory last read the claim against its source, and what it found
         String lc = Inventory.lastChecks(store).get(f.id());
         if (lc == null) e.putNull("last_checked");

@@ -31,6 +31,15 @@ import java.util.regex.Pattern;
  * the one every field wants — the citation as the venue printed it.
  */
 public final class Citations {
+    /** The month an arXiv paper was posted, read from its id: {@code 2606.09498} is 2026-06. "" when the text holds no new-style id. */
+    public static String arxivPosted(String text) {
+        if (text == null) return "";
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?<![\\d.])(\\d{2})(0[1-9]|1[0-2])\\.(\\d{4,5})(v\\d+)?(?![\\d.])").matcher(text);
+        if (!m.find()) return "";
+        int yy = Integer.parseInt(m.group(1));
+        if (yy < 7 || yy > 40) return "";   // arXiv's new ids began 0704; nothing after 2040 is a paper id
+        return "20" + m.group(1) + "-" + m.group(2);
+    }
 
     private static final ObjectMapper M = new ObjectMapper();
     static final Pattern DOI = Pattern.compile("(?i)(?:https?://(?:dx\\.)?doi\\.org/|\\bdoi:\\s*)(10\\.\\d{4,9}/[^\\s\"'<>)\\]]+)");

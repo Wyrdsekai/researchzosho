@@ -1093,7 +1093,8 @@ final class Pages {
         if (p.path("round").asInt() > 0) sb.append("round ").append(p.path("round").asInt()).append(" of ").append(p.path("rounds").asInt());
         if (p.path("workers_total").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append("workers ").append(p.path("workers_done").asInt()).append(" of ").append(p.path("workers_total").asInt()).append(" done");
         if (p.path("turns_ceiling").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" of ").append(p.path("turns_ceiling").asInt()).append(" turns");
-        else if (p.path("turns_used").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" turns");
+        else if (p.path("turns_used").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" turns, no turn ceiling");
+        if (p.hasNonNull("deadline_at")) { try { long min = (java.time.Instant.parse(p.get("deadline_at").asText()).toEpochMilli() - System.currentTimeMillis()) / 60_000; sb.append(sb.length() > 0 ? " · " : "").append(min >= 0 ? min + " min left" : "past its deadline, wrapping up"); } catch (Exception ignored) { } }
         if (!p.path("phase").asText("").isEmpty()) sb.append(sb.length() > 0 ? " · " : "").append(p.path("phase").asText());
         return sb.toString();
     }

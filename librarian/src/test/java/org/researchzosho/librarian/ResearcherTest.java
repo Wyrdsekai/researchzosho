@@ -332,7 +332,7 @@ class ResearcherTest {
         };
         drive.criticWantsMore = false;
         var r = new Researcher(drive, new FakeTools(), null, 1).run(new Researcher.Ask("How were the Antikythera gears cut?", "broad", 40, List.of("how?")), "");
-        assertEquals(2, dones.get(), "the empty done was bounced exactly once");
+        assertEquals(3, dones.get(), "the empty done was bounced exactly once; then the sub-question that noted no source went round again (the critic's mechanical rule), once");
         assertTrue(r.evidence().contains("SUMMARY: second time"), r.evidence());
     }
 
@@ -345,7 +345,7 @@ class ResearcherTest {
         assertEquals(512, Researcher.outBudget(h, 32_768), "the floor when the input fills the window");
         int trimmed = Researcher.trimHistory(h, 32_768);
         assertTrue(trimmed >= 3 && trimmed < 12, "oldest first, only as many as needed: " + trimmed);
-        assertTrue(h.get(1).path("content").asText().startsWith("[older observation trimmed"));
+        assertTrue(h.get(1).path("content").asText().startsWith("[older observation") && h.get(1).path("content").asText().contains("cleared"), h.get(1).path("content").asText());
         assertEquals(12_000, h.get(12).path("content").asText().length(), "the newest observation is kept");
         assertTrue(Researcher.outBudget(h, 32_768) > 512);
     }

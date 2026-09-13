@@ -41,6 +41,7 @@ public final class LibrarianCli {
               research                     how runs share the model: workers, pause, window; today's steps by reader; what is running
               research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them live — a running question follows at its next step; stop ends one run there
               jobs [<J-…>]                 every run, queued and running first, then the last finished; one id: its state, progress, wait, and where its write-up went
+              stats [<n>]                  every research run beside the others: turns, rounds, cite-check, sources, fetches; the last n rows (default 20) and the totals
               bib <id…>                    BibTeX for everything a finding or investigation cites (DOI / arXiv / PubMed resolved)
               perspectives <question…>     who studies this and what each would ask — sub-questions for the brief
               web [status | signin on|off]  the pages in a browser: open to everyone as shipped; signin on asks for a reader token before sending questions
@@ -384,6 +385,7 @@ public final class LibrarianCli {
                 }
                 case "research" -> { return research(store, args); }
                 case "jobs" -> { return jobs(store, args); }
+                case "stats" -> { return stats(store, args); }
                 case "explain" -> { return explain(store, args); }
                 case "sharpen" -> {
                     if (args.length < 3) { System.err.println("usage: researchzosho sharpen <question…>"); return 2; }
@@ -969,6 +971,19 @@ public final class LibrarianCli {
         return 0;
     }
 
+    /** `researchzosho stats [<n>]`: the run ledger — the last rows and the aggregates over them. */
+    static int stats(LibraryStore store, String[] args) throws Exception {
+        int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : 20;
+        var rows = RunLedger.read(store, n);
+        if (rows.isEmpty()) { System.out.println("no research runs on the ledger yet (" + RunLedger.file(store) + "); a run writes its row when it is filed"); return 0; }
+        System.out.println("the last " + rows.size() + " research run(s), oldest first:");
+        for (var r : rows) System.out.println("  " + RunLedger.line(r));
+        System.out.println();
+        for (var e : RunLedger.summary(rows).entrySet()) System.out.println("  " + e.getKey() + ": " + e.getValue());
+        System.out.println("  traces: " + store.root().resolve("catalog").resolve("traces") + " (every model call of a run, one file each)");
+        return 0;
+    }
+
     /** `researchzosho jobs [<J-…>]`: the runs, or one run — the line the CLI names after `research ask` (it was named and missing through 0.1.8). */
     static int jobs(LibraryStore store, String[] args) throws Exception {
         var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
@@ -1009,8 +1024,15 @@ public final class LibrarianCli {
 
     static String progressWords(com.fasterxml.jackson.databind.JsonNode p) {
         java.util.List<String> parts = new java.util.ArrayList<>();
+        if (!p.path("phase").asText("").isEmpty()) parts.add(p.path("phase").asText());
+        if (p.path("round").asInt() > 0) parts.add("round " + p.path("round").asInt() + " of up to " + p.path("rounds").asInt());
+        if (p.path("workers_total").asInt() > 0) parts.add("workers " + p.path("workers_done").asInt() + "/" + p.path("workers_total").asInt());
+        if (p.path("turns_ceiling").asInt() > 0) parts.add("turns " + p.path("turns_used").asInt() + " of " + p.path("turns_ceiling").asInt());
+        else parts.add("turns " + p.path("turns_used").asInt() + ", no turn ceiling");
+        if (p.hasNonNull("deadline_at")) { try { long min = (java.time.Instant.parse(p.get("deadline_at").asText()).toEpochMilli() - System.currentTimeMillis()) / 60_000; parts.add(min >= 0 ? min + " min left" : "past its deadline, wrapping up"); } catch (Exception ignored) { } }
         var it = p.fields();
-        while (it.hasNext()) { var e = it.next(); parts.add(e.getKey().replace('_', ' ') + " " + (e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString())); }
+        java.util.Set<String> known = java.util.Set.of("phase", "round", "rounds", "workers_done", "workers_total", "turns_used", "turns_ceiling", "deadline_at", "at");
+        while (it.hasNext()) { var e = it.next(); if (!known.contains(e.getKey())) parts.add(e.getKey().replace('_', ' ') + " " + (e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString())); }
         return String.join(", ", parts);
     }
 

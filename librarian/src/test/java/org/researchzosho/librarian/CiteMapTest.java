@@ -36,6 +36,7 @@ class CiteMapTest {
             @Override public String classify(ArrayNode m, int max) {
                 String q = m.get(0).path("content").asText();
                 String sentence = q.substring(q.indexOf("SENTENCE:\n") + 10, q.indexOf("\n\nSOURCE"));
+                if (q.contains("\"quote\"")) return "{\"quote\": \"none\"}";   // the second read, asked to quote: this judge finds nothing
                 asked.add(sentence);
                 return sentence.contains("no evidence") || sentence.contains("no fixes") ? "{\"verdict\": \"unsupported\"}" : "{\"verdict\": \"supported\"}";
             }

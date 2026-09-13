@@ -38,7 +38,7 @@ public final class Council {
             rows.add(new Row(f.id(), f.state(), f.claimType(), SourceTier.strongest(f.sources()),
                     f.title(), f.recordedAt(), stale));
         }
-        rows.sort((a, b) -> a.recordedAt().compareTo(b.recordedAt()));
+        rows.sort((a, b) -> { int c = a.recordedAt().compareTo(b.recordedAt()); return c != 0 ? c : a.id().compareTo(b.id()); });   // two findings in one second: the id decides, on every OS
         return rows;
     }
 

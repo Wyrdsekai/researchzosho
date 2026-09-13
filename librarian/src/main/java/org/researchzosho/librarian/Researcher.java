@@ -104,9 +104,12 @@ public final class Researcher {
      * thin. {@code done} is whether the synthesis finished by its own hand (the acquisitions gate asks).
      */
     public record Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions,
-                         int rounds, List<String> log, List<String> openQuestions) {
+                         int rounds, List<String> log, List<String> openQuestions, ObjectNode stats) {
         public Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions, int rounds, List<String> log) {
-            this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, List.of());
+            this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, List.of(), null);
+        }
+        public Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions, int rounds, List<String> log, List<String> openQuestions) {
+            this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, openQuestions, null);
         }
         /** A short account for the job ledger. */
         public String summary() {
@@ -190,6 +193,19 @@ public final class Researcher {
     /** Where the run stands, for the job record: set by the daemon; a client reads it to know when to poll again. */
     private volatile Consumer<ObjectNode> onProgress = null;
     public void onProgress(Consumer<ObjectNode> sink) { this.onProgress = sink; }
+    /** The run's trace, when the daemon opened one: the runner writes its own events (a compaction) to it. */
+    private RunTrace trace = null;
+    public void trace(RunTrace t) { this.trace = t; }
+    private void event(String type, ObjectNode data) { if (trace != null) trace.event(type, data); }
+    /** What the run counted, for the ledger: the cite-check, references, coverage flags, walls, sources noted, fetches, critic gaps. */
+    private final ObjectNode runStats = J.createObjectNode();
+    /** The evidence fitted to the window for a judgment step, with the cut recorded on the trace when there was one. */
+    private String fitted(String step, List<String> pieces) {
+        long before = 0; for (String p : pieces) before += p.length();
+        String out = fitNotes(pieces, drive.contextWindow());
+        if (out.length() < before) { ObjectNode o = J.createObjectNode(); o.put("step", step); o.put("pieces", pieces.size()); o.put("chars_before", before); o.put("chars_after", out.length()); o.put("context_tokens", drive.contextWindow()); event("compaction", o); }
+        return out;
+    }
     private volatile String phase = "";
     private volatile int round = 0, workersTotal = 0;
     private final java.util.concurrent.atomic.AtomicInteger workersDone = new java.util.concurrent.atomic.AtomicInteger();
@@ -204,7 +220,8 @@ public final class Researcher {
         o.put("phase", phase);
         o.put("round", round); o.put("rounds", ROUNDS);
         o.put("workers_done", workersDone.get()); o.put("workers_total", workersTotal);
-        o.put("turns_used", b == null ? 0 : b.used()); o.put("turns_ceiling", b == null ? 0 : b.ceiling());
+        o.put("turns_used", b == null ? 0 : b.used()); o.put("turns_ceiling", b == null ? 0 : b.ceiling());   // 0 = no turn ceiling
+        if (b != null && b.deadlineMs() > 0) o.put("deadline_at", java.time.Instant.ofEpochMilli(b.deadlineMs()).toString());
         o.put("at", java.time.Instant.now().toString());
         try { sink.accept(o); } catch (Exception ignored) { }
     }
@@ -212,6 +229,34 @@ public final class Researcher {
     private java.util.Set<String> wallsSeenAtStart = null;
     private final java.util.concurrent.atomic.AtomicInteger readsInRun = new java.util.concurrent.atomic.AtomicInteger();   // shelf pages read this run — sources too
     private final java.util.Set<String> fetchedInRun = java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());   // every source a worker read this run
+    private final java.util.concurrent.atomic.AtomicInteger servedFromRun = new java.util.concurrent.atomic.AtomicInteger();   // fetches answered from a page another reader read this run
+
+    /**
+     * A page another reader read this run, served from its capture instead of fetched again: the same text, centred on
+     * {@code find} when given. Null when the page was not read this run or has no capture. (A third of all fetches were
+     * repeats, measured over five runs on 2026-09-12; jmlon counted 2 of 5 citations as one URL fetched twice.)
+     */
+    String servedFromRun(JsonNode args) {
+        if (store == null) return null;
+        String url = args.path("url").asText("").strip();
+        if (url.isEmpty()) return null;
+        if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
+        String canon = org.researchzosho.tools.Fetch.canonical(url);
+        String hit = null;
+        synchronized (fetchedInRun) { for (String f : fetchedInRun) if (org.researchzosho.tools.Fetch.canonical(f).equals(canon)) { hit = f; break; } }
+        if (hit == null) return null;
+        try {
+            java.nio.file.Path rp = RawCapture.find(store, hit);
+            if (rp == null) return null;
+            String[] r = RawCapture.read(rp);
+            String text = r[2] == null ? "" : r[2];
+            String find = args.path("find").asText("").strip();
+            int at = find.isEmpty() ? -1 : text.toLowerCase(java.util.Locale.ROOT).indexOf(find.toLowerCase(java.util.Locale.ROOT));
+            int from = at < 0 ? 0 : Math.max(0, at - PAGE_CHARS / 3);
+            String body = text.substring(from, Math.min(text.length(), from + PAGE_CHARS));
+            return "source: " + hit + (r[1] == null || r[1].isEmpty() ? "" : " — " + r[1]) + "\n(read earlier this run by another reader; the same page, from the library's copy)\n" + body;
+        } catch (Exception e) { return null; }
+    }
 
     public Researcher(Drive drive, Tools tools, Consumer<String> log) {
         this(drive, drive, tools, log, 0, null);
@@ -260,6 +305,8 @@ public final class Researcher {
         currentBudgetForProgress = budget;
         round = 0; workersTotal = 0; workersDone.set(0);
         progress("planning");
+        askedFormat = formatAsked(ask, budget);
+        if (!askedFormat.isEmpty()) log.accept("format asked for: " + askedFormat);
         List<String> open = plan(ask, knownBlock, budget);
         int subCount = open.size();
         log.accept("plan: " + open.size() + " sub-question(s), " + workersNow() + " worker(s), " + ask.ceilings());
@@ -282,9 +329,11 @@ public final class Researcher {
             progress("workers");
             evidence.addAll(investigateAll(ask, open, budget));
             open.clear();
-            if (round == ROUNDS || budget.workersTimeUp() || (!budget.unbounded() && budget.left() <= budget.reserve())) break;
+            if (round == ROUNDS) break;
+            if (budget.workersTimeUp() || (!budget.unbounded() && budget.left() <= budget.reserve())) { runStats.put("rounds_cut", true); log.accept("rounds: no room for the critic and a second round within the ceiling"); break; }
             progress("critic");
             List<String> missing = critic(ask, evidence, budget);
+            runStats.put("critic_gaps", runStats.path("critic_gaps").asInt(0) + missing.size());
             if (missing.isEmpty()) { log.accept("critic: coverage sufficient after round " + round); break; }
             // A second round needs room to search AND read: measured (J-0011) three round-2 workers got two
             // turns each — one search, one summary from snippets — which is worse than an honest gap.
@@ -318,7 +367,14 @@ public final class Researcher {
         String answer = assemble(ask, syn, evidenceText, budget, notes);
         progress("filing");
         List<String> openAll = new ArrayList<>(unaffordableFromPlan); openAll.addAll(unaffordable);
-        return new Result(syn.done, answer, evidenceText, budget.used(), subCount, rounds, List.copyOf(notes), List.copyOf(openAll));
+        runStats.put("ceiling_cut", !syn.done || runStats.path("rounds_cut").asBoolean(false) || runStats.path("citecheck_cut").asBoolean(false));
+        runStats.put("critic_ran", runStats.has("critic_gaps"));
+        runStats.put("unaffordable_gaps", openAll.size());
+        runStats.put("sources_noted", notedSources(evidenceText).size());
+        runStats.put("fetches_distinct", fetchedInRun.size());
+        runStats.put("fetches_served_from_run", servedFromRun.get());
+        runStats.put("shelf_reads", readsInRun.get());
+        return new Result(syn.done, answer, evidenceText, budget.used(), subCount, rounds, List.copyOf(notes), List.copyOf(openAll), runStats.deepCopy());
     }
 
     // ---- the shelf ----
@@ -407,13 +463,34 @@ public final class Researcher {
         return "";
     }
 
-    String assemble(Ask ask, Synthesis syn, String evidence, Budget budget, List<String> notes) {
-        String text = syn.text();
-        String languages = languagesSection(evidence);
-        String web = webSearchSection(ask);
-        if (!web.isEmpty()) { languages = languages.isEmpty() ? web : web + "\n\n" + languages; notes.add("web search: no backend answered"); log.accept(notes.get(notes.size() - 1)); }
-        if (!languages.isEmpty()) { notes.add("languages: " + Lanes.describe(Lanes.languagesRead(evidence))); log.accept(notes.get(notes.size() - 1)); }
-        if (store == null) return languages.isEmpty() ? text : text + "\n\n" + languages;
+    /** The retraction look-up the write-up's DOIs are checked against at assembly; Crossref by default, a fake in tests. Null = skip. */
+    static volatile Retractions.Lookup retractionLookup = null;
+    static Retractions.Lookup retractionLookup() { return retractionLookup != null ? retractionLookup : Retractions.live(); }
+    static final int RETRACTION_LOOKUPS = 25;
+
+    /** "[n] <doi>: retracted on <date> (notice <doi>)" for every cited DOI Crossref lists a retraction for, up to {@link #RETRACTION_LOOKUPS}. */
+    static List<String> retractedAmong(List<CiteCheck.Ref> refs) {
+        List<String> out = new ArrayList<>();
+        int looked = 0;
+        for (CiteCheck.Ref r : refs) {
+            String id = Citations.identify(r.locator());
+            if (id == null || !id.startsWith("doi:") || looked >= RETRACTION_LOOKUPS) continue;
+            looked++;
+            try {
+                Retractions.Notice n = retractionLookup().notice(id.substring(4));
+                if (n != null && Retractions.retracts(n.type())) out.add("[" + r.n() + "] " + r.locator() + ": " + n.type().replace('_', ' ') + " on " + n.date() + (n.noticeDoi().isEmpty() ? "" : " (notice " + n.noticeDoi() + ")"));
+            } catch (Exception ignored) { }   // an unreachable Crossref is not a retraction
+        }
+        return out;
+    }
+
+    /**
+     * The works a write-up rests on, in first-seen order: every source the workers noted, every page a worker read, then
+     * every URL the text names; locators sharing a DOI / arXiv / PubMed id or a captured file fold into one work; a
+     * capture that turned out to be a wall is not a reference. The order is stable across a call before the write-up
+     * ({@code text} = "") and after it: the writer cites by the numbers it was shown, and the cite-check maps by them.
+     */
+    Map<String, List<String>> works(String evidence, String text) {
         List<String> locators = new ArrayList<>();
         List<String> raw = notedSources(evidence);
         synchronized (fetchedInRun) { raw.addAll(fetchedInRun); }
@@ -425,14 +502,14 @@ public final class Researcher {
             if (loc.startsWith("file://")) { try { if (RawCapture.find(store, loc) == null) continue; } catch (Exception e) { continue; } }
             locators.add(loc);
         }
-        if (locators.isEmpty()) return text;
+        Map<String, List<String>> byWork = new LinkedHashMap<>();
+        if (locators.isEmpty()) return byWork;
         // one reference per WORK: locators sharing a DOI / arXiv / PubMed id fold into one entry (an article page,
         // its PDF and its citation line are one source — measured live as three)
         // a shelved file noted by its bare name ("source: guardrails.md") is the file:// capture of that name, not a
         // second reference (measured, J-0009: eleven references for five files, and the cite-check mapped the bare one)
         Map<String, String> bareToFile = new HashMap<>();
         for (String loc : locators) if (loc.startsWith("file://")) bareToFile.put(loc.substring(loc.lastIndexOf('/') + 1).toLowerCase(java.util.Locale.ROOT), loc);
-        Map<String, List<String>> byWork = new LinkedHashMap<>();
         for (String loc : locators) {
             boolean bare = !loc.contains("://") && !loc.startsWith("cite:") && !loc.startsWith("raw/") && loc.matches("[^/\\s]+\\.[A-Za-z0-9]{1,5}");
             String file = bare ? bareToFile.get(loc.toLowerCase(java.util.Locale.ROOT)) : null;
@@ -451,10 +528,52 @@ public final class Researcher {
                 return org.researchzosho.tools.Fetch.wall(r[1], r[2]) != null;
             } catch (Exception e) { return false; }
         });
+        return byWork;
+    }
+
+    /** The primary locator of each work: a URL when the group has one, else the first that is not a citation line. */
+    static String primaryOf(List<String> group) {
+        return group.stream().filter(l -> l.contains("://")).findFirst().orElse(group.stream().filter(l -> !l.startsWith("cite:")).findFirst().orElse(group.get(0)));
+    }
+
+    /**
+     * "[n] title — locator" for every work the workers noted or read, numbered as the references will be: the writer
+     * cites by number and the cite-check maps by number (surf-sense's harness-assigned source ids; measured on
+     * 2026-09-12: four in five parentheticals named no mappable source, so the check read a fifth of the citations).
+     */
+    String sourcesForWriter(String evidence) {
+        if (store == null) return "";
+        Map<String, List<String>> byWork = works(evidence, "");
+        if (byWork.isEmpty()) return "";
+        StringBuilder b = new StringBuilder();
+        int n = 0;
+        for (List<String> group : byWork.values()) {
+            n++;
+            String loc = primaryOf(group);
+            String title = "";
+            try { java.nio.file.Path rp = RawCapture.find(store, loc); if (rp != null) title = Pages.unentity(RawCapture.read(rp)[1]); } catch (Exception ignored) { }
+            String edition = "";
+            for (String l : group) if (l.startsWith("cite:")) { edition = l.substring(5); break; }
+            b.append('[').append(n).append("] ").append(!edition.isEmpty() ? edition + " — " : !title.isEmpty() ? Acquisitions.compress(title, 90) + " — " : "").append(loc).append('\n');
+        }
+        return b.toString();
+    }
+
+    String assemble(Ask ask, Synthesis syn, String evidence, Budget budget, List<String> notes) {
+        String text = syn.text();
+        String languages = languagesSection(evidence);
+        String web = webSearchSection(ask);
+        if (!web.isEmpty()) { languages = languages.isEmpty() ? web : web + "\n\n" + languages; notes.add("web search: no backend answered"); log.accept(notes.get(notes.size() - 1)); }
+        if (!languages.isEmpty()) { notes.add("languages: " + Lanes.describe(Lanes.languagesRead(evidence))); log.accept(notes.get(notes.size() - 1)); }
+        if (store == null) return languages.isEmpty() ? text : text + "\n\n" + languages;
+        Map<String, List<String>> byWork = works(evidence, text);
+        if (byWork.isEmpty()) return text;
         List<String> primary = new ArrayList<>();
-        for (List<String> group : byWork.values()) primary.add(group.stream().filter(l -> l.contains("://")).findFirst().orElse(group.stream().filter(l -> !l.startsWith("cite:")).findFirst().orElse(group.get(0))));
+        for (List<String> group : byWork.values()) primary.add(primaryOf(group));
+        java.util.Set<String> noted = new java.util.HashSet<>(notedSources(evidence));
         Map<String, Integer> clusters = Independence.clusters(store, primary);
-        int independent = Independence.independent(clusters);
+        Map<String, String> derivatives = Independence.derivatives(store, primary);
+        int independent = Independence.independent(store, primary);
         List<CiteCheck.Ref> refs = new ArrayList<>();
         StringBuilder references = new StringBuilder("## References\n\n");
         Map<Integer, Integer> firstOfCluster = new HashMap<>();
@@ -474,17 +593,22 @@ public final class Researcher {
             int c = clusters.getOrDefault(loc, n);
             String same = firstOfCluster.containsKey(c) ? "  (same text as [" + firstOfCluster.get(c) + "])" : "";
             firstOfCluster.putIfAbsent(c, n);
+            if (same.isEmpty() && derivatives.containsKey(loc)) { int to = primary.indexOf(derivatives.get(loc)) + 1; if (to > 0 && to != n) same = "  (cites [" + to + "]; not an independent voice for what it says)"; }
             String published = "";
             try { java.nio.file.Path rp = RawCapture.find(store, loc); if (rp != null) published = RawCapture.published(rp); } catch (Exception ignored) { }
+            if (published.isEmpty()) published = Citations.arxivPosted(loc);   // the id says when it was posted; no page date needed
             if (!published.isEmpty()) { dated.add(published); }
             SourceRules.Rule rule = rules.ruleFor(loc);
+            boolean citedInText = text.contains("[" + n + "]") || group.stream().anyMatch(l -> l.contains("://") && text.contains(l));
+            boolean notedByWorker = group.stream().anyMatch(noted::contains);
             references.append('[').append(n).append("] ").append(edition.isEmpty() ? (title.isEmpty() ? "" : title + " — ") : edition + " — ").append(loc)
+                      .append(!citedInText && !notedByWorker ? "  (read by a worker, not noted, not cited)" : "")
                       .append(published.isEmpty() ? "" : "  (published " + published + ageNote(published) + ")")
                       .append(rule == null ? "" : rule.kind().equals("trust") ? "  (a source you trust)" : "  (ON YOUR REFUSED LIST)");
             for (String l : group) if (!l.equals(loc) && !l.startsWith("cite:") && l.contains("://")) references.append("  also ").append(l);
             references.append(same).append('\n');
         }
-        references.append("\n").append(byWork.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once).");
+        references.append("\n").append(byWork.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once, and a source that cites another adds nothing to it).");
         if (!dated.isEmpty()) {
             java.util.Collections.sort(dated);
             references.append(" Dated sources run from ").append(dated.get(0)).append(" to ").append(dated.get(dated.size() - 1)).append(dated.size() < byWork.size() ? "; " + (byWork.size() - dated.size()) + " give no date" : "").append('.');
@@ -513,13 +637,41 @@ public final class Researcher {
         pieces.removeIf(String::isBlank);
         List<String> coverageFlags = coverageCheck(text, pieces);
         for (String f : coverageFlags) { notes.add("coverage: " + f); log.accept(notes.get(notes.size() - 1)); }
-        CiteCheck.Outcome cc = CiteCheck.run(store, text, refs, judge, budget);
+        java.util.Set<String> readCanon = new java.util.HashSet<>();
+        for (String l : notedSources(evidence)) readCanon.add(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l);
+        synchronized (fetchedInRun) { for (String l : fetchedInRun) readCanon.add(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l); }
+        java.util.Set<Integer> unread = new java.util.HashSet<>();
+        { int k = 0; for (List<String> group : byWork.values()) { k++; boolean read = false; for (String l : group) if (readCanon.contains(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l) || l.startsWith("cite:") || l.startsWith("file://")) { read = true; break; } if (!read) unread.add(k); } }
+        CiteCheck.Outcome cc = CiteCheck.run(store, text, refs, judge, budget, unread);
+        runStats.put("cite_checked", cc.checked()); runStats.put("cite_supported", cc.supported()); runStats.put("cite_unsupported", cc.unsupported());
+        runStats.put("cite_unmapped", cc.unmapped()); runStats.put("references", byWork.size()); runStats.put("coverage_flags", coverageFlags.size());
+        runStats.put("cite_mechanical", cc.mechanical()); runStats.put("cite_overruled", cc.overruled()); runStats.put("cite_unretrieved", cc.unretrieved());
+        // the write-up against its own evidence, mechanically: numbers with a unit, licence names and CVE ids that no note or source states;
+        // quotations that appear in no source; and a cited paper Crossref lists as retracted
+        List<String> sourceTexts = new ArrayList<>();
+        Map<Integer, String> textByRef = new HashMap<>();
+        for (CiteCheck.Ref r : refs) { try { java.nio.file.Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
+        List<String> checks = new ArrayList<>();
+        List<String> numbersOff = WriteupChecks.numbersUnbacked(text, evidence, refs, textByRef), namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, sourceTexts);
+        for (String l : numbersOff) checks.add("number " + l);
+        for (String l : namesOff) checks.add("name " + l);
+        for (String l : quotesOff) checks.add("quotation " + l);
+        List<String> retracted = retractedAmong(refs);
+        for (String l : retracted) checks.add("retracted " + l);
+        runStats.put("numbers_unbacked", numbersOff.size()); runStats.put("names_unbacked", namesOff.size()); runStats.put("quotes_unbacked", quotesOff.size()); runStats.put("retracted_cited", retracted.size());
+        if (!checks.isEmpty()) { notes.add("checks: " + checks.size() + " line(s) — " + numbersOff.size() + " number(s), " + namesOff.size() + " name(s), " + quotesOff.size() + " quotation(s) unbacked, " + retracted.size() + " retracted source(s) cited"); log.accept(notes.get(notes.size() - 1)); }
         String checked = "cite-check: " + cc.checked() + " cited sentence(s) read against their source — " + cc.supported() + " supported, "
                 + cc.unsupported() + " not supported (marked), " + (cc.checked() - cc.supported() - cc.unsupported()) + " undecidable from the excerpt; "
                 + cc.unmapped() + " parenthetical(s) named no source (an aside, not a citation, counts here); " + byWork.size() + " reference(s)";
         notes.add(checked);
         log.accept(checked);
         StringBuilder out = new StringBuilder(cc.text());
+        if (!checks.isEmpty()) {
+            out.append("\n\n## Checks\n\nThe write-up against the evidence it was written from, mechanically. A number with a unit, a licence, a CVE id or a "
+                    + "quotation that no note or source read this run states is listed here; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
+            for (String c : checks) out.append("- ").append(c).append('\n');
+        }
+        for (String pr : cc.problems()) if (pr.startsWith("cite-check stopped")) runStats.put("citecheck_cut", true);
         if (!cc.problems().isEmpty()) {
             out.append("\n\n## Cite-check\n\n").append(checked).append(".\n");
             for (String p : cc.problems()) out.append("- ").append(p).append('\n');
@@ -534,6 +686,7 @@ public final class Researcher {
         if (!languages.isEmpty()) out.append("\n\n").append(languages);
         List<String> walls = new ArrayList<>();
         synchronized (org.researchzosho.tools.WebFetchTool.WALLS) { for (String w : org.researchzosho.tools.WebFetchTool.WALLS) if (wallsSeenAtStart == null || !wallsSeenAtStart.contains(w)) walls.add(w); }
+        runStats.put("walls", walls.size());
         if (!walls.isEmpty()) {
             out.append("\n\n## Source requests\n\nThese answered with a wall instead of the page. If you hold the document or the access, "
                     + "`researchzosho add <file> --for <url>` supplies it and the shelves re-check against it.\n\n");
@@ -744,7 +897,9 @@ public final class Researcher {
                             + "another query, another source, or note what you have and move on.";
                 } else {
                     calls.merge(name, 1, Integer::sum);
-                    try {
+                    String served = "web_fetch".equals(name) ? servedFromRun(args) : null;
+                    if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
+                    else try {
                         observation = t.execute(args);
                     } catch (Exception e) {
                         observation = "ERROR: " + name + " failed — " + e.getMessage();
@@ -853,6 +1008,25 @@ public final class Researcher {
         return sb.toString();
     }
 
+    /** What the person asked for beyond the question — a table, a language, a length, an order — carried to the writer; "" when nothing. */
+    private volatile String askedFormat = "";
+    static final java.util.regex.Pattern FORMAT_HINT = java.util.regex.Pattern.compile("(?i)\\b(table|tabular|bullet|list|timeline|by year|per year|chronolog|in (japanese|english|german|french|spanish|chinese|korean|italian|portuguese)|under \\d+ words|at most \\d+ words|one page|two pages|short|brief|summary|compare|comparison|side by side|ranked|rank)\\b");
+    String formatAsked(Ask ask, Budget budget) {
+        if (!FORMAT_HINT.matcher(ask.question()).find() || !budget.take()) return "";
+        try {
+            ArrayNode msgs = J.createArrayNode();
+            msgs.addObject().put("role", "user").put("content",
+                    "Split this research request into the TASK (what to find out) and the FORMAT the person asked the answer to take "
+                    + "(a table, a list, a language, a length, an order, a comparison). Copy the format words as written; say none when the request names none.\n\nREQUEST:\n"
+                    + ask.question() + "\n\nAnswer with JSON only: {\"task\": \"…\", \"format\": \"…|none\"}");
+            String raw = judge.classify(msgs, 300);
+            int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
+            if (a < 0 || b <= a) return "";
+            String f = J.readTree(raw.substring(a, b + 1)).path("format").asText("").strip();
+            return f.equalsIgnoreCase("none") || f.length() > 300 ? "" : f;
+        } catch (Exception e) { return ""; }
+    }
+
     // ---- 3. critic ----
 
     List<String> critic(Ask ask, List<String> evidence, Budget budget) {
@@ -865,27 +1039,79 @@ public final class Researcher {
             missing.add(again); laneOf.put(again, lane);
             log.accept("critic: no " + lane.name() + "-language source read (" + Lanes.describe(read) + ") → the lane goes round again");
         }
+        // the numbers first, computed from the notes — not the model's impression of them (SearchClaw's stop hooks, deer-flow's
+        // acceptance checks): a sub-question that noted no source at all goes round again without asking
+        CoverageNumbers cn = coverageNumbers(evidence);
+        for (String empty : cn.emptySubQuestions()) {
+            if (laneRetried.add("empty:" + empty) && missing.size() < 4) {
+                missing.add(empty + " The first round noted no source for this; search differently (other words, another language, a primary source) and read the pages.");
+                log.accept("critic: no source noted for \"" + Acquisitions.compress(empty, 60) + "\" → goes round again");
+            }
+        }
         if (!budget.take()) return missing;
         try {
             ArrayNode msgs = J.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
                     "You are reviewing research COVERAGE for a library, not writing the answer.\n\nTHE ASK:\n"
-                    + ask.question() + "\n\nEVIDENCE SO FAR:\n" + fitNotes(evidence, drive.contextWindow())
+                    + ask.question() + "\n\nCOVERAGE NUMBERS (computed from the notes, not an impression):\n" + cn.lines()
+                    + "\nEVIDENCE SO FAR:\n" + fitted("critic", evidence)
                     + "\n\nIs this enough to answer the ask COMPLETELY, with sources, within its stated scope, from every "
-                    + "perspective the sub-questions name? Answer with "
-                    + "JSON only: {\"sufficient\": true} or {\"sufficient\": false, \"missing\": [\"<self-contained "
-                    + "sub-question>\", ...]} (at most 4; only gaps a further search could fill).");
-            String raw = judge.classify(msgs, 800);
+                    + "perspective the sub-questions name? The default is sufficient: name a gap only when it is specific, critical to "
+                    + "the ask, and easy to state as one further search; never a gap that leads away from the ask, never a sub-question "
+                    + "already on the list above. Answer with JSON only: {\"sufficient\": true} or {\"sufficient\": false, "
+                    + "\"missing\": [{\"question\": \"<self-contained sub-question>\", \"type\": \"critical|contextual|detail|extension\", "
+                    + "\"central\": true|false}, ...]} (at most 4; only gaps a further search could fill).");
+            String raw = judge.classify(msgs, 900);
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return missing;
             JsonNode v = J.readTree(raw.substring(a, b + 1));
             if (!v.path("sufficient").asBoolean(true)) {
-                for (JsonNode q : v.path("missing")) if (q.isTextual() && !q.asText().isBlank() && missing.size() < 5) missing.add(q.asText().strip());
+                // ranked: critical and central first (enterprise-deep-research's gap matrix); a four-minute second round spends on the top one
+                List<JsonNode> gaps = new ArrayList<>();
+                for (JsonNode q : v.path("missing")) if (q.isObject() ? !q.path("question").asText("").isBlank() : q.isTextual() && !q.asText().isBlank()) gaps.add(q);
+                gaps.sort(java.util.Comparator.comparingInt(Researcher::gapPriority));
+                for (JsonNode q : gaps) {
+                    String text = (q.isObject() ? q.path("question").asText() : q.asText()).strip();
+                    if (missing.size() < 5 && missing.stream().noneMatch(m -> m.equalsIgnoreCase(text))) missing.add(text);
+                }
             }
         } catch (Exception e) {
             log.accept("critic: unparseable — stopping rounds");
         }
         return missing;
+    }
+
+    /** 1 = critical and central … 4 = an extension off to the side; a bare string is 2. */
+    static int gapPriority(JsonNode q) {
+        if (!q.isObject()) return 2;
+        String type = q.path("type").asText("contextual").toLowerCase(java.util.Locale.ROOT);
+        boolean central = q.path("central").asBoolean(true);
+        int base = switch (type) { case "critical" -> 1; case "contextual" -> 2; case "detail" -> 3; default -> 4; };
+        return central ? base : Math.min(4, base + 1);
+    }
+
+    /** What the notes hold, counted: per sub-question its notes and distinct sources; overall distinct sources and hosts; the sub-questions with none. */
+    record CoverageNumbers(int subQuestions, int notes, int sources, int hosts, List<String> emptySubQuestions, String lines) { }
+
+    static CoverageNumbers coverageNumbers(List<String> evidence) {
+        StringBuilder b = new StringBuilder();
+        java.util.Set<String> allSources = new java.util.LinkedHashSet<>(), hosts = new java.util.LinkedHashSet<>();
+        List<String> empty = new ArrayList<>();
+        int notes = 0, i = 0;
+        for (String piece : evidence) {
+            i++;
+            String head = piece.startsWith("SUB-QUESTION: ") ? piece.substring(14, piece.indexOf('\n') < 0 ? piece.length() : piece.indexOf('\n')).strip() : "(unnamed)";
+            java.util.Set<String> srcs = new java.util.LinkedHashSet<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("— source: (\\S+)").matcher(piece);
+            int n = 0;
+            while (m.find()) { n++; String src = m.group(1).replaceAll("[)\\].,;]+$", ""); srcs.add(src); String h = CiteCheck.hostOf(src); if (h != null) hosts.add(h); }
+            notes += n; allSources.addAll(srcs);
+            if (n == 0) empty.add(head);
+            b.append("- #").append(i).append(" ").append(Acquisitions.compress(head, 100)).append(": ").append(n).append(" note(s), ").append(srcs.size()).append(" source(s)\n");
+        }
+        b.append("- overall: ").append(notes).append(" notes, ").append(allSources.size()).append(" distinct sources on ").append(hosts.size()).append(" host(s)")
+         .append(empty.isEmpty() ? "" : "; " + empty.size() + " sub-question(s) noted NO source").append('\n');
+        return new CoverageNumbers(evidence.size(), notes, allSources.size(), hosts.size(), empty, b.toString());
     }
 
     // ---- 4. synthesis ----
@@ -904,20 +1130,25 @@ public final class Researcher {
         if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); }
         byName.put(sections.name(), sections);
         byName.put(done.name(), done);
-        String notes = coverage(pieces) + "\n" + fitNotes(pieces, drive.contextWindow());
+        String notes = coverage(pieces) + "\n" + fitted("synthesis", pieces);
+        String sourceList = sourcesForWriter(String.join("\n\n", pieces));
 
         ArrayNode history = J.createArrayNode();
         history.addObject().put("role", "system").put("content",
-                "You are writing an investigation for a library's shelves, from evidence gathered by parallel "
+                (askedFormat.isEmpty() ? "" : "THE FORMAT THE PERSON ASKED FOR — the answer takes this shape: " + askedFormat + "\n\n")
+                + "Date an arXiv paper by its id: YYMM.NNNNN was posted in 20YY, month MM (2606.09498 is June 2026). "
+                + "Write to the question and nothing beside it: no section on hosting, cost, or advice the question did not ask for. "
+                + "You are writing an investigation for a library's shelves, from evidence gathered by parallel "
                 + "sub-investigations. Treat the evidence as your own notes; web_fetch only to verify something "
                 + "doubtful. Write with write_section, ONE section per call, in this order: 'Answer' (the direct "
                 + "answer to the ask, first), then one section per sub-question or theme with the supporting "
-                + "detail and every claim followed by its source in parentheses, then 'Conflicts and uncertainty' "
+                + "detail and every claim followed by its source NUMBER in square brackets from the SOURCES list, like [3], right after "
+                + "the clause it supports (several as [3][7]; a source not on the list: its URL in parentheses), then 'Conflicts and uncertainty' "
                 + "when sources disagree, then 'Sources' — every URL or citation you relied on, one per line, with "
                 + "edition or translation where it was noted. Keep each section under 1500 characters; use more "
                 + "sections rather than longer ones. Then call done.");
         history.addObject().put("role", "user").put("content",
-                "THE ASK:\n" + ask.question() + "\n\n" + known + "EVIDENCE:\n" + notes
+                "THE ASK:\n" + ask.question() + "\n\n" + known + (sourceList.isEmpty() ? "" : "SOURCES (cite by number, [n]):\n" + sourceList + "\n") + "EVIDENCE:\n" + notes
                 + "\n\nWrite the 'Answer' section first.");
         ArrayNode all = toolsArray(byName.values());
         ArrayNode onlyDone = toolsArray(List.of(done));
@@ -1014,7 +1245,10 @@ public final class Researcher {
             String quote = args.path("quote").asText("").strip();
             if (claim.isEmpty() || source.isEmpty()) return "ERROR: a note needs both `claim` and `source`.";
             if (notes.size() >= 60) return "the notebook is full (60 notes) — call done with your summary.";
-            notes.add("- " + claim + " — source: " + source + (quote.isEmpty() ? "" : " — quote: \"" + Acquisitions.compress(quote, 300) + "\""));
+            // an arXiv id carries its posting month; stamp it, or the writer dates every 26xx paper 2025 when the page had no date (measured, 2026-09-12)
+            String posted = Citations.arxivPosted(source);
+            if (posted.isEmpty()) posted = Citations.arxivPosted(claim);
+            notes.add("- " + claim + " — source: " + source + (posted.isEmpty() ? "" : " (arXiv, posted " + posted + ")") + (quote.isEmpty() ? "" : " — quote: \"" + Acquisitions.compress(quote, 300) + "\""));
             return "noted (" + notes.size() + "). Keep going, or call done when your sub-question is answered.";
         }
         synchronized boolean isEmpty() { return notes.isEmpty(); }
@@ -1272,7 +1506,10 @@ public final class Researcher {
             if (total <= limit) break;
             JsonNode m = history.get(i);
             if ("tool".equals(m.path("role").asText()) && m.path("content").asText("").length() > 200) {
-                ((ObjectNode) m).put("content", "[older observation trimmed to fit the context — its facts are in your notes]");
+                // cleared whole, never cut short (partial data reads as the whole — the 0.1.6 lesson); the call it answered stays named
+                String call = "";
+                if (i > 0) { JsonNode prev = history.get(i - 1); for (JsonNode c : prev.path("tool_calls")) if (c.path("id").asText("").equals(m.path("tool_call_id").asText("-"))) call = c.path("function").path("name").asText("") + " " + Acquisitions.compress(c.path("function").path("arguments").asText(""), 80); }
+                ((ObjectNode) m).put("content", "[older observation" + (call.isEmpty() ? "" : " of " + call) + " cleared to fit the context — its facts are in your notes]");
                 trimmed++;
             }
         }

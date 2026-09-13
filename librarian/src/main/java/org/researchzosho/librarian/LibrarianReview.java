@@ -203,8 +203,8 @@ public final class LibrarianReview {
                 Finding existing = store.finding(conflictId);
                 List<String> have = new ArrayList<>(); for (Finding.Source es : existing.sources()) have.add(es.locator());
                 List<String> all = new ArrayList<>(have); for (String u : cited) if (!all.contains(u)) all.add(u);
-                int before = Independence.independent(Independence.clusters(store, have));
-                int after = all.size() == have.size() ? before : Independence.independent(Independence.clusters(store, all));
+                int before = Independence.independent(store, have);
+                int after = all.size() == have.size() ? before : Independence.independent(store, all);
                 if (after > before && existing.state() != Finding.State.retired) {
                     List<Finding.Source> merged = new ArrayList<>(existing.sources());
                     for (String u : cited) if (!have.contains(u)) merged.add(u.startsWith("cite:") ? new Finding.Source(u, u.substring(5), "corroborates, from " + inv.id()) : new Finding.Source(u, "n/a", "corroborates, from " + inv.id()));
@@ -259,7 +259,7 @@ public final class LibrarianReview {
             // ONE source is never enough on its own: copies of one text count once, and a claim with a single independent
             // source stays a draft for the person however good the source — that is how most misinformation gets in
             List<String> locs = new ArrayList<>(); for (Finding.Source s : sources) locs.add(s.locator());
-            int independent = Independence.independent(Independence.clusters(store, locs));
+            int independent = Independence.independent(store, locs);
             boolean corroborated = independent >= 2 || tier == SourceTier.personal;   // the person's own document is their word
             Finding.State state = (!contradiction && type == Finding.ClaimType.extraction
                     && tier.autoPromotes() && corroborated) ? Finding.State.accepted : Finding.State.draft;

@@ -1,10 +1,40 @@
 # Changelog
 
-## Unreleased
+## 0.1.9
 
-Added
-- `researchzosho jobs [<J-…>]`: every run, queued and running first, then the last finished; one id shows its state, progress, wait line and where the write-up went. The CLI and the guide named this verb after every `research ask` through 0.1.8, and it did not exist.
-- MODELS.md and researchzosho.org/models: the measured list by VRAM (the graphics card's memory), the models measured and not recommended, what a server needs, hosted APIs. The `models` verb now says VRAM too.
+This release is about the cite-check and the instruments around it. Until now the checker could only tie a citation to a reference when the writer happened to cite a URL, so on a typical write-up it read about a fifth of the citations and skipped the rest. The writer now cites by number, the checker reads nearly everything, and every run leaves a ledger row and a trace so the effect of a change can be measured instead of argued.
+
+### Added
+
+- `researchzosho jobs [<J-…>]` lists every run, queued and running first, then the most recently finished. With a job id it prints that run's state, progress, any wait it is in, and the investigation its write-up went to. The CLI has printed "researchzosho jobs J-… shows how it goes" after every `research ask` since 0.1.2, and the guide documented the same verb; it did not exist until now.
+- `researchzosho stats [<n>]` prints the run ledger. When a research run is filed it appends one row to `catalog/runs.jsonl`: turns used, rounds, whether the critic was satisfied on the first pass, whether a ceiling cut the run short, the cite-check counts, sources noted, fetches (total and distinct), token usage and wall time. `stats` shows the last rows and the totals over them.
+- Every run now writes a trace to `catalog/traces/<job>.jsonl`, one JSON line per model call: the exact request messages, the tools offered, the shape of the reply, the server's reported token usage and the latency, plus the runner's own events such as a compaction (what was fitted to the context window and how much was cut). The newest fifty traces are kept. Set `RESEARCHZOSHO_TRACE=off` to disable it.
+- Every write-up ends with a "Checks" section when there is anything to report. It lists numbers with a unit, licence names and CVE identifiers that appear in the answer but in none of the run's notes or cited sources; quotations of five or more words that appear in no captured source; and any cited paper that Crossref lists as retracted, with the retraction notice. Nothing in the prose is rewritten; the section is meant to be read before it.
+- `docs/MODELS.md` and researchzosho.org/models carry the measured model list by VRAM, the models that were measured and are not recommended, what a model server needs to provide, and how to point the library at a hosted API. The `models` verb now says VRAM rather than "card memory".
+
+### Changed
+
+- The writer is given the reference list before it starts, numbered exactly as the references will be printed, and is asked to cite by number (`[3]`, or `[3][7]` for several) directly after the clause a source supports. The cite-check resolves bracketed numbers anywhere in a sentence, and it now also resolves an arXiv identifier or a DOI inside a parenthetical to the reference that carries it.
+- The cite-check runs a mechanical pass before it asks the model. A clause whose numbers all appear in the cited source, or that shares an eight-word run with it, is accepted without a model call. Before a clause is marked "not supported", the judge reads the source a second time and has to quote the passage that supports the clause; the quote is checked verbatim against the source, and a clause the source turns out to hold is not marked. A "not supported" verdict on a clause whose numbers and words are in the source is set aside and counted as a false negative. All of these counts appear in the ledger.
+- The critic is given computed coverage figures before it reads the evidence: notes and distinct sources per sub-question, and distinct sources and hosts overall. A sub-question that produced no source at all is sent round again without consulting the model. The critic's default is now "sufficient" unless a gap is specific, critical to the question and reachable with one further search; gaps come back typed (critical, contextual, detail, extension) and marked central or not, and are researched in that order.
+- If the question asks for a particular form of answer (a table, a language, a length, an ordering, a comparison) that request is separated from the question at intake and passed to the writer, which is also told to write to the question and nothing beside it.
+- A page fetched by one reader is served to any other reader in the same run from the library's captured copy rather than fetched again. The ledger counts these.
+- Independence counting changed in three ways. A source that cites another is no longer treated as a copy of it; that rule was applied through union-find and so chained, and a survey that linked twenty papers turned them all into "the same text as [1]". Copies of one text still count once, and a source that cites another is annotated "(cites [n]; not an independent voice for what it says)" and does not add to the count. Two spellings of one address are now one locator. Two texts with the same opening paragraphs, a wire story under two headlines, are one source, but only when their bodies also overlap, so pages that merely share a site's navigation are not merged. The review's one-source rule and the `independent_sources` field count in the same way.
+- A reference that a worker fetched but never noted or cited is annotated as such in the reference list.
+- When an older tool observation is cleared from a worker's context to make room, the placeholder names the call it answered. Observations are cleared whole rather than truncated.
+- An arXiv identifier now stamps its posting month on notes and references (`2606.09498` is June 2026), and the writer is told how to date arXiv papers from the id.
+- Progress for a run with no turn ceiling says so instead of showing a ceiling of zero, and shows the time left when a minute ceiling is set.
+
+### Fixed
+
+- The "[cites a source that was not read this run]" mark is applied only to a URL the writer introduced itself, one that no worker noted or fetched. A noted source with no capture on disk is skipped, not marked.
+- The reference list, and lines of the form `[1] url | [2] url`, are no longer treated as citing sentences.
+- A parenthetical consisting of an acronym and a year, such as "(SIGIR 2025)", no longer maps to a reference; it names a venue, not a work.
+- In the Checks section: text between two scare-quoted words is not treated as a quotation; a numeric range shares its unit across both ends and for every unit ("30–120 seconds" states both numbers); a licence name must be supported by a note that names the same product. The numbers, licence and CVE checks compare a sentence against the notes and the sources that sentence cites, not against the full text of every source in the run.
+
+### Measured
+
+The same five research questions were run on a local Qwen3.8-27B before and after. Cited sentences the check could read went from 52 across the five write-ups to 456. Of those 456, 338 were supported by their source (230 of them settled mechanically, 18 by the second read), 55 were not and are marked, and 63 could not be decided from the excerpt. 81 of 387 page fetches were served from a copy already in the run. Before the independence change, one write-up marked 32 of its 38 references as the same text; the worst case afterwards is 13, on a write-up whose references are mostly GitHub pages.
 
 ## 0.1.8
 

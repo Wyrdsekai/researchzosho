@@ -206,7 +206,9 @@ researchzosho research ask "…" --max-minutes 120
 From Claude Code or a program, the same thing is `library_research`. From the web pages, use the
 Research page.
 
-The run starts as soon as a worker is free. `researchzosho jobs <J-id>` shows its progress.
+The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, the queued and running ones first;
+`researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is waiting for, and where its
+write-up went.
 
 ### Sharpening a question first
 
@@ -642,6 +644,46 @@ the full list by VRAM (the graphics card's memory, not the computer's RAM) is in
 citation check. The readers keep using the first server. This lets a stronger rented model do the
 judging while a local model does the reading.
 
+### What a write-up carries besides the answer
+
+After the answer, every write-up has a few sections the library adds itself. The model does not write
+these.
+
+- **References.** Every source the readers used, numbered. When the writer cites a source it puts the number
+  after the sentence, like `[3]`. Copies of one text count as one source. A source that only repeats another
+  is marked "cites [n]", so you can see how many independent voices there really are.
+- **Evidence.** Every note a reader took: the claim, the source, and a short quote.
+- **Cite-check.** Every cited sentence, read against the source it cites. A sentence its source does not
+  support is marked in place: `[not supported by the cited source on check]`. The check reads mechanically
+  first: when the sentence's numbers, or a run of its words, are in the source, that settles it. The rest goes
+  to the model, and before a sentence is marked, the model has to quote the passage from the source that would
+  support it. If the quote is really there, the sentence is not marked.
+- **Checks.** This section appears only when there is something to say. It lists numbers, licence names and
+  CVE ids the answer states that no note or source backs; quotations that appear in no source; and any cited
+  paper that Crossref lists as retracted.
+
+Read the Checks section before the prose. When something looks wrong, the evidence table is where you
+find what the readers actually saw.
+
+### What the runs cost
+
+```
+researchzosho stats            # the last 20 research runs and the totals
+researchzosho stats 100        # the last 100
+```
+
+Every run adds one line to `catalog/runs.jsonl` when its write-up is filed: turns, rounds, whether the
+critic was satisfied on the first pass, whether a time or turn ceiling cut it short, how many cited sentences
+were checked and how many held, sources noted, fetches (total, and how many were pages another reader had
+already fetched), tokens and minutes. `stats` prints those lines and the totals over them. When you change a
+setting, this is where you see whether it changed anything.
+
+Every run also leaves a trace in `catalog/traces/<job>.jsonl`: one line for every call to the model, with
+the exact request, the tools offered, the reply's shape, the server's token counts and how long it took,
+and one line for every time evidence was cut to fit the model's window. The newest fifty traces are kept.
+This is the file to open when a write-up says something its evidence does not. `RESEARCHZOSHO_TRACE=off`
+turns tracing off.
+
 ## 13. The map
 
 When a claim says that a person lived in a place, an author wrote a work, or a company holds a
@@ -816,7 +858,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.8 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.9 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

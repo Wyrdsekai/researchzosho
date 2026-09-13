@@ -26,7 +26,14 @@ public final class Independence {
 
     /** locator → cluster number (1-based, in first-seen order). Locators with no capture are their own cluster. */
     public static Map<String, Integer> clusters(LibraryStore store, List<String> locators) {
-        List<String> uniq = new ArrayList<>(new java.util.LinkedHashSet<>(locators));
+        // one address in two spellings (tracking parameters, a trailing slash, http/https) is one locator
+        List<String> uniq = new ArrayList<>();
+        Map<String, String> byCanon = new LinkedHashMap<>();
+        for (String loc : locators) {
+            String canon = loc != null && loc.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(loc) : loc;
+            if (canon == null || byCanon.containsKey(canon)) continue;
+            byCanon.put(canon, loc); uniq.add(loc);
+        }
         List<Set<String>> shingles = new ArrayList<>();
         List<String> titles = new ArrayList<>();
         List<String> texts = new ArrayList<>();
@@ -52,8 +59,13 @@ public final class Independence {
                 // one source that cites the other is not a second, independent one: a report that links the paper it
                 // summarises stands on that paper (the library's own research, I-0020: independence means different
                 // editorial chains, "not citing each other")
-                boolean citesOther = cites(texts.get(i), uniq.get(j)) || cites(texts.get(j), uniq.get(i));
-                if (sameWork || sameTitle || citesOther || (!shingles.get(i).isEmpty() && jaccard(shingles.get(i), shingles.get(j)) >= SAME)) union(parent, i, j);
+                // a wire story keeps its opening across outlets that retitle it: the same first paragraphs are the same text
+                // …but only when the bodies overlap at all: every GitHub page opens with the same navigation, and 21 of them fused (2026-09-12)
+                boolean sameHead = sameHead(texts.get(i), texts.get(j)) && bodiesAfterHeadOverlap(texts.get(i), texts.get(j));
+                // citing is NOT a copy: a survey that links twenty papers is not the same text as any of them, and union-find made
+                // that transitive — 32 of 38 references in one write-up read "same text as [1]" (2026-09-12). Citing is a one-way
+                // dependency, counted in {@link #independent(LibraryStore, List)}.
+                if (sameWork || sameTitle || sameHead || (!shingles.get(i).isEmpty() && jaccard(shingles.get(i), shingles.get(j)) >= SAME)) union(parent, i, j);
             }
         }
         Map<Integer, Integer> number = new HashMap<>();
@@ -80,9 +92,62 @@ public final class Independence {
         return false;
     }
 
-    /** How many independent clusters {@code locators} span. */
+    /** The first {@link #HEAD_CHARS} of two texts, shingled: one wire story under two headlines (hyperresearch keys its wire check on the body head). */
+    static final int HEAD_CHARS = 700;
+    /** With the same head, this much shared body is a wire story; a shared site chrome over different bodies is not. */
+    static final double SAME_BODY_WITH_HEAD = 0.12;
+    static final double SAME_HEAD = 0.5;
+    /** The texts past their heads, shingled: a wire story shares its body too; two pages under one site chrome do not. */
+    static boolean bodiesAfterHeadOverlap(String a, String b) {
+        if (a.length() <= HEAD_CHARS + 200 || b.length() <= HEAD_CHARS + 200) return false;
+        Set<String> ba = shingle(a.substring(HEAD_CHARS)), bb = shingle(b.substring(HEAD_CHARS));
+        return !ba.isEmpty() && jaccard(ba, bb) >= SAME_BODY_WITH_HEAD;
+    }
+
+    static boolean sameHead(String a, String b) {
+        if (a == null || b == null || a.length() < 300 || b.length() < 300) return false;
+        Set<String> ha = shingle(a.substring(0, Math.min(a.length(), HEAD_CHARS))), hb = shingle(b.substring(0, Math.min(b.length(), HEAD_CHARS)));
+        return !ha.isEmpty() && jaccard(ha, hb) >= SAME_HEAD;
+    }
+
+    /** How many distinct texts {@code locators} span (copies of one text count once). */
     public static int independent(Map<String, Integer> clusters) {
         return new HashSet<>(clusters.values()).size();
+    }
+
+    /**
+     * locator → the locator it cites (the URL, DOI or arXiv id of another of the {@code locators} appears in its text), for
+     * the first such it cites; a source that stands on another is not a second, independent voice for what that other says
+     * (the library's own research, I-0020: independence means different editorial chains, "not citing each other").
+     */
+    public static Map<String, String> derivatives(LibraryStore store, List<String> locators) {
+        Map<String, String> out = new LinkedHashMap<>();
+        List<String> uniq = new ArrayList<>(new java.util.LinkedHashSet<>(locators));
+        Map<String, String> texts = new HashMap<>();
+        for (String loc : uniq) { try { Path p = RawCapture.find(store, loc); texts.put(loc, p == null ? "" : RawCapture.read(p)[2]); } catch (IOException e) { texts.put(loc, ""); } }
+        for (String a : uniq) for (String b : uniq) {
+            if (a.equals(b) || texts.get(a).isEmpty()) continue;
+            String ia = Citations.identify(a), ib = Citations.identify(b);
+            if (ia != null && ia.equals(ib)) continue;   // the same work in two spellings is a copy, not a citation
+            if (cites(texts.get(a), b)) { out.put(a, b); break; }
+        }
+        return out;
+    }
+
+    /**
+     * How many independent voices {@code locators} are: distinct texts, minus every text that cites another of them
+     * (a derivative adds nothing to what it cites). Never below one when there is a locator at all.
+     */
+    public static int independent(LibraryStore store, List<String> locators) {
+        if (locators.isEmpty()) return 0;
+        Map<String, Integer> clusters = clusters(store, locators);
+        Map<String, String> deriv = derivatives(store, locators);
+        java.util.Set<Integer> voices = new HashSet<>(clusters.values());
+        for (Map.Entry<String, String> e : deriv.entrySet()) {
+            Integer from = clusters.get(e.getKey()), to = clusters.get(e.getValue());
+            if (from != null && to != null && !from.equals(to)) voices.remove(from);
+        }
+        return Math.max(1, voices.size());
     }
 
     static Set<String> shingle(String text) {

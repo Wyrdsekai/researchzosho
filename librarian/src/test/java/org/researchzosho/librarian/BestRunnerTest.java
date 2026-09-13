@@ -41,8 +41,11 @@ class BestRunnerTest {
             // a report that links the paper it summarises is not a second source for that paper
             RawCapture.capture("https://explainer.example/what-the-scan-found", "A write-up of the CT study, see https://journal.example/paper for the data. " + lorem("explain", 300), "What the scan found");
             Map<String, Integer> c2 = Independence.clusters(store, List.of("https://journal.example/paper", "https://explainer.example/what-the-scan-found", "https://news-a.example/gears"));
-            assertEquals(c2.get("https://journal.example/paper"), c2.get("https://explainer.example/what-the-scan-found"), "one cites the other: one cluster");
-            assertEquals(2, Independence.independent(c2));
+            assertNotEquals(c2.get("https://journal.example/paper"), c2.get("https://explainer.example/what-the-scan-found"), "one cites the other: two texts, not a copy");
+            assertEquals(3, Independence.independent(c2), "three distinct texts");
+            var locs2 = List.of("https://journal.example/paper", "https://explainer.example/what-the-scan-found", "https://news-a.example/gears");
+            assertEquals("https://journal.example/paper", Independence.derivatives(store, locs2).get("https://explainer.example/what-the-scan-found"), "the explainer stands on the paper");
+            assertEquals(2, Independence.independent(store, locs2), "two voices: the explainer adds nothing to the paper it cites");
             assertEquals(3, Independence.independent(c), "4 locators, 3 independent");
         } finally { System.setProperty("user.home", real); }
     }

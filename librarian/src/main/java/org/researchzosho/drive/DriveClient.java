@@ -145,6 +145,9 @@ public final class DriveClient {
      *  SESSION spent", not "this client object". */
     public static final java.util.concurrent.atomic.AtomicLong SESSION_PROMPT_TOKENS =
             new java.util.concurrent.atomic.AtomicLong();
+    /** The usage the server reported for the last call on THIS thread (prompt, completion), or null: a per-run trace reads it right after the call. */
+    private static final ThreadLocal<long[]> LAST_USAGE = new ThreadLocal<>();
+    public static long[] lastUsage() { long[] u = LAST_USAGE.get(); return u == null ? null : u.clone(); }
     public static final java.util.concurrent.atomic.AtomicLong SESSION_COMPLETION_TOKENS =
             new java.util.concurrent.atomic.AtomicLong();
 
@@ -462,7 +465,8 @@ public final class DriveClient {
                         u.path("total_tokens").asInt());
                 SESSION_PROMPT_TOKENS.addAndGet(u.path("prompt_tokens").asLong(0));
                 SESSION_COMPLETION_TOKENS.addAndGet(u.path("completion_tokens").asLong(0));
-            }
+                LAST_USAGE.set(new long[]{u.path("prompt_tokens").asLong(0), u.path("completion_tokens").asLong(0)});
+            } else LAST_USAGE.set(null);
             return (ObjectNode) msg;
         } catch (RuntimeException e) {
             throw e;
@@ -492,6 +496,7 @@ public final class DriveClient {
                     .timeout(driveTimeout()).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+            try { JsonNode cu = json.readTree(resp.body()).path("usage"); LAST_USAGE.set(cu.isObject() ? new long[]{cu.path("prompt_tokens").asLong(0), cu.path("completion_tokens").asLong(0)} : null); } catch (Exception e) { LAST_USAGE.set(null); }
             if (resp.statusCode() != 200) {
                 log.warn("classify HTTP {}: {}", resp.statusCode(),
                         resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body());

@@ -96,13 +96,19 @@ public final class LibrarianDaemon {
         for (JsonNode c : a.path("collections")) if (c.isTextual()) colls.add(c.asText());
         var ask = new Researcher.Ask(question, a.path("mode").asText("broad"), a.path("max_turns").asInt(LibraryProtocol.DEFAULT_TURNS), subs, a.path("sources").asText("both"), colls, a.path("max_minutes").asInt(0));
         long t0 = System.currentTimeMillis();
-        Researcher researcher = researcher(drive);
+        RunTrace trace = RunTrace.open(store, jobId);
+        Researcher researcher = researcher(drive, trace);
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
         researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
         Researcher.Filed filed;
         try { filed = Researcher.file(store, researcher, ask, writer); }
-        catch (Researcher.Stopped s) { return "stopped at turn"; }   // the worker marks the job stopped from the marker
+        catch (Researcher.Stopped s) { ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "person"); trace.event("stopped", ev); return "stopped at turn"; }   // the worker marks the job stopped from the marker
         try { jobs.recordTurns(job.path("patron").asText(""), filed.result().turnsUsed()); } catch (IOException ignored) { }
+        // the ledger row: what this run cost and produced, beside every earlier run's
+        ObjectNode row = RunLedger.row(jobId, ask, filed.result(), filed.admitted() ? "filed " + filed.investigationId() : "refused: " + filed.reason(),
+                System.currentTimeMillis() - t0, drive, model, trace.totals());
+        row.put("fetches_total", RunLedger.fetchCalls(store, jobId));
+        RunLedger.record(store, row);
         if (filed.admitted()) settle(filed.investigationId(), drive, jobId);
         Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() : " → refused: " + filed.reason()),
                 System.currentTimeMillis() - t0);
@@ -183,9 +189,16 @@ public final class LibrarianDaemon {
     /** The runner for one drive. A test replaces this (package-private) to script the model. */
     java.util.function.Function<String, Researcher> researcherFactory;
 
-    private Researcher researcher(String drive) {
-        if (researcherFactory != null) return researcherFactory.apply(drive);
-        return new Researcher(Researcher.drive(drive, model), Researcher.judgeDrive(drive, model), Researcher.webTools(), line -> Crews.log(store, "research", line, 0), store);
+    private Researcher researcher(String drive) { return researcher(drive, null); }
+
+    /** The runner for a job, its drives seen through the job's trace when there is one. */
+    private Researcher researcher(String drive, RunTrace trace) {
+        if (researcherFactory != null) { Researcher r = researcherFactory.apply(drive); if (trace != null) r.trace(trace); return r; }
+        Researcher.Drive workers = Researcher.drive(drive, model), judge = Researcher.judgeDrive(drive, model);
+        if (trace != null) { workers = trace.wrap(workers, "workers"); judge = trace.wrap(judge, "judge"); }
+        Researcher r = new Researcher(workers, judge, Researcher.webTools(), line -> Crews.log(store, "research", line, 0), store);
+        if (trace != null) r.trace(trace);
+        return r;
     }
 
     /** Bind and start. {@code port} 0 = ephemeral (tests). {@code crewHour} < 0 = no nightly crews. */
