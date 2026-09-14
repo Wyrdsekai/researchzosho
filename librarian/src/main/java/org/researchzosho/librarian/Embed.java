@@ -22,6 +22,7 @@ import java.util.List;
  * {@code researchzosho embed start|stop|status|test} and the setup wizard use this.
  */
 public final class Embed {
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
 
     public static final String CONTAINER = "researchzosho-embed";
     public static final String MODEL = "Qwen/Qwen3-Embedding-0.6B";
@@ -125,7 +126,7 @@ public final class Embed {
     /** Whether an embeddings server at {@code base} answers the OpenAI-style call. */
     public static boolean answers(String base) {
         try {
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpClient http = PROBE_HTTP;
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/embeddings"))
                     .timeout(Duration.ofSeconds(30)).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString("{\"model\":\"embed\",\"input\":[\"ready\"]}")).build(), HttpResponse.BodyHandlers.ofString());

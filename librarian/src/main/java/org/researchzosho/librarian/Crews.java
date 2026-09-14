@@ -256,6 +256,9 @@ public final class Crews {
         }
     }
 
+    /** The probe's client, one for the process: a client per probe leaked a selector thread every 30 s. */
+    private static final java.net.http.HttpClient PROBE_HTTP = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build();
+
     /** What a probe of a drive found: it answered a completion; it is reachable but still loading; or nothing is there. */
     enum DriveState { ANSWERS, STARTING, DOWN }
 
@@ -275,7 +278,7 @@ public final class Crews {
     static DriveState driveState(String driveUrl, String model, java.time.Duration timeout) {
         if (driveUrl == null || driveUrl.isBlank()) return DriveState.DOWN;
         try {
-            var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build();
+            var client = PROBE_HTTP;
             var body = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
             body.put("model", model == null || model.isBlank() ? "local-model" : model);
             body.putArray("messages").addObject().put("role", "user").put("content", "hi");

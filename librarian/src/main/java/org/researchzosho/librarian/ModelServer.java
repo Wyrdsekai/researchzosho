@@ -132,10 +132,12 @@ public final class ModelServer {
         if (p.waitFor() != 0) throw new IOException("download failed: " + url);
         Files.move(part, dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     };
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+
     /** Whether a proxy answers at {@code base}: llama-swap's /health says OK; any other server's model list will do. */
     public static java.util.function.Predicate<String> health = base -> {
         try {
-            HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+            HttpClient c = PROBE_HTTP;
             HttpResponse<String> r = c.send(HttpRequest.newBuilder(URI.create(base + "/health")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() == 200) return true;
             r = c.send(HttpRequest.newBuilder(URI.create(base + "/v1/models")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -501,7 +503,7 @@ public final class ModelServer {
         b.append("  proxy at ").append(URL).append(": ").append(up ? "answers" : "does not answer (service " + serviceState() + "; log: " + logHint() + ")").append('\n');
         if (up) {
             try {
-                HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+                HttpClient c = PROBE_HTTP;
                 String running = c.send(HttpRequest.newBuilder(URI.create(URL + "/running")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
                 b.append("  loaded now: ").append(running.contains("\"model\"") ? "yes (the memory is in use)" : "no (the memory is free; the next request starts it)").append('\n');
             } catch (Exception ignored) { }
@@ -512,7 +514,7 @@ public final class ModelServer {
     /** Unload the model now (the proxy stays; the next request starts it again). */
     public static String stop() {
         try {
-            HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+            HttpClient c = PROBE_HTTP;
             HttpResponse<String> r = c.send(HttpRequest.newBuilder(URI.create(URL + "/unload")).timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() < 300 ? "unloaded; the memory is free" : "!the proxy answered " + r.statusCode();
         } catch (Exception e) { return "!no proxy answers at " + URL; }

@@ -15,6 +15,7 @@ You can now talk to the Librarian.
 
 ### Fixed
 
+- HTTP clients are shared instead of built per call. Each one owns a thread or two, and a client per drive probe, per chat turn on the page and per model-server check leaked threads until a small machine ran out of them.
 - The model server's context window was wrong behind llama-swap, which is what `model install` sets up. The proxy answers `/props` with "no model id" because that request does not name a model, so we assumed a window of 8192 and cleared context four times too early. We now read the window from `/upstream/<model>/props`. `RESEARCHZOSHO_CTX` still overrides it if you need to.
 
 ## 0.1.11

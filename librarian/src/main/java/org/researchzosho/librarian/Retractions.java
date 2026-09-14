@@ -28,6 +28,7 @@ import java.util.Map;
  * the reason, and an expression of concern is noted without disputing. No model is involved.
  */
 public final class Retractions {
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
 
     private static final ObjectMapper M = new ObjectMapper();
     static final int DAYS = 30;
@@ -45,7 +46,7 @@ public final class Retractions {
     public static Path file(LibraryStore store) { return store.root().resolve("catalog").resolve("retractions.tsv"); }
 
     public static Lookup live() {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        HttpClient http = HTTP;
         return doi -> {
             // the retraction is on the NOTICE's record, which says what it updates — not on the retracted paper's record
             // (checked live on 10.1016/S0140-6736(97)11096-0: works/<doi> carries no update-to; works?filter=updates:<doi> lists the notice)

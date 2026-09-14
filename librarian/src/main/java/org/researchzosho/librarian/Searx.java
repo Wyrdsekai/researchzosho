@@ -22,6 +22,7 @@ import java.util.List;
  * directory. {@code researchzosho search start|stop|status} and the setup wizard use this.
  */
 public final class Searx {
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
 
     public static final String CONTAINER = "researchzosho-searxng";
     public static final String IMAGE = "searxng/searxng";
@@ -154,7 +155,7 @@ public final class Searx {
     /** Whether a SearXNG at {@code base} answers a JSON search. */
     public static boolean answers(String base) {
         try {
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+            HttpClient http = PROBE_HTTP;
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/search?q=ready&format=json"))
                     .timeout(Duration.ofSeconds(15)).header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200 && r.body().contains("\"results\"");

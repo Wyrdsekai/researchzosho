@@ -39,6 +39,10 @@ public final class DriveClient {
 
     private final String baseUrl;
     private final String model;
+    /** One HTTP client for every DriveClient: each client owns a selector thread and an executor, and a client per
+     *  instance (a Researcher's drive per job, a chat turn's drive per page post) leaked threads until the macOS CI
+     *  runner failed with "pthread_create failed (EAGAIN)" at its 472nd HttpClient (2026-09-14). */
+    private static final HttpClient SHARED_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final HttpClient http;
     private final ObjectMapper json = new ObjectMapper();
     // Tolerant reader for SALVAGED tool calls (text-mode recovery, below): the re-emitted JSON can still
@@ -53,7 +57,7 @@ public final class DriveClient {
     public DriveClient(String baseUrl, String model) {
         this.baseUrl = baseUrl.replaceAll("/+$", "");
         this.model = model;
-        this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        this.http = SHARED_HTTP;
     }
 
     /**

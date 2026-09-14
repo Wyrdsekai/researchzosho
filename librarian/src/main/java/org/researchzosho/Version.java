@@ -7,6 +7,7 @@ import java.nio.file.Path;
 /** The release version: the jar's manifest says it; a run from the source tree says so instead. */
 public final class Version {
     private Version() { }
+    private static final java.net.http.HttpClient HTTP = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
 
     public static String string() {
         String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();
@@ -41,7 +42,7 @@ public final class Version {
     /** The latest released version, asked of GitHub now; null when it cannot be reached. */
     public static String latest() {
         try {
-            var http = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+            var http = HTTP;
             var r = http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(RELEASES)).timeout(java.time.Duration.ofSeconds(10))
                     .header("User-Agent", "ResearchZosho/" + string()).header("Accept", "application/vnd.github+json").GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() != 200) return null;
