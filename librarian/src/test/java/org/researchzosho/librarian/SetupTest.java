@@ -230,4 +230,13 @@ class SetupTest {
         assertTrue(cfg.contains("drive = http://127.0.0.1:8211") && cfg.contains("model = gpt-oss-20b"), cfg);
         assertFalse(out.contains("Where is your model server?"), "the address question is skipped once the machine serves it: " + out);
     }
+
+    @Test
+    void theHelloTestReadsAReasoningModelAsAnswered() {
+        assertEquals("ready", Setup.helloReply("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\" ready \"}}]}"));
+        String thought = Setup.helloReply("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\",\"reasoning_content\":\"The user wants the word ready. I should\"}}]}");
+        assertTrue(thought.startsWith("(it answered"), thought);
+        String empty = Setup.helloReply("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"\"}}]}");
+        assertTrue(empty.startsWith("!the server answered but said nothing") && empty.contains("the address works"), empty);
+    }
 }

@@ -1,10 +1,16 @@
 # Changelog
 
+## 0.1.11
+
+### Fixed
+
+- Setup's "say hello" check works with reasoning models. It used to give the model only 12 tokens to reply. A model that thinks before it answers used them all up on thinking, sent back an empty reply, and setup told you the address was wrong. Now the check allows 400 tokens, a reply that thought but ran out of room counts as a hello, and if a server really does answer with nothing, setup says the address is fine and points you at the model name instead.
+
 ## 0.1.10
 
 ### Fixed
 
-- The nightly "enrich" step, which writes a retrieval context for every chunk of every captured page that lacks one, ran with no cap and held the model server for a whole morning on a library with a few hundred long captures. It now enriches at most `RESEARCHZOSHO_ENRICH_PER_NIGHT` files a night (default 20) and picks up where it left off the next night. A crews job that is stopped (`researchzosho research stop <J-…>`) now ends at its next chunk instead of running to completion.
+- The nightly "enrich" step no longer runs forever. It writes a short retrieval note for every chunk of every saved page, and it had no limit, so on a large library it could keep the model busy all morning. It now does at most 20 files a night (`RESEARCHZOSHO_ENRICH_PER_NIGHT`) and continues the next night. Stopping a housekeeping job with `researchzosho research stop <J-…>` now stops it at the next chunk.
 
 ## 0.1.9
 

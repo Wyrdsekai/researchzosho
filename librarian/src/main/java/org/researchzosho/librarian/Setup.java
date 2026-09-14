@@ -36,6 +36,23 @@ public final class Setup {
     static final String[] LOCAL_PORTS = {"8080", "8000", "11434", "1234", "8200", "8210", "5000"};
 
     /** What setup asks the outside world. */
+    /**
+     * The hello test's reading of a 2xx reply: the words when there are any; a model that thought and ran out of room still
+     * answered (gpt-oss through Ollama spent the whole budget in its reasoning field and the wizard steered the person away from
+     * a working server, 2026-09-13); an empty reply with no thinking is reported as the server's, never as the address's.
+     */
+    static String helloReply(String responseBody) {
+        try {
+            JsonNode j = M.readTree(responseBody);
+            JsonNode msg = j.path("choices").path(0).path("message");
+            String text = msg.path("content").asText("").strip();
+            if (!text.isEmpty()) return text;
+            String thought = msg.path("reasoning_content").asText(msg.path("reasoning").asText("")).strip();
+            if (!thought.isEmpty()) return "(it answered; it thinks before it speaks, and the test's room went to the thinking)";
+            return "!the server answered but said nothing (the address works; the model may want a larger reply budget, or the model name is not one it serves)";
+        } catch (Exception e) { return "!the server answered, but not with a chat completion"; }
+    }
+
     public interface Probe {
         /** Model ids a server offers at {@code base}, or null when nothing answers there. */
         List<String> models(String base, String key);
@@ -105,7 +122,7 @@ public final class Setup {
             @Override public String chat(String base, String model, String key) {
                 try {
                     var body = M.createObjectNode();
-                    body.put("model", model); body.put("max_tokens", 12);
+                    body.put("model", model); body.put("max_tokens", 400);   // a reasoning model spends its first tokens thinking; 12 left nothing for the word
                     ArrayNode msgs = body.putArray("messages");
                     msgs.addObject().put("role", "user").put("content", "Reply with the single word: ready");
                     var b = HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
@@ -113,9 +130,7 @@ public final class Setup {
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
                     if (r.statusCode() / 100 != 2) return "!the server answered " + r.statusCode() + (r.statusCode() == 401 ? " (it wants a key)" : "");
-                    JsonNode j = M.readTree(r.body());
-                    String text = j.path("choices").path(0).path("message").path("content").asText("");
-                    return text.isBlank() ? "!the server answered but said nothing" : text.strip();
+                    return helloReply(r.body());
                 } catch (Exception e) { return "!" + plain(e); }
             }
             @Override public boolean searxng(String base) {
@@ -294,6 +309,7 @@ public final class Setup {
                 String reply = probe.chat(base, model, local(base) ? key : key);
                 if (!reply.startsWith("!")) { out.println("it answered: \"" + reply + "\""); break; }
                 out.println("no: " + reply.substring(1) + ".");
+                if (reply.startsWith("!the server answered")) { out.println("  (the address is right; keep it, and check the model name or the server's settings)"); break; }
                 if (attempt == 3 || !yesNo("  Try a different address?", true)) break;
                 base = ask("  Address:", base);
                 if (!local(base) && (key == null || key.isBlank())) { String k = ask("  Key (or leave blank):", ""); if (!k.isBlank()) key = k; }
