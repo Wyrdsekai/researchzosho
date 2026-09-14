@@ -196,6 +196,121 @@ public final class McpServer {
                         prop("title", "string", "Optional short title (default: the claim's first words)."),
                         prop("triple", "object", "Optional {subject, predicate, object}: the claim as an edge of the graph (library_map). Without it the nightly triples crew derives one."),
                         patronProp())));
+        tools.add(tool("library_add",
+                "Read material into the library: a file, a folder (a mounted network share is a folder), or a url. "
+                + "mode=keep (default) copies the extracted text onto the shelves; the file itself is never copied. "
+                + "mode=link reads the files where they are and keeps only a pointer and a hash: nothing is copied, "
+                + "and if the drive is not mounted the library says so when it reads. mode=survey counts a folder "
+                + "and says what keeping it would take (files, text size, free disk) without shelving anything. "
+                + "For a folder, survey first, then ask keep or link, unless the person has already said. "
+                + "Paths are only accepted from the keeper (the terminal, the pages); a url from any patron with write access. "
+                + "No model runs; to ask a question of what was added, library_research with sources=shelves and the collection.",
+                schema(new String[]{},
+                        prop("path", "string", "A file or a folder on this machine (absolute path; a mounted share is a path)."),
+                        prop("url", "string", "A page or document on the web; always kept."),
+                        prop("collection", "string", "The collection to shelve under (default: the folder's name; none for a single file or url)."),
+                        prop("mode", "string", "keep | link | survey (default keep)."),
+                        prop("register", "boolean", "For a folder: the housekeeping rescans it for new and changed files."),
+                        patronProp())));
+        tools.add(tool("library_absorb",
+                "Absorb a conversation the person had with another assistant (ChatGPT, Claude, any chat) as a starting point for "
+                + "research. Give a path (a saved transcript or an export such as conversations.json), a url, or the pasted text. "
+                + "The transcript is shelved as it is; the person's questions join the open questions; the claims the assistant "
+                + "made come back as a list to check and are filed as nothing, since an assistant's say-so is not a source. "
+                + "verify=true files one research run that checks those claims against sources. An export with many conversations "
+                + "takes the first `limit` (default 25) and reports how many remain. Paths from the keeper only (the terminal, the pages).",
+                schema(new String[]{},
+                        prop("path", "string", "A transcript or export file on this machine (absolute path)."),
+                        prop("url", "string", "A shared conversation page or an export on the web."),
+                        prop("text", "string", "The conversation itself, pasted."),
+                        prop("title", "string", "A title for the thread (default: the file name or the export's own title)."),
+                        prop("collection", "string", "Where the transcript is shelved (default conversations)."),
+                        prop("verify", "boolean", "File one research run that checks the assistant's claims."),
+                        prop("limit", "integer", "How many conversations of an export to take (default 25)."),
+                        patronProp())));
+        tools.add(tool("library_items",
+                "A list of things — books, tools, places, an inventory of line items — as a starting point for research. Give a path "
+                + "(one item per line, a markdown table, or a CSV), a url, or the list as text. The list is shelved as it is so the library "
+                + "knows what the person has; each item is checked against the shelves (held or not); then, through the lens "
+                + "(\"{item}: what it is, who made or wrote it, what it is for, and what is known about it\" unless the person says what "
+                + "they want to know), as=frontier (default) files a question per item on the open questions, as=runs sends them out as "
+                + "research runs with a lane per item (batches of 8), as=none only reports what is held. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The list file on this machine (absolute path)."),
+                        prop("url", "string", "A list on the web."),
+                        prop("text", "string", "The list itself, pasted."),
+                        prop("lens", "string", "What to find out about each item; {item} marks where the item goes (default: what it is, who made it, what it is for)."),
+                        prop("as", "string", "frontier | runs | none (default frontier)."),
+                        prop("title", "string", "A name for the list (default: the file name)."),
+                        prop("column", "string", "For a CSV: the column that holds the items (default: the first)."),
+                        prop("collection", "string", "Where the list is shelved (default lists)."),
+                        prop("limit", "integer", "How many items to take (default all, up to 200)."),
+                        patronProp())));
+        tools.add(tool("library_check",
+                "Check the person's own draft — a memo, a chapter, notes (text, markdown, Word, PDF) — as a starting point. One voice: "
+                + "its definite statements come back as claims to check, its questions join the open questions, and the citations it carries "
+                + "(urls, DOIs, arXiv ids) are fetched onto the shelves; one that cannot be read becomes a source request. Nothing becomes a finding. "
+                + "verify=true files one research run that checks the claims against sources, the draft's own citations included. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The draft on this machine (absolute path)."),
+                        prop("url", "string", "The draft on the web."),
+                        prop("text", "string", "The draft itself, pasted."),
+                        prop("title", "string", "A title (default: the document's own, or the file name)."),
+                        prop("collection", "string", "Where the draft and its citations are shelved (default drafts)."),
+                        prop("fetch_citations", "boolean", "Fetch the citations onto the shelves (default true)."),
+                        prop("verify", "boolean", "File one research run that checks the claims."),
+                        patronProp())));
+        tools.add(tool("library_reading",
+                "A reading list as a starting point: BibTeX, RIS (Zotero, EndNote), a CSV export, or lines of DOIs, urls and titles. Every entry "
+                + "with a locator is fetched onto the shelves as a collection; one that cannot be read becomes a source request; an entry with a title "
+                + "only is listed so the person can give it a locator or research it by name (library_items). watch=true has the housekeeping "
+                + "re-read the pages. Then library_research with sources=shelves and the collection reads from them. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The list on this machine (absolute path)."),
+                        prop("url", "string", "The list on the web."),
+                        prop("text", "string", "The list itself, pasted."),
+                        prop("title", "string", "A name for the list (default: the file name)."),
+                        prop("collection", "string", "The collection the entries are shelved in (default: from the title)."),
+                        prop("watch", "boolean", "Re-read the pages nightly and keep a new copy when one changes."),
+                        prop("limit", "integer", "How many entries to take (default all, up to 200)."),
+                        patronProp())));
+        tools.add(tool("library_questions",
+                "A list of questions — a syllabus, an exam, what the person needs answered — onto the open questions in order (as=frontier, the "
+                + "default; the housekeeping's explorer works through them at night), or as research runs one each up to 10 (as=runs; the rest are "
+                + "filed as open questions). One question per line. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The file on this machine (absolute path)."),
+                        prop("url", "string", "The list on the web."),
+                        prop("text", "string", "The questions, pasted, one per line."),
+                        prop("as", "string", "frontier | runs (default frontier)."),
+                        prop("title", "string", "A name for the list."),
+                        prop("limit", "integer", "How many questions to take (default all, up to 200)."),
+                        patronProp())));
+        tools.add(tool("library_bookmarks",
+                "A browser's bookmarks as a starting point: the exported bookmarks file, Chrome's Bookmarks JSON, or lines of urls. Each page is "
+                + "fetched onto the shelves as a collection (folder=… takes one folder); one that cannot be read becomes a source request. "
+                + "watch=true has the housekeeping re-read the pages and keep a new copy when one changes. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The bookmarks file on this machine (absolute path)."),
+                        prop("url", "string", "The list on the web."),
+                        prop("text", "string", "The urls, pasted, one per line."),
+                        prop("folder", "string", "Only the bookmarks in this folder."),
+                        prop("collection", "string", "The collection (default bookmarks, or the folder's name)."),
+                        prop("watch", "boolean", "Re-read the pages nightly."),
+                        prop("limit", "integer", "How many to take (default all, up to 200)."),
+                        patronProp())));
+        tools.add(tool("library_meeting",
+                "A meeting transcript as a starting point: WebVTT (Zoom, Teams, Otter) or \"Name: words\" lines. The transcript goes on the "
+                + "shelves with its decisions; the questions raised join the open questions; the claims made come back to check, with who said them. "
+                + "Nothing becomes a finding. verify=true files one research run that checks the claims. Paths from the keeper only.",
+                schema(new String[]{},
+                        prop("path", "string", "The transcript on this machine (absolute path)."),
+                        prop("url", "string", "The transcript on the web."),
+                        prop("text", "string", "The transcript, pasted."),
+                        prop("title", "string", "The meeting's name (default: the file name)."),
+                        prop("collection", "string", "Where it is shelved (default meetings)."),
+                        prop("verify", "boolean", "File one research run that checks the claims."),
+                        patronProp())));
         tools.add(tool("library_frontier",
                 "The queue of open questions the housekeeping's explorer researches a few of each night — op=list returns them in queue order with type, parked, position, tonight, "
                 + "the report that left each (report, report_title, report_fate: kept | waiting | disputed | retired | none), perspective, subjects, language, and similar (the head of a group that reads alike); "
@@ -226,7 +341,7 @@ public final class McpServer {
                         prop("report", "string", "For list: only claims from this investigation; for a decision: every waiting claim of it."),
                         prop("why", "string", "For dispute: the reason (required)."),
                         prop("subject", "string", "For list: a subject slug."),
-                        prop("kind", "string", "For list: the claim type."),
+                        prop("kind", "string", "For list: the claim type — extraction | synthesis | interpretation | speculation."),
                         prop("tier", "string", "For list: the strongest source's tier."),
                         prop("confidence", "string", "For list: low | medium | high."),
                         prop("writer", "string", "For list: who wrote the claim, matched as text (crew:explorer, person, …)."),
@@ -370,6 +485,14 @@ public final class McpServer {
             case "library_read" -> p.read(args);
             case "library_established" -> p.established(args);
             case "library_submit" -> p.submit(args);
+            case "library_add" -> p.add(args);
+            case "library_absorb" -> p.absorb(args);
+            case "library_items" -> p.items(args);
+            case "library_check" -> p.check(args);
+            case "library_reading" -> p.reading(args);
+            case "library_questions" -> p.questions(args);
+            case "library_bookmarks" -> p.bookmarks(args);
+            case "library_meeting" -> p.meeting(args);
             case "library_frontier" -> p.frontier(args);
             case "library_inbox" -> p.inbox(args);
             case "library_serials" -> p.serials(args);
@@ -435,6 +558,7 @@ public final class McpServer {
     private static ObjectNode arrayProp(String name, String description) {
         ObjectNode spec = M.createObjectNode();
         spec.put("type", "array");
+        spec.putObject("items").put("type", "string");   // gpt-oss's chat template reads items.type and fails the whole request without it (2026-09-14)
         spec.put("description", description);
         ObjectNode wrap = M.createObjectNode();
         wrap.set(name, spec);

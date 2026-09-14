@@ -168,7 +168,7 @@ public final class WebFetchTool implements Tool {
     };
 
     /** The date a page says it was published, as YYYY-MM-DD, or "" — from its meta tags, its JSON-LD, or a dated time element. */
-    static String publishedDate(String html) {
+    public static String publishedDate(String html) {
         if (html == null) return "";
         for (var p : PUBLISHED) {
             var m = p.matcher(html);

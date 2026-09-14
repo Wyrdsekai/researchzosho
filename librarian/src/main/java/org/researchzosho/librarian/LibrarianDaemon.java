@@ -320,6 +320,14 @@ public final class LibrarianDaemon {
                     case "read" -> p.read(body);
                     case "established" -> p.established(body);
                     case "submit" -> p.submit(body);
+                    case "add" -> p.add(body);
+                    case "absorb" -> p.absorb(body);
+                    case "items" -> p.items(body);
+                    case "check" -> p.check(body);
+                    case "reading" -> p.reading(body);
+                    case "questions" -> p.questions(body);
+                    case "bookmarks" -> p.bookmarks(body);
+                    case "meeting" -> p.meeting(body);
                     case "frontier" -> p.frontier(body);
                     case "subjects" -> p.subjects(body);
                     case "status" -> p.status(body);

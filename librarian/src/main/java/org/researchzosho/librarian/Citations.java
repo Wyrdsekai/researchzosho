@@ -42,8 +42,8 @@ public final class Citations {
     }
 
     private static final ObjectMapper M = new ObjectMapper();
-    static final Pattern DOI = Pattern.compile("(?i)(?:https?://(?:dx\\.)?doi\\.org/|\\bdoi:\\s*)(10\\.\\d{4,9}/[^\\s\"'<>)\\]]+)");
-    static final Pattern ARXIV = Pattern.compile("(?i)arxiv\\.org/(?:abs|pdf)/(\\d{4}\\.\\d{4,5})(v\\d+)?|\\barxiv:\\s*(\\d{4}\\.\\d{4,5})(v\\d+)?");
+    public static final Pattern DOI = Pattern.compile("(?i)(?:https?://(?:dx\\.)?doi\\.org/|\\bdoi:\\s*)(10\\.\\d{4,9}/[^\\s\"'<>)\\]]+)");
+    public static final Pattern ARXIV = Pattern.compile("(?i)arxiv\\.org/(?:abs|pdf)/(\\d{4}\\.\\d{4,5})(v\\d+)?|\\barxiv:\\s*(\\d{4}\\.\\d{4,5})(v\\d+)?");
     static final Pattern PUBMED = Pattern.compile("(?i)pubmed\\.ncbi\\.nlm\\.nih\\.gov/(\\d{5,9})");
 
     /** The resolved record. {@code version} is the arXiv version when one was reported, else "". */

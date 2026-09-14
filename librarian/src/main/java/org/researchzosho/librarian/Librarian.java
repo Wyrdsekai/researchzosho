@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
 
@@ -36,7 +37,8 @@ public class Librarian {
     static final ObjectMapper M = new ObjectMapper();
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
-            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status");
+            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_items",
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting");
     /** Tool rounds one turn may take before the Librarian has to speak. */
     static final int MAX_TOOL_ROUNDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_TOOL_ROUNDS", 5);
     /** Look-ups one turn may make in all; past it the Librarian answers from what it has (17 opens on one question, 2026-09-13). */
@@ -117,12 +119,17 @@ public class Librarian {
         // rule 7, mechanically: a number with a unit, a licence or a CVE id the reply states that no tool result holds is admitted
         List<String> unbacked = WriteupChecks.numbersUnbacked(reply, evidence.toString());
         unbacked.addAll(WriteupChecks.namesUnbacked(reply, evidence.toString()));
-        if (!unbacked.isEmpty()) {
+        // rule 2, mechanically: an entry id cited in brackets that no tool result returned is a made-up reference (the 4B did this, 2026-09-14)
+        List<String> madeUp = idsUnbacked(reply, evidence.toString());
+        if (!unbacked.isEmpty() || !madeUp.isEmpty()) {
             StringBuilder adm = new StringBuilder("\n\n(");
             List<String> items = new ArrayList<>();
             for (String u : unbacked) items.add(u.substring(0, u.indexOf(" — ")).strip());
-            adm.append(items.size() == 1 ? "The figure " + items.get(0) + " is not in anything I looked up; take it as my guess." : "The figures " + String.join(", ", items) + " are not in anything I looked up; take them as my guesses.").append(')');
+            if (!items.isEmpty()) adm.append(items.size() == 1 ? "The figure " + items.get(0) + " is not in anything I looked up; take it as my guess." : "The figures " + String.join(", ", items) + " are not in anything I looked up; take them as my guesses.");
+            if (!madeUp.isEmpty()) adm.append(items.isEmpty() ? "" : " ").append(madeUp.size() == 1 ? "The reference " + madeUp.get(0) + " is not an entry I looked up; I should not have cited it." : "The references " + String.join(", ", madeUp) + " are not entries I looked up; I should not have cited them.");
+            adm.append(')');
             reply = reply + adm;
+            unbacked.addAll(madeUp);
         }
         ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", reply);
         session.append(a);
@@ -184,20 +191,75 @@ public class Librarian {
                 + "6. Short exact sentences. No enthusiasm, no apology, no filler. Courteous.\n"
                 + "7. Never state a name, a number, a date or a quotation that is not in a tool result. If you must estimate, say it is an estimate.\n"
                 + "Look things up before answering, and read only what the answer needs: library_ask for a question (it returns the relevant entries whole), library_search for a term, library_get to open one entry, library_map around a name, library_inbox for what waits, library_frontier for open questions, library_changes for what is new. A few look-ups a turn, then answer; a list that says N of M shown is a list of M. "
+                + "To read material in — a file, a folder, a drive, a url the person names — use library_add. For a folder, run mode=survey first and put the numbers to the person: keep (the text is copied onto the shelves) or link (read in place, nothing copied). If they already said which, do that. Then \"research X from those\" is library_research with sources=shelves and the collection. "
+                + "A conversation the person had with another assistant — a file, a url, or text they paste — is absorbed with library_absorb: say what was shelved, which of their questions joined the open questions, and list the claims to check; then offer two things, verify=true (one run that checks the claims) and a research run on the thread's main question. "
+                + "A list of things — books, tools, places, an inventory — goes through library_items: first with as=none to say how many items there are and which the shelves already hold, and ask what they want to know about each (that is the lens) unless they said; then as=frontier files a question per item for the housekeeping, or as=runs sends them out now as research runs. "
+                + "The other starting points: their own draft or notes to check → library_check (claims to check, citations fetched; offer verify=true); a reading list, BibTeX or a file of DOIs → library_reading (fetched onto the shelves as a collection); a list of questions → library_questions (onto the open questions in order); a bookmarks export → library_bookmarks (the pages onto the shelves; watch=true re-reads them); a meeting transcript → library_meeting (decisions kept, questions raised filed, claims to check with who said them). After any of them, say what was shelved and filed, and what could not be read. "
                 + "Cite entries by their id in square brackets, like [F-0012-a] or [I-0031-…], right after the sentence they support.";
     }
 
-    /** The library's tools, as the MCP server describes them, restricted to the conversation set. */
+    /**
+     * What each tool is, in the chat's words: a sentence or two. The MCP server's descriptions are written for
+     * programs and run to a paragraph each; twenty of those cost a quarter of a 32k window on every turn
+     * (measured 2026-09-14: 29,575 characters). The arguments keep their schema and the first sentence of
+     * their description; the patron field is left out, the chat fills it in.
+     */
+    static final Map<String, String> CHAT_DESCRIPTIONS = Map.ofEntries(
+            Map.entry("library_ask", "Put a question to the shelves; returns the entries that answer it, whole, and holds_nothing when there are none."),
+            Map.entry("library_search", "Search the shelves for a term; returns hits with id, title and snippet. Open one with library_get."),
+            Map.entry("library_get", "Open one entry by its full id (F-…, I-…, A-…, a raw file); a section or a slice when it is long."),
+            Map.entry("library_research", "File a research run on a question. It takes a while; sources=shelves keeps it to what is held, collections narrows it."),
+            Map.entry("library_job", "How a research run is going, by job id; op=stop ends it."),
+            Map.entry("library_inbox", "What waits for the person: drafts to accept, dispute or retire; op=list, or a decision with ids."),
+            Map.entry("library_frontier", "The open questions: list them, add one, move one next or later, park, drop."),
+            Map.entry("library_map", "The graph around a name: what connects to it, with the claims behind each edge."),
+            Map.entry("library_changes", "What is new on the shelves since a time."),
+            Map.entry("library_submit", "File one claim as a draft with its sources; refused without sources."),
+            Map.entry("library_sharpen", "Turn a vague question into precise ones the shelves and the web can answer."),
+            Map.entry("library_status", "Counts by kind, what is stale, the version running."),
+            Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
+            Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
+            Map.entry("library_items", "A list of things (books, tools, an inventory): shelved, each checked against the shelves, then a question per item through the lens; as=none only looks, as=frontier files, as=runs sends runs."),
+            Map.entry("library_check", "The person's own draft: its claims returned to check, its citations fetched, its questions filed; verify=true files the checking run."),
+            Map.entry("library_reading", "A reading list (BibTeX, RIS, CSV, lines of DOIs and urls): every entry fetched onto the shelves as a collection; watch=true re-reads them nightly."),
+            Map.entry("library_questions", "A file of questions onto the open questions in order; as=runs sends the first ten out as research runs."),
+            Map.entry("library_bookmarks", "A browser's bookmarks: the pages fetched onto the shelves as a collection; folder=… takes one folder, watch=true re-reads them nightly."),
+            Map.entry("library_meeting", "A meeting transcript: shelved with its decisions, the questions raised filed, the claims returned to check with who said them; verify=true files the checking run."));
+
+    /** The library's tools for the conversation: the MCP schemas, described in the chat's words. */
     static ArrayNode tools() {
         ArrayNode out = M.createArrayNode();
         for (JsonNode t : org.researchzosho.mcp.McpServer.allTools()) {
-            if (!TOOLS.contains(t.path("name").asText())) continue;
+            String name = t.path("name").asText();
+            if (!TOOLS.contains(name)) continue;
             ObjectNode entry = out.addObject(); entry.put("type", "function");
             ObjectNode fn = entry.putObject("function");
-            fn.put("name", t.path("name").asText()); fn.put("description", t.path("description").asText(""));
-            fn.set("parameters", t.path("inputSchema").deepCopy());
+            fn.put("name", name); fn.put("description", CHAT_DESCRIPTIONS.getOrDefault(name, firstSentence(t.path("description").asText(""))));
+            ObjectNode params = t.path("inputSchema").deepCopy();
+            JsonNode props = params.path("properties");
+            if (props.isObject()) {
+                ((ObjectNode) props).remove("patron");
+                var it = props.fields();
+                while (it.hasNext()) {
+                    var e = it.next();
+                    if (e.getValue().isObject() && e.getValue().has("description")) ((ObjectNode) e.getValue()).put("description", firstSentence(e.getValue().path("description").asText()));
+                }
+            }
+            fn.set("parameters", params);
         }
         return out;
+    }
+
+    /** The first sentence of a description: up to the first period followed by a space, or the whole when there is none. */
+    static String firstSentence(String d) {
+        String s = d.strip();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\\.(?=\\s+[A-Z(`\"])").matcher(s);
+        while (m.find()) {
+            String head = s.substring(0, m.end());
+            if (head.matches("(?s).*\\b(e\\.g|i\\.e|vs|etc|cf)\\.$")) continue;   // an abbreviation is not the end of the sentence
+            return head;
+        }
+        return s;
     }
 
     /** One tool call, as the person: the patron rides in, the result comes back as text the model reads (cut when long). */
@@ -216,6 +278,14 @@ public class Librarian {
                 case "library_map" -> protocol.map(args);
                 case "library_changes" -> protocol.changes(args);
                 case "library_submit" -> protocol.submit(args);
+                case "library_add" -> protocol.add(args);
+                case "library_absorb" -> protocol.absorb(args);
+                case "library_items" -> protocol.items(args);
+                case "library_check" -> protocol.check(args);
+                case "library_reading" -> protocol.reading(args);
+                case "library_questions" -> protocol.questions(args);
+                case "library_bookmarks" -> protocol.bookmarks(args);
+                case "library_meeting" -> protocol.meeting(args);
                 case "library_sharpen" -> protocol.sharpen(args);
                 case "library_status" -> protocol.status(args);
                 default -> null;
@@ -274,6 +344,19 @@ public class Librarian {
     }
 
     /** One line per turn on the chat ledger: what was asked, which tools ran, how many figures the check could not back, wall time. */
+    /** Entry ids the reply cites in brackets — F-…, I-…, A-…, or a raw file name — that appear in no tool result. */
+    static final java.util.regex.Pattern CITED_ID = java.util.regex.Pattern.compile("\\[((?:[FIA]-\\d{3,5}-[A-Za-z0-9_.…-]+)|(?:\\d{4}-\\d{2}-\\d{2}-[0-9a-f]{6,12}\\.md))\\]");
+    static List<String> idsUnbacked(String reply, String evidence) {
+        List<String> out = new ArrayList<>();
+        java.util.regex.Matcher m = CITED_ID.matcher(reply == null ? "" : reply);
+        while (m.find()) {
+            String id = m.group(1);
+            String stem = id.endsWith("…") ? id.substring(0, id.length() - 1) : id;   // a cut-short id the tool result printed with an ellipsis
+            if (!evidence.contains(stem) && !out.contains(id)) out.add(id);
+        }
+        return out;
+    }
+
     void record(String words, List<String> toolsCalled, int unbacked, long ms) {
         try {
             Path f = store.root().resolve("catalog").resolve("chat-turns.jsonl");

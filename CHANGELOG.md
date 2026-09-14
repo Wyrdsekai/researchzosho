@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- You can point the library at a file, a folder or a URL from the chat: "read in /mnt/archive/papers". A mounted network drive is a folder. For a folder the Librarian counts first (files by type, size, what keeping the text would take, free disk) and asks whether to keep the text or read the files in place.
+- `--link` on `researchzosho add` reads files where they are instead of keeping their text. The entry holds the path, a hash and the size, nothing else. When the drive is not mounted the entry says so, and it reads again when the drive is back. A changed file is noticed by its hash at the next rescan, and the claims resting on it are marked for review.
+- `--survey` on `researchzosho add <folder>` prints the count and the sizes and shelves nothing.
+- `library_add` is the same for programs: `path` or `url`, `collection`, `mode` (`keep`, `link`, `survey`), `register`. Paths are accepted from the terminal and the library's own pages only; a URL from any patron with write access. Route `/v1/add` on the daemon.
+- A linked file whose drive was away during an index rebuild is found by its title until the next rescan reads its text in.
+- `researchzosho absorb <file|url>` and the `library_absorb` tool take a conversation you had with another assistant as a starting point. ChatGPT and Claude exports, `[{role, content}]` lists and `User:`/`Assistant:` transcripts are read. The transcript is shelved in the collection `conversations`, your questions join the open questions, and the assistant's claims come back as a list to check. Nothing becomes a finding. `--verify` (or `verify: true`) files one research run that checks the claims against sources. In the chat: "absorb this thread".
+- `researchzosho items <file|url>` and the `library_items` tool take a list of things (books, tools, an inventory of line items) as a starting point: one item per line, a markdown table or a CSV. The list is shelved in the collection `lists`, each item is checked against the shelves, and each becomes a question through a lens (`--lens "{item}: …"`, or the default: what it is, who made it, what it is for). `--as frontier` files the questions for the housekeeping; `--as runs` sends them out as research runs with a lane per item; `--as none` only shows what is held.
+- Five more starting points, each a file you already have: `check` (your own draft: claims to check, its citations fetched, its questions filed), `reading` (BibTeX, RIS, CSV or lines of DOIs and URLs, fetched onto the shelves as a collection), `questions file` (a file of questions onto the open questions in order), `bookmarks` (a browser export, the pages onto the shelves) and `meeting` (a transcript: decisions kept, questions raised filed, claims to check with who said them). Each has a `library_*` tool and a `/v1/*` route and works from the chat. A page that cannot be read becomes a source request.
+- `--watch` on `reading` and `bookmarks` registers the list so the housekeeping re-reads its pages each night and keeps a new copy when one changes.
+
+### Changed
+
+- The chat describes its tools to the model in a sentence or two each instead of reusing the MCP server's paragraphs, and leaves out the patron field it fills in itself. The tool list the model reads on every turn went from about 7,500 tokens to about 3,900, so more of the window is left for the conversation and the entries it opens. Programs on the MCP server still get the full descriptions.
+
+### Fixed
+
+- Array arguments in the tool schemas (`sources`, `sub_questions`, `ids`, `collections`) now say what their items are. gpt-oss's chat template in llama.cpp reads that field and failed every request with "Function is not a bool value" when it was missing, so the chat and any MCP client that renders the schemas through that template did not work on gpt-oss at all.
+- The chat admits a made-up reference. A small model sometimes cites an entry id that no look-up returned; the reply now ends with "The reference … is not an entry I looked up; I should not have cited it", and the turn counts it as unbacked in the ledger.
+
 ## 0.2.0
 
 You can now talk to the Librarian.

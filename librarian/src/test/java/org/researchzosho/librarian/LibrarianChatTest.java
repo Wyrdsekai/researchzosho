@@ -54,6 +54,35 @@ class LibrarianChatTest {
     }
 
     @Test
+    void theChatsToolWordsKeepTheOptionsAndDoNotCutAtAnAbbreviation() {
+        assertEquals("The job to read or stop, e.g. J-0042-x.", Librarian.firstSentence("The job to read or stop, e.g. J-0042-x. Another sentence here."));
+        assertEquals("list (default) | add | drop.", Librarian.firstSentence("list (default) | add | drop. For list the filters below apply."));
+        assertEquals("No period at all", Librarian.firstSentence("No period at all"));
+        for (var t : Librarian.tools()) {
+            var fn = t.path("function");
+            assertFalse(fn.path("description").asText().isBlank(), fn.path("name").asText());
+            assertFalse(fn.path("parameters").path("properties").has("patron"), "the chat fills the patron in");
+            var it = fn.path("parameters").path("properties").fields();
+            while (it.hasNext()) { var e = it.next(); assertFalse(e.getValue().path("description").asText("x").matches("(?s).*\\b(e\\.g|i\\.e)\\.$"), fn.path("name").asText() + "." + e.getKey()); }
+        }
+    }
+
+    @Test
+    void aMadeUpEntryIdIsAdmittedUnderTheReply() throws Exception {
+        LibraryStore store = libraryWithAFinding();
+        List<ArrayNode> seen = new ArrayList<>();
+        var drive = scripted(List.of(tool("library_search", "{\"query\":\"antikythera gears\"}"), say("The gears were cut by hand [F-0001-gears]; the dials show the Saros cycle [F-0012-a] and [2026-09-14-f9b742163836.md].")), seen);
+        Librarian lib = new Librarian(store, drive, Librarian.person(), Librarian.Session.open(store));
+        String reply = lib.say("how were the gears cut?");
+        assertTrue(reply.contains("The references F-0012-a, 2026-09-14-f9b742163836.md are not entries I looked up"), reply);
+        assertFalse(reply.contains("F-0001-gears is not"), "the real id passes: " + reply);
+        String ledger = Files.readString(store.root().resolve("catalog").resolve("chat-turns.jsonl"));
+        assertTrue(ledger.contains("\"unbacked\":2"), ledger);
+        assertEquals(List.of("I-0031-x…"), Librarian.idsUnbacked("see [I-0031-x…] and [F-0002-y]", "F-0002-y is here"), "a cut-short id is matched by its stem");
+        assertEquals(List.of(), Librarian.idsUnbacked("see [I-0031-lead-paint…]", "I-0031-lead-paint-ban-1978 …"));
+    }
+
+    @Test
     void aQuestionGoesThroughAToolAndTheReplyCarriesTheAnswer() throws Exception {
         LibraryStore store = libraryWithAFinding();
         List<ArrayNode> seen = new ArrayList<>();

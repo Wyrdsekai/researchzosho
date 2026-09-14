@@ -103,3 +103,21 @@ nowhere else. `researchzosho setup` asks for these and checks them with one ques
 `RESEARCHZOSHO_JUDGE_DRIVE` names a second server for the planning, the critic, the write-up and the
 citation check, while the readers keep the first. A stronger rented model can judge while a local model
 reads. The guide's section 12 has the details.
+
+## The chat
+
+`researchzosho chat` runs on the same model as the research runs. The same two-turn conversation was tried on
+five models against one library on 2026-09-14: a question about what the shelves hold, then a follow-up asking
+which entry is the most recent and who wrote it.
+
+| model | what happened |
+|---|---|
+| Qwen 3.8 27B | Found all six relevant entries, sorted them, cited each, answered the follow-up from one look-up. 27 s and 9 s a turn. |
+| gpt-oss-20b | Found two of the three children's books, cited them, opened the entries for the follow-up and answered right. 4 s a turn. |
+| Gemma 4 12B | Found the entries and cited them, but did not open them for the follow-up and said it did not know the dates the entries carry. |
+| Qwen 3.5 9B | Found two of three, cited them, opened both for the follow-up and answered right. 4 s a turn. |
+| Qwen 3.5 4B | Right on one run; on another it cited four entry ids that do not exist. The chat now admits such a reference under the reply. |
+
+So the 9B and gpt-oss-20b hold the conversation; the 27B sees more; the 12B answers but does not dig; the 4B
+cannot be trusted to cite. The chat's tool list is about 3,900 tokens, so a model served with an 8k window has
+little room left for the entries it opens; 16k or more is better for the chat.

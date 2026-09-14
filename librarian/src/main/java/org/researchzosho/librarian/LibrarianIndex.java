@@ -18,6 +18,7 @@ import org.apache.lucene.index.Term;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.Query;
+import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
@@ -135,6 +136,16 @@ public final class LibrarianIndex {
      * returned DeepSearchQA for "zebra crossings on the moon in 1740" and a by-hand cosine
      * said it could not have.
      */
+    /** Whether a raw capture's text is in the index (chunks under its name) — false for a linked file that was indexed while its drive was away. */
+    public boolean hasChunks(String fileName) throws IOException {
+        try (Directory dir = FSDirectory.open(store.luceneDir())) {
+            if (!DirectoryReader.indexExists(dir)) return false;
+            try (DirectoryReader r = DirectoryReader.open(dir)) {
+                return new IndexSearcher(r).count(new TermQuery(new Term(F_PARENT, fileName))) > 0;
+            }
+        }
+    }
+
     public String explain(String query, int k) throws IOException {
         StringBuilder sb = new StringBuilder();
         try (Directory dir = FSDirectory.open(store.luceneDir())) {
@@ -454,7 +465,8 @@ public final class LibrarianIndex {
                     if (!p.toString().endsWith(".md") || !Files.getLastModifiedTime(p).toInstant().isAfter(since)) continue;
                     String[] r = RawCapture.read(p);
                     if (RawCapture.looksBinary(r[2])) continue;
-                    upsertRaw(p.getFileName().toString(), r[1], r[0], r[2], RawCapture.collectionOf(p));
+                    // a linked file that is not reachable now: findable by its title, its text when the drive is back
+                    upsertRaw(p.getFileName().toString(), r[1], r[0], RawCapture.isUnreachable(r[2]) ? "" : r[2], RawCapture.collectionOf(p));
                     n++;
                 }
             }
@@ -573,7 +585,7 @@ public final class LibrarianIndex {
                         try {
                             String[] r = RawCapture.read(p);
                             String coll = RawCapture.collectionOf(p);
-                            for (Document d : rawDocs(p.getFileName().toString(), r[1], r[0], r[2])) {
+                            for (Document d : rawDocs(p.getFileName().toString(), r[1], r[0], RawCapture.isUnreachable(r[2]) ? "" : r[2])) {
                                 if (!coll.isBlank()) d.add(new StringField(F_COLLECTION, coll, Field.Store.YES));
                                 w.addDocument(d);
                             }

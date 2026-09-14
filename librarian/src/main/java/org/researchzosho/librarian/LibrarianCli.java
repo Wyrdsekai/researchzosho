@@ -28,6 +28,21 @@ public final class LibrarianCli {
               ask <question…>              what the library has on it, with sources and states
               chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, file a run, read what it found, decide the inbox; /help inside
               add <file|url> [title]       add your own document (PDF/DOCX/PPTX/ODT/EPUB/HTML/text)
+              add <folder> [--collection N] [--register] [--link] [--survey]
+              absorb <transcript|export|url> [--verify]
+              items <list|csv|url> [--lens "…"] [--as frontier|runs|none]
+                                           a list of things (books, tools, an inventory): shelved, checked against the shelves, a question per item
+              check <draft> [--verify]     your own draft or notes: claims to check, its citations fetched, its questions filed
+              reading <bib|ris|csv|list> [--watch]
+                                           a reading list: every DOI and url fetched onto the shelves as a collection
+              questions file <file> [--as frontier|runs]
+                                           a whole file of questions onto the open questions, in order
+              bookmarks <export|urls> [--folder F] [--watch]
+                                           a browser's bookmarks onto the shelves; --watch re-reads them nightly
+              meeting <vtt|transcript> [--verify]
+                                           a meeting transcript: decisions kept, questions raised filed, claims to check
+                                           a conversation you had with another assistant: shelved, your questions filed, its claims listed to check
+                                           a folder of documents as a collection; --link reads them in place (nothing copied); --survey only counts
               add <folder> [--collection N] [--register]   add every document under the folder, as a named collection
               add <file> --for <url>       supply a document the runner could not read (a paywall, a wall) — see `requests`
               collection list|add <name> <folder>|rescan     the registered folders (the housekeeping rescans them)
@@ -74,7 +89,7 @@ public final class LibrarianCli {
               serials                      check living shelves for NEW sources; list overdue reviews
               tonight                      what the housekeeping will do at its next run: searches due, questions it will research
               update [now | auto on|off]   the installed release against the latest; install it; let the daemon do it after the housekeeping
-              questions [list [--type t] [--parked|--all] [--report I-…] [--fate f] [--who text] [--subject s] [--language x] [--grep words] [--by-report] [--hints] | add <q…> | next|later|park|unpark|drop <n> | tidy | budget <n> | tonight <n>]   the queue the explorer draws from; a report's leftovers wait parked
+              questions [list [--type t] [--parked|--all] [--report I-…] [--fate f] [--who text] [--subject s] [--language x] [--grep words] [--by-report] [--hints] | add <q…> | file <file> | next|later|park|unpark|drop <n> | tidy | budget <n> | tonight <n>]   the queue the explorer draws from; a report's leftovers wait parked
               bench [k]                    top-k retrieval failure rate on the shelf's own agent queries
               subjects                     the vocabulary with counts and co-occurring subjects (the edge list)
               subjects proposed            the subjects the cataloger proposed, numbered
@@ -361,6 +376,9 @@ public final class LibrarianCli {
                             + (migrated > 0 ? "; " + migrated + " review signature(s) carried over to the current hash formula" : ""));
                 }
                 case "add" -> { return add(store, args); }
+                case "absorb" -> { return absorb(store, args); }
+                case "items" -> { return items(store, args); }
+                case "check", "reading", "bookmarks", "meeting" -> { return launch(store, args); }
                 case "ask" -> {
                     if (args.length < 3) { System.err.println("usage: researchzosho ask <question…>   — the desk: what the shelves hold, or holds_nothing"); return 2; }
                     System.out.println(LibraryPush.answerPackage(String.join(" ", java.util.Arrays.asList(args).subList(2, args.length)), 6).stripTrailing());
@@ -656,6 +674,13 @@ public final class LibrarianCli {
                     for (Frontier.Line l : Frontier.read(store)) if (l.open()) open.add(l);
                     java.util.function.Function<String, String> pick = ref -> ref.matches("\\d+") && Integer.parseInt(ref) >= 1 && Integer.parseInt(ref) <= open.size() ? open.get(Integer.parseInt(ref) - 1).text() : ref;
                     switch (op) {
+                        case "file" -> {
+                            // a whole file of questions onto the queue in order (or the first few out as runs)
+                            if (args.length < 4) { System.err.println("usage: researchzosho questions file <file|url> [--as frontier|runs] [--title <t>] [--limit <n>]"); return 2; }
+                            String[] sub = new String[args.length - 1];
+                            sub[0] = args[0]; sub[1] = "questions"; System.arraycopy(args, 3, sub, 2, args.length - 3);
+                            return launch(store, sub);
+                        }
                         case "list" -> {
                             // the filters a person sorts a long list by: the same ones the page and library_frontier take
                             var f = new java.util.LinkedHashMap<String, String>();
@@ -735,7 +760,7 @@ public final class LibrarianCli {
                             else { org.researchzosho.Config.set("explorer.tonight", args[3]); System.out.println("tonight the explorer takes " + args[3] + " run(s); the standing number stays " + Crews.explorerPerNight()); }
                             return 0;
                         }
-                        default -> { System.err.println("usage: researchzosho questions [list [--type t] [--parked | --all] [--report I-…] [--fate f] [--who text] [--subject slug] [--language x] [--grep words] [--by-report] [--hints] | add <question…> | next|later|park|unpark|drop <n|question> | tidy | budget <n> | tonight <n>]"); return 2; }
+                        default -> { System.err.println("usage: researchzosho questions [list [--type t] [--parked | --all] [--report I-…] [--fate f] [--who text] [--subject slug] [--language x] [--grep words] [--by-report] [--hints] | add <question…> | file <file|url> [--as runs] | next|later|park|unpark|drop <n|question> | tidy | budget <n> | tonight <n>]"); return 2; }
                     }
                 }
                 case "bench" -> RetrievalBench.cli(store, args);
@@ -1199,26 +1224,165 @@ public final class LibrarianCli {
         System.out.println();
     }
 
+    /** check | reading | questions | bookmarks | meeting <file|url> [flags]: the launching points that share one shape. */
+    static int launch(LibraryStore store, String[] args) throws Exception {
+        String verb = args[1];
+        if (args.length < 3) { System.err.println("usage: researchzosho " + verb + " <file|url> [--title <t>] [--collection <name>] [--verify] [--watch] [--as frontier|runs] [--folder <f>] [--limit <n>] [--no-citations]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        String what = args[2];
+        if (what.startsWith("http://") || what.startsWith("https://")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
+        try {
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--title" -> a.put("title", flagValue(args, i++));
+                    case "--collection" -> a.put("collection", flagValue(args, i++));
+                    case "--verify" -> a.put("verify", true);
+                    case "--watch" -> a.put("watch", true);
+                    case "--as" -> a.put("as", flagValue(args, i++));
+                    case "--folder" -> a.put("folder", flagValue(args, i++));
+                    case "--limit" -> a.put("limit", flagInt(args, i++));
+                    case "--no-citations" -> a.put("fetch_citations", false);
+                    default -> { System.err.println("unknown flag " + args[i]); return 2; }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        LibraryProtocol p = new LibraryProtocol(store);
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try {
+            r = switch (verb) {
+                case "check" -> p.check(a);
+                case "reading" -> p.reading(a);
+                case "questions" -> p.questions(a);
+                case "bookmarks" -> p.bookmarks(a);
+                default -> p.meeting(a);
+            };
+        } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        for (var q : r.path("questions_filed")) System.out.println("    ? " + q.asText());
+        for (var q : r.path("questions_already_open")) System.out.println("    = " + q.asText() + "  (already open)");
+        for (var c : r.path("claims_to_check")) System.out.println("    • " + c.asText());
+        for (var d : r.path("decisions")) System.out.println("    ✓ " + d.asText());
+        for (var c : r.path("citations")) System.out.println("    " + c.path("state").asText() + ": " + c.path("locator").asText() + (c.hasNonNull("problem") ? " — " + c.path("problem").asText() : ""));
+        for (var e : r.path("entries")) System.out.println("    " + e.path("state").asText() + ": " + e.path("title").asText() + (e.hasNonNull("problem") ? " — " + e.path("problem").asText() : ""));
+        for (var b : r.path("bookmarks")) System.out.println("    " + b.path("state").asText() + ": " + (b.path("title").asText().isEmpty() ? b.path("url").asText() : b.path("title").asText()) + (b.hasNonNull("problem") ? " — " + b.path("problem").asText() : ""));
+        for (var q : r.path("questions")) if (q.hasNonNull("job_id")) System.out.println("    run " + q.path("job_id").asText() + ": " + q.path("question").asText()); else if (q.path("filed").asBoolean(false)) System.out.println("    ? " + q.path("question").asText());
+        if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more in the file; --limit takes more");
+        if (r.hasNonNull("verify_job_id")) System.out.println("  checking the claims: " + r.path("verify_job_id").asText() + " — researchzosho jobs " + r.path("verify_job_id").asText());
+        System.out.println("  " + r.path("next").asText());
+        return 0;
+    }
+
+    /** researchzosho items <file|url> [--lens "…"] [--as frontier|runs|none] [--column C] [--title T] [--limit N]: a list of things as a starting point. */
+    static int items(LibraryStore store, String[] args) throws Exception {
+        if (args.length < 3) { System.err.println("usage: researchzosho items <list.txt|list.md|list.csv|url> [--lens \"{item}: …\"] [--as frontier|runs|none] [--column <name>] [--title <t>] [--limit <n>]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        String what = args[2];
+        if (what.startsWith("http://") || what.startsWith("https://")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
+        try {
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--lens" -> a.put("lens", flagValue(args, i++));
+                    case "--as" -> a.put("as", flagValue(args, i++));
+                    case "--column" -> a.put("column", flagValue(args, i++));
+                    case "--title" -> a.put("title", flagValue(args, i++));
+                    case "--collection" -> a.put("collection", flagValue(args, i++));
+                    case "--limit" -> a.put("limit", flagInt(args, i++));
+                    default -> { System.err.println("unknown flag " + args[i]); return 2; }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try { r = new LibraryProtocol(store).items(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        System.out.println("  lens: " + r.path("lens").asText());
+        for (var it : r.path("items")) {
+            String mark = it.path("held").isNull() ? "  " : "= ";
+            System.out.println("  " + mark + it.path("item").asText() + (it.hasNonNull("note") ? " — " + it.path("note").asText() : "")
+                    + (it.path("held").isNull() ? "" : "  (held: " + it.path("held").asText() + ")") + (it.path("filed").asBoolean(false) ? "  ? filed" : ""));
+        }
+        if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more item(s) in the list; --limit takes more");
+        for (var j : r.path("jobs")) System.out.println("  run: " + j.asText() + " — researchzosho jobs " + j.asText());
+        System.out.println("  " + r.path("next").asText());
+        return 0;
+    }
+
+    /** researchzosho absorb <file|url> [--title T] [--collection N] [--verify] [--limit N]: a conversation with another assistant, as a starting point. */
+    static int absorb(LibraryStore store, String[] args) throws Exception {
+        if (args.length < 3) { System.err.println("usage: researchzosho absorb <transcript|export.json|url> [--title <t>] [--collection <name>] [--verify] [--limit <n>]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        String what = args[2];
+        if (what.startsWith("http://") || what.startsWith("https://")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
+        try {
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--title" -> a.put("title", flagValue(args, i++));
+                    case "--collection" -> a.put("collection", flagValue(args, i++));
+                    case "--verify" -> a.put("verify", true);
+                    case "--limit" -> a.put("limit", flagInt(args, i++));
+                    default -> { System.err.println("unknown flag " + args[i]); return 2; }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try { r = new LibraryProtocol(store).absorb(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        for (var t : r.path("threads")) {
+            System.out.println("  " + t.path("title").asText() + " — " + t.path("turns").asInt() + " turns → " + t.path("raw").asText());
+            for (var q : t.path("questions_filed")) System.out.println("    ? " + q.asText());
+            for (var q : t.path("questions_already_open")) System.out.println("    = " + q.asText() + "  (already open)");
+            for (var c : t.path("claims_to_check")) System.out.println("    • " + c.asText());
+        }
+        if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more conversation(s) in the file; --limit takes more");
+        if (r.hasNonNull("verify_job_id")) System.out.println("  checking the claims: " + r.path("verify_job_id").asText() + " — researchzosho jobs " + r.path("verify_job_id").asText());
+        else if (r.path("claims_to_check").asInt() > 0) System.out.println("  --verify files one run that checks the claims; researchzosho research ask \"" + r.path("main_question").asText().replace("\"", "'") + "\" researches the subject");
+        return 0;
+    }
+
     static int add(LibraryStore store, String[] args) throws Exception {
-        if (args.length < 3) { System.err.println("usage: researchzosho add <file|url|folder> [title] [--for <url>] [--collection <name>]"); return 2; }
+        if (args.length < 3) { System.err.println("usage: researchzosho add <file|url|folder> [title] [--for <url>] [--collection <name>] [--register] [--link] [--survey]"); return 2; }
         String what = args[2];
         // a folder: the corpus path
         if (!what.startsWith("http://") && !what.startsWith("https://") && Files.isDirectory(Path.of(what))) {
-            String coll = null; boolean register = false;
-            for (int i = 3; i < args.length; i++) { if (args[i].equals("--collection")) coll = flagValue(args, i++); else if (args[i].equals("--register")) register = true; }
+            String coll = null; boolean register = false, link = false, survey = false;
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--collection" -> coll = flagValue(args, i++);
+                    case "--register" -> register = true;
+                    case "--link" -> link = true;
+                    case "--survey" -> survey = true;
+                    default -> { }
+                }
+            }
             Path dir = Path.of(what).toAbsolutePath().normalize();
             if (coll == null) coll = Corpus.nameFor(dir);
-            Corpus.Outcome o = Corpus.addFolder(store, dir, coll, true);
-            if (register) Corpus.register(store, coll, dir);
-            System.out.println("collection " + coll + ": " + o.added() + " added, " + o.unchanged() + " unchanged, " + o.skipped() + " skipped of " + o.seen() + " document(s)" + (register ? " — registered; the crews rescan it" : ""));
+            if (survey) {
+                Corpus.Survey sv = Corpus.survey(store, dir, true);
+                System.out.println(dir + ": " + sv.line());
+                System.out.println("  keep it:  researchzosho add " + what + " --collection " + coll + "        (the text is copied onto the shelves; the files are not)");
+                System.out.println("  link it:  researchzosho add " + what + " --collection " + coll + " --link (read in place; nothing copied)");
+                return 0;
+            }
+            Corpus.Outcome o = Corpus.addFolder(store, dir, coll, true, link);
+            if (register) Corpus.register(store, coll, dir, link);
+            System.out.println("collection " + coll + ": " + o.line() + (link ? " — read in place, nothing copied" : "") + (register ? " — registered; the crews rescan it" : ""));
             for (String pr : o.problems()) System.out.println("  " + pr);
-            System.out.println("  ask them: /research go with sources=shelves, or library_research {\"sources\":\"shelves\",\"collections\":[\"" + coll + "\"]}");
+            System.out.println("  ask them: researchzosho research ask \"…\" --shelves, or library_research {\"sources\":\"shelves\",\"collections\":[\"" + coll + "\"]}");
             return 0;
         }
         // a document supplied for a locator the runner could not read
-        String forUrl = null;
+        String forUrl = null; boolean linkFile = false;
         java.util.List<String> rest = new java.util.ArrayList<>();
-        for (int i = 3; i < args.length; i++) { if (args[i].equals("--for")) forUrl = flagValue(args, i++); else rest.add(args[i]); }
+        for (int i = 3; i < args.length; i++) { if (args[i].equals("--for")) forUrl = flagValue(args, i++); else if (args[i].equals("--link")) linkFile = true; else rest.add(args[i]); }
+        if (linkFile && !what.startsWith("http://") && !what.startsWith("https://")) {
+            Path f = Path.of(what).toAbsolutePath().normalize();
+            Path raw = Corpus.addFile(store, f, "", true);
+            if (raw == null) { System.err.println("no text could be read from " + f.getFileName()); return 1; }
+            System.out.println("linked " + (rest.isEmpty() ? RawCapture.read(raw)[1] : String.join(" ", rest)) + "\n  read in place from " + f + "; nothing copied → " + raw.getFileName());
+            return 0;
+        }
         if (forUrl != null) {
             Path f = Path.of(what).toAbsolutePath().normalize();
             var doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), what);

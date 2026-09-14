@@ -387,6 +387,155 @@ supply it, and the shelves re-check against it.
 Adding a folder makes a collection. With `--register`, the housekeeping checks the folder for new or
 changed files.
 
+### Keep or link
+
+By default the library keeps the text it extracts from each file. The file itself is never copied, so
+a folder of PDFs costs a few percent of its size on the library's disk.
+
+Sometimes even that is too much, or you do not want a second copy of the material anywhere. `--link`
+reads the files where they are:
+
+```
+researchzosho add /mnt/archive/papers --collection archive --link --register
+```
+
+A linked file gets an entry with its path, a hash of its bytes and its size, and nothing else. When the
+library needs the text, it reads it from the file. If the drive is not mounted at that moment, the entry
+says so ("not reachable now: /mnt/archive/papers/x.pdf cannot be read; mount the drive"), and it reads
+again once the drive is back. When a linked file changes, the next rescan notices from the hash, reads
+the new text, and marks the claims that rest on that file for review.
+
+A network drive is a folder like any other once it is mounted. A URL is always kept, since the web
+changes under a link.
+
+Before deciding, count:
+
+```
+researchzosho add /mnt/archive/papers --survey
+```
+
+This prints the number of files by type, their size, what keeping the text would take, and the free
+space on the library's disk. It shelves nothing.
+
+### From the chat
+
+You can do the same by talking to the Librarian:
+
+```
+> read in /mnt/archive/papers
+There are 12,400 documents (11,900 pdf, 500 docx), 38 GB. Keeping the text would take about 1.1 GB;
+the library's disk has 3.2 GB free. Keep it, or read it in place?
+> read in place
+Collection archive: 12,388 added, 12 skipped. Read in place, nothing copied. …
+> research the history of the Saros dial from those
+```
+
+The last line is a research run with sources=shelves on that collection. A program does the same with
+the `library_add` tool (mode `keep`, `link` or `survey`). Paths are only accepted from the terminal or
+the library's own pages; a URL can be added by any patron with write access.
+
+### A conversation you had with another assistant
+
+If you worked a subject through with ChatGPT, Claude or another chat, hand the library the thread:
+
+```
+researchzosho absorb ~/Downloads/conversations.json
+researchzosho absorb saros-chat.md --verify
+```
+
+It reads ChatGPT's and Claude's export files, any `[{role, content}]` list, and a text or markdown
+transcript with `User:` and `Assistant:` markers. Three things happen:
+
+- The transcript is shelved as it is, in the collection `conversations`, so the shelves can find it.
+- Your questions from the thread join the open questions. The housekeeping's explorer works on those at
+  night, and "find out" in the chat picks them up.
+- What the assistant asserted comes back as a list of claims to check. None of it becomes a finding: an
+  assistant's say-so is not a source. `--verify` files one research run that checks the claims against
+  real sources and says which hold.
+
+An export with many conversations takes the first 25 and tells you how many remain; `--limit` takes
+more. In the chat, "absorb this thread" with a path or the pasted text does the same, and the
+Librarian offers the two follow-ups: check the claims, or research the thread's main question.
+
+### A list of things
+
+A list of books, tools, places, products, anything: one item per line, a markdown table, or a CSV.
+
+```
+researchzosho items books.md
+researchzosho items reading.csv --column title --lens "{item}: its main argument and how it was received"
+researchzosho items tools.txt --as runs
+```
+
+The list is shelved as it is, in the collection `lists`, so the library knows what you have. Each item
+is checked against the shelves and marked held or not. Then each item becomes a question through the
+lens. The default lens asks what the item is, who made or wrote it, what it is for, and what is known
+about it; `--lens` says what you want to know instead, with `{item}` where the item goes.
+
+`--as frontier` (the default) files a question per item on the open questions, and the housekeeping's
+explorer works through them at night. `--as runs` sends them out now as research runs, a lane per item
+in batches of eight. `--as none` only shows what is held. A note after the item (`Longitude — Dava
+Sobel`, or the other columns of a CSV) travels with the question.
+
+In the chat, hand the Librarian the list and say what you want to know about each; it tells you what is
+held first, then files or runs.
+
+### Your own draft
+
+```
+researchzosho check chapter.md --verify
+```
+
+A memo, a chapter, notes, in text, markdown, Word or PDF. The draft is shelved in `drafts`. Its
+definite statements come back as claims to check. The citations it carries, as URLs, DOIs or arXiv
+ids, are fetched onto the shelves next to it, and one that cannot be read becomes a source request you
+can answer with `add <file> --for <url>`. Questions in the draft join the open questions. `--verify`
+files one research run that checks the claims against sources, the draft's own citations included.
+
+### A reading list
+
+```
+researchzosho reading library.bib
+researchzosho reading papers.csv --watch
+```
+
+BibTeX, RIS from Zotero or EndNote, a CSV export, or plain lines of DOIs, URLs and titles. Every entry
+with a locator is fetched onto the shelves as a collection named after the list. An entry that cannot
+be read becomes a source request. An entry with a title and no DOI or URL is listed; hand those to
+`items` to research them by name. `--watch` has the housekeeping re-read the pages each night and keep
+a new copy when one changes. Then research from them with `--shelves` on that collection.
+
+### A file of questions
+
+```
+researchzosho questions file syllabus.md
+researchzosho questions file exam.txt --as runs
+```
+
+One question per line. They join the open questions in that order, and the explorer works through
+them at night. `--as runs` sends the first ten out now as research runs and files the rest.
+
+### Your bookmarks
+
+```
+researchzosho bookmarks bookmarks.html --folder Research --watch
+```
+
+The bookmarks file every browser exports, Chrome's `Bookmarks` file, or one URL per line. Each page is
+fetched onto the shelves, in a collection named after the folder. `--watch` re-reads them nightly.
+
+### A meeting transcript
+
+```
+researchzosho meeting sync.vtt --verify
+```
+
+WebVTT from Zoom, Teams or Otter, or lines of `Name: words`. The transcript is shelved in `meetings`
+with a list of the decisions at the top, so you can ask what was decided later. Questions anyone raised
+join the open questions. Claims made come back to check, with who said them. `--verify` files the run.
+
+All of these work from the chat too: hand the Librarian the file or paste the text and say what it is.
+
 To ask a question that uses only your documents:
 
 ```
