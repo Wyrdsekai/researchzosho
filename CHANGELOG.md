@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+Eight ways to hand the library what you already have, and a leaner chat.
 
 ### Added
 
