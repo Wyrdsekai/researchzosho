@@ -8,12 +8,12 @@
     "url": "https://github.com/Wyrdsekai/researchzosho",
     "source": "github"
   },
-  "version": "0.1.11",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@wyrdsekai/researchzosho-mcp",
-      "version": "0.1.11",
+      "version": "0.2.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -29,7 +29,7 @@
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/wyrdsekai/researchzosho:0.1.11",
+      "identifier": "ghcr.io/wyrdsekai/researchzosho:0.2.0",
       "runtimeHint": "docker",
       "transport": {
         "type": "stdio"

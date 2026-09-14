@@ -1676,6 +1676,23 @@ public final class Researcher {
     // ---- the live adapters ----
 
     /** The daemon's drive: the OpenAI-compatible chat client. */
+    /** The conversation's seat: thinking off and temperature 0, so the words come out instead of the thinking (the Librarian, 2026-09-13). */
+    public static Drive calmDrive(String baseUrl, String model) {
+        org.researchzosho.drive.DriveClient c = new org.researchzosho.drive.DriveClient(baseUrl, model);
+        return new Drive() {
+            @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { return c.chatOps(messages, tools, maxTokens, toolChoice); }
+            @Override public String classify(ArrayNode messages, int maxTokens) { return c.classify(messages, maxTokens); }
+            @Override public int contextWindow() { return c.contextWindow(); }
+        };
+    }
+
+    /** The judge seat when one is set, else the workers' drive — calm, for a conversation. */
+    public static Drive calmJudgeDrive(String workersDrive, String workersModel) {
+        String jd = org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_DRIVE");
+        if (jd == null || jd.isBlank()) return calmDrive(workersDrive, workersModel);
+        return calmDrive(jd, org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_MODEL", workersModel));
+    }
+
     public static Drive drive(String baseUrl, String model) {
         org.researchzosho.drive.DriveClient c = new org.researchzosho.drive.DriveClient(baseUrl, model);
         return new Drive() {

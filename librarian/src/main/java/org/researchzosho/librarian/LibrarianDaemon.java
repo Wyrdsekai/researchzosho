@@ -192,6 +192,9 @@ public final class LibrarianDaemon {
 
     private Researcher researcher(String drive) { return researcher(drive, null); }
 
+    /** The seat the Librarian talks from: the judge drive when one is set, else the workers' drive. */
+    Researcher.Drive chatDrive() { return Researcher.calmJudgeDrive(driveUrl, model); }
+
     /** The runner for a job, its drives seen through the job's trace when there is one. */
     private Researcher researcher(String drive, RunTrace trace) {
         if (researcherFactory != null) { Researcher r = researcherFactory.apply(drive); if (trace != null) r.trace(trace); return r; }

@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.2.0
+
+You can now talk to the Librarian.
+
+### Added
+
+- `researchzosho chat` starts a conversation with the Librarian. Ask what the library holds, ask follow-ups, say "find out …" to start a research run, ask later how it went, and go through the inbox. It only answers from what the library's tools return, and it tells you when the library has nothing.
+- Every reply cites the entries it used, like `[F-0012-a]`, so you can open them. If the Librarian names a figure or a source that none of its look-ups returned, it says so under the reply and calls it a guess.
+- After an answer it offers one related thing: a nearby finding, an open question, a claim that disagrees.
+- Conversations are saved under `catalog/chat/`. `researchzosho chat` continues the last one; `--new` starts fresh; `--sessions` lists them; `--resume <id>` reopens one. Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`.
+- The same conversation is on the pages at `/chat`.
+- It uses the model you already have, with thinking turned off so it answers in words. Set `RESEARCHZOSHO_JUDGE_DRIVE` if you want a hosted model for the conversation while a local one does the reading.
+
+### Fixed
+
+- The model server's context window was wrong behind llama-swap, which is what `model install` sets up. The proxy answers `/props` with "no model id" because that request does not name a model, so we assumed a window of 8192 and cleared context four times too early. We now read the window from `/upstream/<model>/props`. `RESEARCHZOSHO_CTX` still overrides it if you need to.
+
 ## 0.1.11
 
 ### Fixed

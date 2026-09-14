@@ -26,6 +26,7 @@ public final class LibrarianCli {
               refresh                      re-index what changed or was removed on disk (seconds)
               rebuild                      rebuild the whole search index + INDEX.md from files (re-embeds everything)
               ask <question…>              what the library has on it, with sources and states
+              chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, file a run, read what it found, decide the inbox; /help inside
               add <file|url> [title]       add your own document (PDF/DOCX/PPTX/ODT/EPUB/HTML/text)
               add <folder> [--collection N] [--register]   add every document under the folder, as a named collection
               add <file> --for <url>       supply a document the runner could not read (a paywall, a wall) — see `requests`
@@ -385,6 +386,7 @@ public final class LibrarianCli {
                 }
                 case "research" -> { return research(store, args); }
                 case "jobs" -> { return jobs(store, args); }
+                case "chat" -> { return chat(store, args, baseUrl, model); }
                 case "stats" -> { return stats(store, args); }
                 case "explain" -> { return explain(store, args); }
                 case "sharpen" -> {
@@ -981,6 +983,46 @@ public final class LibrarianCli {
         System.out.println();
         for (var e : RunLedger.summary(rows).entrySet()) System.out.println("  " + e.getKey() + ": " + e.getValue());
         System.out.println("  traces: " + store.root().resolve("catalog").resolve("traces") + " (every model call of a run, one file each)");
+        return 0;
+    }
+
+    /** `researchzosho chat`: the terminal front of the Librarian. Lines in, replies out; a few slash commands. */
+    static int chat(LibraryStore store, String[] args, String baseUrl, String model) throws Exception {
+        Librarian.Session session = null;
+        for (int i = 2; i < args.length; i++) {
+            if (args[i].equals("--new")) session = Librarian.Session.open(store);
+            else if (args[i].equals("--resume") && i + 1 < args.length) { session = Librarian.Session.resume(store, args[++i]); if (session == null) { System.err.println("no session " + args[i] + " (researchzosho chat --sessions lists them)"); return 2; } }
+            else if (args[i].equals("--sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } return 0; }
+        }
+        if (session == null) session = Librarian.Session.latest(store);
+        Researcher.Drive drive = Researcher.calmJudgeDrive(baseUrl, model);
+        if (!Crews.driveAnswers(baseUrl)) { System.err.println("no model answers at " + baseUrl + " — the Librarian needs one to talk (researchzosho setup, or researchzosho model install)"); return 1; }
+        // a quiet screen: the drive's request lines belong in a log, not between the person and the Librarian
+        try { ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.researchzosho")).setLevel(ch.qos.logback.classic.Level.WARN); } catch (Throwable ignored) { }
+        Librarian lib = new Librarian(store, drive, Librarian.person(), session);
+        var in = new java.io.BufferedReader(new java.io.InputStreamReader(System.in, java.nio.charset.StandardCharsets.UTF_8));
+        String name = store.identity().name();
+        System.out.println("The Librarian of " + name + ". Session " + session.id + (session.messages().isEmpty() ? "" : ", continued") + ". /help for the commands, /quit to leave.");
+        if (!session.messages().isEmpty()) { var ms = session.messages(); for (int i = Math.max(0, ms.size() - 2); i < ms.size(); i++) { var m = ms.get(i); if (m.path("role").asText().equals("user")) System.out.println("\n> " + m.path("content").asText()); else if (m.path("role").asText().equals("assistant") && !m.path("content").asText("").isBlank()) System.out.println("\n" + m.path("content").asText()); } }
+        while (true) {
+            System.out.print("\n> "); System.out.flush();
+            String line = in.readLine();
+            if (line == null) break;
+            line = line.strip();
+            if (line.isEmpty()) continue;
+            if (Librarian.QUIT.contains(line)) break;
+            if (line.equals("/help")) { System.out.println("  say anything · /new (a fresh conversation) · /sessions · /resume <id> · /quit\n  \"find out …\" files a research run; \"yes\" is enough for the Librarian's offers"); continue; }
+            if (line.equals("/new")) { session = Librarian.Session.open(store); lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
+            if (line.equals("/sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } continue; }
+            if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
+            if (line.startsWith("/")) { System.out.println("  not a command; /help lists them"); continue; }
+            System.out.print("  …"); System.out.flush();
+            String reply;
+            try { reply = lib.say(line); } catch (Exception e) { reply = "(the model did not answer: " + e.getMessage() + ")"; }
+            System.out.print("\r   \r");
+            System.out.println(reply);
+        }
+        System.out.println("Session " + session.id + " is kept; researchzosho chat continues it.");
         return 0;
     }
 

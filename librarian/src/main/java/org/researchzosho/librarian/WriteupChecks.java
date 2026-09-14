@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 public final class WriteupChecks {
     private WriteupChecks() { }
 
-    static final Pattern NUMBER = Pattern.compile("(?<![\\w.])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|B\\b|K\\b|M\\b|million|billion|ms|seconds?|s\\b|minutes?|min\\b|h\\b|hours?|days?|weeks?|months?|years?|tokens?|points?|pts)?");
+    static final Pattern NUMBER = Pattern.compile("(?<![\\w.])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|B\\b|K\\b|M\\b|million|billion|ms|seconds?|s\\b|minutes?|min\\b|h\\b|hours?|days?|weeks?|months?|years?|tokens?|points?|pts|kg|g\\b|mg|mm|cm|km|m\\b|mi\\b|lbs?|oz|W\\b|kW|MW|Hz|kHz|MHz|GHz|fps|kb|kB|°C|°F)?");
     static final Pattern LICENSE = Pattern.compile("\\b(MIT|AGPL(?:-?3(?:\\.0)?)?|LGPL(?:-?[23](?:\\.\\d)?)?|GPL(?:-?[23](?:\\.\\d)?)?|Apache(?:-|\\s)?2(?:\\.0)?|BSD(?:-\\d-Clause)?|MPL(?:-?2(?:\\.0)?)?|CC[- ]BY(?:-[A-Z]{2})*(?:[- ]\\d\\.\\d)?|proprietary|closed[- ]source)\\b", Pattern.CASE_INSENSITIVE);
     static final Pattern CVE = Pattern.compile("\\bCVE-\\d{4}-\\d{4,7}\\b", Pattern.CASE_INSENSITIVE);
 

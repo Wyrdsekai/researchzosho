@@ -684,6 +684,36 @@ and one line for every time evidence was cut to fit the model's window. The newe
 This is the file to open when a write-up says something its evidence does not. `RESEARCHZOSHO_TRACE=off`
 turns tracing off.
 
+## 12b. Talking to the Librarian
+
+```
+researchzosho chat                 # continue the last conversation, or start one
+researchzosho chat --new           # start a fresh one
+researchzosho chat --sessions      # list earlier conversations
+researchzosho chat --resume C-…    # reopen one
+```
+
+Type a question. The Librarian looks it up and answers with the entry ids, like `[F-0012-a]`, so you can
+open them. Things you can say:
+
+- "what do the shelves hold on X?" — the answer, with sources and states.
+- "why?" — it reads that against the last answer.
+- "find out how the gears were cut" — files a research run. "yes" is enough when it offers one.
+- "how did that go?" — the answer section and the checks from the finished run.
+- "what's waiting?" — the inbox. "accept the first" accepts it.
+
+If the library has nothing, it says "I don't know" and offers to find out.
+
+Two rules it follows. It only uses the library's own tools: no commands, no reading your files, no web
+outside a research run. And it does not make things up: a figure or a source that none of its look-ups
+returned is marked under the reply as its guess.
+
+Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Conversations are saved in
+`catalog/chat/` and continue where they left off.
+
+The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the model
+takes; the page comes back with it.
+
 ## 13. The map
 
 When a claim says that a person lived in a place, an author wrote a work, or a company holds a
@@ -858,7 +888,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.1.11 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.2.0 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

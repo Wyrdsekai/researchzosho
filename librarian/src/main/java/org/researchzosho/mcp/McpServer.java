@@ -137,7 +137,7 @@ public final class McpServer {
     }
 
     /** The library protocol's tools, in the order the contract lists them. */
-    static ArrayNode allTools() {
+    public static ArrayNode allTools() {
         ArrayNode tools = M.createArrayNode();
         tools.add(tool("library_ask",
                 "Ask The Librarian — the long-term research library. Returns the answer PACKAGE: full relevant "

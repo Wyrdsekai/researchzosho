@@ -33,7 +33,7 @@ final class Pages {
     static boolean isPage(String path) {
         return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map");
+                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat");
     }
 
     /** One page. {@code form} holds the POSTed fields (empty on GET); {@code patron} is who the cookie or header proved. */
@@ -46,6 +46,7 @@ final class Pages {
                 case "/" -> send(x, 200, home(d, store, p, patron));
                 case "/search" -> send(x, 200, search(store, p, patron, q));
                 case "/ask" -> send(x, 200, ask(store, p, patron, q));
+                case "/chat" -> { if ("POST".equals(method)) { chatPost(d, store, patron, form); redirect(x, "/chat"); } else send(x, 200, chat(store, patron, q)); }
                 case "/read" -> send(x, 200, read(store, p, patron, q));
                 case "/subjects" -> send(x, 200, subjects(store, p, patron));
                 case "/changes" -> send(x, 200, changes(store, p, patron, q));
@@ -1204,6 +1205,52 @@ final class Pages {
 
     // ---- the frame ----
 
+    // ---- /chat: the page front of the Librarian ----
+
+    /** The latest conversation of this patron and a box to say the next thing; `?new=1` starts a fresh one, `?session=<id>` opens one. */
+    static String chat(LibraryStore store, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        Librarian.Session s;
+        if ("1".equals(q.get("new"))) s = Librarian.Session.open(store);
+        else if (q.get("session") != null && !q.get("session").isBlank()) { s = Librarian.Session.resume(store, q.get("session")); if (s == null) s = Librarian.Session.latest(store); }
+        else s = Librarian.Session.latest(store);
+        StringBuilder b = new StringBuilder();
+        b.append("<p class=\"k\">The Librarian answers from what the library holds, through its tools, and says so. \"Find out …\" files a research run; \"yes\" is enough for an offer. "
+                + "Session <code>").append(esc(s.id)).append("</code> · <a href=\"/chat?new=1\">new conversation</a>");
+        List<String> ids = Librarian.Session.list(store);
+        if (ids.size() > 1) { b.append(" · earlier: "); int n = 0; for (String id : ids) { if (id.equals(s.id)) continue; if (n++ >= 5) break; b.append("<a href=\"/chat?session=").append(enc(id)).append("\">").append(esc(id.substring(2, Math.min(id.length(), 18)))).append("</a> "); } }
+        b.append("</p><div class=\"chat\">");
+        for (JsonNode m : s.messages()) {
+            String role = m.path("role").asText();
+            if (role.equals("user")) b.append("<div class=\"say me\"><b>You</b><p>").append(esc(m.path("content").asText(""))).append("</p></div>");
+            else if (role.equals("assistant") && !m.path("content").asText("").isBlank() && !m.has("tool_calls")) b.append("<div class=\"say lib\"><b>The Librarian</b>").append(prose(m.path("content").asText(""))).append("</div>");
+            else if (role.equals("tool")) b.append("<p class=\"k tool\">looked up: ").append(esc(m.path("name").asText("a tool"))).append("</p>");
+        }
+        b.append("</div><form class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
+         .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required><button>Say</button></form>")
+         .append("<p class=\"k\">A reply takes as long as the model takes; the page comes back with it.</p>");
+        return page(store, patron, "Chat", b.toString());
+    }
+
+    /** One turn from the form: the words go to the Librarian, the reply lands in the session, the page shows it. */
+    static void chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        String words = form.getOrDefault("say", "").strip();
+        if (words.isEmpty()) return;
+        Librarian.Session s = form.get("session") == null ? Librarian.Session.latest(store) : Librarian.Session.resume(store, form.get("session"));
+        if (s == null) s = Librarian.Session.latest(store);
+        Patrons.check(store, patron, Patrons.Level.read);
+        new Librarian(store, d.chatDrive(), patron, s).say(words);
+    }
+
+    /** Paragraphs from the Librarian's plain text, ids linked. */
+    static String prose(String text) {
+        StringBuilder b = new StringBuilder();
+        for (String para : text.split("\\n\\s*\\n")) {
+            String e = esc(para.strip()).replaceAll("\\[((?:F|I|D)-\\d{4}-[a-z0-9-]+)\\]", "[<a href=\"/entry/$1\">$1</a>]").replace("\n", "<br>");
+            b.append("<p>").append(e).append("</p>");
+        }
+        return b.toString();
+    }
+
     static String page(LibraryStore store, Patrons.Patron patron, String title, String body) throws IOException { return page(store, patron, title, body, 0, null); }
 
     /** {@code refresh} > 0 makes the page reload itself after that many seconds — at {@code to} when given, else in place. */
@@ -1219,7 +1266,7 @@ final class Pages {
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><style>" + CSS + "</style></head><body>"
                 + "<header><a class=\"home\" href=\"/\"><img src=\"/favicon.ico\" alt=\"\"> <span class=\"brand\">ResearchZosho</span><span class=\"lib\">" + esc(name) + "</span></a><nav>"
-                + "<a href=\"/ask\">Ask</a><a href=\"/search\">Search</a><a href=\"/inbox\">Inbox</a><a href=\"/subjects\">Subjects</a><a href=\"/questions\">Open</a><a href=\"/changes\">Changes</a><a href=\"/jobs\">Runs</a><a href=\"/research\">Research</a><a href=\"/map\">Map</a>"
+                + "<a href=\"/chat\">Chat</a><a href=\"/ask\">Ask</a><a href=\"/search\">Search</a><a href=\"/inbox\">Inbox</a><a href=\"/subjects\">Subjects</a><a href=\"/questions\">Open</a><a href=\"/changes\">Changes</a><a href=\"/jobs\">Runs</a><a href=\"/research\">Research</a><a href=\"/map\">Map</a>"
                 + "</nav><span class=\"who\">" + who + "</span></header><main" + (wide ? " class=\"wide\"" : "") + ">"
                 + (title == null ? "" : "<h1>" + esc(title) + "</h1>") + body + "</main>"
                 + "<footer class=\"k\">ResearchZosho " + esc(org.researchzosho.Version.string()) + " · <a href=\"https://researchzosho.org\">researchzosho.org</a>"
@@ -1237,6 +1284,7 @@ final class Pages {
             + "main{max-width:52em;margin:0 auto;padding:1em 1.2em 3em}main.wide{max-width:none}footer{text-align:center;padding:2em;border-top:1px solid var(--line)}"
             + "a{color:var(--accent)}h1{font-size:1.6em;line-height:1.2}h2{font-size:1.15em;margin-top:1.6em;border-bottom:1px solid var(--line)}h2 a.k{font-weight:normal;font-size:.8em;margin-left:.8em}"
             + ".k{color:var(--k);font-size:.92em}.err{color:var(--accent)}"
+            + ".chat .say{margin:.9em 0;padding:.6em .9em;border:1px solid var(--line);border-radius:6px;background:var(--card)}.chat .say.me{border-color:transparent;background:transparent;padding-left:0}.chat .say b{display:block;font-size:.85em;color:var(--k);margin-bottom:.2em}.chat .tool{margin:.2em 0 .2em .9em;font-size:.85em}"
             + "form.big{display:flex;gap:.5em;align-items:center;margin:1em 0}form.big input{flex:1;font:inherit;padding:.5em .7em;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:12em}"
             + "button{font:inherit;padding:.5em 1em;background:var(--accent);color:#fff;border:0;cursor:pointer}button.quiet{background:var(--card);color:var(--ink);border:1px solid var(--line)}"
             + "form.stack label{display:block;margin:.8em 0}form.stack textarea,form.stack input,form.stack select{font:inherit;padding:.4em;border:1px solid var(--line);background:var(--card);color:var(--ink);width:100%;max-width:40em;box-sizing:border-box}"

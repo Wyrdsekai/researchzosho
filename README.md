@@ -63,6 +63,10 @@ site you trust counts as a primary source.
 **Decide what stands.** Each claim starts as a draft. You accept it, dispute it, or retire it. What
 you accept is what the library uses next time.
 
+**Talk to it.** `researchzosho chat` is a conversation with the Librarian: what the shelves hold, a follow-up, "find
+out …" to start a research run, "how did that go?", the inbox. Every reply stands on a look-up you can open, and a
+figure it cannot back is marked as its guess. The same conversation is on the pages at `/chat`.
+
 **Ask what you already know.** `researchzosho ask "…"` shows you what the library has on a
 question: each claim, where it came from, and whether it is accepted or still in dispute.
 
