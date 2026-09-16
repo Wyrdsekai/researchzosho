@@ -130,6 +130,28 @@ public final class Graph {
                 }
             }
         }
+        // the second kind of edge: what each claim RESTS ON (Concepts), hung on what the claim is about — its triple's
+        // subject, or its subject node when it has no triple. A claim without a triple used to contribute nothing, and
+        // the corrosion claim that named "microbial activity" was exactly that one (2026-09-15).
+        for (Finding f : store.scanFindings().findings()) {
+            if (f.state() == Finding.State.retired) continue;
+            List<String> concepts = Concepts.of(f);
+            if (concepts.isEmpty()) continue;
+            String from = f.triple() != null ? g.nodeIdOf(f.triple().subject())
+                    : f.subjects().isEmpty() ? "" : "subject:" + f.subjects().get(0);
+            if (from.isEmpty() || !g.byId.containsKey(from)) continue;
+            String to = f.triple() == null ? "" : g.nodeIdOf(f.triple().object());
+            boolean disputed = f.state() == Finding.State.disputed;
+            for (String c : concepts) {
+                String cid = g.nodeIdOf(c);
+                if (cid.isEmpty() || cid.equals(from) || cid.equals(to)) continue;
+                Edge m = new Edge(from, "mentions", cid, f.id(), f.state().name(), f.confidence().name(), disputed);
+                g.edges.add(m);
+                g.adjacency.computeIfAbsent(from, k -> new ArrayList<>()).add(m);
+                g.adjacency.computeIfAbsent(cid, k -> new ArrayList<>()).add(m);
+                g.touch(cid, c);
+            }
+        }
         return g;
     }
 

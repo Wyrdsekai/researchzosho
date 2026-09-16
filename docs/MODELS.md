@@ -8,7 +8,8 @@ The choice depends on **VRAM**: the memory on your graphics card, not the comput
 on Linux and Windows; on a Mac with Apple silicon the card shares the machine's unified memory, so read the
 tiers against about two thirds of that. This page is the measured list. `researchzosho models` prints the row for the card it finds, with the command that serves it;
 `researchzosho model install` sets the top row of that tier up on demand, so the model comes up when a run
-needs it and goes away after twenty idle minutes.
+needs it and goes away after twenty idle minutes, with the embeddings model (Qwen3-Embedding-0.6B, 0.6 GB)
+beside it at the same address for search by meaning.
 
 ## How the list was made
 

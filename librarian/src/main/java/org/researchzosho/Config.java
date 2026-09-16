@@ -101,6 +101,15 @@ public final class Config {
         return null;
     }
 
+    /** The value the config FILE holds for a key, ignoring the environment: what `set` wrote. Null when the file has none. */
+    public static String stored(String envKey) {
+        ensureLoaded();
+        String key = normalize(envKey);
+        String v = FILE.get(key);
+        if ((v == null || v.isBlank()) && LEGACY_ALIAS.containsKey(key)) v = FILE.get(normalize(LEGACY_ALIAS.get(key)));
+        return v == null || v.isBlank() ? null : v;
+    }
+
     /** The environment names to try for one normalized key, most specific first. */
     static List<String> candidates(String key) {
         List<String> out = new ArrayList<>();

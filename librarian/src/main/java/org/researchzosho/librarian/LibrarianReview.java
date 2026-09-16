@@ -34,6 +34,25 @@ import java.util.List;
  */
 public final class LibrarianReview {
 
+    /**
+     * What the reviewer is told about coverage. A write-up's sections are what the run went and found; taking claims from
+     * only the first few loses the rest for good — a bicycle run whose record carried tube layups, fatigue and load
+     * testing left nine claims, eight of them about handling (2026-09-15).
+     */
+    static String sectionRule(String investigationBody) {
+        List<String> secs = sections(investigationBody);
+        if (secs.isEmpty()) return "one finding for each distinct thing the record establishes, 1 to " + MAX_FINDINGS + ".";
+        int cap = Math.max(MAX_FINDINGS, secs.size() + 3);
+        return "the record has " + secs.size() + " sections — " + String.join("; ", secs) + ". Write at least one finding for EACH "
+                + "section that states something checkable, and more where a section carries more; " + secs.size() + " to " + cap
+                + " findings in all. A section you take nothing from is knowledge the library loses.";
+    }
+
+    /** Findings one review may extract from a write-up. It was 5, which dropped a section of every six-section write-up
+     *  (2026-09-15: the entropy section of a cryptography run never became a claim, and the bridges sensor, which reads
+     *  claims, could not see it). */
+    static final int MAX_FINDINGS = org.researchzosho.Config.getInt("RESEARCHZOSHO_REVIEW_FINDINGS", 12);
+
     /** Where citation records come from; a test injects a canned one. */
     Citations.Source citations = Citations.LIVE;
 
@@ -339,6 +358,21 @@ public final class LibrarianReview {
      * each shape dropped true claims at the evidence gate; a model copies literals faithfully
      * and garbles anything it has to compose.
      */
+    /** The record's own sections, in order: the write-up's "## " headings, without the frame the runner always writes. */
+    static final java.util.Set<String> FRAME = java.util.Set.of("question", "answer", "sources", "caveats", "cite-check", "checks", "evidence", "references", "what was read", "method");
+
+    static List<String> sections(String investigationBody) {
+        List<String> out = new ArrayList<>();
+        for (String line : investigationBody.split("\n")) {
+            if (!line.startsWith("## ")) continue;
+            String h = line.substring(3).strip();
+            String key = h.toLowerCase(java.util.Locale.ROOT).replaceAll("\\(.*", "").strip();
+            if (FRAME.contains(key) || key.startsWith("answer (")) continue;
+            if (!out.contains(h)) out.add(h);
+        }
+        return out;
+    }
+
     static String extractPrompt(String investigationBody) {
         List<String> locators = Acquisitions.urls(investigationBody);
         StringBuilder list = new StringBuilder();
@@ -356,7 +390,7 @@ public final class LibrarianReview {
                 + "The triple is the claim as subject–predicate–object when it has that shape (e.g. keigo | has direct "
                 + "English equivalent | none) — omit it when it does not. Use the same subject and predicate wording "
                 + "for claims about the same thing, so contradictions line up.\n"
-                + "Rules: 1 to 5 findings. Each claim stands alone. For sources, use ONLY the "
+                + "Rules: " + sectionRule(investigationBody) + " Each claim stands alone. For sources, use ONLY the "
                 + "labels from the SOURCE LIST below (S1, S2, …), copied exactly — a claim whose "
                 + "sources are not on the list cannot be shelved. claim_type: extraction = read "
                 + "directly from ONE source; synthesis = combined across sources; interpretation = "

@@ -41,6 +41,11 @@ public final class LibrarianCli {
                                            a browser's bookmarks onto the shelves; --watch re-reads them nightly
               meeting <vtt|transcript> [--verify]
                                            a meeting transcript: decisions kept, questions raised filed, claims to check
+              triples [<n>]                give findings without a triple one from the model (the housekeeping's step, by hand)
+              concepts [<n>]               note the concepts each claim rests on; the map draws "mentions" edges to them (the bridges walk them)
+              bridges [<area>] [--dry] [--via terms|graph|both] [--reach low|medium|high] [--strict|--loose] [--toward a] [--away w]
+                                           discovery by combination: areas no source read together, joined by shared terms;
+                                           list | accept <q> | dismiss <q> | settings [<area>] | measure | distance <area> <other>
                                            a conversation you had with another assistant: shelved, your questions filed, its claims listed to check
                                            a folder of documents as a collection; --link reads them in place (nothing copied); --survey only counts
               add <folder> [--collection N] [--register]   add every document under the folder, as a named collection
@@ -266,7 +271,7 @@ public final class LibrarianCli {
                 switch (args[i]) {
                     case "--host" -> host = flagValue(args, i++);
                     case "--port" -> port = flagInt(args, i++);
-                    case "--crew-hour" -> hour = flagInt(args, i++);
+                    case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour the housekeeping runs), or a negative number to turn it off"); return 2; } }
                     case "--no-crews" -> hour = -1;
                     case "--log" -> log = Path.of(flagValue(args, i++));
                     default -> { System.err.println("unknown option " + args[i]); return 2; }
@@ -282,6 +287,8 @@ public final class LibrarianCli {
             var ps = new java.io.PrintStream(Files.newOutputStream(log, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND), true, java.nio.charset.StandardCharsets.UTF_8);
             System.setOut(ps); System.setErr(ps);
         }
+        // a model server of this machine's own, installed by an earlier release: bring it up to this one (the embeddings server beside the model)
+        try { String up = ModelServer.upgrade(System.out); if (up.startsWith("!")) System.out.println("  model server not upgraded: " + up.substring(1)); } catch (Exception ignored) { }
         LibrarianDaemon d = LibrarianDaemon.start(store, host, port, baseUrl, model, hour);
         Service.recordPid();
         var id = store.identity();
@@ -379,6 +386,19 @@ public final class LibrarianCli {
                 case "absorb" -> { return absorb(store, args); }
                 case "items" -> { return items(store, args); }
                 case "check", "reading", "bookmarks", "meeting" -> { return launch(store, args); }
+                case "bridges" -> { return bridges(store, args); }
+                case "concepts" -> {
+                    // the concepts crew's step by hand: each finding without a concepts note gets one from the model, up to N
+                    int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : Concepts.PER_NIGHT;
+                    var o = Concepts.fill(store, Concepts.driveExtractor(new DriveClient(baseUrl, model)), n);
+                    System.out.println(o.asked() + " asked, " + o.filled() + " filled; the map draws a 'mentions' edge from each claim's subject to its concepts");
+                }
+                case "triples" -> {
+                    // the triples crew's step by hand: the findings without a triple get one from the model, up to N
+                    int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : Triples.PER_NIGHT;
+                    var o = Triples.fill(store, Triples.driveExtractor(new DriveClient(baseUrl, model)), n);
+                    System.out.println(o.asked() + " asked, " + o.filled() + " filled; the graph follows at the next housekeeping, or `researchzosho graph` now");
+                }
                 case "ask" -> {
                     if (args.length < 3) { System.err.println("usage: researchzosho ask <question…>   — the desk: what the shelves hold, or holds_nothing"); return 2; }
                     System.out.println(LibraryPush.answerPackage(String.join(" ", java.util.Arrays.asList(args).subList(2, args.length)), 6).stripTrailing());
@@ -789,7 +809,7 @@ public final class LibrarianCli {
                                 case "--exec" -> exec = flagValue(args, i++);
                                 case "--host" -> host = flagValue(args, i++);   // 0.0.0.0: the LAN may reach it; the reader list decides who may do what
                                 case "--port" -> port = flagInt(args, i++);
-                                case "--crew-hour" -> hour = flagInt(args, i++);
+                                case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour the housekeeping runs), or a negative number to turn it off"); return 2; } }
                                 default -> { System.err.println("unknown option " + args[i]); return 2; }
                             }
                         }
@@ -1222,6 +1242,79 @@ public final class LibrarianCli {
             for (Explain.Term t : r.terms()) System.out.println("  - " + t.term() + " — " + t.gloss());
         }
         System.out.println();
+    }
+
+    /** researchzosho bridges [<area>] [--dry] [--propose N] [--sources l,w] [--reach r] [--strict|--loose] [--toward a] [--away w] [--since d] | list | accept <q> | dismiss <q> | settings [<area>] [dials] | measure */
+    static int bridges(LibraryStore store, String[] args) throws Exception {
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String op = args.length > 2 ? args[2] : "list";
+        int i = 3;
+        switch (op) {
+            case "list", "measure" -> a.put("op", op);
+            case "accept", "dismiss" -> { if (args.length < 4) { System.err.println("usage: researchzosho bridges " + op + " <question…>"); return 2; } a.put("op", op); a.put("question", String.join(" ", java.util.Arrays.asList(args).subList(3, args.length))); i = args.length; }
+            case "settings" -> { a.put("op", "settings"); if (args.length > 3 && !args[3].startsWith("--")) { a.put("area", args[3]); i = 4; } }
+            case "distance" -> { if (args.length < 5) { System.err.println("usage: researchzosho bridges distance <area> <other>"); return 2; } a.put("op", "distance"); a.put("area", args[3]); a.put("other", args[4]); i = 5; }
+            default -> { a.put("op", "run"); if (!op.startsWith("--")) a.put("area", op); else i = 2; }
+        }
+        try {
+            for (; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--dry" -> a.put("dry", true);
+                    case "--propose" -> a.put("propose", flagInt(args, i++));
+                    case "--per-night" -> a.put("per_night", flagInt(args, i++));
+                    case "--sources" -> a.put("sources", flagValue(args, i++));
+                    case "--reach" -> a.put("reach", flagValue(args, i++));
+                    case "--strict" -> a.put("strict", true);
+                    case "--loose" -> a.put("strict", false);
+                    case "--toward" -> a.put("toward", flagValue(args, i++));
+                    case "--away" -> a.put("away", flagValue(args, i++));
+                    case "--since" -> a.put("since", flagValue(args, i++));
+                    case "--via" -> a.put("via", flagValue(args, i++));
+                    default -> { System.err.println("unknown flag " + args[i]); return 2; }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try { r = new LibraryProtocol(store).bridges(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        switch (a.path("op").asText()) {
+            case "run" -> {
+                System.out.println(r.path("summary").asText());
+                for (var p : r.path("proposals")) {
+                    System.out.println("  " + p.path("a_label").asText() + "  ↔  " + p.path("c_label").asText() + "   [" + p.path("sensor").asText() + "] via " + String.join(", ", java.util.stream.StreamSupport.stream(p.path("via").spliterator(), false).map(com.fasterxml.jackson.databind.JsonNode::asText).toList()) + "   (score " + p.path("score").asText() + ", " + (p.path("hops").asInt() < 0 ? "not connected on the map" : p.path("hops").asInt() + " hop(s)") + (p.path("random").asBoolean() ? ", random pick" : "") + ")");
+                    for (var path : p.path("paths")) System.out.println("      path: " + path.asText());
+                    for (var j : p.path("from_outside")) {
+                        System.out.println("      from outside the library: " + j.path("middle").asText());
+                        System.out.println("        with " + p.path("a_label").asText() + ": " + j.path("with_a").asText());
+                        System.out.println("        with " + p.path("c_label").asText() + ": " + j.path("with_c").asText());
+                    }
+                    System.out.println("    ? " + p.path("question").asText() + (p.path("filed").asBoolean(false) ? "   [filed]" : ""));
+                }
+                for (var t : r.path("tried_outside")) System.out.println("  tried outside the library: " + t.asText());
+                for (var n : r.path("not_novel")) System.out.println("  not novel: " + n.path("a").asText() + " ↔ " + n.path("c").asText() + " — " + n.path("sources_naming_both").asInt() + " source(s) already name both");
+                System.out.println("  " + r.path("next").asText());
+            }
+            case "list" -> {
+                if (r.path("count").asInt() == 0) System.out.println("no open bridge proposals");
+                for (var p : r.path("proposals")) {
+                    System.out.println("  ? " + p.path("question").asText() + "\n      " + p.path("found_by").asText());
+                    for (String line : p.path("evidence").asText("").split("\n")) if (!line.isBlank()) System.out.println("      " + line);
+                }
+                System.out.println("  " + r.path("next").asText());
+            }
+            case "accept" -> System.out.println("accepted: " + r.path("job_id").asText() + " tests it — researchzosho jobs " + r.path("job_id").asText());
+            case "dismiss" -> System.out.println("dismissed: " + r.path("dismissed").asText());
+            case "settings" -> System.out.println(r.path("area").asText() + ": " + r.path("settings").asText() + " per_night=" + r.path("per_night").asInt() + (r.path("changed").asBoolean() ? "  (saved)" : ""));
+            case "distance" -> {
+                System.out.println(r.path("summary").asText());
+                if (r.path("shared_terms").size() > 0) System.out.println("  shared terms: " + String.join(", ", java.util.stream.StreamSupport.stream(r.path("shared_terms").spliterator(), false).map(com.fasterxml.jackson.databind.JsonNode::asText).toList()));
+                for (var path : r.path("paths")) System.out.println("  path: " + path.asText());
+                System.out.println("  concepts: " + r.path("concepts_a").asInt() + " on one side, " + r.path("concepts_c").asInt() + " on the other; embedder: " + r.path("embedder").asText() + "; fold at " + r.path("fold_at").asText());
+                for (var n : r.path("nearest_concepts")) System.out.println("    " + n.path("cosine").asText() + "  " + n.path("a").asText() + "  ~  " + n.path("c").asText() + (n.path("folded").asBoolean() ? "  (one node)" : ""));
+            }
+            default -> System.out.println("proposed " + r.path("proposed").asInt() + ", kept " + r.path("kept").asInt() + ", dismissed " + r.path("dismissed").asInt() + ", corroborated " + r.path("corroborated").asInt());
+        }
+        return 0;
     }
 
     /** check | reading | questions | bookmarks | meeting <file|url> [flags]: the launching points that share one shape. */

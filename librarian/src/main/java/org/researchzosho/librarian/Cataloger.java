@@ -114,10 +114,14 @@ public final class Cataloger {
                     if (vocab.containsKey(slug) && !chosen.contains(slug)) chosen.add(slug);
                 }
             }
+            boolean inherited = false;
+            if (chosen.isEmpty()) { chosen = fromItsRun(store, f); inherited = !chosen.isEmpty(); }   // else the claim has no subject, and a claim with no subject is in no area: invisible to the map, to a scoped search and to bridges (2026-09-15)
             if (chosen.isEmpty()) continue;
             Finding g = new Finding(f.id(), f.title(), chosen, f.state(), f.claimType(), f.confidence(),
                     f.writer(), f.recordedAt(), f.validAsOf(), f.volatility(), f.reviewBy(), f.sources(),
                     f.supersedes(), f.review(), f.body(), f.triple(), f.notes());   // the 15-arg form erased triple + notes (Wyrdsekai, 2026-09-07)
+            if (inherited) g = g.withNote(new Finding.Note("catalog", "crew:cataloger", java.time.LocalDate.now().toString(),
+                    "no vocabulary subject matched this claim; placed with the rest of " + origin(f) + ", the run it came out of"));
             store.write(g);
             new LibrarianIndex(store).upsert(g);
             grounded++;
@@ -125,6 +129,33 @@ public final class Cataloger {
         if (grounded > 0) store.regenerateIndex();
         store.circulate("catalog", grounded + " grounded, " + proposals + " proposed");
         return new Outcome(grounded, proposals, problems);
+    }
+
+    static final java.util.regex.Pattern FROM_RUN = java.util.regex.Pattern.compile("\\b(I-[A-Za-z0-9_.-]+)");
+
+    /** The investigation a claim came out of: its sources carry "cited by I-…". */
+    static String origin(Finding f) {
+        for (Finding.Source s : f.sources()) {
+            java.util.regex.Matcher m = FROM_RUN.matcher(s.whyItMatters());
+            if (m.find()) return m.group(1);
+        }
+        return "";
+    }
+
+    /** The subjects its sibling claims carry: what the run it came out of is filed under. Empty when there is no sibling. */
+    static List<String> fromItsRun(LibraryStore store, Finding f) {
+        String inv = origin(f);
+        if (inv.isEmpty()) return List.of();
+        Map<String, Integer> count = new LinkedHashMap<>();
+        for (Finding other : store.scanFindings().findings()) {
+            if (other.id().equals(f.id()) || other.subjects().isEmpty() || !inv.equals(origin(other))) continue;
+            for (String s : other.subjects()) count.merge(s, 1, Integer::sum);
+        }
+        if (count.isEmpty()) return List.of();
+        int best = java.util.Collections.max(count.values());
+        List<String> out = new ArrayList<>();
+        for (var e : count.entrySet()) if (e.getValue() == best && out.size() < 2) out.add(e.getKey());
+        return out;
     }
 
     static String vocabList(Map<String, String> vocab) {

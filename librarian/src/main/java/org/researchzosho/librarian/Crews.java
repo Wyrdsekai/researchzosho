@@ -136,6 +136,10 @@ public final class Crews {
                 var o = Triples.fill(store, Triples.driveExtractor(new org.researchzosho.drive.DriveClient(driveUrl, model)), Triples.PER_NIGHT);
                 return o.asked() + " asked, " + o.filled() + " filled";
             }));
+            steps.add(step(store, "concepts", () -> {
+                var o = Concepts.fill(store, Concepts.driveExtractor(new org.researchzosho.drive.DriveClient(driveUrl, model)), Concepts.PER_NIGHT);
+                return o.asked() + " asked, " + o.filled() + " filled";
+            }));
             steps.add(step(store, "inventory", () -> {
                 var checks = Inventory.run(store, Inventory.driveChecker(new org.researchzosho.drive.DriveClient(driveUrl, model)), Inventory.PER_NIGHT);
                 StringBuilder sb = new StringBuilder(checks.size() + " checked:");
@@ -158,6 +162,7 @@ public final class Crews {
             }
         }
         steps.add(step(store, "graph", () -> Graph.propose(store)));
+        if (drive) steps.add(step(store, "bridges", () -> Bridges.nightly(store, org.researchzosho.librarian.Researcher.calmJudgeDrive(driveUrl, model), org.researchzosho.librarian.Researcher.webTools())));
         steps.add(step(store, "vault", () -> Vault.refresh(store)));
         steps.add(step(store, "heat", () -> Heat.fold(store, Heat.DAYS) + " entr(ies) with uses in the last " + Heat.DAYS + " days"));
         if (cadence.weekly()) {
@@ -308,8 +313,11 @@ public final class Crews {
     }
 
     /** Milliseconds until the next occurrence of {@code hour}:00 local time. */
+    /** How long the scheduler waits after a failure before trying again, so nothing can spin. */
+    static final long AFTER_FAILURE = 5L * 60 * 1000;
+
     static long millisUntil(int hour, ZonedDateTime now) {
-        ZonedDateTime next = now.withHour(hour).withMinute(0).withSecond(0).withNano(0);
+        ZonedDateTime next = now.withHour(Math.floorMod(hour, 24)).withMinute(0).withSecond(0).withNano(0);   // 24 = midnight, not an exception
         if (!next.isAfter(now)) next = next.plusDays(1);
         return java.time.Duration.between(now, next).toMillis();
     }
@@ -331,7 +339,10 @@ public final class Crews {
                 } catch (InterruptedException e) {
                     return;
                 } catch (Throwable e) {
-                    log(store, "nightly", "FAILED: " + e, 0);
+                    // never come straight back: a failure before the sleep (a bad hour once) turned this into a hot loop
+                    // that wrote 58 GB to crews.log in half an hour (2026-09-15)
+                    log(store, "nightly", "FAILED: " + e + "; the next try is in " + (AFTER_FAILURE / 60000) + " minutes", 0);
+                    try { Thread.sleep(AFTER_FAILURE); } catch (InterruptedException ie) { return; }
                 }
             }
         }, "librarian-crews");

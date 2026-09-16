@@ -150,7 +150,7 @@ public final class Setup {
             }
             @Override public boolean embeds(String base, String key) {
                 try {
-                    var body = M.createObjectNode(); body.put("input", "ready"); body.put("model", "default");
+                    var body = M.createObjectNode(); body.put("input", "ready"); body.put("model", "embed");   // the name a proxy set up by `model install` routes; a bare server ignores it
                     var b = HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/embeddings")).timeout(Duration.ofSeconds(15))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);

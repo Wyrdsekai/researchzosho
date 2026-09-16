@@ -43,6 +43,13 @@ public final class ModelServer {
     public static final String LLAMA_BUILD = "b10929";
     public static final int DEFAULT_IDLE_MINUTES = 20;
 
+    /** The embeddings server beside the model: the same address, model name "embed" (Embeddings' default), never idles out. */
+    public static final String EMBED_NAME = "embed";
+    public static final String EMBED_CONTAINER = "researchzosho-model-embed";
+    public static final String EMBED_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf";
+    public static final String EMBED_URL = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/" + EMBED_FILE;
+    public static final String EMBED_SHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439";   // 639 MB
+
     public enum Os {
         linux, macos, windows;
         static Os detect() {
@@ -79,7 +86,7 @@ public final class ModelServer {
         java.util.Map.entry("llama-b10929-bin-macos-arm64.tar.gz", "d2367a6381911313944cf6e52da44b1d62a5c239f7a79fd4ddeb4001c301544b"),
         java.util.Map.entry("llama-b10929-bin-macos-x64.tar.gz",   "09621ac7f7636a6577075aba3bf40db4e22203aa2cac87c2dff7532982f89313"),
         java.util.Map.entry("llama-b10929-bin-win-vulkan-x64.zip", "0527be2bcb79797337c4c500e6c25a62e0cdb572b14ef2db1066c94706208936")));
-    static { for (Row r : ROWS) sums.put(r.file(), r.sha256()); }
+    static { for (Row r : ROWS) sums.put(r.file(), r.sha256()); sums.put(EMBED_FILE, EMBED_SHA256); }
 
     static String sha256(Path p) throws Exception {
         var md = java.security.MessageDigest.getInstance("SHA-256");
@@ -121,10 +128,15 @@ public final class ModelServer {
                 .redirectInput(ProcessBuilder.Redirect.from(new java.io.File(os == Os.windows ? "NUL" : "/dev/null"))).start();
         p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);   // the starter itself returns at once; the proxy it launched lives on
     };
+    /** How long one command may take before it is killed: a docker CLI whose daemon is not running can wait forever (macOS, 2026-09-15). */
+    static final int COMMAND_SECONDS = 120;
     public static Runner runner = cmd -> {
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        return new Result(p.waitFor(), out);
+        Path out = Files.createTempFile("researchzosho-cmd", ".out");
+        try {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(out.toFile()).start();
+            if (!p.waitFor(COMMAND_SECONDS, java.util.concurrent.TimeUnit.SECONDS)) { p.destroyForcibly(); return new Result(-1, cmd.get(0) + " gave no answer in " + COMMAND_SECONDS + " s and was stopped"); }
+            return new Result(p.exitValue(), Files.readString(out, StandardCharsets.UTF_8));
+        } finally { Files.deleteIfExists(out); }
     };
     public static Downloader downloader = (url, dest) -> {
         Path part = dest.resolveSibling(dest.getFileName() + ".part");
@@ -237,7 +249,27 @@ public final class ModelServer {
     // ---- the files the install writes ----
 
     /** Everything install writes: the proxy config, the run script (Linux), and the service definition for this platform. */
-    public record Plan(Row row, Path modelFile, Path dir, Path unit, String configYaml, String runScript, String unitText) { }
+    /** {@code embedScript} is the Linux run script for the embeddings container (null elsewhere); {@code embeds} says the plan carries an embeddings server. */
+    public record Plan(Row row, Path modelFile, Path dir, Path unit, String configYaml, String runScript, String unitText, String embedScript, boolean embeds) {
+        public Plan(Row row, Path modelFile, Path dir, Path unit, String configYaml, String runScript, String unitText) { this(row, modelFile, dir, unit, configYaml, runScript, unitText, null, false); }
+    }
+
+    /**
+     * How this machine embeds beside the model: on Linux the Text Embeddings Inference image for the card (null when
+     * there is no card docker can use: the CPU image is a tenth of a chunk a second, not worth a service); on macOS and
+     * Windows llama.cpp's own build with {@link #EMBED_FILE} ("llama").
+     */
+    static String embedTagFor(Os os) {
+        if (os != Os.linux) return "llama";
+        try {   // through this class's runner seam, so a test's fake machine decides (Embed.tag reads the real docker)
+            Result rt = runner.run(List.of("docker", "info", "--format", "{{.Runtimes}}"));
+            if (rt.code() != 0 || !rt.out().contains("nvidia")) return null;
+            Result cap = runner.run(List.of("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"));
+            if (cap.code() != 0) return null;
+            String t = Embed.tagFor(cap.out().strip().split("\\R")[0].strip());
+            return t.startsWith("cpu") ? null : t;
+        } catch (Exception e) { return null; }
+    }
 
     static Path unitPath(Os os) {
         return switch (os) {
@@ -260,7 +292,9 @@ public final class ModelServer {
         return "--chat-template-kwargs \"" + m.group(1).replace("\"", "\\\"") + "\"";
     }
 
-    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share) {
+    /** {@code embedTag}: a TEI image tag (Linux), "llama" (macOS, Windows), or null for no embeddings server. The caller decides
+     *  (install and upgrade ask {@link #embedTagFor}); the plan itself never touches the machine, so a test can build one anywhere. */
+    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag) {
         String cmd = switch (os) {
             case linux -> dir.resolve("run.sh") + " ${PORT}";
             case macos -> dir.resolve("llama").resolve("llama-server") + " " + serverArgs(row, modelFile, os);
@@ -278,6 +312,33 @@ public final class ModelServer {
                 + "    proxy: http://127.0.0.1:${PORT}\n"
                 + "    ttl: " + (idleMinutes * 60) + "\n"
                 + "    aliases: [\"local-model\", \"" + row.file() + "\", \"/m/" + row.file() + "\"]\n";
+        String embedScript = null;
+        if (embedTag != null) {
+            // the embeddings server: its own group with swapping off, so it lives beside the model instead of evicting it
+            // (and is not evicted by it), and no ttl — it is small and every search wants it
+            String embedCmd = os == Os.linux ? dir.resolve("run-embed.sh") + " ${PORT}"
+                    : dir.resolve("llama").resolve(os == Os.windows ? "llama-server.exe" : "llama-server") + " -m " + modelFile.getParent().resolve(EMBED_FILE)
+                      + " --host 127.0.0.1 --port ${PORT} --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99";
+            cfg += "  \"" + EMBED_NAME + "\":\n"
+                + "    cmd: " + embedCmd + "\n"
+                + (os == Os.linux ? "    cmdStop: docker stop " + EMBED_CONTAINER + "\n" : "")
+                + "    proxy: http://127.0.0.1:${PORT}\n"
+                + "    checkEndpoint: /health\n"
+                + "    ttl: 0\n"
+                + "    aliases: [\"" + Embed.MODEL + "\", \"text-embedding\"]\n"
+                + "groups:\n"
+                + "  \"embedding\":\n"
+                + "    swap: false\n"
+                + "    exclusive: false\n"
+                + "    persistent: true\n"
+                + "    members: [\"" + EMBED_NAME + "\"]\n";
+            if (os == Os.linux) embedScript = "#!/bin/sh\n"
+                + "# The embeddings server (Text Embeddings Inference, " + Embed.MODEL + "), started by llama-swap on demand beside the model; $1 is the port it assigned.\n"
+                + "# The model downloads into " + Embed.dir() + " on the first start.\n"
+                + "exec docker run --rm --name " + EMBED_CONTAINER + " --gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'")
+                + " -p 127.0.0.1:$1:80 -v " + Embed.dir().toAbsolutePath() + ":/data " + Embed.IMAGE + ":" + embedTag + " \\\n"
+                + "  --model-id " + Embed.MODEL + " --pooling last-token --max-client-batch-size 128 --max-batch-tokens 65536 --auto-truncate\n";
+        }
         String run = os != Os.linux ? null : "#!/bin/sh\n"
                 + "# " + row.name() + " in llama.cpp, started by llama-swap on demand; $1 is the port it assigned. The flags are the measured ones.\n"
                 + "exec docker run --rm --name " + CONTAINER + " --gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'")
@@ -301,7 +362,7 @@ public final class ModelServer {
                     + "if (-not (Get-Process llama-swap -ErrorAction SilentlyContinue)) {\n"
                     + "  Start-Process -FilePath '" + swap + "' -ArgumentList '--config','" + dir.resolve("config.yaml") + "','--listen','" + listen + "' -WindowStyle Hidden -RedirectStandardOutput '" + dir.resolve("llama-swap.log") + "' -RedirectStandardError '" + dir.resolve("llama-swap.err") + "'\n}\n";
         };
-        return new Plan(row, modelFile, dir, unit, cfg, run, unitText);
+        return new Plan(row, modelFile, dir, unit, cfg, run, unitText, embedScript, embedTag != null);
     }
 
     /** The service, started: systemd --user, launchd, or a logon task plus a start now. "!reason" on failure. */
@@ -351,9 +412,11 @@ public final class ModelServer {
     public static String install(Path file, String gpus, int idleMinutes, boolean share, PrintStream out) {
         try {
             if (health.test(URL)) {
+                String up = upgrade(out);
+                if (up.startsWith("!")) return up;
                 out.println("  a model proxy already answers at " + URL + "; using it");
                 org.researchzosho.Config.set("RESEARCHZOSHO_DRIVE", URL);
-                return "local-model";
+                return up.isEmpty() ? "local-model" : up;
             }
             String why = unsupported();
             if (why != null) return "!" + why;
@@ -400,13 +463,21 @@ public final class ModelServer {
                     if (os == Os.macos) server.toFile().setExecutable(true);
                 }
             }
-            // what the drive was, so uninstall can put it back (a working address on another machine, say)
-            String before = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE"), beforeModel = org.researchzosho.Config.get("RESEARCHZOSHO_MODEL");
+            // what the drive and the embedder were, so uninstall can put them back (a working address on another machine, say)
+            String before = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE"), beforeModel = org.researchzosho.Config.get("RESEARCHZOSHO_MODEL"), beforeEmbed = org.researchzosho.Config.stored("RESEARCHZOSHO_EMBED");   // the file, not the environment
             if (!Files.exists(dir.resolve("previous")))
-                Files.writeString(dir.resolve("previous"), (before == null ? "" : before) + "\n" + (beforeModel == null ? "" : beforeModel) + "\n", StandardCharsets.UTF_8);
-            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share);
+                Files.writeString(dir.resolve("previous"), (before == null ? "" : before) + "\n" + (beforeModel == null ? "" : beforeModel) + "\n" + (beforeEmbed == null ? "" : beforeEmbed) + "\n", StandardCharsets.UTF_8);
+            String embedTag = embedTagFor(os);
+            if (embedTag != null && os != Os.linux) {
+                // the embeddings model for llama.cpp's own build; the Linux container fetches its own copy from Hugging Face
+                Path ef = modelFile.getParent().resolve(EMBED_FILE);
+                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
+            }
+            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag);
+            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idleMinutes, share), StandardCharsets.UTF_8);
             Files.writeString(dir.resolve("config.yaml"), p.configYaml(), StandardCharsets.UTF_8);
             if (p.runScript() != null) { Files.writeString(dir.resolve("run.sh"), p.runScript(), StandardCharsets.UTF_8); dir.resolve("run.sh").toFile().setExecutable(true); }
+            if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
             Files.createDirectories(p.unit().getParent());
             Files.writeString(p.unit(), p.unitText(), StandardCharsets.UTF_8);
             String s = startService(os, p);
@@ -416,6 +487,13 @@ public final class ModelServer {
             org.researchzosho.Config.set("RESEARCHZOSHO_DRIVE", URL);
             org.researchzosho.Config.set("RESEARCHZOSHO_MODEL", row.name());
             out.println("  the model comes up at " + URL + " when something asks (" + backend() + "), and goes away after " + idleMinutes + " idle minutes; the drive is set to it");
+            if (p.embeds()) {
+                org.researchzosho.Config.set("RESEARCHZOSHO_EMBED", URL);
+                out.println("  the embeddings server (" + Embed.MODEL + ") comes up at the same address beside it and stays; search by meaning is on"
+                        + (os == Os.linux ? " (the model downloads once, about 1.2 GB, on the first search)" : "") + ". `researchzosho rebuild` indexes what is already on the shelves with it.");
+            } else {
+                out.println("  no card docker can use here, so no embeddings server beside it: search is by words (RESEARCHZOSHO_EMBED points at one on another machine)");
+            }
             return row.name();
         } catch (Exception e) {
             return "!" + e.getMessage();
@@ -486,18 +564,99 @@ public final class ModelServer {
     }
 
     /** A few lines for `model status`. */
+    /** What a later release needs to rewrite the config: the row, the file, the card, the idle minutes, the listen address. */
+    static String planProperties(Row row, Path modelFile, String gpus, int idleMinutes, boolean share) {
+        return "# ResearchZosho: what `model install` was told; a later release rewrites config.yaml from this\n"
+                + "name=" + row.name() + "\nfile=" + modelFile.toAbsolutePath() + "\nctx=" + row.ctx() + "\nparallel=" + row.parallel() + "\nextra=" + row.extra().replace("\n", " ")
+                + "\ngpus=" + gpus + "\nidle_minutes=" + idleMinutes + "\nshare=" + share + "\n";
+    }
+
+    /** An install of ours that predates the embeddings server: read its plan back, or reconstruct it from the files it wrote. */
+    static java.util.Map<String, String> readPlan(Path dir) throws IOException {
+        java.util.Map<String, String> m = new java.util.HashMap<>();
+        Path props = dir.resolve("plan.properties");
+        if (Files.exists(props)) {
+            for (String line : Files.readAllLines(props, StandardCharsets.UTF_8)) { int eq = line.indexOf('='); if (eq > 0 && !line.startsWith("#")) m.put(line.substring(0, eq).strip(), line.substring(eq + 1).strip()); }
+            return m;
+        }
+        String y = Files.readString(dir.resolve("config.yaml"), StandardCharsets.UTF_8);
+        java.util.regex.Matcher n = java.util.regex.Pattern.compile("\"([^\"]+)\":\\s*\\n\\s*cmd:").matcher(y);
+        if (!n.find()) return m;
+        m.put("name", n.group(1));
+        java.util.regex.Matcher t = java.util.regex.Pattern.compile("ttl:\\s*(\\d+)").matcher(y);
+        m.put("idle_minutes", t.find() ? String.valueOf(Integer.parseInt(t.group(1)) / 60) : String.valueOf(DEFAULT_IDLE_MINUTES));
+        String server = y;   // where -m, -c, --parallel and --gpus live: run.sh on Linux, the cmd line elsewhere
+        Path run = dir.resolve("run.sh");
+        if (Files.exists(run)) server = Files.readString(run, StandardCharsets.UTF_8);
+        java.util.regex.Matcher f = java.util.regex.Pattern.compile("-m\\s+(\\S+)").matcher(server);
+        if (f.find()) { String file = f.group(1); m.put("file", file.startsWith("/m/") ? modelsDir().resolve(file.substring(3)).toString() : file); }
+        java.util.regex.Matcher c = java.util.regex.Pattern.compile("-c\\s+(\\d+)").matcher(server); if (c.find()) m.put("ctx", c.group(1));
+        java.util.regex.Matcher pl = java.util.regex.Pattern.compile("--parallel\\s+(\\d+)").matcher(server); if (pl.find()) m.put("parallel", pl.group(1));
+        java.util.regex.Matcher g = java.util.regex.Pattern.compile("--gpus\\s+(?:'\"device=([^\"]+)\"'|(all))").matcher(server); m.put("gpus", g.find() ? (g.group(1) != null ? g.group(1) : "all") : "all");
+        java.util.regex.Matcher x = java.util.regex.Pattern.compile("--chat-template-kwargs\\s+(\\S+)").matcher(server); m.put("extra", x.find() ? "--chat-template-kwargs " + x.group(1) : "");
+        boolean share = false;
+        try { share = Files.readString(unitPath(os), StandardCharsets.UTF_8).contains("0.0.0.0:" + PORT); } catch (IOException ignored) { }
+        m.put("share", String.valueOf(share));
+        return m;
+    }
+
+    /**
+     * Bring an install of ours up to this release: today, the embeddings server beside the model. Returns "" when there is
+     * nothing to do (no install here, or already current), the model's name when the config was rewritten and the service
+     * restarted, or "!reason". Runs at every daemon start, so `update now` carries it out without a word from the person.
+     */
+    public static String upgrade(PrintStream out) {
+        try {
+            Path dir = dir();
+            Path cfg = dir.resolve("config.yaml");
+            if (!Files.exists(cfg)) return "";
+            String y = Files.readString(cfg, StandardCharsets.UTF_8);
+            if (y.contains("\"" + EMBED_NAME + "\":")) return "";
+            String embedTag = embedTagFor(os);
+            if (embedTag == null) return "";   // nothing to add on this machine
+            java.util.Map<String, String> m = readPlan(dir);
+            if (!m.containsKey("name") || !m.containsKey("file")) return "!the model config in " + dir + " could not be read back; `researchzosho model uninstall` and `model install` again";
+            Path modelFile = Path.of(m.get("file"));
+            Row known = null; for (Row r : ROWS) if (r.file().equals(modelFile.getFileName().toString())) known = r;
+            Row row = known != null ? known : new Row(m.get("name"), 0, "", modelFile.getFileName().toString(), "", Integer.parseInt(m.getOrDefault("ctx", "16384")), Integer.parseInt(m.getOrDefault("parallel", "1")), m.getOrDefault("extra", ""));
+            String gpus = m.getOrDefault("gpus", "all"); int idle = Integer.parseInt(m.getOrDefault("idle_minutes", String.valueOf(DEFAULT_IDLE_MINUTES))); boolean share = Boolean.parseBoolean(m.getOrDefault("share", "false"));
+            if (os != Os.linux) {
+                Path ef = modelFile.getParent().resolve(EMBED_FILE);
+                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
+            }
+            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag);
+            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share), StandardCharsets.UTF_8);
+            Files.writeString(cfg, p.configYaml(), StandardCharsets.UTF_8);
+            if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
+            // the proxy rereads its config only on a restart
+            switch (os) {
+                case linux -> runner.run(List.of("systemctl", "--user", "restart", UNIT));
+                case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); runner.run(List.of("launchctl", "bootstrap", "gui/" + uid(), p.unit().toString())); }
+                case windows -> { runner.run(List.of("taskkill", "/im", "llama-swap.exe", "/f")); detach.start(List.of("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", p.unit().toString())); }
+            }
+            String beforeEmbed = org.researchzosho.Config.stored("RESEARCHZOSHO_EMBED");
+            Path prev = dir.resolve("previous");
+            if (Files.exists(prev)) { String[] lines = Files.readString(prev, StandardCharsets.UTF_8).split("\n", -1); if (lines.length < 3 || lines[2].isBlank()) Files.writeString(prev, (lines.length > 0 ? lines[0] : "") + "\n" + (lines.length > 1 ? lines[1] : "") + "\n" + (beforeEmbed == null ? "" : beforeEmbed) + "\n", StandardCharsets.UTF_8); }
+            org.researchzosho.Config.set("RESEARCHZOSHO_EMBED", URL);
+            out.println("  the model server of this machine now carries the embeddings server (" + Embed.MODEL + ") beside the model at " + URL + "; search by meaning is on. `researchzosho rebuild` indexes what is already on the shelves with it.");
+            return row.name();
+        } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
     public static String status() {
         StringBuilder b = new StringBuilder();
         String drive = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE");
         b.append("  drive: ").append(drive == null || drive.isBlank() ? "(unset)" : drive).append('\n');
         Path cfg = dir().resolve("config.yaml");
         if (!Files.exists(cfg)) { b.append("  no model server of this machine's own (`researchzosho model install` sets one up)\n"); return b.toString(); }
+        String name = "?";
         try {
             String y = Files.readString(cfg, StandardCharsets.UTF_8);
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"([^\"]+)\":\\s*\\n\\s*cmd:").matcher(y);
-            String name = m.find() ? m.group(1) : "?";
+            name = m.find() ? m.group(1) : "?";
             java.util.regex.Matcher t = java.util.regex.Pattern.compile("ttl:\\s*(\\d+)").matcher(y);
             b.append("  model: ").append(name).append(" on ").append(backend()).append(t.find() ? ", stops after " + (Integer.parseInt(t.group(1)) / 60) + " idle minutes" : "").append('\n');
+            b.append("  embeddings: ").append(y.contains("\"" + EMBED_NAME + "\":") ? Embed.MODEL + " beside it at the same address, model name \"" + EMBED_NAME + "\", never idles out" : "none beside it (no card docker can use; RESEARCHZOSHO_EMBED can point elsewhere)").append('\n');
         } catch (IOException e) { b.append("  config unreadable: ").append(e.getMessage()).append('\n'); }
         boolean up = health.test(URL);
         b.append("  proxy at ").append(URL).append(": ").append(up ? "answers" : "does not answer (service " + serviceState() + "; log: " + logHint() + ")").append('\n');
@@ -505,7 +664,8 @@ public final class ModelServer {
             try {
                 HttpClient c = PROBE_HTTP;
                 String running = c.send(HttpRequest.newBuilder(URI.create(URL + "/running")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
-                b.append("  loaded now: ").append(running.contains("\"model\"") ? "yes (the memory is in use)" : "no (the memory is free; the next request starts it)").append('\n');
+                boolean modelUp = running.contains("\"model\":\"" + name + "\""), embedUp = running.contains("\"model\":\"" + EMBED_NAME + "\"");
+                b.append("  loaded now: ").append(modelUp ? "the model, yes (the memory is in use)" : "the model, no (the memory is free; the next request starts it)").append(embedUp ? "; the embeddings server, yes" : "").append('\n');
             } catch (Exception ignored) { }
         }
         return b.toString();
@@ -537,11 +697,16 @@ public final class ModelServer {
             Path prev = d.resolve("previous");
             if (Files.exists(prev)) {
                 String[] lines = Files.readString(prev, StandardCharsets.UTF_8).split("\n", -1);
-                String drive = lines.length > 0 ? lines[0].strip() : "", model = lines.length > 1 ? lines[1].strip() : "";
+                String drive = lines.length > 0 ? lines[0].strip() : "", model = lines.length > 1 ? lines[1].strip() : "", embed = lines.length > 2 ? lines[2].strip() : "";
                 if (URL.equals(org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE"))) {   // still pointing at the proxy being removed: put the old address back
                     org.researchzosho.Config.set("RESEARCHZOSHO_DRIVE", drive.isEmpty() ? "http://localhost:8200" : drive);
                     org.researchzosho.Config.set("RESEARCHZOSHO_MODEL", model.isEmpty() ? "local-model" : model);
                     restored = "; the drive is back to " + (drive.isEmpty() ? "its default" : drive);
+                }
+                if (URL.equals(org.researchzosho.Config.stored("RESEARCHZOSHO_EMBED"))) {   // the file, not the environment: what install wrote
+                    boolean none = embed.isEmpty() || embed.equalsIgnoreCase("off") || embed.equalsIgnoreCase("none");
+                    org.researchzosho.Config.set("RESEARCHZOSHO_EMBED", none ? "off" : embed);
+                    restored += "; embeddings " + (none ? "off (search by words)" : "back to " + embed);
                 }
             }
             if (Files.isDirectory(d)) { try (var s = Files.walk(d)) { s.sorted(java.util.Comparator.reverseOrder()).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } }); } }

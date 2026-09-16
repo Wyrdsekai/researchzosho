@@ -34,9 +34,9 @@ public final class Frontier {
      * <li>{@code check}: a source re-read failed; a chore for the inbox, never a research question.</li>
      * </ul>
      */
-    public static final List<String> TYPES = List.of("report", "asked", "person", "dispute", "check");
+    public static final List<String> TYPES = List.of("report", "asked", "person", "dispute", "check", "bridge");
 
-    /** Which types the explorer may take: RESEARCHZOSHO_EXPLORER_TYPES, default asked, person and report; never check. */
+    /** Which types the explorer may take: RESEARCHZOSHO_EXPLORER_TYPES, default asked, person and report; never check. A bridge proposal waits for the person (accept files its run). */
     public static Set<String> explorerTypes() {
         String v = org.researchzosho.Config.get("RESEARCHZOSHO_EXPLORER_TYPES", "asked,person,report");
         Set<String> out = new HashSet<>();

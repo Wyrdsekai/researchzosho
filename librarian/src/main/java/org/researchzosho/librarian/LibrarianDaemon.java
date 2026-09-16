@@ -328,6 +328,7 @@ public final class LibrarianDaemon {
                     case "questions" -> p.questions(body);
                     case "bookmarks" -> p.bookmarks(body);
                     case "meeting" -> p.meeting(body);
+                    case "bridges" -> p.bridges(body);
                     case "frontier" -> p.frontier(body);
                     case "subjects" -> p.subjects(body);
                     case "status" -> p.status(body);

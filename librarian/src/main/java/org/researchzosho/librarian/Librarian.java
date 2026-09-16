@@ -38,7 +38,7 @@ public class Librarian {
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
             "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_items",
-            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting");
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges");
     /** Tool rounds one turn may take before the Librarian has to speak. */
     static final int MAX_TOOL_ROUNDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_TOOL_ROUNDS", 5);
     /** Look-ups one turn may make in all; past it the Librarian answers from what it has (17 opens on one question, 2026-09-13). */
@@ -195,6 +195,7 @@ public class Librarian {
                 + "A conversation the person had with another assistant — a file, a url, or text they paste — is absorbed with library_absorb: say what was shelved, which of their questions joined the open questions, and list the claims to check; then offer two things, verify=true (one run that checks the claims) and a research run on the thread's main question. "
                 + "A list of things — books, tools, places, an inventory — goes through library_items: first with as=none to say how many items there are and which the shelves already hold, and ask what they want to know about each (that is the lens) unless they said; then as=frontier files a question per item for the housekeeping, or as=runs sends them out now as research runs. "
                 + "The other starting points: their own draft or notes to check → library_check (claims to check, citations fetched; offer verify=true); a reading list, BibTeX or a file of DOIs → library_reading (fetched onto the shelves as a collection); a list of questions → library_questions (onto the open questions in order); a bookmarks export → library_bookmarks (the pages onto the shelves; watch=true re-reads them); a meeting transcript → library_meeting (decisions kept, questions raised filed, claims to check with who said them). After any of them, say what was shelved and filed, and what could not be read. "
+                + "\"What could connect X to something far from it\", \"any discoveries\", \"look for a bridge\" is library_bridges: op=run with the area and dry=true first, show the pairs with their shared terms and the question for each, and ask which to file; op=accept files the run that tests one. Say plainly that a bridge is a question the shelves have not answered, not a finding. "
                 + "Cite entries by their id in square brackets, like [F-0012-a] or [I-0031-…], right after the sentence they support.";
     }
 
@@ -224,6 +225,7 @@ public class Librarian {
             Map.entry("library_reading", "A reading list (BibTeX, RIS, CSV, lines of DOIs and urls): every entry fetched onto the shelves as a collection; watch=true re-reads them nightly."),
             Map.entry("library_questions", "A file of questions onto the open questions in order; as=runs sends the first ten out as research runs."),
             Map.entry("library_bookmarks", "A browser's bookmarks: the pages fetched onto the shelves as a collection; folder=… takes one folder, watch=true re-reads them nightly."),
+            Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
             Map.entry("library_meeting", "A meeting transcript: shelved with its decisions, the questions raised filed, the claims returned to check with who said them; verify=true files the checking run."));
 
     /** The library's tools for the conversation: the MCP schemas, described in the chat's words. */
@@ -286,6 +288,7 @@ public class Librarian {
                 case "library_questions" -> protocol.questions(args);
                 case "library_bookmarks" -> protocol.bookmarks(args);
                 case "library_meeting" -> protocol.meeting(args);
+                case "library_bridges" -> protocol.bridges(args);
                 case "library_sharpen" -> protocol.sharpen(args);
                 case "library_status" -> protocol.status(args);
                 default -> null;

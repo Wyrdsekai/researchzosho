@@ -311,6 +311,29 @@ public final class McpServer {
                         prop("collection", "string", "Where it is shelved (default meetings)."),
                         prop("verify", "boolean", "File one research run that checks the claims."),
                         patronProp())));
+        tools.add(tool("library_bridges",
+                "Discovery by combination: two areas of the library that no source read together, joined by specific terms both "
+                + "areas' claims share (Swanson's fish oil and Raynaud's). op=run computes the candidate pairs from an area (or the "
+                + "hottest ones) and files up to a few proposals as open questions of type bridge; dry=true only shows the pairs. "
+                + "op=list the open proposals; op=accept files the research run that tests one (its verified claims are the test); "
+                + "op=dismiss drops it; op=settings reads or sets an area's dials (sources, reach, strict, toward, away, since, per_night); "
+                + "op=measure reads the ledger: proposed, kept, dismissed, corroborated.",
+                schema(new String[]{},
+                        prop("op", "string", "run | list | accept | dismiss | settings | measure | distance (default list)."),
+                        prop("area", "string", "For run and settings: the subject to start from (default: the hottest areas); for distance: one of the two areas."),
+                        prop("other", "string", "For distance: the other area — returns hops on the map, shared terms, paths, sources naming both, and the nearest concepts by embedding with their cosine."),
+                        prop("question", "string", "For accept and dismiss: the proposal, as listed."),
+                        prop("sources", "string", "For run and settings: library, peers, web — comma-separated (default library). With web, a pair the shelves do not join is taken outside: the model names what could bear on both, and a web search has to carry each candidate together with EACH area before it is proposed."),
+                        prop("reach", "string", "For run and settings: low (neighbours) | medium (a few hops, a tenth random) | high (any distance, a third random)."),
+                        prop("strict", "boolean", "For run and settings: three shared terms and no source naming both (true, default), or one term and no claim joining them (false)."),
+                        prop("toward", "string", "For run and settings: measure distance toward this area instead of outward."),
+                        prop("away", "string", "For run and settings: words that rule an area out, comma-separated."),
+                        prop("since", "string", "For run and settings: only areas with a finding dated on or after this (YYYY-MM-DD)."),
+                        prop("via", "string", "For run and settings: terms (words both areas' claims are about) | graph (paths on the map through concepts in between) | both (default)."),
+                        prop("propose", "integer", "For run: proposals to file this time (default the area's per_night, 3)."),
+                        prop("per_night", "integer", "For settings: proposals a night for the crew (0 turns it off)."),
+                        prop("dry", "boolean", "For run: show the pairs and questions, file nothing."),
+                        patronProp())));
         tools.add(tool("library_frontier",
                 "The queue of open questions the housekeeping's explorer researches a few of each night — op=list returns them in queue order with type, parked, position, tonight, "
                 + "the report that left each (report, report_title, report_fate: kept | waiting | disputed | retired | none), perspective, subjects, language, and similar (the head of a group that reads alike); "
@@ -493,6 +516,7 @@ public final class McpServer {
             case "library_questions" -> p.questions(args);
             case "library_bookmarks" -> p.bookmarks(args);
             case "library_meeting" -> p.meeting(args);
+            case "library_bridges" -> p.bridges(args);
             case "library_frontier" -> p.frontier(args);
             case "library_inbox" -> p.inbox(args);
             case "library_serials" -> p.serials(args);

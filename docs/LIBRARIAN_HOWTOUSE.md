@@ -21,6 +21,8 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
 10. Checks against bad sources
 11. The housekeeping
 12. Sharing the model
+12b. Talking to the Librarian
+12c. Bridges: questions that connect two subjects
 13. The map
 14. Fields
 15. Running it as a service
@@ -68,11 +70,12 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
   (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
   one with Docker), or the built-in fallback, which searches Wikipedia and the scholarly literature
   only. Section 2 explains.
-- Optional: an embeddings server, if you want search by meaning as well as by keywords. With Docker
-  and an NVIDIA card, setup starts one for you (Text Embeddings Inference serving Qwen3-Embedding-0.6B;
-  the model downloads once, about 1.2 GB). Without a GPU, `researchzosho embed start --cpu` runs the
-  CPU image, measured at a tenth of a chunk a second (a thousand documents: more than a day); an
-  embeddings server on another machine is the better answer. Any server that answers the OpenAI embeddings call works. The server matters more than the
+- Optional: an embeddings server, if you want search by meaning as well as by keywords. `researchzosho
+  model install` sets one up beside the model, at the same address, on all three platforms (Text
+  Embeddings Inference serving Qwen3-Embedding-0.6B on Linux with an NVIDIA card; llama.cpp's own
+  build on a Mac or Windows; the model downloads once, about 1.2 GB). Without a GPU on Linux there is
+  none: `researchzosho embed start --cpu` runs the CPU image, measured at a tenth of a chunk a second
+  (a thousand documents: more than a day), and an embeddings server on another machine is the better answer. Any server that answers the OpenAI embeddings call works. The server matters more than the
   model: the same 0.6B model measured 13 chunks a second under llama.cpp and 115 under Text Embeddings
   Inference on the same card, so a library of a thousand documents re-indexes in two minutes instead of
   twenty.
@@ -95,10 +98,10 @@ Setup asks a few questions. Each has a default answer; press Enter to accept it.
 3. Which web search backend to use. Setup asks for a Brave Search API key first. Then it looks for
    SearXNG on its usual local port, and if Docker is installed offers to start one. With neither, it
    says that the built-in fallback will be used.
-4. Whether search works by meaning or by words only. If your model server also embeds, that is used.
-   Otherwise, with Docker and an NVIDIA card, setup offers to start an embeddings server
-   (`researchzosho embed start` does the same later); without those it asks for an address, and with
-   none search is by words.
+4. Whether search works by meaning or by words only. If your model server also embeds, that is used;
+   the one `model install` sets up does. Otherwise, with Docker and an NVIDIA card, setup offers to
+   start an embeddings server (`researchzosho embed start` does the same later); without those it asks
+   for an address, and with none search is by words.
 5. Whether to run ResearchZosho as a service that starts when you log in.
 6. Which programs to connect. If Claude Code, Codex or Gemini CLI is installed, setup can register
    the library with it. For any other program that speaks MCP, setup prints the command line and the
@@ -746,11 +749,15 @@ install` does the same later, on all three platforms:
 
 ```
 researchzosho model install                 # the measured model for this machine, downloaded once, served on demand
-researchzosho model status                  # the proxy, the model, whether the memory is in use right now
+researchzosho model status                  # the proxy, the model, the embeddings server, whether the memory is in use right now
 researchzosho model stop                    # unload now; the next request starts it again
 researchzosho model uninstall               # remove the service; the model files in ~/models stay; the drive goes back
 researchzosho model check                   # every model file and pinned build still resolves where the rows say
 ```
+
+The embeddings server rides beside the model at the same address, under the model name `embed`, in
+its own group so neither evicts the other, and it never idles out: it is small, and every search
+wants it. `RESEARCHZOSHO_EMBED` is set to the proxy too, and uninstall puts both settings back.
 
 Every download is checked against a recorded sha256 and refused on a mismatch, as the one-line
 installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless told
@@ -862,6 +869,76 @@ Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Co
 
 The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the model
 takes; the page comes back with it.
+
+## 12c. Bridges: questions that connect two subjects
+
+Bridges finds two subjects that share a concept but that no source connects, and writes a research question about them. A research run tests it.
+
+```
+researchzosho bridges --dry                    # from the busiest areas: show the pairs, file nothing
+researchzosho bridges speech--wav2vec2 --dry   # from one area
+researchzosho bridges speech--wav2vec2 --reach high --loose
+```
+
+An area is a subject of your catalog with at least two findings. For a pair of areas, a bridge is a
+specific term both areas' claims use while no source on the shelves names the two areas together. Fish oil
+and Raynaud's disease, joined through blood viscosity and platelet aggregation, is the classic case: two
+literatures that never cited each other, joined by what they shared. The pairs are found mechanically and
+ranked. The model reads only the top pairs and writes each as a question, never a claim: "does the platelet
+effect that fish oil has bear on Raynaud's, as viscosity links them?"
+
+Without `--dry`, the questions are filed on the open questions as proposals of type `bridge`. The
+housekeeping does not research them on its own. You decide:
+
+```
+researchzosho bridges list
+researchzosho bridges accept <question>      # files the research run that tests it
+researchzosho bridges dismiss <question>
+researchzosho bridges measure                # proposed, kept, dismissed, and by which settings
+```
+
+Two sensors look for the join, and `--via terms|graph|both` picks (both is the default). The term sensor
+looks for a word both areas' claims are about. The graph sensor walks the library's map: from what one
+area's claims are about, along the claims, to what the other area's claims are about, through concepts in
+between. "Fish oil lowers blood viscosity" and "Raynaud's involves blood viscosity" meet at the middle node
+even when the two sides never share a word, and nodes whose names mean the same are walked as one. The graph
+sensor walks two kinds of edge: the triples (what a claim asserts) and the concepts each claim rests on, which the
+housekeeping's `concepts` step notes on every finding and the map draws as "mentions" edges. Both are added
+nightly; `researchzosho triples` and `researchzosho concepts` do it now. Each
+proposal says which sensor found it, and `measure` keeps the score per sensor.
+
+To see how far two areas are before asking for a bridge:
+
+```
+researchzosho bridges distance physics--quantum-electrodynamics astrophysics--black-holes
+```
+
+It prints the hops between them on the map, any shared terms and paths, how many sources name both, and the
+nearest concepts on the two sides with their cosine from the embedder. Concepts closer than the fold (0.92,
+`RESEARCHZOSHO_BRIDGES_FOLD`) are walked as one node. Measured on a small library: "radiant heat" and "thermal
+radiation" sit at 0.85, "electromagnetic field" and "magnetic field" at 0.87, but so do "temperature" and
+"humidity" at 0.89, which is why the fold is not lower. The embedder has to be answering, or only exact names
+meet.
+
+The dials, per area or for all (`researchzosho bridges settings <area> --reach high --loose --per-night 2`):
+
+- **reach**: `low` pairs an area with its siblings (the same facet, `speech--…`), `medium` with areas a few
+  hops away on the map plus a tenth at random, `high` with anything plus a third at random.
+- **strict** (default) needs three shared specific terms and no source naming both areas; `--loose` needs
+  one term and only that no claim is filed under both.
+- **toward** an area measures distance toward it instead of outward; **away** rules areas out by word;
+  **since** keeps only areas with a finding dated on or after a day.
+- **sources**: `library` (default), `peers`, `web`. With `web` two things happen. A search checks whether the two
+  areas are already discussed together, and a pair that is does not become a proposal. And a pair your shelves do
+  *not* join is taken outside: the model names a few things that could bear on both, and each one is kept only if a
+  search finds a source that is about it and about that area, on **both** sides, from a journal, a reference work or
+  the thing itself. A blog or a forum thread does not count. The proposal then shows the middle and both sources, so
+  you can judge it in a few seconds. This is for the case where what connects two areas is named in neither
+  of them.
+
+The housekeeping runs one pass a night from the busiest areas and files up to three proposals; `per_night=0`
+turns it off. Every proposal carries the settings that found it, and `measure` reads the ledger, so over
+time you can see which settings produce bridges worth keeping.
 
 ## 13. The map
 
@@ -1037,7 +1114,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.3.0 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.0 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

@@ -39,20 +39,39 @@ class ModelServerTest {
     @Test
     void eachPlatformsPlanStartsTheRightServerTheRightWay(@TempDir Path tmp) {
         Path model = tmp.resolve("models/gpt-oss-20b-F16.gguf"), dir = tmp.resolve("model");
-        var linux = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16), model, dir, tmp.resolve("unit.service"), "all", 20, false);
+        var linux = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16), model, dir, tmp.resolve("unit.service"), "all", 20, false, null);
         assertTrue(linux.configYaml().contains("cmd: " + dir.resolve("run.sh") + " ${PORT}") && linux.configYaml().contains("cmdStop: docker stop researchzosho-model") && linux.configYaml().contains("ttl: 1200") && linux.configYaml().contains("\"local-model\""), linux.configYaml());
         assertTrue(linux.runScript().contains("--gpus all") && linux.runScript().contains("-m /m/gpt-oss-20b-F16.gguf") && linux.runScript().contains("-c 32768 --parallel 2") && linux.runScript().contains("reasoning_effort"), linux.runScript());
         assertTrue(linux.unitText().contains("ExecStart=" + dir.resolve("llama-swap")) && linux.unitText().contains("--listen 127.0.0.1:8211"), linux.unitText());
-        var mac = ModelServer.plan(ModelServer.Os.macos, ModelServer.rowFor(11), tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf"), dir, tmp.resolve("org.x.plist"), "all", 20, false);
+        var mac = ModelServer.plan(ModelServer.Os.macos, ModelServer.rowFor(11), tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf"), dir, tmp.resolve("org.x.plist"), "all", 20, false, null);
         assertTrue(mac.configYaml().contains("cmd: " + dir.resolve("llama").resolve("llama-server") + " -m " + tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf") + " --host 127.0.0.1 --port ${PORT} --jinja -c 16384 --parallel 1 -ngl 99 --flash-attn on --chat-template-kwargs '{\"enable_thinking\":false}'"), mac.configYaml());
         assertFalse(mac.configYaml().contains("cmdStop"), "no container to stop on macOS");
         assertNull(mac.runScript());
         assertTrue(mac.unitText().contains("<string>org.researchzosho.model</string>") && mac.unitText().contains("<string>--listen</string>\n    <string>127.0.0.1:8211</string>") && mac.unitText().contains("<key>KeepAlive</key><true/>"), mac.unitText());
-        var win = ModelServer.plan(ModelServer.Os.windows, ModelServer.rowFor(16), tmp.resolve("models/gpt-oss-20b-F16.gguf"), dir, dir.resolve("start.ps1"), "all", 45, true);
+        var win = ModelServer.plan(ModelServer.Os.windows, ModelServer.rowFor(16), tmp.resolve("models/gpt-oss-20b-F16.gguf"), dir, dir.resolve("start.ps1"), "all", 45, true, null);
         assertTrue(win.configYaml().contains("cmd: " + dir.resolve("llama").resolve("llama-server.exe") + " -m ") && win.configYaml().contains("--chat-template-kwargs \"{\\\"reasoning_effort\\\":\\\"low\\\"}\"") && win.configYaml().contains("ttl: 2700"), win.configYaml());
         assertTrue(win.unitText().contains("Start-Process -FilePath '" + dir.resolve("llama-swap.exe") + "'") && win.unitText().contains("'0.0.0.0:8211'"), win.unitText());
-        var shared = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(48), model, dir, tmp.resolve("u"), "3", 45, true);
+        var shared = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(48), model, dir, tmp.resolve("u"), "3", 45, true, null);
         assertTrue(shared.runScript().contains("--gpus '\"device=3\"'") && shared.unitText().contains("--listen 0.0.0.0:8211"), shared.runScript());
+    }
+
+    @Test
+    void theEmbeddingsServerRidesBesideTheModelInItsOwnGroup(@TempDir Path tmp) {
+        Path model = tmp.resolve("models/gpt-oss-20b-F16.gguf"), dir = tmp.resolve("model");
+        var linux = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16), model, dir, tmp.resolve("unit.service"), "3", 20, false, "89-1.8");
+        assertTrue(linux.embeds());
+        String y = linux.configYaml();
+        assertTrue(y.contains("  \"embed\":\n    cmd: " + dir.resolve("run-embed.sh") + " ${PORT}\n    cmdStop: docker stop researchzosho-model-embed\n"), y);
+        assertTrue(y.contains("    checkEndpoint: /health\n    ttl: 0\n") && y.contains("groups:\n  \"embedding\":\n    swap: false\n    exclusive: false\n    persistent: true\n    members: [\"embed\"]"), y);
+        assertTrue(y.indexOf("\"gpt-oss-20b\":") < y.indexOf("\"embed\":"), "the drive stays the first model (status reads the first name)");
+        assertTrue(linux.embedScript().contains("--gpus '\"device=3\"'") && linux.embedScript().contains("-p 127.0.0.1:$1:80") && linux.embedScript().contains("text-embeddings-inference:89-1.8") && linux.embedScript().contains("--model-id Qwen/Qwen3-Embedding-0.6B --pooling last-token"), linux.embedScript());
+        var none = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16), model, dir, tmp.resolve("unit.service"), "all", 20, false, null);
+        assertFalse(none.embeds()); assertFalse(none.configYaml().contains("embed")); assertNull(none.embedScript());
+        var mac = ModelServer.plan(ModelServer.Os.macos, ModelServer.rowFor(11), tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf"), dir, tmp.resolve("org.x.plist"), "all", 20, false, "llama");
+        assertTrue(mac.embeds()); assertNull(mac.embedScript());
+        assertTrue(mac.configYaml().contains("cmd: " + dir.resolve("llama").resolve("llama-server") + " -m " + tmp.resolve("models/Qwen3-Embedding-0.6B-Q8_0.gguf") + " --host 127.0.0.1 --port ${PORT} --embedding --pooling last"), mac.configYaml());
+        assertFalse(mac.configYaml().contains("cmdStop"));
+        assertEquals("llama", ModelServer.embedTagFor(ModelServer.Os.windows));
     }
 
     static final String SHA_X = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881";   // sha256 of "x", what the fake downloads hold
@@ -65,7 +84,7 @@ class ModelServerTest {
             ran.add(cmd);
             String c = cmd.get(0);
             if (c.equals("docker")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, "map[nvidia:{...} runc:{...}]");
-            if (c.equals("nvidia-smi")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, "16380\n");
+            if (c.equals("nvidia-smi")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, cmd.stream().anyMatch(x -> x.contains("compute_cap")) ? "8.9\n" : "16380\n");
             if (c.equals("sysctl")) return new ModelServer.Result(0, String.valueOf(16L * 1073741824L) + "\n");
             if (c.equals("powershell") && cmd.contains("-Command")) return new ModelServer.Result(0, String.valueOf(13L * 1073741824L) + "\n");
             if (c.startsWith("curl")) return new ModelServer.Result(0, "HTTP/2 200\ncontent-length: 13780000000\n");
@@ -111,14 +130,54 @@ class ModelServerTest {
             assertTrue(ran.stream().anyMatch(c -> c.equals(List.of("systemctl", "--user", "enable", "--now", "researchzosho-model"))), ran.toString());
             assertEquals("http://127.0.0.1:8211", org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE"));
             assertEquals("gpt-oss-20b", org.researchzosho.Config.get("RESEARCHZOSHO_MODEL"));
+            // the test JVM pins RESEARCHZOSHO_EMBED=off in its environment, so read what install wrote to the file
+            assertTrue(Files.readString(org.researchzosho.Config.userConfigPath()).matches("(?s).*(?m)^embed\\s*=\\s*http://127\\.0\\.0\\.1:8211\\s*$.*"), "the embedder rides at the same address: " + Files.readString(org.researchzosho.Config.userConfigPath()));
+            assertTrue(Files.isExecutable(dir.resolve("run-embed.sh")) && Files.readString(dir.resolve("config.yaml")).contains("\"embed\":"), "the embeddings entry and its script");
+            assertTrue(out.toString().contains("search by meaning is on"), out.toString());
             ModelServer.health = base -> false;
             String u = ModelServer.uninstall();
-            assertTrue(u.contains("the drive is back to http://elsewhere:8211"), u);
+            assertTrue(u.contains("the drive is back to http://elsewhere:8211") && u.contains("embeddings off"), u);
             assertEquals("http://elsewhere:8211", org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE"));
+            assertTrue(Files.readString(org.researchzosho.Config.userConfigPath()).matches("(?s).*(?m)^embed\\s*=\\s*off\\s*$.*"), "embeddings back off: " + Files.readString(org.researchzosho.Config.userConfigPath()));
             assertFalse(Files.exists(ModelServer.dir()));
             ModelServer.health = base -> true;
             assertEquals("local-model", ModelServer.install(null, "all", 20, false, new PrintStream(new ByteArrayOutputStream())));
             assertTrue(ModelServer.offer().startsWith("A model proxy already answers"));
+        } finally {
+            System.setProperty("user.home", realHome);
+            org.researchzosho.Config.invalidate();
+        }
+    }
+
+    @Test
+    void anInstallFromBeforeTheEmbedderIsBroughtUpToDateWithoutReinstalling(@TempDir Path home) throws Exception {
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+        org.researchzosho.Config.invalidate();
+        boolean[] started = {false}; List<String> fetched = new ArrayList<>();
+        try {
+            List<List<String>> ran = fakeMachine(ModelServer.Os.linux, started, fetched);
+            // the files the 0.3.0 installer wrote: one model, no plan.properties, no embed
+            Path dir = ModelServer.dir(); Files.createDirectories(dir);
+            Path model = ModelServer.modelsDir().resolve("gpt-oss-20b-F16.gguf");
+            var old = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16), model, dir, home.resolve(".config/systemd/user/researchzosho-model.service"), "3", 45, true, null);
+            Files.writeString(dir.resolve("config.yaml"), old.configYaml()); Files.writeString(dir.resolve("run.sh"), old.runScript());
+            Files.createDirectories(old.unit().getParent()); Files.writeString(old.unit(), old.unitText());
+            Files.writeString(dir.resolve("previous"), "http://elsewhere:8211\nlocal-model\n");
+            org.researchzosho.Config.set("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:8211");
+            ModelServer.health = base -> true;
+            var out = new ByteArrayOutputStream();
+            String r = ModelServer.install(null, "all", 20, false, new PrintStream(out, true));
+            assertEquals("gpt-oss-20b", r, out.toString());
+            String y = Files.readString(dir.resolve("config.yaml"));
+            assertTrue(y.contains("\"embed\":") && y.contains("groups:"), y);
+            assertTrue(y.contains("ttl: 2700") && Files.readString(dir.resolve("run.sh")).contains("--gpus '\"device=3\"'") && Files.readString(old.unit()).contains("0.0.0.0:8211"), "the old plan is kept: idle minutes, the card, the listen address");
+            assertTrue(Files.readString(dir.resolve("run-embed.sh")).contains("--gpus '\"device=3\"'"), "the embedder takes the same card");
+            assertTrue(Files.exists(dir.resolve("plan.properties")));
+            assertTrue(ran.stream().anyMatch(c -> c.equals(List.of("systemctl", "--user", "restart", "researchzosho-model"))), "the proxy is restarted to read the new config: " + ran);
+            assertTrue(Files.readString(org.researchzosho.Config.userConfigPath()).matches("(?s).*(?m)^embed\\s*=\\s*http://127\\.0\\.0\\.1:8211\\s*$.*"));
+            assertEquals("", ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream())), "already current: nothing the second time");
+            assertTrue(Files.readString(dir.resolve("previous")).split("\n", -1).length >= 3, "previous carries the embed line now");
         } finally {
             System.setProperty("user.home", realHome);
             org.researchzosho.Config.invalidate();

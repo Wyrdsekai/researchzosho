@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.0
+
+`researchzosho bridges` writes research questions that connect two subjects in your library. The embeddings server is now part of the model install.
+
+### Added
+
+- `researchzosho bridges` looks for two areas of your catalog that could be connected but never have been. It finds pairs of subjects that share specific terms while no source on the shelves names both, ranks them, and has the model write each top pair as a question. The questions land on the open questions as type `bridge`. `bridges accept <question>` starts the research run that tests one, `dismiss` drops it, `measure` shows how many proposals you kept. Settings per area: `--reach low|medium|high`, `--strict|--loose`, `--toward`, `--away`, `--since`, `--sources`, and how many proposals a night. The housekeeping runs one pass a night. Same thing from the chat: "what could connect X to something far from it".
+- Bridges has two ways to find a pair. `--via terms` matches words both areas' claims are about. `--via graph` walks the library's map from one area to the other through concepts in between, so "fish oil lowers blood viscosity" and "Raynaud's involves blood viscosity" meet at "blood viscosity" even when the two sides use different words. Nodes with the same meaning, by embedding, count as one. Default is both. Each proposal says which one found it.
+- With `--sources library,web`, bridges looks outside the library for a pair the shelves do not join: the map's closest concepts across the two areas are tried first and shown to the model, the model adds what else could bear on both, and each candidate is kept only when a search finds a source about it and about that area on both sides, from a journal, a reference work or the thing itself. The proposal carries the middle and both sources. Without `web` nothing leaves the library. A pair can be proposed again through a different middle on a later night, a middle searched for a pair is not searched again for a week, and when several middles are backed the one whose two sources read most alike is proposed first.
+- `researchzosho bridges distance <area> <other>` prints how far two areas are: hops on the map, shared terms, paths, how many sources name both, and the closest concepts on each side with their cosine.
+- The housekeeping has a `concepts` step. For each claim it asks the model what the claim rests on (temperature, viscosity, friction, a method) and adds those to the map as "mentions" edges. Triples say what a claim asserts; concepts are where two distant areas can meet. `researchzosho concepts` runs it now, `researchzosho triples` does the same for the triples step.
+- `researchzosho model install` now sets up the embeddings server next to the model, at the same address. On Linux with an NVIDIA card it runs Text Embeddings Inference; on a Mac or Windows it runs llama.cpp with the Qwen3-Embedding-0.6B file. It never idles out and never gets evicted by the model. `model status` shows it. Uninstall puts your old embed setting back.
+- If you installed the model server with an earlier release, the daemon adds the embeddings server the next time it starts. `researchzosho update now` restarts the daemon, so the update does it. Linux downloads nothing; a Mac or Windows fetches the 0.6 GB embedding file.
+
+### Fixed
+
+- The housekeeping scheduler cannot spin. An hour outside 0 to 23 was an error it retried without pausing, which wrote gigabytes to `catalog/crews.log` until the disk filled. An hour is folded into range (24 is midnight), any failure waits five minutes, and `--crew-hour` above 23 is refused.
+- A claim the cataloguer cannot match to a subject is filed with the rest of the run it came from, with a note saying so. It used to keep no subject at all, and a claim with no subject is in no area: the map, a search scoped to a subject and bridges never saw it.
+- The reviewer is given the write-up's own section headings and takes at least one claim from each. It used to take its claims from the first sections and leave the rest of the run's work on the floor.
+- The embeddings server used to be a container nothing owned. Stop it once and search went back to words only, with no message. Now llama-swap owns it and restarts it on the next request.
+
 ## 0.3.0
 
 Eight ways to hand the library what you already have, and a leaner chat.

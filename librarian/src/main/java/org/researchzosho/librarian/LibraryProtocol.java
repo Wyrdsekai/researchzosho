@@ -783,6 +783,78 @@ public final class LibraryProtocol {
         return r;
     }
 
+    /**
+     * library_bridges: discovery by combination. op=run computes candidate pairs from an area (or the hottest) and
+     * files up to per_night proposals as open questions of type bridge (dry=true only shows them); op=list the open
+     * proposals; op=accept files the research run that tests one; op=dismiss drops it; op=settings reads or sets
+     * an area's dials; op=measure reads the ledger: proposed, kept, dismissed, corroborated, by settings.
+     */
+    public ObjectNode bridges(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                ArrayNode items = r.putArray("proposals");
+                for (Frontier.Line l : Bridges.open(store)) { ObjectNode o = items.addObject(); o.put("question", l.text()); o.put("date", l.date()); o.put("found_by", l.kind()); o.put("evidence", Bridges.evidenceFor(store, l.text())); }
+                r.put("count", items.size());
+                r.put("next", items.size() == 0 ? "op=run proposes some; op=run with dry=true only shows the pairs" : "op=accept with the question files the research run that tests it; op=dismiss drops it");
+            }
+            case "run" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String area = args.path("area").asText("").strip();
+                Bridges.Settings s = Bridges.settings(store, area.isEmpty() ? null : area);
+                for (String k : new String[]{"sources", "reach", "toward", "away", "since", "via"}) if (args.hasNonNull(k) && !args.get(k).asText().isBlank()) s = s.with(k, args.get(k).asText());
+                if (args.hasNonNull("strict")) s = s.with("strict", args.get("strict").asBoolean() ? "true" : "false");
+                if (args.hasNonNull("propose")) s = s.with("propose", String.valueOf(args.get("propose").asInt()));
+                boolean dry = args.path("dry").asBoolean(false);
+                ObjectNode out = Bridges.propose(store, Explain.drive(), Researcher.webTools(), s, area.isEmpty() ? null : area, dry, patron.writer(), new java.util.Random());
+                r.setAll(out);
+                r.put("next", dry ? "the same call without dry files the proposals as open questions of type bridge" : "op=list shows them; op=accept files the run that tests one");
+            }
+            case "accept", "dismiss" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String q = reqStr(args, "question").strip();
+                Frontier.Line found = null;
+                for (Frontier.Line l : Bridges.open(store)) if (Frontier.sameQuestion(l.text(), q) || l.text().toLowerCase(Locale.ROOT).startsWith(q.toLowerCase(Locale.ROOT))) { found = l; break; }
+                if (found == null) throw ProtocolError.notFound("no open bridge proposal reads \"" + Acquisitions.compress(q, 80) + "\"");
+                if (op.equals("dismiss")) {
+                    Frontier.drop(store, found.text(), patron.writer());
+                    Bridges.fate(store, found.text(), "dismissed", patron.writer());
+                    r.put("dismissed", found.text());
+                } else {
+                    ObjectNode ask = M.createObjectNode();
+                    // the run starts from what the proposal rests on: the paths read, the outside sources that backed the middle
+                    String ev = Bridges.evidenceFor(store, found.text());
+                    ask.put("question", found.text() + (ev.isEmpty() ? "" : "\n\nWhat this question rests on (start here, then go further):\n" + ev)); ask.put("mode", "broad"); ask.put("sources", "both");
+                    ask.set("patron", args.path("patron").deepCopy());
+                    String job = research(ask).path("job_id").asText();
+                    Frontier.markExplored(store, found.text(), job);
+                    Bridges.fate(store, found.text(), "kept", job);
+                    r.put("accepted", found.text()); r.put("job_id", job);
+                    r.put("next", "library_job follows the run; its verified claims are the test of the bridge");
+                }
+            }
+            case "settings" -> {
+                String area = args.path("area").asText("").strip();
+                boolean set = false;
+                Bridges.Settings s = Bridges.settings(store, area.isEmpty() ? null : area);
+                for (String k : new String[]{"sources", "reach", "toward", "away", "since", "per_night", "via"}) if (args.hasNonNull(k)) { s = s.with(k, args.get(k).asText()); set = true; }
+                if (args.hasNonNull("strict")) { s = s.with("strict", args.get("strict").asBoolean() ? "true" : "false"); set = true; }
+                if (set) { Patrons.check(store, patron, Patrons.Level.write); Bridges.setSettings(store, area.isEmpty() ? null : area, s); }
+                r.put("area", area.isEmpty() ? "default" : area); r.put("settings", s.line()); r.put("per_night", s.perNight()); r.put("changed", set);
+            }
+            case "measure" -> { Patrons.check(store, patron, Patrons.Level.read); r.setAll(Bridges.measure(store)); }
+            case "distance" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                r.setAll(Bridges.distance(store, reqStr(args, "area"), reqStr(args, "other")));
+            }
+            default -> throw ProtocolError.invalidArgs("op must be run, list, accept, dismiss, settings, measure or distance.");
+        }
+        return r;
+    }
+
     /** library_submit: a DRAFT into the acquisitions desk. Refuses a claim with no sources. */
     public ObjectNode submit(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
