@@ -99,6 +99,8 @@ public final class LibrarianDaemon {
         long t0 = System.currentTimeMillis();
         RunTrace trace = RunTrace.open(store, jobId);
         Researcher researcher = researcher(drive, trace);
+        String asker = job.path("patron").asText("");
+        researcher.allowDatabases(asker.equals("person") || (asker.equals("web") && !WebAccess.signInRequired()));   // the owner's databases are for the owner's questions
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
         researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
         Researcher.Filed filed;
@@ -331,6 +333,7 @@ public final class LibrarianDaemon {
                     case "bookmarks" -> p.bookmarks(body);
                     case "meeting" -> p.meeting(body);
                     case "holdings" -> p.holdings(body);
+                    case "db" -> p.db(body);
                     case "remove" -> p.remove(body);
                     case "bridges" -> p.bridges(body);
                     case "frontier" -> p.frontier(body);

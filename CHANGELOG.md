@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.4.5
+
+This release lets the library read your databases. You add a connection, and research runs and the chat can query it, read-only. It also makes the downloads smaller.
+
+### Added
+
+- `researchzosho db add <name> <address>` gives the library read-only access to a database. SQLite, PostgreSQL and MySQL or MariaDB work out of the box. SQL Server, MongoDB and DuckDB are downloaded when you ask: `researchzosho db driver install <kind>`. Each download is checked against a fixed checksum. DuckDB also reads a folder of CSV, Parquet or JSON files as tables.
+- `db list`, `db schema <name>`, `db query <name> "<sql>"` and `db remove <name>`. For MongoDB, `db query <name> --collection <c>` with `--filter` or `--pipeline`.
+- Access is read-only in four ways. Use a database user that can only read. The connection is opened read-only. Every statement is checked: one statement, and it must start with SELECT, WITH, SHOW, EXPLAIN or DESCRIBE. Nothing is ever committed. For MongoDB, only `find` and reading pipeline stages are allowed. DuckDB's access to other files is turned off once your data is loaded.
+- The address and password are kept in `~/.researchzosho/databases.json`, not in the library. The password is never shown and never sent to the model. If you leave the password out of the address, you are asked for it.
+- `--hide email,customers.ssn` hides the values of those columns in every schema and every result.
+- A query returns at most 500 rows, 100 by default. Each result is saved as a page, so a report can cite it and the citation check can read a claim against the rows.
+- Research runs and the chat get two tools when a database exists: one for the schema, one for a query. Only the library owner's questions get them. Over MCP and HTTP it is `library_db`.
+- `researchzosho survey db:<name>` reads a database's schema, saves one draft claim on what it records, and lists research questions the data could answer.
+- If your model is hosted elsewhere, `db add` and `db list` warn that rows will be sent there.
+
+### Changed
+
+- The downloads are smaller. Each tarball keeps only the SQLite native code its platform needs. The plain tarball went from 29.5 MB to 22 MB and each platform tarball lost about 10 MB, with the two new database drivers included.
+
+### Fixed
+
+- Reading a Calibre `metadata.db` now works on Windows. It failed there since 0.4.1 because the file address was built in a form SQLite does not accept for a drive path such as `C:\`.
+- The Runs page and `researchzosho jobs` no longer fail when a run finishes at the moment the list of running jobs is read.
+
 ## 0.4.4
 
 This release makes the chat follow the research runs it starts, so you no longer have to ask how a run is going. It will also properly select a file referenced by the questioner. It will also update earlier library versions to the latest version.

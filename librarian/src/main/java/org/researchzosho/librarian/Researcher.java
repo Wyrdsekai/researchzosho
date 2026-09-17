@@ -192,6 +192,9 @@ public final class Researcher {
     private final LibraryStore store;   // for the cite-check's raw captures and independence clusters; null in a bare unit test
     /** Where the run stands, for the job record: set by the daemon; a client reads it to know when to poll again. */
     private volatile Consumer<ObjectNode> onProgress = null;
+    /** Whether this run may read the owner's databases: only a run the library owner filed. */
+    private volatile boolean databases = false;
+    public void allowDatabases(boolean yes) { this.databases = yes; }
     public void onProgress(Consumer<ObjectNode> sink) { this.onProgress = sink; }
     /** The run's trace, when the daemon opened one: the runner writes its own events (a compaction) to it. */
     private RunTrace trace = null;
@@ -819,6 +822,7 @@ public final class Researcher {
         Map<String, Tool> byName = new LinkedHashMap<>();
         if (store != null && ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); }
         if (ask.web()) for (Tool t : tools.web(sub)) byName.put(t.name(), t);
+        if (databases && Databases.any()) { byName.put("db_schema", new DbSchemaTool()); byName.put("db_query", new DbQueryTool(store)); }
         if (store != null) byName.put("read_pages", new PagesTool(store));
         byName.put(notebook.name(), notebook);
         byName.put(done.name(), done);
@@ -1356,6 +1360,56 @@ public final class Researcher {
             }
             sb.append(Fence.close("SHELF RESULTS")).append('\n').append(Fence.rule("SHELF RESULTS")).append('\n');
             return sb.toString();
+        }
+    }
+
+    /** The databases the owner gave access to, and the schema of one: tables, columns, row counts, sample rows. */
+    static final class DbSchemaTool implements Tool {
+        @Override public String name() { return "db_schema"; }
+        @Override public String description() {
+            return "The databases the person gave this library read access to. With no name: the list of databases. With a name: that database's tables, columns, row counts and a few sample rows. Read the schema before you write a query.";
+        }
+        @Override public ObjectNode parametersSchema(ObjectMapper j) {
+            ObjectNode p = j.createObjectNode(); p.put("type", "object");
+            p.putObject("properties").putObject("database").put("type", "string");
+            p.putArray("required");
+            return p;
+        }
+        @Override public String execute(JsonNode args) throws Exception {
+            String name = args.path("database").asText("").strip();
+            if (name.isEmpty()) { StringBuilder sb = new StringBuilder("databases:\n"); for (Databases.Db d : Databases.list()) sb.append("- ").append(d.name()).append(" (").append(DbDrivers.kind(d.kind()).label()).append(")\n"); return sb.toString(); }
+            Databases.Db db = Databases.get(name);
+            if (db == null) return "ERROR: no database is named " + name + ". Call db_schema with no name to list them.";
+            try { return Fence.wrap("DATABASE SCHEMA", Databases.schema(db)) + "\n" + Fence.rule("DATABASE SCHEMA"); } catch (java.io.IOException e) { return "ERROR: " + e.getMessage(); }
+        }
+    }
+
+    /** One reading query against one of the owner's databases. The rows come back as a table and are saved as a page to cite. */
+    static final class DbQueryTool implements Tool {
+        private final LibraryStore store;
+        DbQueryTool(LibraryStore store) { this.store = store; }
+        @Override public String name() { return "db_query"; }
+        @Override public String description() {
+            return "Run ONE reading query against a database the person gave access to. SQL databases: give `sql` (a single SELECT or WITH statement). MongoDB: give `collection` and a `filter` or a `pipeline` as JSON. "
+                    + "Rows are capped (default " + Databases.DEFAULT_ROWS + ", at most " + Databases.MAX_ROWS + "): count and group in the query instead of reading every row. The result is saved as a page; cite its locator.";
+        }
+        @Override public ObjectNode parametersSchema(ObjectMapper j) {
+            ObjectNode p = j.createObjectNode(); p.put("type", "object");
+            ObjectNode props = p.putObject("properties");
+            for (String k : List.of("database", "sql", "collection", "filter", "pipeline")) props.putObject(k).put("type", "string");
+            props.putObject("limit").put("type", "integer");
+            p.putArray("required").add("database");
+            return p;
+        }
+        @Override public String execute(JsonNode args) throws Exception {
+            Databases.Db db = Databases.get(args.path("database").asText(""));
+            if (db == null) return "ERROR: no database is named " + args.path("database").asText("") + ". Call db_schema with no name to list them.";
+            try {
+                Databases.Result r = db.kind().equals("mongo")
+                        ? Databases.queryMongo(store, db, args.path("collection").asText(""), args.path("filter").asText(""), args.path("pipeline").asText(""), args.path("limit").asInt(0))
+                        : Databases.query(store, db, args.path("sql").asText(""), args.path("limit").asInt(0));
+                return (r.saved().isEmpty() ? "" : "saved as " + r.saved() + " (cite this locator)\n") + Fence.wrap("QUERY RESULT", r.text()) + "\n" + Fence.rule("QUERY RESULT");
+            } catch (java.io.IOException e) { return "ERROR: " + e.getMessage(); }
         }
     }
 

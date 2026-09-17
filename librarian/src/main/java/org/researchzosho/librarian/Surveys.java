@@ -40,7 +40,7 @@ public final class Surveys {
     static final int ISSUE_BODY_CHARS = 600;
     static final Duration FETCH = Duration.ofSeconds(60);
 
-    public enum Kind { repo, paper, site, issues }
+    public enum Kind { repo, paper, site, issues, db }
 
     /** What was read: the kind, a short name, where it came from, the text the model sees (and the shelf keeps), and a few facts about it. */
     public record Read(Kind kind, String name, String origin, String title, String text, Map<String, String> facts) { }
@@ -66,6 +66,7 @@ public final class Surveys {
     /** The kind from the thing itself: a folder or a git locator is a repo; a GitHub issues page is issues; a DOI, an arXiv page, a PDF or a document file is a paper; any other url is a site. */
     public static Kind detect(String spec) {
         String s = spec.strip();
+        if (s.startsWith("db:")) return Kind.db;
         if (GITHUB_ISSUES.matcher(s).matches()) return Kind.issues;
         if (s.startsWith("git@") || s.endsWith(".git") || GITHUB_REPO.matcher(s).matches()) return Kind.repo;
         if (PAPER_URL.matcher(s).matches()) return Kind.paper;
@@ -87,6 +88,7 @@ public final class Surveys {
             case paper -> paper(spec);
             case site -> site(spec);
             case issues -> issues(spec);
+            case db -> database(spec);
         };
     }
 
@@ -181,6 +183,16 @@ public final class Surveys {
         return new Read(Kind.issues, name, origin, "Issues: " + label, text, Map.of("issues", String.valueOf(open + closed), "open", String.valueOf(open), "closed", String.valueOf(closed)));
     }
 
+    /** A database the owner added: its schema is what is read. {@code spec} is "db:<name>". */
+    static Read database(String spec) throws IOException {
+        String name = spec.replaceFirst("^db:", "").strip();
+        Databases.Db d = Databases.get(name);
+        if (d == null) throw new IOException("No database is named " + name + ". Add it first: researchzosho db add " + name + " <address>");
+        String schema = Databases.schema(d);
+        long tables = schema.lines().filter(l -> l.startsWith("## ")).count();
+        return new Read(Kind.db, d.name(), "db://" + d.name(), "Database: " + d.name(), "# Database: " + d.name() + "\n\nOrigin: db://" + d.name() + "\n\n" + clip(schema), Map.of("tables", String.valueOf(tables), "engine", DbDrivers.kind(d.kind()).label()));
+    }
+
     static String stem(String fileName) { int i = fileName.lastIndexOf('.'); return i > 0 ? fileName.substring(0, i) : fileName; }
 
     static String firstLine(String text, String fallback) {
@@ -213,6 +225,12 @@ public final class Surveys {
                     + "CLAIMS\nOne per line, no bullets: the definite claims the page makes — a number, a comparison, a capability, a result. Up to 8 lines; write NONE if it makes none.\n"
                     + "RESTS ON\nOne per line: the techniques, standards, materials, or other products it says it is built on. Up to 12 lines.\n"
                     + directions + " Good directions: whether a claim the page makes is backed by independent sources; what else does the same thing and how it compares; what a standard it names actually requires; who is behind it and what they have published.";
+            case db -> "You read the schema of a database and report on it for a research library. " + common
+                    + "WHAT IT IS\nOne or two plain sentences: what this database records and for what kind of work, judged from its tables, columns and sample rows.\n"
+                    + "WHAT IT SAYS\nOne short paragraph: the main tables, what one row of each is, and how the tables relate.\n"
+                    + "RESTS ON\nOne per line: the tables that hold the most, with their row counts. Up to 12 lines.\n"
+                    + "LEAVES OPEN\nOne per line: what the schema does not make clear — a column whose meaning is not evident, a table with no rows, values that are hidden. Up to 6 lines; NONE if nothing.\n"
+                    + directions + " Good directions: a count or a trend the data can give (name the table and the column); a comparison between groups in the data; how the data compares with a published figure; whether a pattern in the data matches what the literature reports. Each must be answerable by querying this database, alone or with sources.";
             case issues -> "You read an issue tracker or a discussion and report on it for a research library. " + common
                     + "WHAT IT IS\nOne or two plain sentences: what the project or the discussion is about, and who takes part.\n"
                     + "WHAT IT SAYS\nOne short paragraph: what people bring here, in order of how often it comes up.\n"
@@ -300,6 +318,11 @@ public final class Surveys {
                 options.add("What else does what " + Acquisitions.compress(r.title(), 60) + " does, and how does it compare?");
                 options.add("Who is behind " + Acquisitions.compress(r.title(), 60) + ", and what have they published?");
             }
+            case db -> {
+                options.add("What does the database " + name + " record, and how much of it is there in each table?");
+                options.add("What changed over time in the data of " + name + "?");
+                options.add("How do the figures in " + name + " compare with published figures for the same thing?");
+            }
             case issues -> {
                 options.add("Which problems recur in " + r.title() + ", and what is known about their causes?");
                 options.add("Which claims made in " + r.title() + " without a source hold up?");
@@ -311,7 +334,7 @@ public final class Surveys {
 
     // ---- filing ----
 
-    static String collection(Kind k) { return switch (k) { case repo -> "repos"; case paper -> "papers"; case site -> "sites"; case issues -> "issues"; }; }
+    static String collection(Kind k) { return switch (k) { case repo -> "repos"; case paper -> "papers"; case site -> "sites"; case issues -> "issues"; case db -> "databases"; }; }
 
     /** The marker in a frontier line that ties a direction to a survey; the number is the option as offered. */
     static String marker(String name) { return "(from a survey of " + name; }
@@ -352,7 +375,7 @@ public final class Surveys {
         return new Filed(raw == null ? "" : raw.getFileName().toString(), id, options, already);
     }
 
-    static String noun(Kind k) { return switch (k) { case repo -> "repository"; case paper -> "document"; case site -> "page"; case issues -> "issue tracker"; }; }
+    static String noun(Kind k) { return switch (k) { case repo -> "repository"; case paper -> "document"; case site -> "page"; case issues -> "issue tracker"; case db -> "database"; }; }
 
     static String firstSentence(String s) {
         String t = s.strip();

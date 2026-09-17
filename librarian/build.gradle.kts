@@ -24,6 +24,11 @@ dependencies {
     // The terminal chat's line editor: history with the arrow keys, Ctrl-R, notices above the prompt. The same version CodeZaiku ships.
     implementation("org.jline:jline:4.0.4")
 
+    // Databases the owner gives read access to: PostgreSQL and MySQL/MariaDB ship in the box beside SQLite (about 2 MB together).
+    // MariaDB's driver speaks to MySQL too and is LGPL; Oracle's MySQL driver is GPL. SQL Server, MongoDB and DuckDB are fetched on demand.
+    implementation("org.postgresql:postgresql:42.7.13")
+    implementation("org.mariadb.jdbc:mariadb-java-client:3.5.10")
+
     // Calibre's metadata.db, read only (a Calibre library as a list of books)
     implementation("org.xerial:sqlite-jdbc:3.50.3.0")
 

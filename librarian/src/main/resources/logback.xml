@@ -14,4 +14,8 @@
     <root level="INFO">
         <appender-ref ref="STDOUT"/>
     </root>
+    <!-- an on-demand database driver's own chatter stays out of the person's terminal -->
+    <logger name="org.mongodb.driver" level="WARN"/>
+    <logger name="org.mariadb.jdbc" level="WARN"/>
+    <logger name="org.postgresql" level="WARN"/>
 </configuration>

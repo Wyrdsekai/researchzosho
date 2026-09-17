@@ -56,9 +56,28 @@ MODS=$("$HOSTJDK/bin/jdeps" --print-module-deps --ignore-missing-deps --multi-re
 EXTRA=jdk.charsets,jdk.localedata,jdk.unsupported,jdk.zipfs,java.management
 echo "modules: $MODS + $EXTRA (+ jdk.crypto.ec where the JDK still has it)"
 
+# The SQLite driver jar carries native code for about 26 platforms, 1 MB each. A platform's tarball needs its own
+# (and the musl build on Linux, for Alpine). Everything else is deleted from that tarball's copy of the jar.
+sqlite_keep() {
+    case "$1" in
+        linux-x64) echo 'Linux/x86_64/|Linux-Musl/x86_64/';; linux-arm64) echo 'Linux/aarch64/|Linux-Musl/aarch64/';;
+        macos-x64) echo 'Mac/x86_64/';; macos-arm64) echo 'Mac/aarch64/';; windows-x64) echo 'Windows/x86_64/';;
+        *) echo '.';;
+    esac
+}
+strip_sqlite() {   # <lib dir> <regex of the native folders to keep>
+    local jar; jar=$(ls "$1"/sqlite-jdbc-*.jar 2>/dev/null | head -1); [ -n "$jar" ] || return 0
+    local names; names=$(unzip -Z1 "$jar")
+    local drop; drop=$(echo "$names" | grep '^org/sqlite/native/[^/]*/[^/]*/.' | grep -Ev "^org/sqlite/native/($2)" || true)
+    [ -z "$drop" ] || echo "$drop" | xargs zip -q -d "$jar" >/dev/null
+    names=$(unzip -Z1 "$jar")   # read the listing first: grep -q closes the pipe early, and under pipefail that reads as a failure
+    echo "$names" | grep -E '^org/sqlite/native/.*\.(so|dylib|dll|jnilib)$' >/dev/null || { echo "no SQLite native left in $jar for $2" >&2; exit 1; }
+}
+
 for t in "${TARGETS[@]}"; do
     J=$(jdk "$t")
     OUT="$WORK/$t/$TOOL"; mkdir -p "$WORK/$t"; cp -R "$WORK/$TOOL" "$OUT"
+    strip_sqlite "$OUT/lib" "$(sqlite_keep "$t")"
     ADD="$MODS,$EXTRA"; [ -f "$J/jmods/jdk.crypto.ec.jmod" ] && ADD="$ADD,jdk.crypto.ec"
     "$HOSTJDK/bin/jlink" --module-path "$J/jmods" --add-modules "$ADD" --output "$OUT/jre" \
         --strip-java-debug-attributes --no-man-pages --no-header-files --compress zip-6

@@ -23,6 +23,7 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 12. Sharing the model
 12b. Talking to the Librarian
 12c. Bridges: questions that connect two subjects
+12d. Your databases
 13. The map
 14. Fields
 15. Running it as a service
@@ -1109,6 +1110,78 @@ The housekeeping runs one pass a night from the busiest areas and files up to th
 `per_night=0` turns it off. Every proposal carries the settings that found it. `measure` reads that
 ledger, so over time you can see which settings produce bridges worth keeping.
 
+## 12d. Your databases
+
+You can give the library read-only access to a database. Research runs and the chat can then answer
+questions from your own data, and a report can cite the query it ran.
+
+```
+researchzosho db add shop postgres://reader@db.example:5432/shop --hide email
+researchzosho db add notes ~/data/notes.sqlite
+researchzosho db add tides ~/data/tide-csvs
+researchzosho db list
+researchzosho db schema shop
+researchzosho db query shop "SELECT placed::date, count(*) FROM orders GROUP BY 1 ORDER BY 1"
+researchzosho db remove shop
+```
+
+**Kinds.** SQLite, PostgreSQL and MySQL or MariaDB work out of the box. SQL Server, MongoDB and DuckDB
+are downloaded when you ask, and each download is checked against a fixed checksum:
+
+```
+researchzosho db drivers
+researchzosho db driver install mongo
+```
+
+| kind | address |
+|---|---|
+| SQLite | the path of the file |
+| PostgreSQL | `postgres://user:password@host:5432/dbname` |
+| MySQL or MariaDB | `mysql://user:password@host:3306/dbname` |
+| SQL Server | `sqlserver://user:password@host:1433/dbname` |
+| MongoDB | `mongodb://user:password@host:27017/dbname` |
+| DuckDB | `duckdb:/path/file.duckdb`, or a folder of CSV, Parquet or JSON files |
+
+Leave the password out of the address and you are asked for it, so it stays out of your shell history.
+
+**Read-only.** Give the library a database user that can only read. On top of that, the connection is
+opened read-only, every statement is checked before it runs, and nothing is ever committed. A statement
+must be a single one and must start with SELECT, WITH, SHOW, EXPLAIN or DESCRIBE. For MongoDB, only
+`find` and pipeline stages that read are allowed:
+
+```
+researchzosho db query mg --collection orders --filter '{"customer":"Ada"}'
+researchzosho db query mg --collection orders --pipeline '[{"$group":{"_id":"$customer","spent":{"$sum":"$total"}}}]'
+```
+
+A folder of data files is loaded into DuckDB as one table per file. After loading, DuckDB's access to
+other files is turned off.
+
+**Where the address is kept.** In `~/.researchzosho/databases.json`, readable only by you. It is not in
+the library folder. The password is never shown and never sent to the model.
+
+**Hiding columns.** `--hide email,customers.ssn` hides the values of those columns in every schema and
+every result. The column names still show, so a query can group or count by them.
+
+**Rows and your model.** Rows that a query returns are shown to the model and saved in the library. If
+your model is hosted elsewhere, `db add` and `db list` warn you that rows will be sent there.
+
+**Limits.** A query returns at most 500 rows, 100 by default, and stops after 30 seconds. Count and
+group in the query instead of reading every row.
+
+**Results are sources.** Each result is saved as a page with the query, the time and the rows. A
+report cites it like any other source, and the citation check reads the claim against the rows.
+
+**Starting research from a database.**
+
+```
+researchzosho survey db:shop
+researchzosho survey db:shop --pick 1,2
+```
+
+It reads the schema, saves one draft claim on what the database records, and lists research questions
+the data could answer. Only the library owner's questions can use a database.
+
 ## 13. The map
 
 A claim can say that a person lived in a place, an author wrote a work, or a company holds a
@@ -1288,7 +1361,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.4 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.5 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

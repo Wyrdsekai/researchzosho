@@ -38,6 +38,9 @@ public final class LibrarianCli {
               items <list|csv|url|calibre-library> [--lens "…"] [--as frontier|runs|none] [--match T]… [--sample N]
                                            a list of things (books, tools, an inventory, a Calibre library or its metadata.db). The list is saved whole, each item is checked against the library, and a question is made for each selected item
               holdings <words…>            search the lists you saved. Every word must appear in an entry
+              db add <name> <address> [--hide col,table.col]   give the library read-only access to a database
+              db list · schema <name> · query <name> "<sql>" [--limit N] · remove <name> · drivers · driver install <kind>
+                                           your databases: SQLite, PostgreSQL, MySQL or MariaDB in the box. SQL Server, MongoDB and DuckDB (also CSV and Parquet files) are fetched on request
               remove <I-…|F-…> [--report-only | --claims-only] [--yes]
                                            delete a report and its claims, only the report, only the claims, or one claim. retire keeps a claim but stops using it
               check <draft> [--verify]     your own draft or notes. Lists the claims to check, fetches its citations, saves its questions as open questions
@@ -400,6 +403,7 @@ public final class LibrarianCli {
                 case "add" -> { return add(store, args); }
                 case "absorb" -> { return absorb(store, args); }
                 case "holdings" -> { return holdings(store, args); }
+                case "db" -> { return db(store, args); }
                 case "remove" -> { return remove(store, args); }
                 case "survey", "repo" -> { return survey(store, args); }
                 case "items" -> { return items(store, args); }
@@ -1463,7 +1467,8 @@ public final class LibrarianCli {
         if (args.length < 3) { System.err.println("usage: researchzosho survey <folder|file|url> [--kind repo|paper|site|issues] [--pick 1,3] [--do \"what to research\"]"); return 2; }
         var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
         String what = args[2];
-        if (what.startsWith("http://") || what.startsWith("https://") || what.startsWith("git@")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
+        if (what.startsWith("db:")) a.put("database", what.substring(3));
+        else if (what.startsWith("http://") || what.startsWith("https://") || what.startsWith("git@")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
         if (args[1].equals("repo")) a.put("kind", "repo");
         String picks = null, own = null;
         try {
@@ -1540,6 +1545,88 @@ public final class LibrarianCli {
         for (var x : r.path("removed")) System.out.println("  deleted " + x.asText());
         System.out.println(r.path("summary").asText());
         return 0;
+    }
+
+    /** researchzosho db …: the databases the owner gives the library read-only access to. */
+    static int db(LibraryStore store, String[] args) throws Exception {
+        String usage = "usage: researchzosho db add <name> <address> [--hide col,table.col]\n"
+                + "       researchzosho db list | schema <name> | remove <name> | drivers | driver install <kind>\n"
+                + "       researchzosho db query <name> \"<sql>\" [--limit N]\n"
+                + "       researchzosho db query <name> --collection <c> [--filter '<json>' | --pipeline '<json array>'] [--limit N]   (MongoDB)\n"
+                + "addresses: a SQLite file path · postgres://user:password@host:5432/dbname · mysql://user:password@host:3306/dbname · sqlserver://user:password@host:1433/dbname · mongodb://user:password@host:27017/dbname · duckdb:/path/file.duckdb · a folder of CSV or Parquet files\n"
+                + "Use a database user that can only read. Leave the password out of the address and you are asked for it.";
+        if (args.length < 3) { System.err.println(usage); return 2; }
+        try {
+            switch (args[2]) {
+                case "drivers" -> {
+                    for (DbDrivers.Kind k : DbDrivers.KINDS.values()) System.out.println("  " + k.name() + "  " + k.label() + " — " + (k.inBox() ? "in the box" : DbDrivers.installed(k) ? "installed" : "not installed (" + k.sizeNote() + "): researchzosho db driver install " + k.name()));
+                    return 0;
+                }
+                case "driver" -> {
+                    if (args.length < 5 || !args[3].equals("install")) { System.err.println(usage); return 2; }
+                    DbDrivers.Kind k = DbDrivers.kind(args[4]);
+                    if (k == null) { System.err.println("No such kind. The kinds are: " + String.join(", ", DbDrivers.KINDS.keySet())); return 2; }
+                    if (k.inBox()) { System.out.println("The " + k.label() + " driver is in the box. Nothing to install."); return 0; }
+                    System.out.println("Downloading the " + k.label() + " driver (" + k.sizeNote() + ") to " + DbDrivers.dir() + " …");
+                    for (String f : DbDrivers.install(k)) System.out.println("  " + f);
+                    System.out.println("Installed. Each file matched its expected checksum.");
+                    return 0;
+                }
+                case "list" -> {
+                    java.util.List<Databases.Db> all = Databases.list();
+                    if (all.isEmpty()) System.out.println("No database has been added. Add one with: researchzosho db add <name> <address>");
+                    for (Databases.Db d : all) System.out.println("  " + d.name() + "  " + DbDrivers.kind(d.kind()).label() + "  " + d.shown() + (d.hide().isEmpty() ? "" : "  hidden columns: " + String.join(", ", d.hide())));
+                    String w = Databases.hostedWarning(); if (!w.isEmpty()) System.out.println(w);
+                    return 0;
+                }
+                case "add" -> {
+                    if (args.length < 5) { System.err.println(usage); return 2; }
+                    String name = args[3], address = args[4]; java.util.List<String> hide = new java.util.ArrayList<>();
+                    for (int i = 5; i < args.length; i++) { if (args[i].equals("--hide")) { for (String h : flagValue(args, i++).split(",")) if (!h.isBlank()) hide.add(h.strip()); } else { System.err.println("unknown flag " + args[i]); return 2; } }
+                    if (address.matches("^[a-z+]+://[^:/@]+@.*") && System.console() != null) {   // a user and no password: ask, so it stays out of the shell history
+                        char[] pw = System.console().readPassword("Password for %s: ", address.replaceAll("^[a-z+]+://([^@]+)@.*", "$1"));
+                        if (pw != null && pw.length > 0) address = address.replaceFirst("^([a-z+]+://[^@]+)@", "$1:" + java.util.regex.Matcher.quoteReplacement(java.net.URLEncoder.encode(new String(pw), java.nio.charset.StandardCharsets.UTF_8)) + "@");
+                    }
+                    Databases.Db d = Databases.add(name, address, hide);
+                    System.out.println("Added " + d.name() + " (" + DbDrivers.kind(d.kind()).label() + "), read-only. The address is kept in " + Databases.file() + ", not in the library.");
+                    System.out.println("Next: researchzosho db schema " + d.name() + "   or   researchzosho survey db:" + d.name());
+                    String w = Databases.hostedWarning(); if (!w.isEmpty()) System.out.println(w);
+                    return 0;
+                }
+                case "remove" -> {
+                    if (args.length < 4) { System.err.println(usage); return 2; }
+                    System.out.println(Databases.remove(args[3]) ? "Removed " + args[3] + ". Saved query results stay in the library." : "No database is named " + args[3] + ".");
+                    return 0;
+                }
+                case "schema" -> {
+                    if (args.length < 4) { System.err.println(usage); return 2; }
+                    Databases.Db d = Databases.get(args[3]);
+                    if (d == null) { System.err.println("No database is named " + args[3] + "."); return 1; }
+                    System.out.println(Databases.schema(d));
+                    return 0;
+                }
+                case "query" -> {
+                    if (args.length < 5) { System.err.println(usage); return 2; }
+                    Databases.Db d = Databases.get(args[3]);
+                    if (d == null) { System.err.println("No database is named " + args[3] + "."); return 1; }
+                    String sql = "", collection = "", filter = "", pipeline = ""; int limit = 0;
+                    for (int i = 4; i < args.length; i++) {
+                        switch (args[i]) {
+                            case "--limit" -> limit = flagInt(args, i++);
+                            case "--collection" -> collection = flagValue(args, i++);
+                            case "--filter" -> filter = flagValue(args, i++);
+                            case "--pipeline" -> pipeline = flagValue(args, i++);
+                            default -> sql = sql.isEmpty() ? args[i] : sql + " " + args[i];
+                        }
+                    }
+                    Databases.Result r = d.kind().equals("mongo") ? Databases.queryMongo(store, d, collection, filter, pipeline, limit) : Databases.query(store, d, sql, limit);
+                    System.out.println(r.text());
+                    if (!r.saved().isEmpty()) System.out.println("Saved as " + r.saved());
+                    return 0;
+                }
+                default -> { System.err.println(usage); return 2; }
+            }
+        } catch (java.io.IOException | IllegalArgumentException e) { System.err.println(e.getMessage()); return 1; }
     }
 
     /** researchzosho holdings <words…>: what the person's lists hold. */

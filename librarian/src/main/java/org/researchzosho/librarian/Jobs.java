@@ -149,7 +149,11 @@ public final class Jobs {
         List<ObjectNode> out = new ArrayList<>();
         if (!Files.isDirectory(activeDir())) return out;
         try (var s = Files.list(activeDir())) {
-            for (Path p : s.sorted().toList()) if (p.toString().endsWith(".json")) out.add(read(p));
+            for (Path p : s.sorted().toList()) {
+                if (!p.toString().endsWith(".json")) continue;
+                try { out.add(read(p)); }
+                catch (java.nio.file.NoSuchFileException gone) { }   // the job finished between the listing and the read: it is no longer active, which is the truth
+            }
         }
         return out;
     }

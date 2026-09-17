@@ -30,6 +30,13 @@ expect "questions unpark" "back in the queue" "$Z" questions unpark "How were th
 expect "questions list --grep" "1 shown" "$Z" questions list --grep "lead paint"
 expect "questions tidy" "no duplicate" "$Z" questions tidy
 expect "questions budget" "1 research run" "$Z" questions budget 1
+echo "== a database: the SQLite driver in this platform's tarball keeps only this platform's native code, so open one for real"
+echo "H4sIAAAAAAACA+3XMQrCQBAF0Nk12Mna2U6pIDZeIFEWCUbRdQtTbjBCwCjK4h28lKeysnIFbWzEVv5j/oeBucCsllnlS94eTrXzPKQ2CUExMxHJV95ESPSxfyNpcL60nsfqSmEAAAAAAAAA4GexaHaUEkfvil3pvRwbnVjNNhllmj13qw2nc6sn2vDCpLPE5DzVeZ/3ri7Z6rXtPX9zqW6k7qEAAAAAAAAA4G9EskGqiERo9wCEpOPDACAAAA==" | base64 -d 2>/dev/null | gunzip > "$W/fixture.db" || echo "H4sIAAAAAAACA+3XMQrCQBAF0Nk12Mna2U6pIDZeIFEWCUbRdQtTbjBCwCjK4h28lKeysnIFbWzEVv5j/oeBucCsllnlS94eTrXzPKQ2CUExMxHJV95ESPSxfyNpcL60nsfqSmEAAAAAAAAA4GexaHaUEkfvil3pvRwbnVjNNhllmj13qw2nc6sn2vDCpLPE5DzVeZ/3ri7Z6rXtPX9zqW6k7qEAAAAAAAAA4G9EskGqiERo9wCEpOPDACAAAA==" | base64 -D | gunzip > "$W/fixture.db"
+expect "db add (sqlite)" "Added fixture (SQLite)" "$Z" db add fixture "$W/fixture.db"
+expect "db query" "| 2 |" "$Z" db query fixture "SELECT count(*) AS n FROM t"
+expect "db refuses a write" "Only queries that read" "$Z" db query fixture "DELETE FROM t"
+expect "db drivers" "postgres  PostgreSQL — in the box" "$Z" db drivers
+check "db remove" "$Z" db remove fixture
 expect "shelf add" "every 3 days" "$Z" shelf add gears "antikythera gears cutting" 3
 expect "shelf park" "parked" "$Z" shelf park gears
 expect "tonight shows parked" "parked" "$Z" tonight

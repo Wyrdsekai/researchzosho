@@ -266,6 +266,20 @@ public final class McpServer {
                         prop("match", "string", "Only items whose line holds this text (a tag, an author, a year); an array for several, all must hold."),
                         prop("sample", "integer", "Of the matched items, this many at random."),
                         patronProp())));
+        tools.add(tool("library_db",
+                "The databases the library owner gave read access to (SQLite, PostgreSQL, MySQL or MariaDB, SQL Server, MongoDB, DuckDB and data files). "
+                + "op=list names them. op=schema with `database` gives tables, columns, row counts and sample rows: read it before writing a query. "
+                + "op=query runs ONE reading statement: `sql` (a single SELECT or WITH), or for MongoDB a `collection` with a `filter` or a `pipeline` as JSON. "
+                + "Rows are capped, so count and group in the query. The result is saved as a page; cite its locator. Only the owner may use this, and connections are added from the command line.",
+                schema(new String[]{},
+                        prop("op", "string", "list (default), schema, or query."),
+                        prop("database", "string", "The database's name, from op=list."),
+                        prop("sql", "string", "For query: one SELECT or WITH statement."),
+                        prop("collection", "string", "For a MongoDB query: the collection."),
+                        prop("filter", "string", "For a MongoDB query: a find filter as JSON."),
+                        prop("pipeline", "string", "For a MongoDB query: an aggregation pipeline as a JSON array. Only stages that read."),
+                        prop("limit", "integer", "Rows to return (default 100, at most 500)."),
+                        patronProp())));
         tools.add(tool("library_holdings",
                 "What the person's own lists hold: a Calibre library, an inventory, a reading list — every list shelved through "
                 + "library_items. An exact lookup: every word of the query must appear in an entry (title words, an author, a year). "
@@ -553,6 +567,7 @@ public final class McpServer {
             case "library_repo" -> p.repo(args);
             case "library_items" -> p.items(args);
             case "library_holdings" -> p.holdings(args);
+            case "library_db" -> p.db(args);
             case "library_remove" -> p.remove(args);
             case "library_check" -> p.check(args);
             case "library_reading" -> p.reading(args);

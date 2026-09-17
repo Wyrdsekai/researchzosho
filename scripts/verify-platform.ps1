@@ -42,6 +42,15 @@ Expect 'questions unpark' 'back in the queue' { & $Z questions unpark 'How were 
 Expect 'questions list --grep' '1 shown' { & $Z questions list --grep 'lead paint' }
 Expect 'questions tidy' 'no duplicate' { & $Z questions tidy }
 Expect 'questions budget' '1 research run' { & $Z questions budget 1 }
+Write-Output "== a database: this tarball's SQLite driver keeps only the Windows native code, so open one for real"
+$gz = [Convert]::FromBase64String('H4sIAAAAAAACA+3XMQrCQBAF0Nk12Mna2U6pIDZeIFEWCUbRdQtTbjBCwCjK4h28lKeysnIFbWzEVv5j/oeBucCsllnlS94eTrXzPKQ2CUExMxHJV95ESPSxfyNpcL60nsfqSmEAAAAAAAAA4GexaHaUEkfvil3pvRwbnVjNNhllmj13qw2nc6sn2vDCpLPE5DzVeZ/3ri7Z6rXtPX9zqW6k7qEAAAAAAAAA4G9EskGqiERo9wCEpOPDACAAAA==')
+$ms = New-Object System.IO.MemoryStream(,$gz); $gs = New-Object System.IO.Compression.GZipStream($ms, [System.IO.Compression.CompressionMode]::Decompress)
+$fs = [System.IO.File]::Create("$W\fixture.db"); $gs.CopyTo($fs); $fs.Close(); $gs.Close()
+Expect 'db add (sqlite)' 'Added fixture \(SQLite\)' { & $Z db add fixture "$W\fixture.db" }
+Expect 'db query' '\| 2 \|' { & $Z db query fixture 'SELECT count(*) AS n FROM t' }
+Expect 'db refuses a write' 'Only queries that read' { & $Z db query fixture 'DELETE FROM t' }
+Expect 'db drivers' 'PostgreSQL' { & $Z db drivers }
+Expect 'db remove' 'Removed fixture' { & $Z db remove fixture }
 Expect 'shelf add' 'every 3 days' { & $Z shelf add gears 'antikythera gears cutting' 3 }
 Expect 'shelf park' 'parked' { & $Z shelf park gears }
 Expect 'tonight shows parked' 'parked' { & $Z tonight }

@@ -21,7 +21,15 @@ grep -q "\"identifier\": \"ghcr.io/wyrdsekai/researchzosho:$VER\"" server.json |
 # every model row and pinned build the on-demand install would fetch must still resolve (a row went 404 upstream once, 2026-09-12)
 librarian/build/install/researchzosho/bin/researchzosho model check
 rm -rf dist && mkdir -p dist
-tar czf "dist/researchzosho-$VER.tar.gz" -C librarian/build/install researchzosho
+# the plain tarball runs on any of the five platforms we ship for: its SQLite driver keeps those natives and drops the other twenty
+PLAIN=$(mktemp -d); cp -R librarian/build/install/researchzosho "$PLAIN/researchzosho"
+JAR=$(ls "$PLAIN"/researchzosho/lib/sqlite-jdbc-*.jar 2>/dev/null | head -1)
+if [ -n "$JAR" ]; then
+    DROP=$(unzip -Z1 "$JAR" | grep '^org/sqlite/native/[^/]*/[^/]*/.' | grep -Ev '^org/sqlite/native/(Linux/x86_64/|Linux/aarch64/|Linux-Musl/x86_64/|Linux-Musl/aarch64/|Mac/x86_64/|Mac/aarch64/|Windows/x86_64/)' || true)
+    [ -z "$DROP" ] || echo "$DROP" | xargs zip -q -d "$JAR" >/dev/null
+fi
+tar czf "dist/researchzosho-$VER.tar.gz" -C "$PLAIN" researchzosho
+rm -rf "$PLAIN"
 # the builds with their own Java runtime, one per platform, from the tarball just made (scripts/package-runtime.sh)
 scripts/package-runtime.sh dist "$VER"
 ( cd dist && sha256sum researchzosho-*.tar.gz > SHA256SUMS )

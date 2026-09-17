@@ -65,7 +65,7 @@ public final class Calibre {
     public static List<Book> fromDatabase(Path db) throws Exception {
         Class.forName("org.sqlite.JDBC");
         List<Book> out = new ArrayList<>();
-        String url = "jdbc:sqlite:file:" + db.toAbsolutePath().toString().replace("\\", "/") + "?immutable=1&mode=ro";
+        String url = "jdbc:sqlite:" + sqliteUri(db.toAbsolutePath().toString()) + "?immutable=1&mode=ro";
         try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement(); ResultSet rs = st.executeQuery(QUERY)) {
             while (rs.next()) {
                 String series = nz(rs.getString("series"));
@@ -75,6 +75,17 @@ public final class Calibre {
             }
         }
         return out;
+    }
+
+    /**
+     * A file's address as SQLite wants it in a URI: forward slashes; a Windows drive path as file:///C:/…
+     * ("file:C:/…" is read as a relative name and fails with "unable to open database file", which broke this
+     * reader on Windows from 0.4.1 to 0.4.4); and the characters a URI gives meaning to escaped.
+     */
+    public static String sqliteUri(String absolutePath) {
+        String p = absolutePath.replace("\\", "/").replace("%", "%25").replace("?", "%3f").replace("#", "%23").replace(" ", "%20");
+        if (p.matches("^[A-Za-z]:/.*")) return "file:///" + p;
+        return "file:" + p;
     }
 
     static final Pattern TITLE = Pattern.compile("<dc:title[^>]*>(.*?)</dc:title>", Pattern.DOTALL);

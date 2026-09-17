@@ -395,8 +395,12 @@ public final class LibraryProtocol {
         String op = args.path("op").asText("survey").strip().toLowerCase(Locale.ROOT);
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), name = args.path("name").asText("").strip();
         if (path.startsWith("http://") || path.startsWith("https://") || Repos.isUrl(path)) { url = path; path = ""; }
+        String database = args.path("database").asText("").strip();
+        if (path.startsWith("db:")) { database = path.substring(3); path = ""; }
+        if (url.startsWith("db:")) { database = url.substring(3); url = ""; }
+        if (!database.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can read the owner's databases.");
         if (!path.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can survey a file or a folder on this machine, from the terminal or the library's own pages. A url works from here.");
-        String spec = path.isEmpty() ? url : path;
+        String spec = !database.isEmpty() ? "db:" + database : path.isEmpty() ? url : path;
         ObjectNode r = envelope();
         r.put("op", op);
         if (op.equals("survey")) {
@@ -418,7 +422,7 @@ public final class LibraryProtocol {
             r.put("raw", f.raw()); r.put("claim_id", f.claimId());
             ArrayNode opts = r.putArray("options"); for (Surveys.Option o : f.options()) opts.addObject().put("n", o.n()).put("question", o.question());
             ArrayNode already = r.putArray("already_open"); f.alreadyOpen().forEach(already::add);
-            String about = switch (kind) { case repo -> read.facts().getOrDefault("files", "?") + " files" + (read.facts().getOrDefault("languages", "").isEmpty() ? "" : "; " + read.facts().get("languages")); case paper, site -> read.facts().getOrDefault("characters", "?") + " characters"; case issues -> read.facts().getOrDefault("issues", "?") + " issues"; };
+            String about = switch (kind) { case repo -> read.facts().getOrDefault("files", "?") + " files" + (read.facts().getOrDefault("languages", "").isEmpty() ? "" : "; " + read.facts().get("languages")); case paper, site -> read.facts().getOrDefault("characters", "?") + " characters"; case issues -> read.facts().getOrDefault("issues", "?") + " issues"; case db -> read.facts().getOrDefault("tables", "?") + " tables, " + read.facts().getOrDefault("engine", ""); };
             r.put("summary", "Read the " + Surveys.noun(kind) + " " + read.name() + " (" + about + "). The text is in the library (collection " + Surveys.collection(kind) + "). One draft claim says what it is (" + f.claimId() + "). " + f.options().size() + " direction(s) are offered on the open questions. Nothing runs until you pick one.");
             r.put("next", "op=pick with picks=\"1,3\" and name=\"" + read.name() + "\" files a research run per direction. op=do with question=\"…\" files your own.");
             return r;
@@ -565,6 +569,45 @@ public final class LibraryProtocol {
             if (!org.researchzosho.tools.DocText.isSqlite(in.readNBytes(16))) return false;
         } catch (IOException e) { return false; }
         try { Calibre.fromDatabase(f); return true; } catch (Exception e) { return false; }
+    }
+
+    /**
+     * library_db: the databases the library owner gave read access to. op=list names them; op=schema with database
+     * gives tables, columns, row counts and sample rows; op=query runs one reading statement (sql, or for MongoDB a
+     * collection with a filter or a pipeline) and saves the result as a page to cite. Connections are added from the
+     * command line only, by the owner. Only the owner may use this.
+     */
+    public ObjectNode db(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can read the owner's databases.");
+        String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        r.put("op", op);
+        String warn = Databases.hostedWarning();
+        if (!warn.isEmpty()) r.put("warning", warn);
+        if (op.equals("list")) {
+            ArrayNode out = r.putArray("databases");
+            for (Databases.Db d : Databases.list()) { ObjectNode n = out.addObject(); n.put("name", d.name()); n.put("kind", d.kind()); n.put("address", d.shown()); ArrayNode h = n.putArray("hidden_columns"); d.hide().forEach(h::add); }
+            r.put("summary", out.size() == 0 ? "No database has been added. The owner adds one with: researchzosho db add <name> <address>" : out.size() + " database(s).");
+            return r;
+        }
+        Databases.Db d = Databases.get(args.path("database").asText(""));
+        if (d == null) throw ProtocolError.notFound("No database is named " + args.path("database").asText("") + ". op=list shows the names.");
+        r.put("database", d.name()); r.put("kind", d.kind());
+        try {
+            if (op.equals("schema")) { r.put("schema", Databases.schema(d)); r.put("summary", "The schema of " + d.name() + "."); return r; }
+            if (op.equals("query")) {
+                Databases.Result res = d.kind().equals("mongo")
+                        ? Databases.queryMongo(store, d, args.path("collection").asText(""), args.path("filter").asText(""), args.path("pipeline").asText(""), args.path("limit").asInt(0))
+                        : Databases.query(store, d, args.path("sql").asText(""), args.path("limit").asInt(0));
+                ArrayNode cols = r.putArray("columns"); res.columns().forEach(cols::add);
+                ArrayNode rows = r.putArray("rows"); for (List<String> row : res.rows()) { ArrayNode rr = rows.addArray(); row.forEach(rr::add); }
+                r.put("more", res.more()); r.put("saved", res.saved()); r.put("text", res.text());
+                r.put("summary", res.rows().size() + " row(s)" + (res.more() ? ". More rows exist: count or group in the query, or raise limit." : ".") + (res.saved().isEmpty() ? "" : " Saved as " + res.saved() + "."));
+                return r;
+            }
+        } catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        throw ProtocolError.invalidArgs("op must be list, schema or query.");
     }
 
     /**
