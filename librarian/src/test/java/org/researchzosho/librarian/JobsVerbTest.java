@@ -25,7 +25,7 @@ class JobsVerbTest {
         assertTrue(id.startsWith("J-"), id);
 
         String list = run(store, "jobs");
-        assertTrue(list.contains("jobs: 0 running, 1 queued"), list);
+        assertTrue(list.contains("research runs: 0 running, 1 queued"), list);
         assertTrue(list.contains(id + " [queued] research") && list.contains("Antikythera"), list);
 
         String one = run(store, "jobs", id);

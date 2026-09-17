@@ -29,12 +29,12 @@ expect "questions list --parked" "parked" "$Z" questions list --parked
 expect "questions unpark" "back in the queue" "$Z" questions unpark "How were the gears of the Antikythera mechanism cut?"
 expect "questions list --grep" "1 shown" "$Z" questions list --grep "lead paint"
 expect "questions tidy" "no duplicate" "$Z" questions tidy
-expect "questions budget" "1 run" "$Z" questions budget 1
+expect "questions budget" "1 research run" "$Z" questions budget 1
 expect "shelf add" "every 3 days" "$Z" shelf add gears "antikythera gears cutting" 3
 expect "shelf park" "parked" "$Z" shelf park gears
 expect "tonight shows parked" "parked" "$Z" tonight
 expect "shelf unpark" "back in the rotation" "$Z" shelf unpark gears
-expect "inbox empty" "nothing awaits" "$Z" inbox
+expect "inbox empty" "The inbox is empty" "$Z" inbox
 expect "refresh" "refreshed" "$Z" refresh
 expect "update status" "$VER" "$Z" update status
 expect "embed status" "embeddings server" "$Z" embed status
@@ -44,8 +44,8 @@ PORT2=$(( 20000 + RANDOM % 20000 ))
 for i in $(seq 1 30); do curl -s -o /dev/null "http://127.0.0.1:$PORT2/" && break; sleep 1; done
 expect "page /questions" "Open questions" curl -s "http://127.0.0.1:$PORT2/questions?show=all"
 expect "page /questions grouped" "Park" curl -s "http://127.0.0.1:$PORT2/questions"
-expect "page /inbox" "Nothing awaits" curl -s "http://127.0.0.1:$PORT2/inbox"
-expect "page /jobs pause button" "Pause the runner" curl -s "http://127.0.0.1:$PORT2/jobs"
+expect "page /inbox" "No claims are waiting" curl -s "http://127.0.0.1:$PORT2/inbox"
+expect "page /jobs pause button" "Pause research" curl -s "http://127.0.0.1:$PORT2/jobs"
 expect "csp allows the pick form's script" "unsafe-inline" curl -sI "http://127.0.0.1:$PORT2/questions"
 expect "http frontier filters" "Antikythera" curl -s -X POST "http://127.0.0.1:$PORT2/v1/frontier" -H 'Content-Type: application/json' -d '{"op":"list","q":"gears"}'
 expect "http inbox" "items" curl -s -X POST "http://127.0.0.1:$PORT2/v1/inbox" -H 'Content-Type: application/json' -d '{"op":"list"}'

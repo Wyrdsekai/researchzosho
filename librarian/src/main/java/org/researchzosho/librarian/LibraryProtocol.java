@@ -43,7 +43,7 @@ public final class LibraryProtocol {
     /** The configured library, or {@code unavailable} when the person has not created one. */
     public static LibraryProtocol open() {
         if (!Acquisitions.libraryExists()) {
-            throw ProtocolError.unavailable("This machine has no library yet; the person creates one with `researchzosho init`.");
+            throw ProtocolError.unavailable("This machine has no library yet. Create one with `researchzosho init`.");
         }
         return new LibraryProtocol(LibraryStore.open());
     }
@@ -186,21 +186,21 @@ public final class LibraryProtocol {
     public ObjectNode get(JsonNode args) throws IOException {
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
         String id = reqStr(args, "id");
-        if (!LibraryStore.safeName(id)) throw ProtocolError.invalidArgs("An id is a shelf name (F-…, I-…, A-…, or a raw file name), not a path.");
+        if (!LibraryStore.safeName(id)) throw ProtocolError.invalidArgs("An id is an entry name (F-…, I-…, A-…, or a saved page's file name), not a path.");
         String section = args.path("section").asText("").strip();
         int offset = args.path("offset").asInt(0);
         int max = args.path("max_chars").asInt(0);
-        if (offset < 0 || max < 0) throw ProtocolError.invalidArgs("offset and max_chars are zero or positive numbers.");
+        if (offset < 0 || max < 0) throw ProtocolError.invalidArgs("offset and max_chars must be zero or a positive number.");
         ObjectNode r = envelope();
         ObjectNode e = entry(id, kindOf(id), true);
-        if (e == null) throw ProtocolError.notFound("id " + id);
+        if (e == null) throw ProtocolError.notFound("No entry has the id " + id + ".");
         // A record can run past what a tool call may carry (an investigation of 150,000 characters, measured 2026-09-11):
         // a caller asks for one section, or a window of the body, and gets the whole list of sections either way.
         String body = e.path("body").asText("");
         if (!section.isEmpty()) {
             String cut = sectionOf(body, section);
-            if (cut == null) throw ProtocolError.invalidArgs("No section \"" + section + "\" in " + id + "; the sections are: "
-                    + String.join(", ", sectionHeadings(body)) + (sectionHeadings(body).isEmpty() ? "(none: the body has no headings)" : "") + ". \"answer\" is the write-up without the harness's own sections.");
+            if (cut == null) throw ProtocolError.invalidArgs("No section \"" + section + "\" in " + id + ". The sections are: "
+                    + String.join(", ", sectionHeadings(body)) + (sectionHeadings(body).isEmpty() ? "(none: the body has no headings)" : "") + ". \"answer\" is the report without the sections the research run added.");
             body = cut;
             e.put("section", section);
         }
@@ -265,7 +265,7 @@ public final class LibraryProtocol {
         int max = args.path("max_chars").asInt(20_000);
         if (max <= 0) throw ProtocolError.invalidArgs("max_chars must be a positive number.");
         Path p = rawFor(locator);
-        if (p == null) throw ProtocolError.notFound("a captured document for " + locator);
+        if (p == null) throw ProtocolError.notFound("No saved page matches " + locator + ".");
         String[] raw = RawCapture.read(p);
         ObjectNode r = envelope();
         r.put("locator", raw[0].isEmpty() ? locator : raw[0]);
@@ -332,12 +332,12 @@ public final class LibraryProtocol {
         String collection = args.path("collection").asText("").strip();
         ObjectNode r = envelope();
         if (!url.isEmpty()) {
-            if (!mode.equals("keep")) throw ProtocolError.invalidArgs("A url is always kept: the web changes under a link. Use mode=keep.");
+            if (!mode.equals("keep")) throw ProtocolError.invalidArgs("A url is always kept, because web pages change. Use mode=keep.");
             Object[] got;
             try { got = Corpus.addUrl(store, url, collection); }
-            catch (Exception e) { throw ProtocolError.unavailable("could not read " + url + ": " + e.getMessage()); }
+            catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             Path raw = (Path) got[0];
-            if (raw == null) throw ProtocolError.unavailable("the page was read but not shelved (no library, or the capture was refused)");
+            if (raw == null) throw ProtocolError.unavailable("The page was read but not saved to the library (no library, or the page was refused).");
             r.put("kind", "url"); r.put("mode", "keep"); r.put("url", url); r.put("title", String.valueOf(got[1])); r.put("format", String.valueOf(got[2]));
             r.put("raw", raw.getFileName().toString());
             if (!collection.isEmpty()) r.put("collection", collection);
@@ -346,9 +346,9 @@ public final class LibraryProtocol {
             return r;
         }
         // paths are the keeper's: the terminal, or the pages while they are open (the same rule Patrons.check applies to a browser)
-        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: add files and folders from the terminal or the library's own pages. A url can be added from here.");
+        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can add files and folders on this machine, from the terminal or the library's own pages. A url can be added from here.");
         Path target = Path.of(path).toAbsolutePath().normalize();
-        if (!Files.exists(target)) throw ProtocolError.notFound(target + " (is the drive mounted?)");
+        if (!Files.exists(target)) throw ProtocolError.notFound("Nothing is at " + target + ". Is the drive mounted?");
         if (Files.isDirectory(target)) {
             if (collection.isEmpty()) collection = Corpus.nameFor(target);
             r.put("kind", "folder"); r.put("path", target.toString()); r.put("collection", collection); r.put("mode", mode);
@@ -357,7 +357,7 @@ public final class LibraryProtocol {
                 r.put("files", sv.files()); r.put("bytes", sv.bytes()); r.put("text_bytes_if_kept", sv.textBytes()); r.put("disk_free_bytes", sv.freeBytes()); r.put("unreadable_sampled", sv.unreadable());
                 ObjectNode bt = r.putObject("by_type"); sv.byType().forEach(bt::put);
                 r.put("summary", sv.line());
-                r.put("next", "add it with mode=keep (the text is copied onto the shelves) or mode=link (read in place, nothing copied)");
+                r.put("next", "Add it with mode=keep (the text is copied into the library) or mode=link (read in place, nothing copied).");
                 return r;
             }
             Corpus.Outcome o = Corpus.addFolder(store, target, collection, true, mode.equals("link"));
@@ -365,19 +365,19 @@ public final class LibraryProtocol {
             r.put("seen", o.seen()); r.put("added", o.added()); r.put("unchanged", o.unchanged()); r.put("changed", o.changed()); r.put("skipped", o.skipped());
             r.put("registered", register);
             ArrayNode pr = r.putArray("problems"); for (String x : o.problems()) pr.add(x);
-            r.put("summary", "collection " + collection + ": " + o.line() + (mode.equals("link") ? "; read in place, nothing copied" : "") + (register ? "; registered, the housekeeping rescans it" : ""));
-            r.put("next", "research it with library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}");
+            r.put("summary", "Collection " + collection + ": " + o.line() + "." + (mode.equals("link") ? " The files were read in place. Nothing was copied." : "") + (register ? " The folder is registered. Nightly maintenance rescans it." : ""));
+            r.put("next", "Research it with library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}");
             store.circulate("add", patron.label() + " :: " + target + " (" + mode + ")");
             return r;
         }
-        if (mode.equals("survey")) throw ProtocolError.invalidArgs("survey is for a folder; a single file is added with keep or link.");
+        if (mode.equals("survey")) throw ProtocolError.invalidArgs("survey is for a folder. Add a single file with keep or link.");
         Path raw = Corpus.addFile(store, target, collection, mode.equals("link"));
-        if (raw == null) throw ProtocolError.unavailable("no text could be read from " + target.getFileName());
+        if (raw == null) throw ProtocolError.unavailable("No text could be read from " + target.getFileName() + ".");
         r.put("kind", "file"); r.put("path", target.toString()); r.put("mode", mode); r.put("raw", raw.getFileName().toString());
         r.put("title", RawCapture.read(raw)[1]);
         if (!collection.isEmpty()) r.put("collection", collection);
         r.put("added", 1);
-        r.put("next", "ask about it with library_ask, or research it with library_research {sources: \"shelves\"}");
+        r.put("next", "Ask about it with library_ask, or research it with library_research {sources: \"shelves\"}");
         store.circulate("add", patron.label() + " :: " + target + " (" + mode + ")");
         return r;
     }
@@ -395,7 +395,7 @@ public final class LibraryProtocol {
         String op = args.path("op").asText("survey").strip().toLowerCase(Locale.ROOT);
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), name = args.path("name").asText("").strip();
         if (path.startsWith("http://") || path.startsWith("https://") || Repos.isUrl(path)) { url = path; path = ""; }
-        if (!path.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: survey a file or a folder from the terminal or the library's own pages. A url works from here.");
+        if (!path.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can survey a file or a folder on this machine, from the terminal or the library's own pages. A url works from here.");
         String spec = path.isEmpty() ? url : path;
         ObjectNode r = envelope();
         r.put("op", op);
@@ -403,7 +403,7 @@ public final class LibraryProtocol {
             if (spec.isEmpty()) throw ProtocolError.invalidArgs("Give the thing to read: a path on this machine (a repository folder, a paper, an export), or a url (a repository, a paper, a page, a GitHub issues page).");
             Surveys.Kind kind;
             String kindGiven = args.path("kind").asText("").strip().toLowerCase(Locale.ROOT);
-            try { kind = kindGiven.isEmpty() ? Surveys.detect(spec) : Surveys.Kind.valueOf(kindGiven); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("kind is repo, paper, site or issues"); }
+            try { kind = kindGiven.isEmpty() ? Surveys.detect(spec) : Surveys.Kind.valueOf(kindGiven); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("kind must be repo, paper, site or issues."); }
             Surveys.Read read;
             try { read = Surveys.read(store, kind, spec); } catch (IOException e) { throw ProtocolError.unavailable(e.getMessage()); }
             Surveys.Description d = Surveys.describe(read, Explain.drive());
@@ -419,14 +419,14 @@ public final class LibraryProtocol {
             ArrayNode opts = r.putArray("options"); for (Surveys.Option o : f.options()) opts.addObject().put("n", o.n()).put("question", o.question());
             ArrayNode already = r.putArray("already_open"); f.alreadyOpen().forEach(already::add);
             String about = switch (kind) { case repo -> read.facts().getOrDefault("files", "?") + " files" + (read.facts().getOrDefault("languages", "").isEmpty() ? "" : "; " + read.facts().get("languages")); case paper, site -> read.facts().getOrDefault("characters", "?") + " characters"; case issues -> read.facts().getOrDefault("issues", "?") + " issues"; };
-            r.put("summary", "read the " + Surveys.noun(kind) + " " + read.name() + " (" + about + "): the text is on the shelves (collection " + Surveys.collection(kind) + "), one draft claim says what it is (" + f.claimId() + "), " + f.options().size() + " direction(s) are offered on the open questions; nothing runs until one is picked");
-            r.put("next", "op=pick with picks=\"1,3\" and name=\"" + read.name() + "\" files a research run per direction; op=do with question=\"…\" files your own");
+            r.put("summary", "Read the " + Surveys.noun(kind) + " " + read.name() + " (" + about + "). The text is in the library (collection " + Surveys.collection(kind) + "). One draft claim says what it is (" + f.claimId() + "). " + f.options().size() + " direction(s) are offered on the open questions. Nothing runs until you pick one.");
+            r.put("next", "op=pick with picks=\"1,3\" and name=\"" + read.name() + "\" files a research run per direction. op=do with question=\"…\" files your own.");
             return r;
         }
         if (name.isEmpty() && !spec.isEmpty()) name = Repos.nameOf(spec);
-        if (name.isEmpty()) throw ProtocolError.invalidArgs("Name the thing (name=…, as the survey called it) that was surveyed.");
+        if (name.isEmpty()) throw ProtocolError.invalidArgs("Give the name of the surveyed thing (name=…, as the survey called it).");
         Finding claim = Surveys.claimFor(store, name);
-        if (claim == null) throw ProtocolError.notFound("no survey named " + name + "; op=survey reads it first");
+        if (claim == null) throw ProtocolError.notFound("No survey is named " + name + ". Run op=survey first.");
         Surveys.Kind kind = Surveys.kindOf(claim);
         String origin = claim.sources().isEmpty() ? name : claim.sources().get(0).locator();
         r.put("kind", kind.name()); r.put("name", name); r.put("origin", origin); r.put("claim_id", claim.id());
@@ -437,7 +437,7 @@ public final class LibraryProtocol {
             List<Surveys.Option> options = Surveys.options(store, name);
             List<Integer> wanted = new ArrayList<>();
             for (String t : picks.split("[,\\s]+")) if (t.matches("\\d+")) wanted.add(Integer.parseInt(t));
-            if (wanted.isEmpty()) throw ProtocolError.invalidArgs("picks must be numbers, like \"1,3\"");
+            if (wanted.isEmpty()) throw ProtocolError.invalidArgs("picks must be numbers, like \"1,3\".");
             for (int n : wanted) {
                 Surveys.Option o = options.stream().filter(x -> x.n() == n).findFirst().orElse(null);
                 if (o == null) { runs.addObject().put("n", n).put("error", "no open direction numbered " + n + " for " + name); continue; }
@@ -458,11 +458,11 @@ public final class LibraryProtocol {
             String job = research(ask).path("job_id").asText();
             Frontier.markExplored(store, q, job);
             runs.addObject().put("question", q).put("job_id", job);
-        } else throw ProtocolError.invalidArgs("op is survey, pick or do");
+        } else throw ProtocolError.invalidArgs("op must be survey, pick or do.");
         int filed = 0; for (JsonNode j : runs) if (j.hasNonNull("job_id")) filed++;
         ArrayNode left = r.putArray("options"); for (Surveys.Option o : Surveys.options(store, name)) left.addObject().put("n", o.n()).put("question", o.question());
-        r.put("summary", filed + " research run(s) filed about " + name + (left.size() > 0 ? "; " + left.size() + " direction(s) still open" : ""));
-        r.put("next", "library_job follows each run; op=pick or op=do files more");
+        r.put("summary", filed + " research run(s) were filed about " + name + "." + (left.size() > 0 ? " " + left.size() + " direction(s) are still open." : ""));
+        r.put("next", "library_job follows each research run. op=pick or op=do files more.");
         store.circulate("survey", patron.label() + " :: " + name + " " + op + " — " + filed + " run(s)");
         return r;
     }
@@ -480,23 +480,24 @@ public final class LibraryProtocol {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         String id = args.path("id").asText("").strip();
-        if (id.isEmpty()) throw ProtocolError.invalidArgs("Name what to remove: id = a report (I-…) or a claim (F-…).");
+        if (id.isEmpty()) throw ProtocolError.invalidArgs("Give the id of a report (I-…) or a claim (F-…) to delete.");
         Removal.What what;
-        try { what = Removal.What.valueOf(args.path("what").asText("all").strip().toLowerCase(Locale.ROOT)); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("what is all, report or claims"); }
+        try { what = Removal.What.valueOf(args.path("what").asText("all").strip().toLowerCase(Locale.ROOT)); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("what must be all, report or claims."); }
         boolean dry = args.path("dry").asBoolean(false);
         Removal.Plan plan;
-        try { plan = Removal.plan(store, id, what); } catch (IOException e) { throw ProtocolError.notFound(e.getMessage()); }
+        try { plan = Removal.plan(store, id, what); } catch (IOException e) { throw ProtocolError.notFound("No entry has the id " + id + "."); }
         ObjectNode r = envelope();
         r.put("id", plan.id()); r.put("kind", plan.kind()); r.put("title", plan.title()); r.put("what", plan.what().name()); r.put("dry", dry);
         r.put("report_goes", plan.reportGoes());
         ArrayNode go = r.putArray("claims_go"); for (int i = 0; i < plan.claimsGo().size(); i++) go.addObject().put("id", plan.claimsGo().get(i)).put("title", plan.titles().get(i));
-        ArrayNode stay = r.putArray("claims_stay"); plan.claimsStay().forEach(stay::add);
+        ArrayNode stayOut = r.putArray("claims_stay"); plan.claimsStay().forEach(stayOut::add);
         r.put("plan", Removal.describe(plan));
-        if (dry) { r.put("summary", "would remove " + plan.count() + " entr" + (plan.count() == 1 ? "y" : "ies") + (plan.claimsStay().isEmpty() ? "" : ", keeping " + plan.claimsStay().size() + " cited elsewhere") + "; nothing removed"); r.put("next", "the same call with dry=false removes them"); return r; }
+        int stay = plan.claimsStay().size();
+        if (dry) { r.put("summary", "Preview: " + plan.count() + (plan.count() == 1 ? " entry" : " entries") + " would be deleted." + (stay == 0 ? "" : " " + stay + (stay == 1 ? " claim would be kept because another report cites it." : " claims would be kept because another report cites them.")) + " Nothing was deleted."); r.put("next", "Run the same call with dry=false to delete them."); return r; }
         Removal.Done done = Removal.apply(store, plan, patron.writer());
         ArrayNode removed = r.putArray("removed"); done.removed().forEach(removed::add);
-        r.put("summary", "removed " + done.removed().size() + " entr" + (done.removed().size() == 1 ? "y" : "ies") + (plan.claimsStay().isEmpty() ? "" : "; " + plan.claimsStay().size() + " claim(s) kept, cited by another report") + "; the changes log says so");
-        r.put("next", "library_changes lists the removals; there is no undo");
+        r.put("summary", "Deleted " + done.removed().size() + (done.removed().size() == 1 ? " entry." : " entries.") + (stay == 0 ? "" : " " + stay + (stay == 1 ? " claim was kept because another report cites it." : " claims were kept because another report cites them.")) + " This is recorded in the change log.");
+        r.put("next", "This cannot be undone. library_changes lists what was deleted.");
         return r;
     }
 
@@ -518,7 +519,7 @@ public final class LibraryProtocol {
         ArrayNode out = r.putArray("matches");
         for (Holdings.Match m : found) { ObjectNode n = out.addObject(); n.put("item", m.item()); if (!m.note().isEmpty()) n.put("note", m.note()); n.put("list", m.list()); n.put("raw", m.raw()); }
         r.put("count", found.size());
-        r.put("summary", found.isEmpty() ? "the person's lists hold nothing matching \"" + q + "\" (" + Holdings.size(store) + " entries in all)" : found.size() + " entr" + (found.size() == 1 ? "y" : "ies") + " match \"" + q + "\"" + (found.size() >= limit ? " (the first " + limit + ")" : ""));
+        r.put("summary", found.isEmpty() ? "No list entry matches \"" + q + "\" (" + Holdings.size(store) + " entries in all)." : found.size() + (found.size() == 1 ? " entry matches \"" : " entries match \"") + q + "\"" + (found.size() >= limit ? " (the first " + limit + ")" : "") + ".");
         return r;
     }
 
@@ -536,16 +537,16 @@ public final class LibraryProtocol {
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), text = args.path("text").asText("");
         if (path.startsWith("http://") || path.startsWith("https://")) { url = path; path = ""; }
         int given = (path.isEmpty() ? 0 : 1) + (url.isEmpty() ? 0 : 1) + (text.isBlank() ? 0 : 1);
-        if (given != 1) throw ProtocolError.invalidArgs("Give one of: a path (a saved transcript or an export file), a url, or the text of the conversation.");
+        if (given != 1) throw ProtocolError.invalidArgs("Give one of these: a file path (a saved transcript or an export file), a url, or the conversation text.");
         String collection = args.path("collection").asText("conversations").strip();
         String titleGiven = args.path("title").asText("").strip();
         int limit = Math.max(1, args.path("limit").asInt(Conversations.DEFAULT_THREADS));
         boolean verify = args.path("verify").asBoolean(false);
         byte[] bytes; String source, nameHint;
         if (!path.isEmpty()) {
-            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: absorb a file from the terminal or the library's own pages. A url or the pasted text works from here.");
+            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the text.");
             Path f = Path.of(path).toAbsolutePath().normalize();
-            if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f + " (a file; for a folder of documents use library_add)");
+            if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f + " is not a file. For a folder of documents, use library_add.");
             bytes = Files.readAllBytes(f); source = f.toString(); nameHint = f.getFileName().toString();
         } else if (!url.isEmpty()) {
             try {
@@ -553,7 +554,7 @@ public final class LibraryProtocol {
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
                 String ct = resp.contentType() == null ? "" : resp.contentType();
                 bytes = ct.contains("json") ? resp.body() : org.researchzosho.tools.DocText.convert(resp.body(), url).text().getBytes(StandardCharsets.UTF_8);
-            } catch (Exception e) { throw ProtocolError.unavailable("could not read " + url + ": " + e.getMessage()); }
+            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             source = url; nameHint = titleGiven.isEmpty() ? url : titleGiven;
         } else {
             bytes = text.getBytes(StandardCharsets.UTF_8); source = "pasted"; nameHint = titleGiven.isEmpty() ? "pasted conversation" : titleGiven;
@@ -590,11 +591,11 @@ public final class LibraryProtocol {
             r.put("verify_job_id", job.path("job_id").asText());
         }
         r.put("main_question", mainQuestion);
-        r.put("summary", (threads.size() == 1 ? "absorbed \"" + Acquisitions.compress(firstTitle, 60) + "\"" : "absorbed " + Math.min(limit, threads.size()) + " of " + threads.size() + " conversations")
-                + ": the transcript is on the shelves (collection " + collection + "), " + filed + " question(s) joined the open questions, " + claimsAll + " claim(s) by the assistant are listed to check"
-                + (verify && !allClaims.isEmpty() ? "; a run is checking them (" + r.path("verify_job_id").asText() + ")" : "; none is filed as a finding"));
-        r.put("next", verify ? "library_job to follow the check; library_research {question: <the thread's main question>, sources: both} to research the subject itself"
-                : "verify=true files one research run that checks the claims; library_research {question: \"" + Acquisitions.compress(mainQuestion, 200).replace("\"", "'") + "\", sources: both} researches the subject itself");
+        r.put("summary", (threads.size() == 1 ? "Read \"" + Acquisitions.compress(firstTitle, 60) + "\"" : "Read " + Math.min(limit, threads.size()) + " of " + threads.size() + " conversations")
+                + ". The transcript is saved in the library (collection " + collection + "). " + filed + " question(s) were added to the open questions. " + claimsAll + " claim(s) made by the assistant are listed for checking"
+                + (verify && !allClaims.isEmpty() ? ". A research run is checking them (" + r.path("verify_job_id").asText() + ")." : ". None of them is saved as a claim."));
+        r.put("next", verify ? "library_job shows the check's progress. To research the subject itself, use library_research {question: <the thread's main question>, sources: both}."
+                : "verify=true starts one research run that checks the claims. To research the subject itself, use library_research {question: \"" + Acquisitions.compress(mainQuestion, 200).replace("\"", "'") + "\", sources: both}.");
         return r;
     }
 
@@ -611,20 +612,20 @@ public final class LibraryProtocol {
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), text = args.path("text").asText("");
         if (path.startsWith("http://") || path.startsWith("https://")) { url = path; path = ""; }
         int given = (path.isEmpty() ? 0 : 1) + (url.isEmpty() ? 0 : 1) + (text.isBlank() ? 0 : 1);
-        if (given != 1) throw ProtocolError.invalidArgs("Give one of: a path (a file with one item per line, a table or a CSV), a url, or the list as text.");
+        if (given != 1) throw ProtocolError.invalidArgs("Give one of these: a file path (one item per line, a table, or a CSV), a url, or the list as text.");
         String as = args.path("as").asText("frontier").strip().toLowerCase(Locale.ROOT);
-        if (!as.equals("frontier") && !as.equals("runs") && !as.equals("none")) throw ProtocolError.invalidArgs("as must be frontier (a question per item on the open questions), runs (research runs, a lane per item) or none (only see what is held).");
+        if (!as.equals("frontier") && !as.equals("runs") && !as.equals("none")) throw ProtocolError.invalidArgs("as must be frontier (add one open question per item), runs (start research runs, one part per item) or none (only show what the library already has).");
         String lens = args.path("lens").asText("");
         String collection = args.path("collection").asText("lists").strip();
         String column = args.hasNonNull("column") ? args.get("column").asText() : null;
         int limit = Math.max(1, args.path("limit").asInt(Items.MAX_ITEMS));
         String title = args.path("title").asText("").strip(), source, body, readFrom = "";
         if (!path.isEmpty()) {
-            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: hand a list file over from the terminal or the library's own pages. A url or the pasted list works from here.");
+            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the list.");
             Path f = Path.of(path).toAbsolutePath().normalize();
             if (Files.isDirectory(f)) {
                 // a Calibre library: its books as the list, each with its authors, year, series and tags as the note
-                if (!Calibre.isLibrary(f)) throw ProtocolError.notFound(f + " is a folder but not a Calibre library (no metadata.db, no metadata.opf); for a folder of documents use library_add");
+                if (!Calibre.isLibrary(f)) throw ProtocolError.notFound(f + " is a folder, but not a Calibre library: it has no metadata.db and no metadata.opf. For a folder of documents, use library_add.");
                 Calibre.Shelf shelf;
                 try { shelf = Calibre.read(f); } catch (IOException e) { throw ProtocolError.unavailable(e.getMessage()); }
                 body = Calibre.csv(shelf.books()); readFrom = shelf.readFrom();
@@ -642,11 +643,11 @@ public final class LibraryProtocol {
                 var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
                 body = org.researchzosho.tools.DocText.convert(resp.body(), url).text();
-            } catch (Exception e) { throw ProtocolError.unavailable("could not read " + url + ": " + e.getMessage()); }
+            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             source = url; if (title.isEmpty()) title = Conversations.titleFrom(url);
         } else { body = text; source = "pasted"; if (title.isEmpty()) title = "list"; }
         List<Items.Item> all = Items.parse(body, column);
-        if (all.isEmpty()) throw ProtocolError.invalidArgs("No items found: one per line, a markdown table, or a CSV.");
+        if (all.isEmpty()) throw ProtocolError.invalidArgs("No items found. Give one item per line, a markdown table, or a CSV.");
         // the whole list goes on the shelves; what is looked at, filed or run is the selection: --match texts, --sample n, then the first limit
         List<String> match = new ArrayList<>();
         if (args.path("match").isArray()) for (JsonNode m : args.get("match")) match.add(m.asText()); else if (args.hasNonNull("match") && !args.get("match").asText().isBlank()) match.add(args.get("match").asText());
@@ -696,14 +697,14 @@ public final class LibraryProtocol {
         }
         r.put("questions_filed", filed); r.put("questions_already_open", already);
         String what = items.size() + " item(s)" + (matched.size() < all.size() ? " of " + matched.size() + " matched" + (sample > 0 && matched.size() > items.size() ? ", a sample" : "") : all.size() > items.size() ? " of " + all.size() + (sample > 0 ? ", a sample" : "") : "")
-                + (all.size() > items.size() ? " (all " + all.size() + " are on the shelves)" : "") + ", " + held + " already on the shelves";
+                + (all.size() > items.size() ? " (all " + all.size() + " are saved in the library)" : "") + ", " + held + " already in the library";
         r.put("summary", "list \"" + Acquisitions.compress(title, 60) + "\": " + what
-                + (as.equals("frontier") ? "; " + filed + " question(s) joined the open questions" + (already > 0 ? ", " + already + " were open already" : "")
-                : as.equals("runs") ? "; " + jobsOut.size() + " research run(s) filed, a lane per item" : "; nothing filed, the list is on the shelves")
-                + (rawName.isEmpty() ? "" : "; the list itself is " + rawName));
-        r.put("next", as.equals("frontier") ? "the housekeeping's explorer works through them at night; library_research on one of the questions looks it up now; as=runs sends them out as runs"
-                : as.equals("runs") ? "library_job follows each run; library_get reads the write-ups"
-                : "as=frontier files a question per item; as=runs sends them out as research runs");
+                + (as.equals("frontier") ? ". " + filed + " question(s) were added to the open questions" + (already > 0 ? ". " + already + " were already open" : "")
+                : as.equals("runs") ? ". " + jobsOut.size() + " research run(s) started, one part per item" : ". Nothing was filed. The list is saved in the library")
+                + (rawName.isEmpty() ? "" : ". The saved list is " + rawName));
+        r.put("next", as.equals("frontier") ? "The nightly research works through them. To look one up now, use library_research on that question. as=runs starts research runs for all of them."
+                : as.equals("runs") ? "library_job shows each run's progress. library_get opens the reports."
+                : "as=frontier adds one open question per item. as=runs starts research runs.");
         store.circulate("items", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + what + " (" + as + ")");
         return r;
     }
@@ -716,10 +717,10 @@ public final class LibraryProtocol {
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), text = args.path("text").asText("");
         if (path.startsWith("http://") || path.startsWith("https://")) { url = path; path = ""; }
         int n = (path.isEmpty() ? 0 : 1) + (url.isEmpty() ? 0 : 1) + (text.isBlank() ? 0 : 1);
-        if (n != 1) throw ProtocolError.invalidArgs("Give one of: a path (" + what + "), a url, or the text itself.");
+        if (n != 1) throw ProtocolError.invalidArgs("Give one of these: a file path (" + what + "), a url, or the text itself.");
         String title = args.path("title").asText("").strip();
         if (!path.isEmpty()) {
-            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: hand the file over from the terminal or the library's own pages. A url or the pasted text works from here.");
+            if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the text.");
             Path f = Path.of(path).toAbsolutePath().normalize();
             if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
             return new Given(Files.readAllBytes(f), f.toString(), title.isEmpty() ? f.getFileName().toString() : title, false);
@@ -729,7 +730,7 @@ public final class LibraryProtocol {
                 var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
                 return new Given(resp.body(), url, title.isEmpty() ? url : title, false);
-            } catch (Exception e) { throw ProtocolError.unavailable("could not read " + url + ": " + e.getMessage()); }
+            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
         }
         return new Given(text.getBytes(StandardCharsets.UTF_8), "pasted", title.isEmpty() ? pastedName : title, true);
     }
@@ -782,9 +783,9 @@ public final class LibraryProtocol {
             ask.set("patron", args.path("patron").deepCopy());
             r.put("verify_job_id", research(ask).path("job_id").asText());
         }
-        r.put("summary", "draft \"" + Acquisitions.compress(title, 60) + "\": " + o.claims().size() + " claim(s) to check, " + o.citations().size() + " citation(s) found (" + shelved + " on the shelves" + (requested > 0 ? ", " + requested + " could not be read and are requested" : "") + "), " + o.questionsFiled().size() + " question(s) joined the open questions"
-                + (r.hasNonNull("verify_job_id") ? "; a run is checking the claims (" + r.path("verify_job_id").asText() + ")" : "; nothing is filed as a finding"));
-        r.put("next", r.hasNonNull("verify_job_id") ? "library_job follows the check; library_get reads the write-up" : "verify=true files one research run that checks the claims against sources, the draft's own citations included; a requested citation can be supplied with researchzosho add <file> --for <url>");
+        r.put("summary", "draft \"" + Acquisitions.compress(title, 60) + "\": " + o.claims().size() + " claim(s) to check, " + o.citations().size() + " citation(s) found (" + shelved + " saved in the library" + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + "). " + o.questionsFiled().size() + " question(s) were added to the open questions"
+                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim."));
+        r.put("next", r.hasNonNull("verify_job_id") ? "library_job shows the check's progress. library_get opens the report." : "verify=true starts one research run that checks the claims against sources, including the draft's own citations. If a citation could not be read, supply it with researchzosho add <file> --for <url>.");
         return r;
     }
 
@@ -799,7 +800,7 @@ public final class LibraryProtocol {
         Given g = given(args, patron, "reading list", "a reading list: .bib, .ris, .csv, or one entry per line");
         String text = textOf(g);
         List<Reading.Entry> entries = Reading.parse(text);
-        if (entries.isEmpty()) throw ProtocolError.invalidArgs("No entries found: BibTeX, RIS, a CSV with a title/doi/url column, or one DOI, url or title per line.");
+        if (entries.isEmpty()) throw ProtocolError.invalidArgs("No entries found. Give BibTeX, RIS, a CSV with a title, doi or url column, or one DOI, url or title per line.");
         String title = args.path("title").asText("").strip(); if (title.isEmpty()) title = Conversations.titleFrom(g.nameHint());
         String collection = args.path("collection").asText("").strip(); if (collection.isEmpty()) collection = Corpus.nameFor(Path.of(title.replaceAll("[^\\p{L}\\p{N}]+", "-")));
         int limit = Math.max(1, args.path("limit").asInt(Reading.MAX_ENTRIES));
@@ -824,9 +825,9 @@ public final class LibraryProtocol {
         if (watch && list != null) Corpus.registerUrls(store, collection, list.getFileName().toString());
         r.put("shelved", shelved); r.put("requested", requested); r.put("no_locator", unlocated); r.put("watching", watch && list != null);
         ArrayNode to = r.putArray("titles_without_locator"); titlesOnly.forEach(to::add);
-        r.put("summary", "reading list \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + " entr" + (take.size() == 1 ? "y" : "ies") + (entries.size() > take.size() ? " of " + entries.size() : "") + ", " + shelved + " on the shelves in collection " + collection
-                + (requested > 0 ? ", " + requested + " could not be read and are requested" : "") + (unlocated > 0 ? ", " + unlocated + " have a title but no DOI or url" : "") + (watch ? "; the housekeeping re-reads the pages" : ""));
-        r.put("next", "research from them: library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (unlocated > 0 ? "; the titles without a locator can go through library_items to be researched by name" : "") + (requested > 0 ? "; a requested entry can be supplied with researchzosho add <file> --for <url>" : ""));
+        r.put("summary", "reading list \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + " entr" + (take.size() == 1 ? "y" : "ies") + (entries.size() > take.size() ? " of " + entries.size() : "") + ", " + shelved + " saved in the library in collection " + collection
+                + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + (unlocated > 0 ? ", " + unlocated + " have a title but no DOI or url" : "") + (watch ? ". Nightly maintenance re-reads the pages" : ""));
+        r.put("next", "To research from them, use library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (unlocated > 0 ? ". Titles without a DOI or url can go through library_items to be researched by name" : "") + (requested > 0 ? ". If an entry could not be read, supply it with researchzosho add <file> --for <url>" : ""));
         store.circulate("reading", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + shelved + " shelved, " + requested + " requested, " + unlocated + " unlocated");
         return r;
     }
@@ -841,9 +842,9 @@ public final class LibraryProtocol {
         Patrons.check(store, patron, Patrons.Level.write);
         Given g = given(args, patron, "questions", "a file with one question per line");
         List<String> qs = Questions.parse(textOf(g));
-        if (qs.isEmpty()) throw ProtocolError.invalidArgs("No questions found: one per line, ending in a question mark or starting like a question.");
+        if (qs.isEmpty()) throw ProtocolError.invalidArgs("No questions found. Put one question per line.");
         String as = args.path("as").asText("frontier").strip().toLowerCase(Locale.ROOT);
-        if (!as.equals("frontier") && !as.equals("runs")) throw ProtocolError.invalidArgs("as must be frontier (the open questions, in order) or runs (a research run each, up to " + Questions.MAX_RUNS + "; the rest go to the open questions).");
+        if (!as.equals("frontier") && !as.equals("runs")) throw ProtocolError.invalidArgs("as must be frontier (add them to the open questions, in order) or runs (start a research run for each, up to " + Questions.MAX_RUNS + ". The rest go to the open questions).");
         String title = args.path("title").asText("").strip(); if (title.isEmpty()) title = Conversations.titleFrom(g.nameHint());
         int limit = Math.max(1, args.path("limit").asInt(Questions.MAX));
         List<String> take = qs.subList(0, Math.min(limit, qs.size()));
@@ -865,8 +866,8 @@ public final class LibraryProtocol {
             n.put("filed", ok); if (ok) filed++; else already++;
         }
         r.put("questions_filed", filed); r.put("questions_already_open", already);
-        r.put("summary", "questions \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + (qs.size() > take.size() ? " of " + qs.size() : "") + " question(s); " + (jobs.size() > 0 ? jobs.size() + " sent out as research runs, " : "") + filed + " joined the open questions in order" + (already > 0 ? ", " + already + " were open already" : ""));
-        r.put("next", jobs.size() > 0 ? "library_job follows each run; the rest wait on the open questions for the housekeeping" : "the housekeeping's explorer works through them at night in this order; library_frontier op=next moves one to the front; as=runs sends the first " + Questions.MAX_RUNS + " out now");
+        r.put("summary", "questions \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + (qs.size() > take.size() ? " of " + qs.size() : "") + " question(s). " + (jobs.size() > 0 ? jobs.size() + " started as research runs. " : "") + filed + " were added to the open questions, in order" + (already > 0 ? ". " + already + " were already open" : ""));
+        r.put("next", jobs.size() > 0 ? "library_job shows each run's progress. The rest wait in the open questions for the nightly research." : "The nightly research works through them in this order. library_frontier op=next moves one to the front. as=runs starts the first " + Questions.MAX_RUNS + " now.");
         store.circulate("questions", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + filed + " filed, " + jobs.size() + " run(s)");
         return r;
     }
@@ -883,7 +884,7 @@ public final class LibraryProtocol {
         List<Bookmarks.Mark> marks = Bookmarks.parse(new String(g.bytes(), StandardCharsets.UTF_8));
         String folder = args.path("folder").asText("").strip();
         if (!folder.isEmpty()) marks = marks.stream().filter(m -> m.folder().equalsIgnoreCase(folder)).toList();
-        if (marks.isEmpty()) throw ProtocolError.invalidArgs(folder.isEmpty() ? "No bookmarks found: a browser's exported bookmarks file, Chrome's Bookmarks JSON, or one url per line." : "No bookmarks in a folder named " + folder + ".");
+        if (marks.isEmpty()) throw ProtocolError.invalidArgs(folder.isEmpty() ? "No bookmarks found. Give a browser's exported bookmarks file, Chrome's Bookmarks JSON, or one url per line." : "No bookmarks in a folder named " + folder + ".");
         String title = args.path("title").asText("").strip(); if (title.isEmpty()) title = folder.isEmpty() ? "bookmarks" : "bookmarks: " + folder;
         String collection = args.path("collection").asText("").strip(); if (collection.isEmpty()) collection = folder.isEmpty() ? "bookmarks" : Corpus.nameFor(Path.of(folder));
         int limit = Math.max(1, args.path("limit").asInt(Bookmarks.MAX));
@@ -904,8 +905,8 @@ public final class LibraryProtocol {
         boolean watch = args.path("watch").asBoolean(false);
         if (watch && list != null) Corpus.registerUrls(store, collection, list.getFileName().toString());
         r.put("shelved", shelved); r.put("requested", requested); r.put("watching", watch && list != null);
-        r.put("summary", "bookmarks" + (folder.isEmpty() ? "" : " in " + folder) + ": " + take.size() + (marks.size() > take.size() ? " of " + marks.size() : "") + " page(s), " + shelved + " on the shelves in collection " + collection + (requested > 0 ? ", " + requested + " could not be read and are requested" : "") + (watch ? "; the housekeeping re-reads them and keeps a new copy when one changes" : ""));
-        r.put("next", "research from them: library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (watch ? "" : "; watch=true has the housekeeping re-read the pages"));
+        r.put("summary", "bookmarks" + (folder.isEmpty() ? "" : " in " + folder) + ": " + take.size() + (marks.size() > take.size() ? " of " + marks.size() : "") + " page(s), " + shelved + " on the shelves in collection " + collection + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + (watch ? ". Nightly maintenance re-reads them and keeps a new copy when one changes" : ""));
+        r.put("next", "To research from them, use library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (watch ? "" : ". watch=true makes nightly maintenance re-read the pages"));
         store.circulate("bookmarks", patron.writer() + " :: " + title + " — " + shelved + " shelved, " + requested + " requested" + (watch ? ", watching" : ""));
         return r;
     }
@@ -939,9 +940,9 @@ public final class LibraryProtocol {
             ask.set("patron", args.path("patron").deepCopy());
             r.put("verify_job_id", research(ask).path("job_id").asText());
         }
-        r.put("summary", "meeting \"" + Acquisitions.compress(title, 60) + "\": " + o.speakers().size() + " speaker(s); " + o.questionsFiled().size() + " question(s) raised joined the open questions, " + o.claims().size() + " claim(s) to check, " + o.decisions().size() + " decision(s) kept with the transcript"
-                + (r.hasNonNull("verify_job_id") ? "; a run is checking the claims (" + r.path("verify_job_id").asText() + ")" : "; nothing is filed as a finding"));
-        r.put("next", r.hasNonNull("verify_job_id") ? "library_job follows the check" : "verify=true files one research run that checks the claims; library_ask finds the decisions later");
+        r.put("summary", "meeting \"" + Acquisitions.compress(title, 60) + "\": " + o.speakers().size() + " speaker(s). " + o.questionsFiled().size() + " question(s) raised were added to the open questions. " + o.claims().size() + " claim(s) to check, " + o.decisions().size() + " decision(s) were saved with the transcript"
+                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim."));
+        r.put("next", r.hasNonNull("verify_job_id") ? "library_job shows the check's progress." : "verify=true starts one research run that checks the claims. library_ask finds the decisions later.");
         return r;
     }
 
@@ -961,7 +962,7 @@ public final class LibraryProtocol {
                 ArrayNode items = r.putArray("proposals");
                 for (Frontier.Line l : Bridges.open(store)) { ObjectNode o = items.addObject(); o.put("question", l.text()); o.put("date", l.date()); o.put("found_by", l.kind()); o.put("evidence", Bridges.evidenceFor(store, l.text())); }
                 r.put("count", items.size());
-                r.put("next", items.size() == 0 ? "op=run proposes some; op=run with dry=true only shows the pairs" : "op=accept with the question files the research run that tests it; op=dismiss drops it");
+                r.put("next", items.size() == 0 ? "op=run suggests some. op=run with dry=true only shows the pairs." : "op=accept with the question starts the research run that tests it. op=dismiss drops it.");
             }
             case "run" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
@@ -973,14 +974,14 @@ public final class LibraryProtocol {
                 boolean dry = args.path("dry").asBoolean(false);
                 ObjectNode out = Bridges.propose(store, Explain.drive(), Researcher.webTools(), s, area.isEmpty() ? null : area, dry, patron.writer(), new java.util.Random());
                 r.setAll(out);
-                r.put("next", dry ? "the same call without dry files the proposals as open questions of type bridge" : "op=list shows them; op=accept files the run that tests one");
+                r.put("next", dry ? "The same call without dry adds the suggestions to the open questions." : "op=list shows them. op=accept starts the research run that tests one.");
             }
             case "accept", "dismiss" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
                 String q = reqStr(args, "question").strip();
                 Frontier.Line found = null;
                 for (Frontier.Line l : Bridges.open(store)) if (Frontier.sameQuestion(l.text(), q) || l.text().toLowerCase(Locale.ROOT).startsWith(q.toLowerCase(Locale.ROOT))) { found = l; break; }
-                if (found == null) throw ProtocolError.notFound("no open bridge proposal reads \"" + Acquisitions.compress(q, 80) + "\"");
+                if (found == null) throw ProtocolError.notFound("No open connection question matches \"" + Acquisitions.compress(q, 80) + "\"");
                 if (op.equals("dismiss")) {
                     Frontier.drop(store, found.text(), patron.writer());
                     Bridges.fate(store, found.text(), "dismissed", patron.writer());
@@ -995,7 +996,7 @@ public final class LibraryProtocol {
                     Frontier.markExplored(store, found.text(), job);
                     Bridges.fate(store, found.text(), "kept", job);
                     r.put("accepted", found.text()); r.put("job_id", job);
-                    r.put("next", "library_job follows the run; its verified claims are the test of the bridge");
+                    r.put("next", "library_job shows the run's progress. The claims it verifies show whether the connection holds.");
                 }
             }
             case "settings" -> {
@@ -1022,7 +1023,7 @@ public final class LibraryProtocol {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         String claim = reqStr(args, "claim").strip();
-        if (claim.length() < 20) throw ProtocolError.invalidArgs("The claim is too short to be a claim; write one to three self-contained sentences.");
+        if (claim.length() < 20) throw ProtocolError.invalidArgs("The claim is too short. Write one to three complete sentences.");
         List<Finding.Source> sources = new ArrayList<>();
         JsonNode src = args.get("sources");
         if (src != null && src.isArray()) {
@@ -1089,7 +1090,7 @@ public final class LibraryProtocol {
             case "add" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
                 String q = reqStr(args, "question").strip();
-                if (q.length() < 12) throw ProtocolError.invalidArgs("The question is too short to file.");
+                if (q.length() < 12) throw ProtocolError.invalidArgs("The question is too short. Write a full sentence.");
                 store.frontier("person " + patron.writer(), q);
                 r.put("filed", true);
                 r.put("question", q);
@@ -1104,7 +1105,7 @@ public final class LibraryProtocol {
                     case "park" -> Frontier.park(store, q);
                     default -> Frontier.unpark(store, q);
                 };
-                if (!ok) throw ProtocolError.notFound("No open question reads exactly: " + q + (op.equals("unpark") ? " (or it is not parked)" : ""));
+                if (!ok) throw ProtocolError.notFound("No open question matches this text exactly: " + q + (op.equals("unpark") ? " (or it is not parked)" : ""));
                 r.put(op.equals("drop") ? "dropped" : op.equals("park") ? "parked" : op.equals("unpark") ? "unparked" : "moved", true);
                 r.put("question", q);
             }
@@ -1136,7 +1137,7 @@ public final class LibraryProtocol {
                 String name = reqStr(args, "name").strip().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9._-]+", "-").replaceAll("^-+|-+$", "");
                 String query = reqStr(args, "query").strip();
                 int every = args.path("every_days").asInt(7);
-                if (name.isEmpty() || query.length() < 3) throw ProtocolError.invalidArgs("A kept search needs a name and a query.");
+                if (name.isEmpty() || query.length() < 3) throw ProtocolError.invalidArgs("A saved search needs a name and a query.");
                 if (every < 1 || every > 365) throw ProtocolError.invalidArgs("every_days must be between 1 and 365.");
                 Serials.add(store, name, query, every);
                 r.put("kept", true); r.put("name", name); r.put("query", query); r.put("every_days", every);
@@ -1144,13 +1145,13 @@ public final class LibraryProtocol {
             case "remove" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
                 String name = reqStr(args, "name").strip();
-                if (!Serials.remove(store, name)) throw ProtocolError.notFound("No kept search is named " + name);
+                if (!Serials.remove(store, name)) throw ProtocolError.notFound("No saved search is named " + name);
                 r.put("removed", true); r.put("name", name);
             }
             case "park", "unpark" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
                 String name = reqStr(args, "name").strip();
-                if (!Serials.setParked(store, name, op.equals("park"))) throw ProtocolError.notFound("No kept search is named " + name + (op.equals("park") ? " (or it is parked already)" : " (or it is not parked)"));
+                if (!Serials.setParked(store, name, op.equals("park"))) throw ProtocolError.notFound("No saved search is named " + name + (op.equals("park") ? " (or it is parked already)" : " (or it is not parked)"));
                 r.put("name", name); r.put("parked", op.equals("park"));
             }
             case "every" -> {
@@ -1158,7 +1159,7 @@ public final class LibraryProtocol {
                 String name = reqStr(args, "name").strip();
                 int every = args.path("every_days").asInt(0);
                 if (every < 1 || every > 365) throw ProtocolError.invalidArgs("every_days must be between 1 and 365.");
-                if (!Serials.setEvery(store, name, every)) throw ProtocolError.notFound("No kept search is named " + name);
+                if (!Serials.setEvery(store, name, every)) throw ProtocolError.notFound("No saved search is named " + name);
                 r.put("name", name); r.put("every_days", every);
             }
             default -> throw ProtocolError.invalidArgs("op must be list, add, every, park, unpark or remove.");
@@ -1224,15 +1225,15 @@ public final class LibraryProtocol {
         if (did.isEmpty()) did = args.path("patron").path("did").asText("").strip();
         String name = args.path("name").asText("").strip();
         String note = args.path("note").asText("").strip();
-        if (did.isEmpty()) throw ProtocolError.invalidArgs("Say who is asking: a did.");
+        if (did.isEmpty()) throw ProtocolError.invalidArgs("Give the did of the user who is asking.");
         if (note.length() > 400 || name.length() > 120) throw ProtocolError.invalidArgs("Keep the name under 120 characters and the note under 400.");
         AccessRequests.Filed f;
         try { f = AccessRequests.request(store, did, name, note); }
         catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         ObjectNode r = envelope();
         r.put("request_id", f.id()); r.put("state", "pending");
-        if (f.fresh()) { r.put("claim", f.claim()); r.put("note", "Keep the claim secret: it is what collects the token once the request is approved. It is shown once."); }
-        else r.put("note", "A request from this did is already waiting; the claim secret was given when it was filed.");
+        if (f.fresh()) { r.put("claim", f.claim()); r.put("note", "Keep this claim code secret. You need it to collect your token after the request is approved. It is shown only once."); }
+        else r.put("note", "A request from this did is already waiting. The claim code was given when the request was made.");
         return r;
     }
 
@@ -1245,7 +1246,7 @@ public final class LibraryProtocol {
         catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         ObjectNode r = envelope();
         r.put("request_id", o.id()); r.put("state", o.state());
-        if (!o.token().isEmpty()) { r.put("token", o.token()); r.put("level", o.level()); r.put("note", "Use it as Authorization: Bearer <token>. It is shown once."); }
+        if (!o.token().isEmpty()) { r.put("token", o.token()); r.put("level", o.level()); r.put("note", "Use it as Authorization: Bearer <token>. It is shown only once."); }
         if (!o.reason().isEmpty()) r.put("reason", o.reason());
         return r;
     }
@@ -1254,7 +1255,7 @@ public final class LibraryProtocol {
     public ObjectNode subscribe(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.read);
-        if (patron.anonymous()) throw ProtocolError.forbidden("A subscription needs a named patron: the posts are signed for you.");
+        if (patron.anonymous()) throw ProtocolError.forbidden("Sign in to subscribe. Notifications are signed for a named user.");
         String url = reqStr(args, "url").strip();
         String secret = args.path("secret").asText("").strip();
         if (secret.isEmpty()) { byte[] b = new byte[24]; new java.security.SecureRandom().nextBytes(b); secret = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b); }
@@ -1285,7 +1286,7 @@ public final class LibraryProtocol {
         long since = 0;
         if (args.hasNonNull("since") && !args.get("since").asText().isBlank()) {
             try { since = Long.parseLong(args.get("since").asText()); }
-            catch (NumberFormatException e) { throw ProtocolError.invalidArgs("The cursor is not one this library issued."); }
+            catch (NumberFormatException e) { throw ProtocolError.invalidArgs("This cursor is not valid for this library."); }
         }
         int limit = Math.min(1000, Math.max(1, args.path("limit").asInt(200)));
         ObjectNode r = envelope();
@@ -1316,7 +1317,7 @@ public final class LibraryProtocol {
     /** The argument checks, separately so a transport can run them before its own drive check. */
     public static void validateResearch(JsonNode args) {
         String question = reqStr(args, "question").strip();
-        if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short to research.");
+        if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short. Write a full sentence.");
         String mode = args.path("mode").asText("broad");
         if (!mode.equals("broad") && !mode.equals("depth")) throw ProtocolError.invalidArgs("mode must be broad or depth.");
         for (String ceiling : new String[]{"max_turns", "max_minutes"}) {
@@ -1402,7 +1403,7 @@ public final class LibraryProtocol {
         boolean fresh = args.path("fresh").asBoolean(false);
         String term = args.path("term").asText("").strip();
         String id = args.path(term.isEmpty() ? "id" : "in").asText("").strip();
-        if (term.isEmpty() && id.isEmpty()) throw ProtocolError.invalidArgs("Give an id to explain, or a term (with in = the entry it appears in).");
+        if (term.isEmpty() && id.isEmpty()) throw ProtocolError.invalidArgs("Give the id of an entry to explain, or a term. With a term, in = the entry it appears in.");
         Explain.Reading r = term.isEmpty()
                 ? Explain.entry(store, rung == Explain.Rung.written ? null : Explain.drive(), id, rung, fresh)
                 : Explain.term(store, Explain.drive(), term, id, rung, fresh);
@@ -1480,7 +1481,7 @@ public final class LibraryProtocol {
         if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short.");
         String driveUrl = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
         String model = org.researchzosho.Config.get("RESEARCHZOSHO_MODEL", "local-model");
-        if (!Crews.driveAnswers(driveUrl)) throw ProtocolError.unavailable("No model drive answers at " + driveUrl + "; perspectives need one.");
+        if (!Crews.driveAnswers(driveUrl)) throw ProtocolError.unavailable("No model answers at " + driveUrl + ". This needs a model.");
         List<Perspectives.Perspective> ps = Perspectives.discover(question, Researcher.judgeDrive(driveUrl, model), Researcher.webTools(), Math.min(8, Math.max(1, args.path("max").asInt(5))));
         ObjectNode r = envelope();
         r.put("question", question);
@@ -1516,16 +1517,16 @@ public final class LibraryProtocol {
             Patrons.check(store, patron, Patrons.Level.write);
             if (id.isEmpty()) throw ProtocolError.invalidArgs("stop needs job_id.");
             ObjectNode j = jobs.get(id);
-            if (j == null || !Jobs.visibleTo(patron, j)) throw ProtocolError.notFound("job " + id);
+            if (j == null || !Jobs.visibleTo(patron, j)) throw ProtocolError.notFound("No research run has the id " + id + ".");
             String now = jobs.stop(id, patron.writer());
-            if (now == null) throw ProtocolError.invalidArgs("Job " + id + " is not queued or running; it is " + j.path("state").asText() + ".");
+            if (now == null) throw ProtocolError.invalidArgs("Research run " + id + " is not queued or running. It is " + j.path("state").asText() + ".");
             r.put("job_id", id); r.put("state", now);
             return r;
         }
         r.put("paused", ResearchSettings.paused());
         if (!id.isEmpty()) {
             ObjectNode j = jobs.get(id);
-            if (j == null) throw ProtocolError.notFound("job " + id);
+            if (j == null) throw ProtocolError.notFound("No research run has the id " + id + ".");
             r.set("job", Jobs.view(j));
             return r;
         }
@@ -1577,7 +1578,7 @@ public final class LibraryProtocol {
     public ObjectNode resourcesList(String cursorText) throws IOException {
         int offset = 0;
         if (cursorText != null && !cursorText.isBlank()) {
-            try { offset = Integer.parseInt(cursorText); } catch (NumberFormatException e) { throw ProtocolError.invalidArgs("The cursor is not one this library issued."); }
+            try { offset = Integer.parseInt(cursorText); } catch (NumberFormatException e) { throw ProtocolError.invalidArgs("This cursor is not valid for this library."); }
         }
         List<ObjectNode> all = new ArrayList<>();
         for (Finding f : store.scanFindings().findings()) {
@@ -1607,9 +1608,9 @@ public final class LibraryProtocol {
         ObjectNode a = t.addObject();
         a.put("uriTemplate", "finding://{id}"); a.put("name", "A finding, in full"); a.put("mimeType", "text/markdown");
         ObjectNode b = t.addObject();
-        b.put("uriTemplate", "raw://{locator}"); b.put("name", "The captured text behind a source locator"); b.put("mimeType", "text/plain");
+        b.put("uriTemplate", "raw://{locator}"); b.put("name", "The saved text of a source"); b.put("mimeType", "text/plain");
         ObjectNode c = t.addObject();
-        c.put("uriTemplate", "article://{id}"); c.put("name", "A shelf article"); c.put("mimeType", "text/markdown");
+        c.put("uriTemplate", "article://{id}"); c.put("name", "An article in the library"); c.put("mimeType", "text/markdown");
         return r;
     }
 
@@ -1620,7 +1621,7 @@ public final class LibraryProtocol {
         String name = scheme < 0 ? uri : uri.substring(scheme + 3);
         // finding:// and article:// name a shelf entry; raw:// names a LOCATOR (a URL as cited, or a file
         // name) — its direct file hit is guarded in RawCapture.find, a URL is matched, never joined.
-        if (!uri.startsWith("raw://") && !LibraryStore.safeName(name)) throw ProtocolError.invalidArgs("A resource name is a shelf name, not a path: " + uri);
+        if (!uri.startsWith("raw://") && !LibraryStore.safeName(name)) throw ProtocolError.invalidArgs("A resource name is an entry name, not a file path: " + uri);
         String text, mime;
         if (uri.startsWith("finding://")) {
             Path p = LibraryStore.under(store.findingsDir(), name + ".md");
@@ -1801,7 +1802,7 @@ public final class LibraryProtocol {
             o.put("tier", SourceTier.of(locator).name());
             SourceRules.Rule rule = rules.ruleFor(locator);
             if (rule != null) o.put("rule", rule.kind()); else o.putNull("rule");
-            o.put("why", "reference [" + row[0] + "] of the write-up");
+            o.put("why", "reference [" + row[0] + "] of the report");
             out.add(o);
         }
         return out;
@@ -1930,7 +1931,7 @@ public final class LibraryProtocol {
     private static int cursor(JsonNode args) {
         if (!args.hasNonNull("cursor") || args.get("cursor").asText().isBlank()) return 0;
         try { return Math.max(0, Integer.parseInt(args.get("cursor").asText())); }
-        catch (NumberFormatException e) { throw ProtocolError.invalidArgs("The cursor is not one this library issued."); }
+        catch (NumberFormatException e) { throw ProtocolError.invalidArgs("This cursor is not valid for this library."); }
     }
 
     String kindOf(String id) throws IOException {
@@ -2073,13 +2074,13 @@ public final class LibraryProtocol {
                 if (args.hasNonNull("id") && !args.path("id").asText().isBlank()) ids.add(args.path("id").asText());
                 String report = args.path("report").asText("");
                 if (!report.isEmpty()) for (var o : inboxList()) if (o.path("report").asText("").startsWith(report)) ids.add(o.path("id").asText());
-                if (ids.isEmpty()) throw ProtocolError.invalidArgs("Name what to decide: ids[], id, or report.");
+                if (ids.isEmpty()) throw ProtocolError.invalidArgs("Say which claims to decide: ids[], id, or report.");
                 String why = args.path("why").asText("").strip();
-                if (op.equals("dispute") && why.isEmpty()) throw ProtocolError.invalidArgs("A dispute needs why.");
+                if (op.equals("dispute") && why.isEmpty()) throw ProtocolError.invalidArgs("A dispute needs a reason. Give why.");
                 Council c = new Council(store);
                 ArrayNode decided = r.putArray("decided");
                 for (String id : new java.util.LinkedHashSet<>(ids)) {
-                    if (store.finding(id) == null) throw ProtocolError.notFound("No claim " + id);
+                    if (store.finding(id) == null) throw ProtocolError.notFound("No claim has the id " + id + ".");
                     Finding f = switch (op) { case "accept" -> c.accept(id); case "retire" -> c.retire(id); default -> c.dispute(id, why); };
                     ObjectNode d = decided.addObject(); d.put("id", f.id()); d.put("state", f.state().name()); d.put("title", f.title());
                 }

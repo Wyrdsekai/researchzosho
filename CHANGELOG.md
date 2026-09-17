@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.3
+
+This release rewrites the text on the web pages and in the command line in plain words. It changes no commands and no flags.
+
+### Changed
+
+- The web pages and the command line use plain words. "Shelves" is now "the library", "patron" is "user", "write-up" is "report", "the housekeeping" is "nightly maintenance", "sharpen" is "refine", and the reading levels are Simple, Familiar and Original. Command names and flags did not change. The first line of `researchzosho jobs` now starts with `research runs:` instead of `jobs:`.
+
+### Fixed
+
+- The command line's help text showed the descriptions of `absorb` and `add <folder>` under `bridges`. They are back under their own commands.
+
 ## 0.4.2
 
 This release adds three things. A `holdings` command that looks up whether a title is in one of your shelved lists, such as your Calibre library. Support for lists of any length, with `--match` and `--sample` to pick which items get research questions. And a `remove` command that deletes a report, its claims, or a single claim. It also fixes the reading of a Calibre `metadata.db` file and gives the beginner and familiar rewrites the same sections as the original report.

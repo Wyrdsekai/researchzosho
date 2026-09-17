@@ -91,7 +91,7 @@ class ItemsTest {
         ObjectNode rn = p.items(none);
         assertEquals(11, rn.path("taken").asInt()); assertEquals(0, rn.path("questions_filed").asInt()); assertEquals(0, rn.path("jobs").size());
         assertEquals(0, Frontier.read(store).size(), "as=none files nothing");
-        assertTrue(rn.path("summary").asText().contains("nothing filed"), rn.path("summary").asText());
+        assertTrue(rn.path("summary").asText().contains("Nothing was filed"), rn.path("summary").asText());
         ObjectNode runs = none.deepCopy().put("as", "runs");
         ObjectNode rr = p.items(runs);
         assertEquals(2, rr.path("jobs").size(), "11 items, batches of 8: " + rr.path("jobs"));
@@ -108,7 +108,7 @@ class ItemsTest {
         Patrons.setDefault(store, Patrons.Level.write);
         ObjectNode stranger = M.createObjectNode().put("path", home.resolve("x.txt").toString());
         stranger.putObject("patron").put("did", "did:key:zFriend").put("name", "f").put("runtime", "mcp");
-        assertTrue(assertThrows(ProtocolError.class, () -> p.items(stranger)).getMessage().contains("keeper"));
+        assertTrue(assertThrows(ProtocolError.class, () -> p.items(stranger)).getMessage().contains("library owner"));
         ObjectNode empty = M.createObjectNode().put("text", "# nothing here\n\n");
         empty.putObject("patron").put("did", "did:key:zFriend").put("name", "f").put("runtime", "mcp");
         assertTrue(assertThrows(ProtocolError.class, () -> p.items(empty)).getMessage().contains("No items"));

@@ -16,14 +16,28 @@ public final class ProtocolError extends RuntimeException {
     }
 
     public static ProtocolError notFound(String what) {
-        return new ProtocolError("not_found", -32004, "The library holds nothing under " + what + ".");
+        return new ProtocolError("not_found", -32004, notFoundMessage(what));
+    }
+    /**
+     * The sentence a person reads. A caller that wrote a whole sentence (it ends in a period) is quoted as it
+     * is; "entry X", "id X", "job X", "claim X" and "route X" become one; anything else reads
+     * "Nothing in the library matches X."
+     */
+    static String notFoundMessage(String what) {
+        String w = what == null ? "" : what.strip();
+        if (w.endsWith(".")) return w;
+        if (w.startsWith("entry ") || w.startsWith("id ")) return "No entry has the id " + w.substring(w.indexOf(' ') + 1) + ".";
+        if (w.startsWith("job ")) return "No research run has the id " + w.substring(4) + ".";
+        if (w.startsWith("claim ")) return "No claim has the id " + w.substring(6) + ".";
+        if (w.startsWith("route ")) return "Nothing is served at " + w.substring(6) + ".";
+        return "Nothing in the library matches " + w + ".";
     }
     public static ProtocolError forbidden(String message) {
         return new ProtocolError("forbidden", -32003, message);
     }
     public static ProtocolError noSources() {
         return new ProtocolError("no_sources", -32001,
-                "A claim needs at least one source; the library does not accept unsourced claims.");
+                "A claim needs at least one source. Add a source and submit it again.");
     }
     public static ProtocolError invalidArgs(String message) {
         return new ProtocolError("invalid_args", -32602, message);

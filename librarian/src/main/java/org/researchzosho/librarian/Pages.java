@@ -78,7 +78,7 @@ final class Pages {
                 default -> {
                     if (path.startsWith("/entry/")) send(x, 200, entry(store, p, patron, path.substring("/entry/".length())));
                     else if (path.startsWith("/jobs/")) send(x, 200, job(store, p, patron, path.substring("/jobs/".length()), q));
-                    else send(x, 404, page(store, patron, "Not here", "<p>No such page.</p>"));
+                    else send(x, 404, page(store, patron, "Page not found", "<p>There is no page at this address.</p>"));
                 }
             }
         } catch (ProtocolError e) {
@@ -97,8 +97,8 @@ final class Pages {
         b.append("<form class=\"big\" action=\"/ask\"><input name=\"q\" placeholder=\"Ask the library a question…\" autofocus> <button>Ask</button> <a class=\"k\" href=\"/search\">or search the library</a></form>");
         b.append("<p class=\"k\">This library has ").append(c.path("finding").path("total").asInt()).append(" claims (")
          .append(c.path("finding").path("accepted").asInt()).append(" accepted, ").append(c.path("finding").path("disputed").asInt()).append(" disputed, ")
-         .append(c.path("finding").path("draft").asInt()).append(" waiting for review), ").append(c.path("investigation").asInt()).append(" write-ups, ")
-         .append(c.path("article").asInt()).append(" summaries and ").append(c.path("raw").asInt()).append(" saved documents, on ")
+         .append(c.path("finding").path("draft").asInt()).append(" waiting for review), ").append(c.path("investigation").asInt()).append(" reports, ")
+         .append(c.path("article").asInt()).append(" summaries and ").append(c.path("raw").asInt()).append(" saved pages, on ")
          .append(c.path("subject").asInt()).append(" subjects. Last change ").append(when(status.path("last_updated").asText("never"))).append(". ")
          .append(esc(d.describeWorkers())).append(".</p>");
         if (!WebAccess.signInRequired()) {
@@ -148,7 +148,7 @@ final class Pages {
         if (!subject.isEmpty()) a.put("subject", subject);
         if (q.containsKey("cursor")) a.put("cursor", q.get("cursor"));
         ObjectNode r = p.search(a);
-        if (r.path("hits").size() == 0) b.append("<p>Nothing in the library matches. <a href=\"/research?q=").append(enc(query)).append("\">Have it looked into</a>.</p>");
+        if (r.path("hits").size() == 0) b.append("<p>Nothing in the library matches these words. <a href=\"/research?q=").append(enc(query)).append("\">Research this question</a>.</p>");
         else {
             b.append("<ol class=\"hits\">");
             for (JsonNode h : r.path("hits")) b.append("<li>").append(hitLine(h)).append("</li>");
@@ -167,8 +167,8 @@ final class Pages {
         ObjectNode r = p.ask(a);
         if (r.path("holds_nothing").asBoolean()) {
             b.append("<p>The library has nothing on this yet.");
-            if (r.path("filed_as_demand").asBoolean()) b.append(" The question is now on the open list.");
-            b.append(" <a href=\"/research?q=").append(enc(question)).append("\">Have it looked into</a>.</p>");
+            if (r.path("filed_as_demand").asBoolean()) b.append(" The question was added to the open questions.");
+            b.append(" <a href=\"/research?q=").append(enc(question)).append("\">Research this question</a>.</p>");
         } else {
             b.append("<p class=\"k\">What the library has on this, best match first. Each one lists its sources; open it to see them.</p>");
             for (JsonNode e : r.path("entries")) b.append(entryCard(e));
@@ -191,8 +191,8 @@ final class Pages {
         b.append("<p class=\"k\">").append(esc(kind)).append(" · ").append(badge(e.path("state").asText()));
         if (!"raw".equals(kind)) b.append(" · confidence ").append(esc(e.path("confidence").asText())).append(" · ").append(esc(e.path("claim_type").asText()));
         b.append(" · by ").append(esc(e.path("writer").asText())).append(" · ").append(when(e.path("recorded_at").asText()));
-        if (e.hasNonNull("valid_as_of") && !e.path("valid_as_of").asText().isEmpty()) b.append(" · held as of ").append(esc(e.path("valid_as_of").asText()));
-        if (e.hasNonNull("review_by")) b.append(" · review by ").append(esc(e.path("review_by").asText()));
+        if (e.hasNonNull("valid_as_of") && !e.path("valid_as_of").asText().isEmpty()) b.append(" · valid as of ").append(esc(e.path("valid_as_of").asText()));
+        if (e.hasNonNull("review_by")) b.append(" · review due ").append(esc(e.path("review_by").asText()));
         b.append("</p>");
         if (!"raw".equals(kind)) b.append(ladder(id, Explain.Rung.written)).append(downloads(id, null));
         if (!"raw".equals(kind) && mayWrite(store, patron)) b.append(removeForm(id, kind));
@@ -208,7 +208,7 @@ final class Pages {
         }
         if ("raw".equals(kind)) {
             b.append("<p>Saved from ").append(locatorLink(e.path("locator").asText())).append(" (").append(e.path("chars").asInt()).append(" characters). ")
-             .append("<a href=\"/read?locator=").append(enc(e.path("locator").asText())).append("\">Read the whole document</a>.</p>");
+             .append("<a href=\"/read?locator=").append(enc(e.path("locator").asText())).append("\">Read the whole saved page</a>.</p>");
             b.append("<pre class=\"raw\">").append(esc(e.path("body").asText())).append("</pre>");
         } else {
             b.append("<div class=\"body\">").append(withRefs(md(e.path("body").asText()), e.path("body").asText())).append("</div>");
@@ -249,7 +249,7 @@ final class Pages {
             JsonNode lc = e.get("last_checked");
             String v = lc.path("verdict").asText("");
             b.append("<p class=\"k\">Last read against its source ").append(when(lc.path("at").asText())).append(": ")
-             .append("supported".equals(v) ? "the source still says it" : "unsupported".equals(v) ? "<span class=\"mark bad\">the source does not say it</span>" : "no-capture".equals(v) ? "no captured copy of the source to read" : "could not tell from the source").append("</p>");
+             .append("supported".equals(v) ? "the source still says it" : "unsupported".equals(v) ? "<span class=\"mark bad\">the source does not say it</span>" : "no-capture".equals(v) ? "no saved copy of the source to read" : "could not tell from the source").append("</p>");
         }
         if (e.hasNonNull("review")) {
             JsonNode rv = e.get("review");
@@ -257,8 +257,8 @@ final class Pages {
              .append(rv.path("stale").asBoolean() ? " (it has changed since then)" : "").append("</p>");
         }
         StringBuilder links = new StringBuilder();
-        for (JsonNode s : e.path("supersedes")) links.append("<li>supersedes ").append(idLink(s.asText())).append("</li>");
-        for (JsonNode s : e.path("superseded_by")) links.append("<li>superseded by ").append(idLink(s.asText())).append("</li>");
+        for (JsonNode s : e.path("supersedes")) links.append("<li>replaces ").append(idLink(s.asText())).append("</li>");
+        for (JsonNode s : e.path("superseded_by")) links.append("<li>replaced by ").append(idLink(s.asText())).append("</li>");
         for (JsonNode s : e.path("related")) {
             links.append("<li>related ").append(idLink(s.path("id").asText()));
             if (s.path("shared").size() > 0) { links.append(" <span class=\"k\">(shares "); for (JsonNode sh : s.path("shared")) links.append(esc(sh.asText())).append(' '); links.append(")</span>"); }
@@ -270,7 +270,7 @@ final class Pages {
 
     private static String read(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
         String locator = q.getOrDefault("locator", "").strip();
-        if (locator.isEmpty()) return page(store, patron, "Read", "<p>Say which saved document to read.</p>");
+        if (locator.isEmpty()) return page(store, patron, "Read", "<p>Say which saved page to read.</p>");
         ObjectNode a = args(patron); a.put("locator", locator); a.put("max_chars", 400_000);
         ObjectNode r = p.read(a);
         StringBuilder b = new StringBuilder();
@@ -310,15 +310,15 @@ final class Pages {
         Patrons.check(store, patron, Patrons.Level.read);
         StringBuilder b = new StringBuilder();
         // the searches the housekeeping keeps
-        b.append("<h2>Searches kept up to date</h2><p class=\"k\">Each is re-run by the housekeeping on its cadence, and whatever is new is listed on the Changes page.</p>");
+        b.append("<h2>Searches kept up to date</h2><p class=\"k\">Nightly maintenance runs each one again every so many days. Anything new is listed on the Changes page.</p>");
         List<Serials.Shelf> kept = Serials.shelves(store);
         if (kept.isEmpty()) b.append("<p>None yet.</p>");
         else {
             b.append("<ul class=\"tight\">");
             for (Serials.Shelf s : kept) b.append("<li>").append(s.parked() ? "<span class=\"badge\">parked</span> " : "").append("<b>").append(esc(s.slug())).append("</b>: ").append(esc(s.query())).append(" <span class=\"k\">(last ").append(esc(s.lastChecked())).append(")</span> ")
                     .append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"every\"><input type=\"hidden\" name=\"name\" value=\"").append(esc(s.slug())).append("\">every <input name=\"every\" size=\"3\" value=\"").append(s.everyDays()).append("\"> days <button>Change</button></form> ")
-                    .append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"").append(s.parked() ? "unpark-search" : "park-search").append("\"><input type=\"hidden\" name=\"name\" value=\"").append(esc(s.slug())).append("\"><button>").append(s.parked() ? "Back in the rotation" : "Park").append("</button></form> ")
-                    .append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"unkeep\"><input type=\"hidden\" name=\"name\" value=\"").append(esc(s.slug())).append("\"><button>Stop keeping it</button></form></li>");
+                    .append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"").append(s.parked() ? "unpark-search" : "park-search").append("\"><input type=\"hidden\" name=\"name\" value=\"").append(esc(s.slug())).append("\"><button>").append(s.parked() ? "Resume" : "Park").append("</button></form> ")
+                    .append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"unkeep\"><input type=\"hidden\" name=\"name\" value=\"").append(esc(s.slug())).append("\"><button>Stop this search</button></form></li>");
             b.append("</ul>");
         }
         b.append("<form method=\"post\" action=\"/questions\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"keep\">")
@@ -329,8 +329,8 @@ final class Pages {
         for (String k : List.of("type", "show", "report", "fate", "who", "subject", "language", "q", "view", "similar")) if (q.containsKey(k) && !q.get(k).isBlank()) f.put(k, q.get(k).strip());
         f.putIfAbsent("show", "queued");
         String show = f.get("show");
-        b.append("<h2>Open questions</h2><p class=\"k\">The queue the housekeeping's explorer draws from: ").append(Crews.explorerBudget()).append(" run(s) a night, related questions sharing a run; the Runs page shows tonight's. ")
-         .append("A report's leftover questions are filed parked: they wait here until you put them in the queue. Tick any number, then send them as runs now, move them, park them, or drop them.</p>");
+        b.append("<h2>Open questions</h2><p class=\"k\">The nightly research takes its questions from this list: ").append(Crews.explorerBudget()).append(" research run(s) a night, and related questions share a run. The Runs page shows tonight's. ")
+         .append("Questions left over from a report start out parked: they wait here until you put them in the queue. Tick any number, then research them now, move them, park them, or drop them.</p>");
         List<ObjectNode> open = p.frontierList(true);
         int dups = Frontier.duplicates(store).size();
         if (dups > 0) b.append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"tidy\">").append(dups).append(" of these are second copies of the same question. <button>Remove the copies</button></form>");
@@ -363,15 +363,15 @@ final class Pages {
          .append(view.equals("list") ? "<b>one list</b>" : "<a href=\"" + href(f, "view", "list") + "\">one list</a>")
          .append(" &nbsp; Questions that read alike: ").append(similar.equals("folded") ? "<b>folded</b>" : "<a href=\"" + href(f, "similar", "folded") + "\">folded</a>").append(" · ")
          .append(similar.equals("shown") ? "<b>shown</b>" : "<a href=\"" + href(f, "similar", "shown") + "\">shown</a>").append("</p>");
-        if (f.getOrDefault("type", "").equals("check")) b.append("<p class=\"k\">Source checks are chores, not research questions: a re-read found the source does not support the claim. The claim is in the <a href=\"/inbox\">Inbox</a>; decide it there. The explorer never takes these.</p>");
+        if (f.getOrDefault("type", "").equals("check")) b.append("<p class=\"k\">Source checks are not research questions. A re-read found that the source does not support the claim. The claim is in the <a href=\"/inbox\">Inbox</a>. Decide it there. The nightly research never takes these.</p>");
         List<ObjectNode> rows = new ArrayList<>();
         for (ObjectNode o : open) if (LibraryProtocol.matches(o, f)) rows.add(o);
-        if (rows.isEmpty()) b.append("<p>Nothing here.</p>");
+        if (rows.isEmpty()) b.append("<p>No questions match these filters.</p>");
         else {
             b.append("<form method=\"post\" action=\"/questions\" class=\"pick\"><input type=\"hidden\" name=\"op\" value=\"selected\">")
              .append("<div class=\"bar\"><label><input type=\"checkbox\" onclick=\"for(const c of this.form.querySelectorAll('input[name^=q]'))c.checked=this.checked\"> all</label> ")
-             .append("<button name=\"do\" value=\"run\">Send as runs now</button> <button name=\"do\" value=\"next\">Run next</button> <button name=\"do\" value=\"later\">Later</button> ");
-            if (!show.equals("queued")) b.append("<button name=\"do\" value=\"unpark\">Back in the queue</button> ");
+             .append("<button name=\"do\" value=\"run\">Research now</button> <button name=\"do\" value=\"next\">Run next</button> <button name=\"do\" value=\"later\">Run later</button> ");
+            if (!show.equals("queued")) b.append("<button name=\"do\" value=\"unpark\">Put back in the queue</button> ");
             if (!show.equals("parked")) b.append("<button name=\"do\" value=\"park\">Park</button> ");
             b.append("<button name=\"do\" value=\"drop\">Drop</button></div>");
             // grouped by the report that left them (a group's box ticks the group), or one list; alike questions fold under their first
@@ -411,9 +411,9 @@ final class Pages {
             }
             b.append("</form>");
         }
-        b.append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"budget\">The explorer takes <input name=\"standing\" size=\"2\" value=\"").append(Crews.explorerPerNight()).append("\"> run(s) a night; tonight only: <input name=\"tonight\" size=\"2\" value=\"").append(Crews.explorerTonight() > 0 ? String.valueOf(Crews.explorerTonight()) : "").append("\" placeholder=\"same\"> <button>Set</button></form>");
+        b.append("<form method=\"post\" action=\"/questions\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"budget\">The nightly research takes <input name=\"standing\" size=\"2\" value=\"").append(Crews.explorerPerNight()).append("\"> run(s) a night; tonight only: <input name=\"tonight\" size=\"2\" value=\"").append(Crews.explorerTonight() > 0 ? String.valueOf(Crews.explorerTonight()) : "").append("\" placeholder=\"same\"> <button>Set</button></form>");
         b.append("<form method=\"post\" action=\"/questions\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"add\">")
-         .append("<label>Add an open question<br><input name=\"question\" size=\"70\" placeholder=\"a question for the explorer to take on a coming night\"></label> <button>Add it</button></form>");
+         .append("<label>Add an open question<br><input name=\"question\" size=\"70\" placeholder=\"a question for the nightly research to take on a coming night\"></label> <button>Add it</button></form>");
         return page(store, patron, "Open questions", b.toString());
     }
 
@@ -520,7 +520,7 @@ final class Pages {
                     if (lastId != null) return "/jobs";
                 }
             }
-            default -> throw ProtocolError.invalidArgs("unknown form");
+            default -> throw ProtocolError.invalidArgs("This form is not known. Go back and try again.");
         }
         return "/questions";
     }
@@ -531,8 +531,8 @@ final class Pages {
         Map<String, String> f = new java.util.LinkedHashMap<>();
         for (String k : List.of("report", "subject", "kind", "tier", "confidence", "writer", "state", "language", "q", "view")) if (q.containsKey(k) && !q.get(k).isBlank()) f.put(k, q.get(k).strip());
         List<ObjectNode> all = p.inboxList();
-        StringBuilder b = new StringBuilder("<p class=\"k\">Claims waiting for your decision: drafts, and accepted claims whose review went stale. Accepting puts a claim into every answer from now on; disputing files the reason; retiring keeps it on disk and out of every answer. Tick any number, then choose.</p>");
-        if (all.isEmpty()) { b.append("<p>Nothing awaits you.</p>"); return page(store, patron, "Inbox", b.toString()); }
+        StringBuilder b = new StringBuilder("<p class=\"k\">Claims waiting for your decision: new claims, and accepted claims whose review is out of date. Accept puts a claim into every answer from now on. Dispute records your reason. Retire stops using the claim but keeps the record. Tick any number, then choose.</p>");
+        if (all.isEmpty()) { b.append("<p>No claims are waiting. New claims appear here after a research run.</p>"); return page(store, patron, "Inbox", b.toString()); }
         b.append("<form method=\"get\" action=\"/inbox\" class=\"inline\">");
         for (var e : f.entrySet()) if (!e.getKey().equals("q")) b.append("<input type=\"hidden\" name=\"").append(esc(e.getKey())).append("\" value=\"").append(esc(e.getValue())).append("\">");
         b.append("<input name=\"q\" size=\"32\" value=\"").append(esc(f.getOrDefault("q", ""))).append("\" placeholder=\"words in the claim\"> <button>Find</button>")
@@ -541,7 +541,7 @@ final class Pages {
         List<String[]> reports = new ArrayList<>(); java.util.Set<String> seen = new java.util.HashSet<>();
         for (ObjectNode o : all) { String id = o.path("report").asText(""); if (!id.isEmpty() && seen.add(id)) reports.add(new String[]{id, shortReport(id, o.path("report_title").asText(""))}); }
         if (reports.size() > 1 || (reports.size() == 1 && all.size() > reports.size())) b.append(facetRow("/inbox", m, all, f, "report", "From the report", reports, true));
-        b.append(facetRow("/inbox", m, all, f, "state", "Waiting because", List.of(new String[]{"draft", "new claim"}, new String[]{"stale", "review went stale"}), true));
+        b.append(facetRow("/inbox", m, all, f, "state", "Waiting because", List.of(new String[]{"draft", "new claim"}, new String[]{"stale", "review is out of date"}), true));
         b.append(facetRow("/inbox", m, all, f, "kind", "Kind", List.of(new String[]{"extraction", "extraction"}, new String[]{"synthesis", "synthesis"}, new String[]{"interpretation", "interpretation"}, new String[]{"speculation", "speculation"}), true));
         List<String[]> tiers = new ArrayList<>(); for (SourceTier t : SourceTier.values()) for (ObjectNode o : all) if (o.path("tier").asText("").equals(t.name())) { tiers.add(new String[]{t.name(), t.name()}); break; }
         if (tiers.size() > 1) b.append(facetRow("/inbox", m, all, f, "tier", "Strongest source", tiers, true));
@@ -557,7 +557,7 @@ final class Pages {
          .append(view.equals("list") ? "<b>one list</b>" : "<a href=\"" + href("/inbox", f, "view", "list") + "\">one list</a>").append("</p>");
         List<ObjectNode> rows = new ArrayList<>();
         for (ObjectNode o : all) if (m.test(o, f)) rows.add(o);
-        if (rows.isEmpty()) { b.append("<p>Nothing here.</p>"); return page(store, patron, "Inbox", b.toString()); }
+        if (rows.isEmpty()) { b.append("<p>No claims match these filters.</p>"); return page(store, patron, "Inbox", b.toString()); }
         b.append("<form method=\"post\" action=\"/inbox\" class=\"pick\">")
          .append("<div class=\"bar\"><label><input type=\"checkbox\" onclick=\"for(const c of this.form.querySelectorAll('input[name^=f]'))c.checked=this.checked\"> all</label> ")
          .append("<button name=\"do\" value=\"accept\">Accept the ticked ones</button> <button name=\"do\" value=\"retire\">Retire the ticked ones</button> ")
@@ -579,7 +579,7 @@ final class Pages {
             for (ObjectNode o : e.getValue()) {
                 b.append("<li><label><input type=\"checkbox\" name=\"f").append(n++).append("\" value=\"").append(esc(o.path("id").asText())).append("\"> ")
                  .append("<a href=\"/entry/").append(enc(o.path("id").asText())).append("\">").append(esc(o.path("title").asText())).append("</a> <span class=\"k\">")
-                 .append(o.path("stale").asBoolean() ? "stale review" : esc(o.path("state").asText())).append(" · ").append(esc(o.path("kind").asText())).append(" · ").append(esc(o.path("tier").asText()))
+                 .append(o.path("stale").asBoolean() ? "review out of date" : esc(o.path("state").asText())).append(" · ").append(esc(o.path("kind").asText())).append(" · ").append(esc(o.path("tier").asText()))
                  .append(" · ").append(esc(o.path("confidence").asText())).append(" · ").append(esc(o.path("date").asText()));
                 for (var x : o.path("subjects")) b.append(" · ").append(esc(x.asText()));
                 b.append("</span></label></li>");
@@ -595,13 +595,13 @@ final class Pages {
 
     /** The remove form on an entry: for a report the three choices, for a claim the one; the plan is shown before anything goes. */
     static String removeForm(String id, String kind) {
-        StringBuilder b = new StringBuilder("<details class=\"remove\"><summary class=\"k\">Remove…</summary><form method=\"post\" action=\"/remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(id)).append("\">");
+        StringBuilder b = new StringBuilder("<details class=\"remove\"><summary class=\"k\">Delete…</summary><form method=\"post\" action=\"/remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(id)).append("\">");
         if ("investigation".equals(kind)) {
-            b.append("<label><input type=\"radio\" name=\"what\" value=\"all\" checked> the report and the claims that are its alone</label><br>")
-             .append("<label><input type=\"radio\" name=\"what\" value=\"report\"> the report only; its claims stay</label><br>")
-             .append("<label><input type=\"radio\" name=\"what\" value=\"claims\"> its claims only; the report stays</label><br>");
-        } else b.append("<input type=\"hidden\" name=\"what\" value=\"all\"><p class=\"k\">Delete this claim for good. Retiring it from the inbox keeps it on disk.</p>");
-        b.append("<button class=\"quiet\">Show what would go</button></form></details>");
+            b.append("<label><input type=\"radio\" name=\"what\" value=\"all\" checked> Delete the report and its claims</label><br>")
+             .append("<label><input type=\"radio\" name=\"what\" value=\"report\"> Delete only the report. Keep its claims.</label><br>")
+             .append("<label><input type=\"radio\" name=\"what\" value=\"claims\"> Delete only the claims. Keep the report.</label><br>");
+        } else b.append("<input type=\"hidden\" name=\"what\" value=\"all\"><p class=\"k\">Delete this claim. To keep the record but stop using it, retire it from the Inbox instead.</p>");
+        b.append("<button class=\"quiet\">Preview</button></form></details>");
         return b.toString();
     }
 
@@ -618,16 +618,16 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         if (!confirm) {
             b.append("<pre>").append(esc(r.path("plan").asText())).append("</pre>");
-            if (r.path("claims_go").size() == 0 && !r.path("report_goes").asBoolean()) b.append("<p>Nothing to remove.</p>");
+            if (r.path("claims_go").size() == 0 && !r.path("report_goes").asBoolean()) b.append("<p>Nothing to delete.</p>");
             else b.append("<form method=\"post\" action=\"/remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(id)).append("\"><input type=\"hidden\" name=\"what\" value=\"").append(esc(what)).append("\"><input type=\"hidden\" name=\"confirm\" value=\"1\">")
-                  .append(nonceField()).append("<button>Remove for good</button> <a class=\"quiet\" href=\"/entry/").append(enc(id)).append("\">Leave it</a></form><p class=\"k\">There is no undo.</p>");
-            return page(store, patron, "Remove " + id, b.toString());
+                  .append(nonceField()).append("<button>Delete</button> <a class=\"quiet\" href=\"/entry/").append(enc(id)).append("\">Cancel</a></form><p class=\"k\">This cannot be undone.</p>");
+            return page(store, patron, "Delete " + id, b.toString());
         }
         SENT.put(once, id);
         b.append("<p>").append(esc(r.path("summary").asText())).append("</p><ul>");
         for (JsonNode x : r.path("removed")) b.append("<li>").append(esc(x.asText())).append("</li>");
-        b.append("</ul><p class=\"k\"><a href=\"/changes\">The changes log</a> records it.</p>");
-        return page(store, patron, "Removed", b.toString());
+        b.append("</ul><p class=\"k\">This is recorded in the <a href=\"/changes\">change log</a>.</p>");
+        return page(store, patron, "Deleted", b.toString());
     }
 
     private static void inboxPost(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
@@ -641,7 +641,7 @@ final class Pages {
                 case "accept" -> c.accept(id);
                 case "retire" -> c.retire(id);
                 case "dispute" -> c.dispute(id, why.isEmpty() ? "disputed from the inbox page" : why);
-                default -> throw ProtocolError.invalidArgs("unknown decision");
+                default -> throw ProtocolError.invalidArgs("That decision is not known. Go back and try again.");
             }
         }
     }
@@ -659,7 +659,7 @@ final class Pages {
         b.append("<h2>Running and waiting</h2>");
         boolean paused = r.path("paused").asBoolean();
         b.append("<form method=\"post\" action=\"/jobs\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"").append(paused ? "resume" : "pause").append("\">")
-         .append(paused ? "<span class=\"badge\">paused</span> The runner is paused: queued runs wait, a running one holds at its next turn. <button>Resume</button>" : "<button>Pause the runner</button> <span class=\"k\">queued runs wait, a running one holds at its next turn; the housekeeping still runs</span>")
+         .append(paused ? "<span class=\"badge\">paused</span> Research is paused: queued runs wait, and a running one pauses at its next turn. <button>Resume</button>" : "<button>Pause research</button> <span class=\"k\">queued runs wait, a running one pauses at its next turn, and nightly maintenance still runs</span>")
          .append("</form>");
         if (r.path("active").size() == 0) b.append("<p class=\"k\">Nothing is running.</p>");
         else {
@@ -679,7 +679,7 @@ final class Pages {
     private static void jobsPost(LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
         ObjectNode a = args(patron);
         String op = form.getOrDefault("op", "");
-        if (!op.equals("pause") && !op.equals("resume") && !op.equals("stop")) throw ProtocolError.invalidArgs("unknown form");
+        if (!op.equals("pause") && !op.equals("resume") && !op.equals("stop")) throw ProtocolError.invalidArgs("This form is not known. Go back and try again.");
         a.put("op", op);
         if (op.equals("stop")) a.put("job_id", form.getOrDefault("job_id", ""));
         p.job(a);
@@ -689,19 +689,19 @@ final class Pages {
     static String tonight(LibraryStore store) throws IOException {
         Tonight.Plan t = Tonight.plan(store);
         StringBuilder b = new StringBuilder();
-        b.append("<h2>Tonight</h2><p>The housekeeping runs at ").append(String.format("%02d:00", t.hour())).append(" on ").append(t.date()).append(".</p>");
+        b.append("<h2>Tonight</h2><p>Nightly maintenance runs at ").append(String.format("%02d:00", t.hour())).append(" on ").append(t.date()).append(".</p>");
         b.append("<p><b>Searches you keep.</b> ");
-        if (t.due().isEmpty() && t.later().isEmpty()) b.append("None yet. <code>researchzosho shelf add &lt;name&gt; &lt;query&gt; [days]</code> keeps one.</p>");
+        if (t.due().isEmpty() && t.later().isEmpty()) b.append("None yet. Add one with <code>researchzosho shelf add &lt;name&gt; &lt;query&gt; [days]</code>.</p>");
         else {
             b.append("</p><ul class=\"tight\">");
             for (Serials.Shelf s : t.due()) b.append("<li><b>runs tonight</b> ").append(esc(s.slug())).append(": ").append(esc(s.query())).append(" <span class=\"k\">(every ").append(s.everyDays()).append(" days, last ").append(esc(s.lastChecked())).append(")</span></li>");
             for (Serials.Shelf s : t.later()) b.append("<li><span class=\"k\">").append(s.parked() ? "parked" : "not yet due").append("</span> ").append(esc(s.slug())).append(": ").append(esc(s.query())).append(" <span class=\"k\">(every ").append(s.everyDays()).append(" days, last ").append(esc(s.lastChecked())).append(")</span></li>");
             b.append("</ul>");
         }
-        b.append("<p><b>Open questions it will research:</b> ").append(t.budget()).append(" run(s) tonight")
-         .append(t.override() > 0 ? " (tonight's override; the standing number is " + t.standing() + ")" : "").append(". Related questions share a run. ")
-         .append("<a href=\"/questions\">The queue</a> is where to reorder, park, or drop them.</p>");
-        if (t.bundles().isEmpty()) b.append("<p class=\"k\">None: nothing queued that the explorer takes.</p>");
+        b.append("<p><b>Open questions it will research:</b> ").append(t.budget()).append(" research run(s) tonight")
+         .append(t.override() > 0 ? " (set for tonight only; the usual number is " + t.standing() + ")" : "").append(". Related questions share a run. ")
+         .append("Reorder, park, or drop them on the <a href=\"/questions\">Open questions</a> page.</p>");
+        if (t.bundles().isEmpty()) b.append("<p class=\"k\">None: no queued question for the nightly research to take.</p>");
         else {
             b.append("<ol class=\"tight\">");
             for (Crews.Bundle bd : t.bundles()) {
@@ -712,8 +712,8 @@ final class Pages {
             b.append("</ol>");
             if (t.stillOpen() > 0) b.append("<p class=\"k\">… ").append(t.stillOpen()).append(" more queued for later nights").append(t.parked() > 0 ? "; " + t.parked() + " parked" : "").append(".</p>");
         }
-        b.append("<p class=\"k\">Also: ").append(t.inventoryPerNight()).append(" accepted claims re-read against their sources; new write-ups reviewed and catalogued; preprints and retractions checked; the index refreshed; a backup kept.")
-         .append(t.weekly() ? " Weekly extras tonight: the duplicate-claims list and the unreferenced-documents list." : "")
+        b.append("<p class=\"k\">Also: ").append(t.inventoryPerNight()).append(" accepted claims checked against their sources again; new reports reviewed and given subjects; preprints and retractions checked; the search index refreshed; a backup made.")
+         .append(t.weekly() ? " Weekly extras tonight: the list of duplicate claims and the list of saved pages nothing refers to." : "")
          .append(t.monthly() ? " Monthly extra tonight: the search index is rebuilt." : "").append("</p>");
         return b.toString();
     }
@@ -744,9 +744,9 @@ final class Pages {
         if (j.hasNonNull("question")) b.append("<p><b>").append(esc(j.path("question").asText())).append("</b></p>");
         if (j.hasNonNull("investigation")) b.append("<p>The answer is saved as ").append(idLink(j.path("investigation").asText())).append(".</p>");
         if (j.hasNonNull("result") && !j.path("result").asText().isEmpty()) b.append("<h2>").append(j.path("is_error").asBoolean() ? "What went wrong" : "Result").append("</h2><div class=\"body\">").append(md(j.path("result").asText())).append("</div>");
-        if (live) return page(store, patron, "Job " + id, b.toString(), 5, null);
-        if (!back.isEmpty() && "done".equals(state)) return page(store, patron, "Job " + id, b.toString(), 3, back);
-        return page(store, patron, "Job " + id, b.toString());
+        if (live) return page(store, patron, "Run " + id, b.toString(), 5, null);
+        if (!back.isEmpty() && "done".equals(state)) return page(store, patron, "Run " + id, b.toString(), 3, back);
+        return page(store, patron, "Run " + id, b.toString());
     }
 
     private static String researchForm(LibraryStore store, Patrons.Patron patron, String q, String note) throws IOException {
@@ -755,24 +755,24 @@ final class Pages {
         if (patron.web() && WebAccess.signInRequired()) {
             b.append("<p>To ask for research you need to <a href=\"/login\">sign in</a> first.</p>");
         }
-        b.append("<p class=\"k\">A question that takes real reading. The library reads, checks every source it uses, and saves the answer as a write-up you can read here.</p>");
+        b.append("<p class=\"k\">A question that takes real reading. The library reads, checks every source it uses, and saves the answer as a report you can read here.</p>");
         b.append("<form method=\"post\" action=\"/research\" class=\"stack\">");
         b.append("<label>The question<br><textarea name=\"question\" rows=\"3\" required>").append(esc(q)).append("</textarea></label>");
         b.append("<label>How<br><select name=\"mode\"><option value=\"broad\">broad — cover the whole topic</option><option value=\"depth\">deep — go into detail on the best sources</option></select></label>");
         b.append("<label>Where to read<br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\">this library only</option><option value=\"web\">the web only</option></select></label>");
         b.append("<label>Limits, if you want any (0 = no limit)<br><input name=\"max_turns\" value=\"0\" size=\"6\"> model turns &nbsp; <input name=\"max_minutes\" value=\"0\" size=\"6\"> minutes</label>");
-        b.append(nonceField()).append("<button>Send it</button> <button name=\"sharpen\" value=\"1\" class=\"quiet\">Sharpen it first</button></form>");
-        b.append("<p class=\"k\">Sharpen it first: the library reads what it already holds, asks who studies this, and hands the question back tighter, with what it assumed and a plan. You edit, then send. It runs nothing.</p>");
+        b.append(nonceField()).append("<button>Send it</button> <button name=\"sharpen\" value=\"1\" class=\"quiet\">Refine it first</button></form>");
+        b.append("<p class=\"k\">Refine it first: the library reads what it already holds, finds who studies this, and gives the question back more precise, with what it assumed and a plan. You edit, then send. No research runs yet.</p>");
         return page(store, patron, "Research", b.toString());
     }
 
     /** Start sharpening in the background (or join the one already running for this question) and show the working page. */
     private static String sharpenStart(LibraryStore store, Patrons.Patron patron, String question) throws IOException {
         String q = question.strip();
-        if (q.length() < 8) return researchForm(store, patron, q, "The question is too short to sharpen.");
+        if (q.length() < 8) return researchForm(store, patron, q, "The question is too short to refine.");
         Patrons.check(store, patron, Patrons.Level.read);
         Researcher.Drive drive = Explain.drive();
-        if (drive == null) throw ProtocolError.unavailable("No model drive answers; sharpening a question needs one.");
+        if (drive == null) throw ProtocolError.unavailable("No model is answering right now. Refining a question needs one.");
         String key = sharpenKey(q);
         Sharpening cur = SHARPENING.get(key);
         if (cur == null || (cur.done && cur.error != null) || (cur.done && System.currentTimeMillis() - cur.started > 10 * 60_000L)) {
@@ -791,15 +791,15 @@ final class Pages {
     /** The working page while a sharpening runs; the result once it is there; the error if it failed. */
     private static String sharpenPoll(LibraryStore store, Patrons.Patron patron, String key) throws IOException {
         Sharpening w = SHARPENING.get(key);
-        if (w == null) return researchForm(store, patron, "", "That sharpening is gone; type the question again.");
+        if (w == null) return researchForm(store, patron, "", "That refinement has expired. Type the question again.");
         if (!w.done) {
             long secs = (System.currentTimeMillis() - w.started) / 1000;
-            String body = "<div class=\"working\"><span class=\"spin\"></span><div><p><b>Sharpening the question…</b></p>"
-                    + "<p class=\"k\">" + secs + " seconds so far. The library reads what it already holds, asks who studies this, and writes the plan. About half a minute.</p>"
+            String body = "<div class=\"working\"><span class=\"spin\"></span><div><p><b>Refining the question…</b></p>"
+                    + "<p class=\"k\">" + secs + " seconds so far. The library reads what it already holds, finds who studies this, and writes the plan. This takes about half a minute.</p>"
                     + "<p class=\"k\">This page updates itself.</p></div></div>";
-            return page(store, patron, "Sharpening", body, 2, "/research?sharpen=" + key);
+            return page(store, patron, "Refining", body, 2, "/research?sharpen=" + key);
         }
-        if (w.error != null) throw w.error instanceof ProtocolError pe ? pe : ProtocolError.unavailable("The question could not be sharpened: " + w.error.getMessage());
+        if (w.error != null) throw w.error instanceof ProtocolError pe ? pe : ProtocolError.unavailable("The question could not be refined: " + w.error.getMessage());
         return sharpened(store, patron, w.result);
     }
 
@@ -807,7 +807,7 @@ final class Pages {
     private static String sharpened(LibraryStore store, Patrons.Patron patron, Sharpen.Sharpened s) throws IOException {
         StringBuilder b = new StringBuilder();
         b.append("<p class=\"k\">You asked: ").append(esc(s.original())).append("</p>");
-        b.append("<h2>Sharpened</h2><p><b>").append(esc(s.question())).append("</b></p>");
+        b.append("<h2>Refined</h2><p><b>").append(esc(s.question())).append("</b></p>");
         if (!s.assumptions().isEmpty()) {
             b.append("<p class=\"k\">To get there it assumed:</p><ul class=\"tight\">");
             for (String a : s.assumptions()) b.append("<li>").append(esc(a)).append("</li>");
@@ -819,7 +819,7 @@ final class Pages {
             b.append("</ul><p class=\"k\">Put the answers into the question below before you send it.</p>");
         }
         if (!s.held().isEmpty()) {
-            b.append("<h2>Already on the shelves</h2><ul class=\"tight\">");
+            b.append("<h2>Already in the library</h2><ul class=\"tight\">");
             for (Sharpen.Held h : s.held()) b.append("<li>").append(idLink(h.id(), h.title())).append(" <span class=\"k\">").append(esc(h.state())).append("</span></li>");
             b.append("</ul>");
         }
@@ -835,8 +835,8 @@ final class Pages {
         boolean quick = "quick".equals(s.size());
         b.append("<label>Limits, if you want any (0 = no limit)<br><input name=\"max_turns\" value=\"").append(quick ? Explain.QUICK_TURNS : 0).append("\" size=\"6\"> model turns &nbsp; <input name=\"max_minutes\" value=\"").append(quick ? Explain.QUICK_MINUTES : 0).append("\" size=\"6\"> minutes</label>");
         if (quick) b.append("<input type=\"hidden\" name=\"quick\" value=\"1\">");
-        b.append(nonceField()).append("<button>Send it</button> <button name=\"sharpen\" value=\"1\" class=\"quiet\">Sharpen again</button></form>");
-        return page(store, patron, "Sharpened", b.toString());
+        b.append(nonceField()).append("<button>Send it</button> <button name=\"sharpen\" value=\"1\" class=\"quiet\">Refine again</button></form>");
+        return page(store, patron, "Refined", b.toString());
     }
 
     private static String researchPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
@@ -872,7 +872,7 @@ final class Pages {
         String id = q.getOrDefault("id", "").strip(), term = q.getOrDefault("term", "").strip(), in = q.getOrDefault("in", "").strip();
         Explain.Rung rung = Explain.Rung.of(q.getOrDefault("rung", "beginner"));
         boolean fresh = "1".equals(q.get("fresh"));
-        if (id.isEmpty() && term.isEmpty()) return page(store, patron, "Explain", "<p>Open an entry and pick a level, or type a word to explain.</p>");
+        if (id.isEmpty() && term.isEmpty()) return page(store, patron, "Explain", "<p>Open an entry and pick a reading level, or type a word to explain.</p>");
         Patrons.check(store, patron, Patrons.Level.read);
         String key = (term.isEmpty() ? "id=" + id : "term=" + term.toLowerCase(java.util.Locale.ROOT) + "&in=" + in) + "&rung=" + rung.name();
         Working w = WORKING.get(key);
@@ -920,7 +920,7 @@ final class Pages {
             JsonNode offer = r.path("offer");
             if (offer.isObject()) {
                 String back = "/explain?term=" + enc(term) + "&in=" + enc(of) + "&rung=" + rung.name();
-                b.append("<p>The library can look it up: a quick look is a few minutes at the front of the line; full research has no limits and waits its turn. Either way every source is checked and the answer is saved. Then this page can explain it.</p>");
+                b.append("<p>The library can look it up. A quick look takes a few minutes and goes first. Full research has no limits and waits its turn. Either way every source is checked and the answer is saved. Then this page can explain it.</p>");
                 b.append(offerForm(offer, back, true)).append(offerForm(offer, back, false));
                 b.append("<p class=\"k\">The question it will ask: ").append(esc(offer.path("question").asText())).append("</p>");
             }
@@ -944,7 +944,7 @@ final class Pages {
         b.append("<form class=\"big\" action=\"/explain\"><input type=\"hidden\" name=\"in\" value=\"").append(esc(of)).append("\"><input type=\"hidden\" name=\"rung\" value=\"").append(rung.name())
          .append("\"><input name=\"term\" placeholder=\"What I don't understand is…\"> <button>Explain</button></form>");
         b.append("<p class=\"k\">This is a plain-language version, not a record. Nothing here is saved as a claim, and each paragraph says where in the library it comes from.</p>");
-        String title = term.isEmpty() ? "Read it: " + rung.name() : esc(term);
+        String title = term.isEmpty() ? "Reading level: " + rungLabel(rung) : esc(term);
         return page(store, patron, title, b.toString());
     }
 
@@ -978,7 +978,7 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         b.append("<div class=\"working\"><span class=\"spin\"></span><div><p><b>The library is ").append(esc(w.stage)).append("…</b></p>");
         b.append("<p class=\"k\">").append(secs).append(" seconds so far. The library reads what it has, writes, then checks each paragraph against its sources. ")
-         .append("A write-up takes about a minute the first time; a word, ten to twenty seconds.</p>");
+         .append("A report takes about a minute the first time; a word, ten to twenty seconds.</p>");
         b.append("<p class=\"k\">This page updates itself. You can leave; the result is kept.</p></div></div>");
         if (!of.isEmpty()) b.append("<p class=\"k\">").append(idLink(of)).append("</p>");
         return page(store, patron, "Working on: " + what, b.toString(), 2, null);
@@ -1032,13 +1032,17 @@ final class Pages {
     }
 
     private static String ladder(String id, Explain.Rung current) {
-        return "<p class=\"k\">Read it: " + rungLinks("/explain?id=" + enc(id) + "&rung=", current) + " <span class=\"k\">(the first time takes about a minute)</span></p>";
+        return "<p class=\"k\">Reading level: " + rungLinks("/explain?id=" + enc(id) + "&rung=", current) + " <span class=\"k\">(the first time takes about a minute)</span></p>";
+    }
+    /** A reading level as a person sees it: Simple, Familiar, Original. */
+    static String rungLabel(Explain.Rung r) {
+        return switch (r) { case beginner -> "Simple"; case familiar -> "Familiar"; case written -> "Original"; };
     }
     private static String rungLinks(String hrefPrefix, Explain.Rung current) {
         StringBuilder b = new StringBuilder();
         for (Explain.Rung r : Explain.Rung.values()) {
             if (b.length() > 0) b.append(" · ");
-            String label = r == Explain.Rung.written ? "as written" : r.name();
+            String label = rungLabel(r);
             if (r == current) b.append("<b>").append(label).append("</b>");
             else b.append("<a href=\"").append(hrefPrefix).append(r.name()).append("\">").append(label).append("</a>");
         }
@@ -1136,8 +1140,8 @@ final class Pages {
         if (p.path("round").asInt() > 0) sb.append("round ").append(p.path("round").asInt()).append(" of ").append(p.path("rounds").asInt());
         if (p.path("workers_total").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append("workers ").append(p.path("workers_done").asInt()).append(" of ").append(p.path("workers_total").asInt()).append(" done");
         if (p.path("turns_ceiling").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" of ").append(p.path("turns_ceiling").asInt()).append(" turns");
-        else if (p.path("turns_used").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" turns, no turn ceiling");
-        if (p.hasNonNull("deadline_at")) { try { long min = (java.time.Instant.parse(p.get("deadline_at").asText()).toEpochMilli() - System.currentTimeMillis()) / 60_000; sb.append(sb.length() > 0 ? " · " : "").append(min >= 0 ? min + " min left" : "past its deadline, wrapping up"); } catch (Exception ignored) { } }
+        else if (p.path("turns_used").asInt() > 0) sb.append(sb.length() > 0 ? " · " : "").append(p.path("turns_used").asInt()).append(" turns, no turn limit");
+        if (p.hasNonNull("deadline_at")) { try { long min = (java.time.Instant.parse(p.get("deadline_at").asText()).toEpochMilli() - System.currentTimeMillis()) / 60_000; sb.append(sb.length() > 0 ? " · " : "").append(min >= 0 ? min + " min left" : "past its time limit, finishing up"); } catch (Exception ignored) { } }
         if (!p.path("phase").asText("").isEmpty()) sb.append(sb.length() > 0 ? " · " : "").append(p.path("phase").asText());
         return sb.toString();
     }
@@ -1256,7 +1260,7 @@ final class Pages {
         else if (q.get("session") != null && !q.get("session").isBlank()) { s = Librarian.Session.resume(store, q.get("session")); if (s == null) s = Librarian.Session.latest(store); }
         else s = Librarian.Session.latest(store);
         StringBuilder b = new StringBuilder();
-        b.append("<p class=\"k\">The Librarian answers from what the library holds, through its tools, and says so. \"Find out …\" files a research run; \"yes\" is enough for an offer. "
+        b.append("<p class=\"k\">The Librarian answers from what is in the library and says where each answer comes from. Say \"Find out …\" to start a research run; \"yes\" is enough to accept an offer. "
                 + "Session <code>").append(esc(s.id)).append("</code> · <a href=\"/chat?new=1\">new conversation</a>");
         List<String> ids = Librarian.Session.list(store);
         if (ids.size() > 1) { b.append(" · earlier: "); int n = 0; for (String id : ids) { if (id.equals(s.id)) continue; if (n++ >= 5) break; b.append("<a href=\"/chat?session=").append(enc(id)).append("\">").append(esc(id.substring(2, Math.min(id.length(), 18)))).append("</a> "); } }
@@ -1268,8 +1272,8 @@ final class Pages {
             else if (role.equals("tool")) b.append("<p class=\"k tool\">looked up: ").append(esc(m.path("name").asText("a tool"))).append("</p>");
         }
         b.append("</div><form class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
-         .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required><button>Say</button></form>")
-         .append("<p class=\"k\">A reply takes as long as the model takes; the page comes back with it.</p>");
+         .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required><button>Send</button></form>")
+         .append("<p class=\"k\">The reply appears when the model has finished. This can take a while.</p>");
         return page(store, patron, "Chat", b.toString());
     }
 
@@ -1308,11 +1312,11 @@ final class Pages {
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><style>" + CSS + "</style></head><body>"
                 + "<header><a class=\"home\" href=\"/\"><img src=\"/favicon.ico\" alt=\"\"> <span class=\"brand\">ResearchZosho</span><span class=\"ver\">" + esc(org.researchzosho.Version.number() == null ? "dev" : org.researchzosho.Version.number()) + "</span><span class=\"lib\">" + esc(name) + "</span></a><nav>"
-                + "<a href=\"/chat\">Chat</a><a href=\"/ask\">Ask</a><a href=\"/search\">Search</a><a href=\"/inbox\">Inbox</a><a href=\"/subjects\">Subjects</a><a href=\"/questions\">Open</a><a href=\"/changes\">Changes</a><a href=\"/jobs\">Runs</a><a href=\"/research\">Research</a><a href=\"/map\">Map</a>"
+                + "<a href=\"/chat\">Chat</a><a href=\"/ask\">Ask</a><a href=\"/search\">Search</a><a href=\"/inbox\">Inbox</a><a href=\"/subjects\">Subjects</a><a href=\"/questions\">Questions</a><a href=\"/changes\">Changes</a><a href=\"/jobs\">Runs</a><a href=\"/research\">Research</a><a href=\"/map\">Map</a>"
                 + "</nav><span class=\"who\">" + who + "</span></header><main" + (wide ? " class=\"wide\"" : "") + ">"
                 + (title == null ? "" : "<h1>" + esc(title) + "</h1>") + body + "</main>"
                 + "<footer class=\"k\">ResearchZosho " + esc(org.researchzosho.Version.string()) + " · <a href=\"https://researchzosho.org\">researchzosho.org</a>"
-                + (org.researchzosho.Version.updateNotice().isEmpty() ? "" : " · <b>" + esc(org.researchzosho.Version.latestCached()) + " is available</b>: update with the one-liner on <a href=\"https://researchzosho.org/#install\">researchzosho.org</a>; the library and settings stay")
+                + (org.researchzosho.Version.updateNotice().isEmpty() ? "" : " · <b>" + esc(org.researchzosho.Version.latestCached()) + " is available</b>: update with the install command on <a href=\"https://researchzosho.org/#install\">researchzosho.org</a>; your library and settings stay")
                 + "</footer></body></html>";
     }
 

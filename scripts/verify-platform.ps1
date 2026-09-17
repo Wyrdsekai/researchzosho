@@ -41,12 +41,12 @@ Expect 'questions list --parked' 'parked' { & $Z questions list --parked }
 Expect 'questions unpark' 'back in the queue' { & $Z questions unpark 'How were the gears of the Antikythera mechanism cut?' }
 Expect 'questions list --grep' '1 shown' { & $Z questions list --grep 'lead paint' }
 Expect 'questions tidy' 'no duplicate' { & $Z questions tidy }
-Expect 'questions budget' '1 run' { & $Z questions budget 1 }
+Expect 'questions budget' '1 research run' { & $Z questions budget 1 }
 Expect 'shelf add' 'every 3 days' { & $Z shelf add gears 'antikythera gears cutting' 3 }
 Expect 'shelf park' 'parked' { & $Z shelf park gears }
 Expect 'tonight shows parked' 'parked' { & $Z tonight }
 Expect 'shelf unpark' 'back in the rotation' { & $Z shelf unpark gears }
-Expect 'inbox empty' 'nothing awaits' { & $Z inbox }
+Expect 'inbox empty' 'The inbox is empty' { & $Z inbox }
 Expect 'refresh' 'refreshed' { & $Z refresh }
 Expect 'update status' $Ver { & $Z update status }
 Expect 'embed status' 'embeddings server' { & $Z embed status }
@@ -56,8 +56,8 @@ $srv = Start-Process -FilePath $Z -ArgumentList "serve --host 127.0.0.1 --port $
 $ok = $false; for ($i = 0; $i -lt 40 -and -not $ok; $i++) { Start-Sleep 1; try { Invoke-WebRequest "http://127.0.0.1:$port2/" -UseBasicParsing -TimeoutSec 3 | Out-Null; $ok = $true } catch {} }
 Expect 'page /questions' 'Open questions' { (Invoke-WebRequest "http://127.0.0.1:$port2/questions?show=all" -UseBasicParsing).Content }
 Expect 'page /questions grouped' 'Park' { (Invoke-WebRequest "http://127.0.0.1:$port2/questions" -UseBasicParsing).Content }
-Expect 'page /inbox' 'Nothing awaits' { (Invoke-WebRequest "http://127.0.0.1:$port2/inbox" -UseBasicParsing).Content }
-Expect 'page /jobs pause button' 'Pause the runner' { (Invoke-WebRequest "http://127.0.0.1:$port2/jobs" -UseBasicParsing).Content }
+Expect 'page /inbox' 'No claims are waiting' { (Invoke-WebRequest "http://127.0.0.1:$port2/inbox" -UseBasicParsing).Content }
+Expect 'page /jobs pause button' 'Pause research' { (Invoke-WebRequest "http://127.0.0.1:$port2/jobs" -UseBasicParsing).Content }
 Expect 'csp allows the pick form script' 'unsafe-inline' { (Invoke-WebRequest "http://127.0.0.1:$port2/questions" -UseBasicParsing).Headers['Content-Security-Policy'] }
 Expect 'http frontier filters' 'Antikythera' { (Invoke-WebRequest "http://127.0.0.1:$port2/v1/frontier" -Method Post -ContentType 'application/json' -Body '{"op":"list","q":"gears"}' -UseBasicParsing).Content }
 Expect 'http inbox' 'items' { (Invoke-WebRequest "http://127.0.0.1:$port2/v1/inbox" -Method Post -ContentType 'application/json' -Body '{"op":"list"}' -UseBasicParsing).Content }

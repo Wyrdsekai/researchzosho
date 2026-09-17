@@ -37,7 +37,7 @@ class HoldingsTest {
         // as=none: all 302 go on the shelves; 200 are looked at
         ObjectNode r = p.items(patron(M.createObjectNode().put("path", list.toString()).put("as", "none")));
         assertEquals(302, r.path("items_found").asInt()); assertEquals(200, r.path("taken").asInt()); assertEquals(102, r.path("remaining").asInt());
-        assertTrue(r.path("summary").asText().contains("(all 302 are on the shelves)"), r.path("summary").asText());
+        assertTrue(r.path("summary").asText().contains("(all 302 are saved in the library)"), r.path("summary").asText());
         String[] raw = RawCapture.read(store.rawDir().resolve(r.path("raw").asText()));
         assertTrue(raw[2].contains("302 entries; the whole list is lists/"), raw[2].substring(0, 120));
         String listFile = Items.listFileName(store, store.rawDir().resolve(r.path("raw").asText()));
@@ -66,9 +66,9 @@ class HoldingsTest {
         // through the protocol, the chat and the runs' tool
         ObjectNode q = p.holdings(patron(M.createObjectNode().put("query", "earthsea")));
         assertEquals(1, q.path("count").asInt()); assertEquals("A Wizard of Earthsea", q.path("matches").get(0).path("item").asText());
-        assertTrue(q.path("summary").asText().startsWith("1 entry match"), q.path("summary").asText());
+        assertTrue(q.path("summary").asText().startsWith("1 entry matches"), q.path("summary").asText());
         ObjectNode none = p.holdings(patron(M.createObjectNode().put("query", "dune")));
-        assertTrue(none.path("summary").asText().contains("hold nothing matching \"dune\" (302 entries in all)"), none.path("summary").asText());
+        assertTrue(none.path("summary").asText().contains("No list entry matches \"dune\" (302 entries in all)."), none.path("summary").asText());
         assertThrows(ProtocolError.class, () -> p.holdings(patron(M.createObjectNode().put("query", "  "))));
         var tool = new Researcher.HoldingsTool(store);
         String out = tool.execute(M.createObjectNode().put("query", "earthsea le guin"));

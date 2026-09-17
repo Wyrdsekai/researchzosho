@@ -83,7 +83,7 @@ class SurveysTest {
         LibraryProtocol p = new LibraryProtocol(store);
         ObjectNode s = p.survey(patron(M.createObjectNode().put("path", paper.toString())));
         assertEquals("paper", s.path("kind").asText()); assertEquals("tides", s.path("name").asText());
-        assertTrue(s.path("summary").asText().startsWith("read the document tides"), s.path("summary").asText());
+        assertTrue(s.path("summary").asText().startsWith("Read the document tides"), s.path("summary").asText());
         Finding claim = Surveys.claimFor(store, "tides");
         assertNotNull(claim); assertEquals(Surveys.Kind.paper, Surveys.kindOf(claim));
         assertEquals(paper.toString(), claim.sources().get(0).locator());

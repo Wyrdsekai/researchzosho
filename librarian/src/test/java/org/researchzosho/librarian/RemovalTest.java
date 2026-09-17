@@ -57,7 +57,7 @@ class RemovalTest {
         Removal.Plan all = Removal.plan(store, "I-0001-tides", Removal.What.all);
         assertTrue(all.reportGoes()); assertEquals(List.of("F-0001-a", "F-0002-b"), all.claimsGo()); assertEquals(List.of("F-0003-c"), all.claimsStay());
         String words = Removal.describe(all);
-        assertTrue(words.startsWith("remove the report I-0001-tides") && words.contains("keep 1 claim(s) another report also cites: F-0003-c") && words.endsWith("stays on the shelves"), words);
+        assertTrue(words.startsWith("Delete the report I-0001-tides") && words.contains("Keep 1 claim(s) that another report also cites: F-0003-c") && words.endsWith("are kept."), words);
         // report only: nothing but the report; claims only: the claims, the report kept with its list pruned
         Removal.Plan report = Removal.plan(store, "I-0001-tides", Removal.What.report);
         assertTrue(report.reportGoes() && report.claimsGo().isEmpty() && report.claimsStay().size() == 3);
@@ -87,7 +87,7 @@ class RemovalTest {
         LibraryProtocol p = new LibraryProtocol(store);
         ObjectNode dry = p.remove(patron(M.createObjectNode().put("id", "I-0002-gauges").put("dry", true)));
         assertTrue(dry.path("dry").asBoolean()); assertEquals(2, dry.path("claims_go").size()); assertFalse(dry.has("removed"));
-        assertTrue(dry.path("summary").asText().startsWith("would remove 3 entries; nothing removed"), dry.path("summary").asText());
+        assertTrue(dry.path("summary").asText().startsWith("Preview: 3 entries would be deleted. Nothing was deleted."), dry.path("summary").asText());
         assertNotNull(store.investigation("I-0002-gauges"));
         ObjectNode r = p.remove(patron(M.createObjectNode().put("id", "I-0002-gauges")));
         assertEquals(3, r.path("removed").size()); assertNull(store.investigation("I-0002-gauges")); assertNull(store.finding("F-0003-c"));
@@ -119,23 +119,23 @@ class RemovalTest {
             // the fold is on a report page and on a claim page for someone who may write
             String cookie = Pages.COOKIE + "=" + token;
             var report = get(c, base + "/entry/I-0001-tides", cookie);
-            assertTrue(report.body().contains("<summary class=\"k\">Remove…</summary>") && report.body().contains("value=\"claims\""), "the three choices on a report");
+            assertTrue(report.body().contains("<summary class=\"k\">Delete…</summary>") && report.body().contains("value=\"claims\""), "the three choices on a report");
             var claimPage = get(c, base + "/entry/F-0004-d", cookie);
-            assertTrue(claimPage.body().contains("Delete this claim for good"), "one choice on a claim");
+            assertTrue(claimPage.body().contains("Delete this claim."), "one choice on a claim");
             // the first post shows the plan and a confirm button with a one-time token; nothing is gone yet
             var plan = post(c, base + "/remove", "id=I-0001-tides&what=all", cookie);
             assertEquals(200, plan.statusCode());
-            assertTrue(plan.body().contains("keep 1 claim(s) another report also cites: F-0003-c") && plan.body().contains("Remove for good"), plan.body());
+            assertTrue(plan.body().contains("Keep 1 claim(s) that another report also cites: F-0003-c"), plan.body());
             assertNotNull(store.investigation("I-0001-tides"));
             Matcher m = Pattern.compile("name=\"once\" value=\"([0-9a-f]+)\"").matcher(plan.body()); assertTrue(m.find());
             String once = m.group(1);
             // the confirm removes; the same token again removes nothing more (the report is gone, and the token is spent)
             var done = post(c, base + "/remove", "id=I-0001-tides&what=all&confirm=1&once=" + once, cookie);
             assertEquals(200, done.statusCode());
-            assertTrue(done.body().contains("removed 3 entries; 1 claim(s) kept") && done.body().contains("<li>I-0001-tides</li>"), done.body());
+            assertTrue(done.body().contains("Deleted 3 entries. 1 claim was kept because another report cites it.") && done.body().contains("<li>I-0001-tides</li>"), done.body());
             assertNull(store.investigation("I-0001-tides")); assertNull(store.finding("F-0001-a")); assertNotNull(store.finding("F-0003-c"));
             var again = post(c, base + "/remove", "id=I-0002-gauges&what=all&confirm=1&once=" + once, cookie);
-            assertTrue(again.body().contains("Remove for good"), "a spent token shows the plan again instead of removing");
+            assertTrue(again.body().contains("<button>Delete</button>"), "a spent token shows the plan again instead of deleting");
             assertNotNull(store.investigation("I-0002-gauges"));
             // without a sign-in the fold is not on the page and the post is refused when the sign-in is on
             var anon = get(c, base + "/entry/I-0002-gauges", null);

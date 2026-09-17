@@ -120,7 +120,7 @@ class ReposTest {
         assertTrue(options.get(0).line().kind().contains("(from a survey of tidebook, option 1)"), options.get(0).line().kind());
         var jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
         assertEquals(0, jobs.active().size());
-        assertTrue(s.path("summary").asText().contains("nothing runs until one is picked"), s.path("summary").asText());
+        assertTrue(s.path("summary").asText().contains("Nothing runs until you pick one."), s.path("summary").asText());
         // pick two: a run each, the questions marked explored, the rest still open
         ObjectNode pick = a.deepCopy().put("op", "pick").put("picks", "1, 3");
         ObjectNode pr = p.repo(pick);

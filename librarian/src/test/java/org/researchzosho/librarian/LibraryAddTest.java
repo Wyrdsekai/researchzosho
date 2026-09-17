@@ -171,7 +171,7 @@ class LibraryAddTest {
         ObjectNode stranger = M.createObjectNode().put("path", docs.toString());
         stranger.putObject("patron").put("did", "did:key:zStranger").put("name", "s").put("runtime", "mcp");
         ProtocolError e = assertThrows(ProtocolError.class, () -> p.add(stranger));
-        assertTrue(e.getMessage().contains("keeper"), e.getMessage());
+        assertTrue(e.getMessage().contains("library owner"), e.getMessage());
         assertThrows(ProtocolError.class, () -> p.add(person(M.createObjectNode())), "a path or a url is needed");
         assertThrows(ProtocolError.class, () -> p.add(person(M.createObjectNode().put("path", docs.toString()).put("mode", "copy"))), "mode is keep, link or survey");
         ProtocolError missing = assertThrows(ProtocolError.class, () -> p.add(person(M.createObjectNode().put("path", home.resolve("nfs").resolve("share").toString()))));

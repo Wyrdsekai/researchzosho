@@ -63,12 +63,12 @@ public final class LibrarianDaemon {
         String d = drive == null || drive.isEmpty() ? driveUrl : drive;
         switch (kind) {
             case "research" -> {
-                if (!Crews.driveAnswers(d)) throw new IllegalStateException("no model drive answers at " + d + " — the ask was filed but cannot run; ask again when a drive is up");
+                if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The question was saved but cannot run. Send it again when a model is up.");
                 String writer = job.path("patron").asText("").isEmpty() ? "patron:anonymous" : "patron:" + job.path("patron").asText();
                 try {
                     return runResearch(job, a, d, writer);
                 } catch (IOException e) {
-                    throw new IllegalStateException("the shelf could not be written: " + e.getMessage(), e);
+                    throw new IllegalStateException("The library could not be written: " + e.getMessage(), e);
                 }
             }
             case "crews" -> {
@@ -114,7 +114,7 @@ public final class LibrarianDaemon {
         Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() : " → refused: " + filed.reason()),
                 System.currentTimeMillis() - t0);
         return (filed.admitted() ? "investigation " + filed.investigationId()
-                : "(refused at intake — " + filed.reason() + "; see the frontier)") + "\n\n" + filed.result().summary();
+                : "(not accepted — " + filed.reason() + "; see the open questions)") + "\n\n" + filed.result().summary();
     }
 
     /** How often the service looks for changes the vault has not seen; a test shortens it. */
@@ -167,14 +167,14 @@ public final class LibrarianDaemon {
                     + "; retractions " + ret.retracted() + "/" + ret.checked() + " checked; summaries " + abs.written() + " rewritten"
                     + (out.problems().isEmpty() ? "" : "; review problems: " + out.problems().size() + " (see the review lines above)"), System.currentTimeMillis() - t0);
         } catch (Exception e) {
-            Crews.log(store, "settle " + jobId, investigationId + ": could not settle now (" + e.getMessage() + "); the housekeeping will", System.currentTimeMillis() - t0);
+            Crews.log(store, "settle " + jobId, investigationId + ": could not settle now (" + e.getMessage() + "); nightly maintenance will", System.currentTimeMillis() - t0);
         }
     }
 
     /** True, and logged, when a stop was asked for the job while it was settling: the steps done stay done, the rest waits for the housekeeping. */
     private boolean settleStopped(String jobId, String investigationId, String after, long t0) {
         if (!jobs.stopRequested(jobId)) return false;
-        Crews.log(store, "settle " + jobId, investigationId + ": stopped by the person after " + after + "; the housekeeping does the rest", System.currentTimeMillis() - t0);
+        Crews.log(store, "settle " + jobId, investigationId + ": stopped by the person after " + after + "; nightly maintenance does the rest", System.currentTimeMillis() - t0);
         return true;
     }
 
@@ -223,7 +223,7 @@ public final class LibrarianDaemon {
         d.jobs.start();   // re-queues what a previous daemon left behind
         if (crewHour >= 0) {
             d.crews = Crews.nightly(store, crewHour, () -> {
-                try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not file the crews job: " + e, 0); }
+                try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not start the nightly tasks: " + e, 0); }
             }, () -> { try { return d.jobs.active().isEmpty(); } catch (Exception e) { return false; } });   // the auto-update waits for an idle daemon
             d.crews.start();
         }
@@ -368,7 +368,7 @@ public final class LibrarianDaemon {
         LibraryProtocol.validateResearch(body);
         boolean any = false;
         for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveUrl : d)) { any = true; break; }
-        if (!any) throw ProtocolError.unavailable("No model drive answers (" + String.join(", ", jobs.drives()) + "); research needs one.");
+        if (!any) throw ProtocolError.unavailable("No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
         ObjectNode r = new LibraryProtocol(store).research(body);
         jobs.pickUp();
         r.put("queued_ahead", Math.max(0, jobs.queued() - 1) + jobs.running().size());
@@ -396,15 +396,15 @@ public final class LibrarianDaemon {
         String runtime = claimed != null && claimed.isObject() ? claimed.path("runtime").asText("") : "";
         if (auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
             Patrons.Entry e = Patrons.resolve(store, auth.substring(7));
-            if (e == null) throw ProtocolError.forbidden("That bearer token proves no listed patron; the person who keeps the library issues tokens with `researchzosho reader token <did>`.");
+            if (e == null) throw ProtocolError.forbidden("That token does not match any user. The library owner makes tokens with `researchzosho reader token <did>`.");
             if (claimed != null && claimed.isObject() && !claimed.path("did").asText("").isBlank()
                     && !claimed.path("did").asText().equals(e.did())) {
-                throw ProtocolError.forbidden("The token proves " + e.did() + ", not the did the request names.");
+                throw ProtocolError.forbidden("The token belongs to " + e.did() + ", not to the did in the request.");
             }
             return new Patrons.Patron(e.did(), e.name(), runtime.isEmpty() ? "http" : runtime);
         }
         if (claimed != null && claimed.isObject() && !claimed.path("did").asText("").isBlank()) {
-            throw ProtocolError.forbidden("A did over http must be proved with a bearer token (Authorization: Bearer …); omit the patron to call anonymously.");
+            throw ProtocolError.forbidden("A did sent over http needs a bearer token (Authorization: Bearer …). Leave out the patron to call anonymously.");
         }
         return Patrons.Patron.ANONYMOUS;
     }

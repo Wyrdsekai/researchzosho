@@ -109,18 +109,19 @@ public final class Removal {
         return new Done(plan, removed);
     }
 
-    /** The plan in words, for the terminal and the page. */
+    /** The plan in plain words, for the terminal and the page. */
     public static String describe(Plan p) {
         StringBuilder sb = new StringBuilder();
-        if (p.kind().equals("finding")) return "remove the claim " + p.id() + " — " + p.title() + " (the file is deleted; retire keeps it)";
-        sb.append(p.reportGoes() ? "remove the report " : "keep the report ").append(p.id()).append(" — ").append(Acquisitions.compress(p.title(), 90)).append('\n');
-        if (p.what() == What.report) sb.append("keep its ").append(p.claimsStay().size()).append(" claim(s)\n");
+        if (p.kind().equals("finding")) return "Delete the claim " + p.id() + " (" + p.title() + "). To keep the record but stop using it, retire it instead.";
+        if (p.reportGoes()) sb.append("Delete the report ").append(p.id()).append(" (").append(Acquisitions.compress(p.title(), 90)).append(").\n");
+        else sb.append("Keep the report ").append(p.id()).append(" (").append(Acquisitions.compress(p.title(), 90)).append(").\n");
+        if (p.what() == What.report) sb.append("Keep its ").append(p.claimsStay().size()).append(" claim(s).\n");
         else {
-            sb.append("remove ").append(p.claimsGo().size()).append(" claim(s) of its own:\n");
-            for (int i = 0; i < p.claimsGo().size(); i++) sb.append("  ").append(p.claimsGo().get(i)).append(" — ").append(Acquisitions.compress(p.titles().get(i), 80)).append('\n');
-            if (!p.claimsStay().isEmpty()) sb.append("keep ").append(p.claimsStay().size()).append(" claim(s) another report also cites: ").append(String.join(", ", p.claimsStay())).append('\n');
+            sb.append("Delete ").append(p.claimsGo().size()).append(" claim(s):\n");
+            for (int i = 0; i < p.claimsGo().size(); i++) sb.append("  ").append(p.claimsGo().get(i)).append("  ").append(Acquisitions.compress(p.titles().get(i), 80)).append('\n');
+            if (!p.claimsStay().isEmpty()) sb.append("Keep ").append(p.claimsStay().size()).append(" claim(s) that another report also cites: ").append(String.join(", ", p.claimsStay())).append('\n');
         }
-        sb.append("what the run fetched from the web stays on the shelves");
+        sb.append("Pages saved from the web during the run are kept.");
         return sb.toString();
     }
 }

@@ -85,7 +85,7 @@ class PagesTest {
             assertTrue(pdf.headers().firstValue("content-type").orElse("").startsWith("application/pdf") && pdf.body().length > 1000);
             var written = get(c, base + "/explain?id=F-0001-gears&rung=written", null);
             assertEquals(200, written.statusCode());
-            assertTrue(written.body().contains("<b>as written</b>") && written.body().contains("a dividing plate"), written.body());
+            assertTrue(written.body().contains("<b>Original</b>") && written.body().contains("a dividing plate"), written.body());
             var needsDrive = get(c, base + "/explain?id=F-0001-gears&rung=beginner", null);
             assertEquals(503, needsDrive.statusCode());
             assertTrue(needsDrive.body().contains("No model is answering"), needsDrive.body());
@@ -127,10 +127,10 @@ class PagesTest {
             assertEquals(404, get(c, base + "/nothing-here", null).statusCode(), "a stray path is still the API's 404, not a page");
 
             var researchForm = get(c, base + "/research", null);
-            assertTrue(researchForm.body().contains("Sharpen it first"), "the research page offers to sharpen the question first");
+            assertTrue(researchForm.body().contains("Refine it first"), "the research page offers to refine the question first");
             var noDrive = post(c, base + "/research", "question=" + Pages.enc("how were the gears cut") + "&sharpen=1", null);
             assertEquals(503, noDrive.statusCode());
-            assertTrue(noDrive.body().contains("No model drive answers"), noDrive.body());
+            assertTrue(noDrive.body().contains("No model is answering"), noDrive.body());
             // with a slow model: the sharpen post comes back at once as a working page, which turns into the sharpened form
             Explain.DRIVES = () -> new Researcher.Drive() {
                 @Override public com.fasterxml.jackson.databind.node.ObjectNode chat(com.fasterxml.jackson.databind.node.ArrayNode m, com.fasterxml.jackson.databind.node.ArrayNode tl, int x, String y) { throw new UnsupportedOperationException(); }
@@ -144,7 +144,7 @@ class PagesTest {
             };
             var sharpening = post(c, base + "/research", "question=" + Pages.enc("how were the gears cut") + "&sharpen=1", null);
             assertEquals(200, sharpening.statusCode());
-            assertTrue(sharpening.body().contains("Sharpening the question") && sharpening.body().contains("http-equiv=\"refresh\""), sharpening.body());
+            assertTrue(sharpening.body().contains("Refining the question") && sharpening.body().contains("http-equiv=\"refresh\""), sharpening.body());
             // the sharpening runs in the background; a GitHub macOS runner took longer than twelve seconds once (2026-09-17)
             String sharpenedBody = null, lastBody = "";
             for (int i = 0; i < 300 && sharpenedBody == null; i++) {
@@ -168,7 +168,7 @@ class PagesTest {
             assertTrue(home.body().contains("open to everyone") && home.body().contains("web signin on"), home.body());
             var open = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", null);
             assertEquals(200, open.statusCode());
-            assertTrue(open.body().contains("No model drive answers"), "it got as far as the drive check, so it was allowed: " + open.body());
+            assertTrue(open.body().contains("No model is answering"), "it got as far as the drive check, so it was allowed: " + open.body());
             // with the sign-in on: refused without a token, and the page says how to sign in
             WebAccess.OVERRIDE = Boolean.TRUE;
             var refused = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", null);
@@ -186,7 +186,7 @@ class PagesTest {
             // signed in, the research form posts; no drive answers in the test, so the page reports that rather than filing
             var filed = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", cookie);
             assertEquals(200, filed.statusCode());
-            assertTrue(filed.body().contains("No model drive answers"), filed.body());
+            assertTrue(filed.body().contains("No model is answering"), filed.body());
         } finally { d.stop(); Explain.DRIVES = Explain::configuredDrive; WebAccess.OVERRIDE = null; }
     }
 

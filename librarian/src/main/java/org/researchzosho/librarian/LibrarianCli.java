@@ -18,108 +18,108 @@ public final class LibrarianCli {
 
     static final String USAGE = """
             usage: researchzosho <verb>   (zosho <verb> · codezaiku librarian <verb> are the same command)
-              setup [--yes]                the first ten minutes: where the library goes, which model reads, the service, Claude Code, a first document
-              version                      which ResearchZosho this is
-              init                         create the library (the consent act — research runs then submit)
+              setup [--yes]                set up the library: its folder, the model, the service, Claude Code, a first document
+              version                      the installed version
+              init                         create the library. Research runs can then save their results here
               status                       counts, drafts, stale reviews, problems
-              name [<name…>]               the library's name, shown on its pages and to programs (the folder's until set)
-              refresh                      re-index what changed or was removed on disk (seconds)
-              rebuild                      rebuild the whole search index + INDEX.md from files (re-embeds everything)
-              ask <question…>              what the library has on it, with sources and states
-              chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, file a run, read what it found, decide the inbox; /help inside
+              name [<name…>]               show or set the library's name (the folder's name until you set one)
+              refresh                      re-index the files that changed or were removed (takes seconds)
+              rebuild                      rebuild the whole search index and INDEX.md from the files (slow: every entry is read again)
+              ask <question…>              what the library holds on a question, with sources
+              chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, start a research run, read what it found, decide the inbox. /help inside
               add <file|url> [title]       add your own document (PDF/DOCX/PPTX/ODT/EPUB/HTML/text)
               add <folder> [--collection N] [--register] [--link] [--survey]
+                                           add every document under a folder, as a collection. --link reads the files where they are (nothing is copied). --survey only counts them
               absorb <transcript|export|url> [--verify]
+                                           a conversation you had with another assistant. It is saved to the library. Your questions become open questions. Its claims are listed for checking
               survey <repo|paper|url|issues> [--kind k] [--pick 1,3] [--do "…"]
-                                           read a code repository, a paper, a website or an issue tracker; file one draft claim on what it is; list research directions. --pick runs them, --do runs your own question
+                                           read a code repository, a paper, a website or an issue tracker. Saves one draft claim on what it is and lists research directions. --pick runs them, --do runs your own question
               items <list|csv|url|calibre-library> [--lens "…"] [--as frontier|runs|none] [--match T]… [--sample N]
-                                           a list of things (books, tools, an inventory; a Calibre library or its metadata.db counts): stored whole, each item checked against the shelves, a question per selected item
-              holdings <words…>            look up your shelved lists: every word must appear in an entry
+                                           a list of things (books, tools, an inventory, a Calibre library or its metadata.db). The list is saved whole, each item is checked against the library, and a question is made for each selected item
+              holdings <words…>            search the lists you saved. Every word must appear in an entry
               remove <I-…|F-…> [--report-only | --claims-only] [--yes]
-                                           delete a report and its claims, the report only, the claims only, or one claim; retire keeps a claim on disk
-              check <draft> [--verify]     your own draft or notes: claims to check, its citations fetched, its questions filed
+                                           delete a report and its claims, only the report, only the claims, or one claim. retire keeps a claim but stops using it
+              check <draft> [--verify]     your own draft or notes. Lists the claims to check, fetches its citations, saves its questions as open questions
               reading <bib|ris|csv|list> [--watch]
-                                           a reading list: every DOI and url fetched onto the shelves as a collection
+                                           a reading list. Every DOI and url is fetched into the library as a collection
               questions file <file> [--as frontier|runs]
-                                           a whole file of questions onto the open questions, in order
+                                           add a whole file of questions to the open questions, in order
               bookmarks <export|urls> [--folder F] [--watch]
-                                           a browser's bookmarks onto the shelves; --watch re-reads them nightly
+                                           a browser's bookmarks, saved into the library. --watch re-reads them every night
               meeting <vtt|transcript> [--verify]
-                                           a meeting transcript: decisions kept, questions raised filed, claims to check
-              triples [<n>]                give findings without a triple one from the model (the housekeeping's step, by hand)
-              concepts [<n>]               note the concepts each claim rests on; the map draws "mentions" edges to them (the bridges walk them)
+                                           a meeting transcript. Keeps the decisions, saves the questions raised as open questions, lists the claims to check
+              triples [<n>]                add a subject, relation and object to claims that lack one, using the model. A nightly maintenance step, run by hand
+              concepts [<n>]               note the concepts each claim depends on. The map links each claim to them, and bridges uses those links
               bridges [<area>] [--dry] [--via terms|graph|both] [--reach low|medium|high] [--strict|--loose] [--toward a] [--away w]
-                                           discovery by combination: areas no source read together, joined by shared terms;
+                                           find two subjects that share terms or concepts but that no source connects, and write a research question about them.
                                            list | accept <q> | dismiss <q> | settings [<area>] | measure | distance <area> <other>
-                                           a conversation you had with another assistant: shelved, your questions filed, its claims listed to check
-                                           a folder of documents as a collection; --link reads them in place (nothing copied); --survey only counts
               add <folder> [--collection N] [--register]   add every document under the folder, as a named collection
-              add <file> --for <url>       supply a document the runner could not read (a paywall, a wall) — see `requests`
-              collection list|add <name> <folder>|rescan     the registered folders (the housekeeping rescans them)
-              requests                     what the runner could not read and asks you for
+              add <file> --for <url>       supply a document a research run could not fetch (a paywall, for example). See `requests`
+              collection list|add <name> <folder>|rescan     the registered folders (nightly maintenance rescans them)
+              requests                     the documents a research run could not fetch and asks you for
               vault [--out <dir>]          the library as a folder an editor opens (Obsidian, SoloMD): notes and links, kept up to date
               directory publish <dir-url> --token <t> --url <my-url> · find <dir-url> <query…> · list
-                                           a directory is a library of listings; publish yours there, or search one for libraries to ask
+                                           a directory is a list of libraries. Publish yours there, or search one for libraries to ask
               peer list · add <name> <url> <token> [--group a,b] · remove <name> · ask <name|group|all> <question…>
-                                           other libraries this one may ask; their answers stay labelled as theirs (one hop, never merged)
+                                           other libraries this one may ask. Their answers stay labelled as theirs and are never merged in
               research ask "<question…>" [--depth] [--quick] [--shelves|--web] [--max-turns N] [--max-minutes N]
-                                           send a question; the service picks it up within seconds
-              research                     how runs share the model: workers, pause, window; today's steps by reader; what is running
-              research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them live — a running question follows at its next step; stop ends one run there
-              jobs [<J-…>]                 every run, queued and running first, then the last finished; one id: its state, progress, wait, and where its write-up went
-              stats [<n>]                  every research run beside the others: turns, rounds, cite-check, sources, fetches; the last n rows (default 20) and the totals
-              bib <id…>                    BibTeX for everything a finding or investigation cites (DOI / arXiv / PubMed resolved)
-              perspectives <question…>     who studies this and what each would ask — sub-questions for the brief
-              web [status | signin on|off]  the pages in a browser: open to everyone as shipped; signin on asks for a reader token before sending questions
+                                           send a question. The service picks it up within seconds
+              research                     how research runs share the model: workers, pause, window. Today's turns by user, and what is running
+              research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them now. A running question follows at its next step. stop ends one research run there
+              jobs [<J-…>]                 every research run, queued and running first, then the last finished. One id: its state, progress, wait, and where its report went
+              stats [<n>]                  the research runs side by side: turns, rounds, citation checks, sources, fetches. The last n rows (default 20) and the totals
+              bib <id…>                    BibTeX for everything a claim or report cites (DOI / arXiv / PubMed looked up)
+              perspectives <question…>     who studies this and what each would ask. Sub-questions for a research run
+              web [status | signin on|off]  the web pages: open to everyone by default. signin on asks for a reader token before a question can be sent
               sources [list | trust <host> [why] | ban <host> [why] | forget <host>]
-                                           your own word on sources: trusted ones count as primary; refused ones are dropped from searches and reviews
-              settle [<I-…>…]              extract a write-up's claims, file them under subjects, add them to the map, now; all waiting write-ups when none is named
+                                           your own rules for sources. Trusted ones count as primary sources. Banned ones are dropped from searches and reviews
+              settle [<I-…>…]              take a report's claims, file them under subjects and add them to the map, now. All waiting reports when none is named
               export <id> [--pdf|--md] [--beginner|--familiar] [--out FILE]
-                                           an entry, or a reading of it, as a Markdown or PDF file
-              sharpen <question…>          a rough question in, a better one out — a brief to run, what it assumed, what you already hold; runs nothing
-              search [status|start|stop|test <query>|papers <query>]   which web search backend answers; SearXNG through Docker; the literature by DOI
-              models [--all]               which model to run on this machine's card, measured, with the command that serves it
+                                           an entry, or its Simple or Familiar version, as a Markdown or PDF file
+              sharpen <question…>          refine a rough question into a better one: the question to run, what it assumed, what you already have. Runs nothing
+              search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
+              models [--all]               which model fits this machine's graphics card, measured, with the command that runs it
               model install|status|stop|uninstall
-                                           the model on this machine, on demand: it comes up when a run needs it and goes away after 20 idle
+                                           the model on this machine, on demand: it starts when a research run needs it and stops after 20 idle
                                            minutes (install [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share])
-              embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured; Text Embeddings Inference through Docker
+              embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured. Text Embeddings Inference through Docker
               explain <id> [--beginner|--familiar|--written] [--fresh]
-                                           an entry explained for a reader at that level — from the library only, checked
+                                           an entry explained at a reading level (Simple, Familiar or Original). From the library only, checked
               explain "<term>" [--in <id>] [--now|--full]
-                                           a term as it is used in an entry; when the library does not explain it, a quick look or full research
-              map <name|id> [--depth N]    the graph around a person, place, work or concept — edges are findings
+                                           a term as it is used in an entry. When the library does not explain it, a quick look or full research
+              map <name|id> [--depth N]    the map around a person, place, work or concept. The links are claims
               graph merge <a> <b> · alias <node> <name…> · kind <node> <kind> [--private|--public] · link <node> <Qid> · proposals
-              profile list · enable <name> · disable <name>       fields on top of the core (science on by default; genealogy)
+              profile list · enable <name> · disable <name>       extra fields on top of the core (science is on by default; genealogy)
               <profile> <verb…>            a profile's own verbs, e.g. `genealogy import tree.ged`
-              review [drive]               the held-out review pass over draft investigations
+              review [drive]               review draft reports with the model
               inbox [--report I-…] [--subject s] [--kind k] [--tier t] [--confidence c] [--writer w] [--state draft|stale] [--language x] [--grep words] [--by-report]   what is waiting for you: drafts and stale reviews
               accept <id…>|--all|--report I-… · dispute <id> <why> · retire <id…>|--report I-…   your decisions on claims
-              catalog [drive] [--accept-all]   ground findings to the vocabulary; propose new subjects
-              shelf add <name> <query> [days] · list · every <name> <days> · park|unpark <name> · remove <name>   the searches the housekeeping keeps
-              serials                      check living shelves for NEW sources; list overdue reviews
-              tonight                      what the housekeeping will do at its next run: searches due, questions it will research
-              update [now | auto on|off]   the installed release against the latest; install it; let the daemon do it after the housekeeping
-              questions [list [--type t] [--parked|--all] [--report I-…] [--fate f] [--who text] [--subject s] [--language x] [--grep words] [--by-report] [--hints] | add <q…> | file <file> | next|later|park|unpark|drop <n> | tidy | budget <n> | tonight <n>]   the queue the explorer draws from; a report's leftovers wait parked
-              bench [k]                    top-k retrieval failure rate on the shelf's own agent queries
-              subjects                     the vocabulary with counts and co-occurring subjects (the edge list)
-              subjects proposed            the subjects the cataloger proposed, numbered
-              subjects accept <n|slug>…    take proposals into the vocabulary (then `settle` files the claims under them); `all` takes every one
-              subjects drop <n|slug>…      throw proposals away; `all` clears the list
-              abstract [drive] [subject…]  the abstracting crew: (re)write per-subject shelf articles
-              enrich [drive] [N]           generated contextual enrichment of raw chunks (N raw files, 0=all)
+              catalog [drive] [--accept-all]   file claims under the known subjects. Propose new subjects
+              shelf add <name> <query> [days] · list · every <name> <days> · park|unpark <name> · remove <name>   the saved searches nightly maintenance runs again
+              serials                      check the saved searches for new sources. List overdue reviews
+              tonight                      what nightly maintenance will do at its next run: searches due, questions it will research
+              update [now | auto on|off]   compare the installed release with the latest. Install it. Let the service do it after nightly maintenance
+              questions [list [--type t] [--parked|--all] [--report I-…] [--fate f] [--who text] [--subject s] [--language x] [--grep words] [--by-report] [--hints] | add <q…> | file <file> | next|later|park|unpark|drop <n> | tidy | budget <n> | tonight <n>]   the queue the nightly research draws from. A report's leftover questions wait parked
+              bench [k]                    how often search misses on the library's own test queries
+              subjects                     the subject list with counts and the subjects that appear together
+              subjects proposed            the proposed subjects, numbered
+              subjects accept <n|slug>…    accept proposed subjects (then `settle` files the claims under them). `all` takes every one
+              subjects drop <n|slug>…      throw proposals away. `all` clears the list
+              abstract [drive] [subject…]  write or rewrite the summary of each subject
+              enrich [drive] [N]           add model-written context to saved pages (N files, 0=all)
               reader [list|allow <did> <level> [name]|deny <did>|remove <did>|default <level>|token <did>|webhook …]
               reader requests · approve <R-id> [read|write] · deny <R-id> [why]     access requests, and your answer
                                            who may read and write (deny|read|write); `token` makes a bearer token for a program (`patron` is the same verb)
               serve [--host H] [--port P] [--crew-hour H|--no-crews]
                                            the service: the protocol over HTTP (default 127.0.0.1:4649), research
-                                           runs, and the housekeeping (default 03:00 local)
-              crews [--weekly] [--monthly]  run the housekeeping once, now (serials · explorer · review · inventory · abstracts · enrich · heat ·
+                                           runs, and nightly maintenance (default 03:00 local)
+              crews [--weekly] [--monthly]  run nightly maintenance once, now (source re-checks · nightly research · review · inventory · summaries · enrich · heat ·
                                            [weekly: duplicates · orphans] · refresh|rebuild · backup)
-              raw prune                    delete the captures the weekly orphans report listed (catalog/orphans.md)
+              raw prune                    delete the saved pages the weekly orphans report listed (catalog/orphans.md)
               service install|uninstall|status [--exec <launcher>] [--host H] [--port P] [--crew-hour H]
-                                           run the daemon as a user service: systemd (Linux), LaunchAgent (macOS), logon task (Windows)
+                                           run the service in the background: systemd (Linux), LaunchAgent (macOS), logon task (Windows)
               mcp                          MCP over stdio with ONLY the library tools (for Claude Code and other hosts)
-              probe <query…>               why the desk answered as it did: each arm's raw scores and the floor
+              probe <query…>               why ask answered as it did: each search method's raw scores and the cutoff
             """;
 
     /** `librarian patron …` — the allow-list in catalog/patrons.md, and this library's identity. */
@@ -130,9 +130,9 @@ public final class LibrarianCli {
                 var id = store.identity();
                 System.out.println("library " + id.id() + " — " + id.name() + " (contract " + LibraryProtocol.CONTRACT + ")");
                 var pol = Patrons.load(store);
-                System.out.println("default: " + pol.dflt() + "   (anonymous and unlisted patrons)");
+                System.out.println("default: " + pol.dflt() + "   (anonymous and unlisted users)");
                 for (var e : pol.listed()) System.out.println("- " + e.did() + " — " + (e.name().isEmpty() ? "(unnamed)" : e.name()) + " — " + e.level());
-                if (pol.listed().isEmpty()) System.out.println("(no patrons listed — " + Patrons.file(store) + ")");
+                if (pol.listed().isEmpty()) System.out.println("(no users listed — " + Patrons.file(store) + ")");
             }
             case "allow" -> {
                 if (args.length < 5) { System.err.println("usage: researchzosho patron allow <did> <deny|read|write> [name…]"); return 2; }
@@ -276,7 +276,7 @@ public final class LibrarianCli {
                 switch (args[i]) {
                     case "--host" -> host = flagValue(args, i++);
                     case "--port" -> port = flagInt(args, i++);
-                    case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour the housekeeping runs), or a negative number to turn it off"); return 2; } }
+                    case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour nightly maintenance runs), or a negative number to turn it off"); return 2; } }
                     case "--no-crews" -> hour = -1;
                     case "--log" -> log = Path.of(flagValue(args, i++));
                     default -> { System.err.println("unknown option " + args[i]); return 2; }
@@ -299,8 +299,8 @@ public final class LibrarianCli {
         var id = store.identity();
         System.out.println("The Librarian is at " + d.url() + "  (" + id.id() + " — " + id.name() + ", contract " + LibraryProtocol.CONTRACT + ")");
         System.out.println("  drive " + baseUrl + Crews.driveLine(baseUrl));
-        System.out.println("  jobs: " + d.describeWorkers() + "  (RESEARCHZOSHO_JOB_WORKERS, RESEARCHZOSHO_JOB_DRIVES)");
-        System.out.println(hour < 0 ? "  housekeeping: off" : "  housekeeping: daily at " + String.format("%02d:00", hour) + " local (catalog/crews.log)");
+        System.out.println("  research runs: " + d.describeWorkers() + "  (RESEARCHZOSHO_JOB_WORKERS, RESEARCHZOSHO_JOB_DRIVES)");
+        System.out.println(hour < 0 ? "  nightly maintenance: off" : "  nightly maintenance: daily at " + String.format("%02d:00", hour) + " local (catalog/crews.log)");
         System.out.println("  tokens: researchzosho reader token <did>");
         d.join();
         return 0;
@@ -366,8 +366,8 @@ public final class LibrarianCli {
                 }
                 case "init" -> {
                     store.init();
-                    System.out.println("library initialized at " + store.root());
-                    System.out.println("research runs (fan + delegates) now submit drafts here.");
+                    System.out.println("library created at " + store.root());
+                    System.out.println("Research runs now save their drafts here.");
                 }
                 case "status" -> { status(store); String up = org.researchzosho.Version.updateNotice(); if (!up.isEmpty()) System.out.println("\n" + up); }
                 case "refresh" -> {
@@ -380,7 +380,7 @@ public final class LibrarianCli {
                 case "rebuild" -> {
                     String blocker = LibrarianIndex.rebuildBlocker(Embeddings.configured());
                     if (blocker != null) { System.out.println("not rebuilt: " + blocker); return 1; }
-                    System.out.println("rebuilding: every entry is re-embedded (20 minutes for a thousand entries); researchzosho refresh takes only what changed");
+                    System.out.println("rebuilding: every entry is indexed again (20 minutes for a thousand entries). researchzosho refresh takes only what changed");
                     int migrated = store.migrateReviewHashes();
                     int n = new LibrarianIndex(store).rebuild();
                     store.regenerateIndex();
@@ -399,16 +399,16 @@ public final class LibrarianCli {
                     // the concepts crew's step by hand: each finding without a concepts note gets one from the model, up to N
                     int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : Concepts.PER_NIGHT;
                     var o = Concepts.fill(store, Concepts.driveExtractor(new DriveClient(baseUrl, model)), n);
-                    System.out.println(o.asked() + " asked, " + o.filled() + " filled; the map draws a 'mentions' edge from each claim's subject to its concepts");
+                    System.out.println(o.asked() + " asked, " + o.filled() + " filled. The map now links each claim's subject to its concepts");
                 }
                 case "triples" -> {
                     // the triples crew's step by hand: the findings without a triple get one from the model, up to N
                     int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : Triples.PER_NIGHT;
                     var o = Triples.fill(store, Triples.driveExtractor(new DriveClient(baseUrl, model)), n);
-                    System.out.println(o.asked() + " asked, " + o.filled() + " filled; the graph follows at the next housekeeping, or `researchzosho graph` now");
+                    System.out.println(o.asked() + " asked, " + o.filled() + " filled. The map updates at the next nightly maintenance, or now with `researchzosho graph`");
                 }
                 case "ask" -> {
-                    if (args.length < 3) { System.err.println("usage: researchzosho ask <question…>   — the desk: what the shelves hold, or holds_nothing"); return 2; }
+                    if (args.length < 3) { System.err.println("usage: researchzosho ask <question…>   — what the library holds on it, or holds_nothing"); return 2; }
                     System.out.println(LibraryPush.answerPackage(String.join(" ", java.util.Arrays.asList(args).subList(2, args.length)), 6).stripTrailing());
                 }
                 case "map" -> {
@@ -438,7 +438,7 @@ public final class LibrarianCli {
                 case "sharpen" -> {
                     if (args.length < 3) { System.err.println("usage: researchzosho sharpen <question…>"); return 2; }
                     String q = String.join(" ", java.util.Arrays.asList(args).subList(2, args.length));
-                    System.err.print("  … reading what the library holds, asking who studies this, writing the brief"); System.err.flush();
+                    System.err.print("  … reading what the library holds, asking who studies this, writing the question"); System.err.flush();
                     Sharpen.Sharpened s;
                     try { s = Sharpen.run(store, Explain.drive(), Researcher.webTools(), q); }
                     catch (ProtocolError e) { System.err.println(); System.err.println(e.getMessage()); return 1; }
@@ -616,7 +616,7 @@ public final class LibrarianCli {
                 }
                 case "requests" -> {
                     var open = Requests.open(store);
-                    if (open.isEmpty()) System.out.println("no open source requests");
+                    if (open.isEmpty()) System.out.println("No documents are being asked for.");
                     for (var r : open) System.out.println(r.date() + "  " + r.locator() + "  — " + r.reason() + (r.context().isEmpty() ? "" : "  (for: " + r.context() + ")"));
                     if (!open.isEmpty()) System.out.println("supply one: researchzosho add <file> --for <url>");
                 }
@@ -624,7 +624,7 @@ public final class LibrarianCli {
                     if (args.length < 3) { System.err.println("usage: researchzosho perspectives <question…>"); return 2; }
                     var ps = Perspectives.discover(String.join(" ", java.util.Arrays.asList(args).subList(2, args.length)), Researcher.judgeDrive(baseUrl, model), Researcher.webTools(), 5);
                     for (var p : ps) { System.out.println(p.name() + " — " + p.why()); for (String q : p.questions()) System.out.println("  - " + q); }
-                    if (ps.isEmpty()) System.out.println("(the judge named no perspectives)");
+                    if (ps.isEmpty()) System.out.println("(no perspectives were found)");
                 }
                 case "graph" -> { return graph(store, args); }
                 case "profile" -> { return profile(store, args); }
@@ -637,7 +637,7 @@ public final class LibrarianCli {
                     // a write-up's claims onto the shelves and onto the map now, not at three in the morning: the review pass, then triples
                     java.util.List<String> ids = new java.util.ArrayList<>(java.util.Arrays.asList(args).subList(2, args.length));
                     var client = new org.researchzosho.drive.DriveClient(baseUrl, model);
-                    if (!Crews.driveAnswers(baseUrl)) { System.err.println("no model drive answers at " + baseUrl + "; settling needs one"); return 1; }
+                    if (!Crews.driveAnswers(baseUrl)) { System.err.println("No model answers at " + baseUrl + ". settle needs one."); return 1; }
                     var review = new LibrarianReview(store, new LibrarianIndex(store), LibrarianReview.driveJudge(client), "librarian:" + model).searcher(LibrarianReview.liveSearcher());
                     if (ids.isEmpty()) {
                         try (var files = Files.list(store.investigationsDir())) {
@@ -646,11 +646,11 @@ public final class LibrarianCli {
                                 if (inv.state() == Finding.State.draft) ids.add(inv.id());
                             }
                         }
-                        if (ids.isEmpty()) System.out.println("no write-up is waiting for review; filing subjects and map lines for the claims that lack them");
+                        if (ids.isEmpty()) System.out.println("No report is waiting for review. Filing subjects and map links for the claims that lack them.");
                     }
                     for (String id : ids) {
                         Investigation inv = store.investigation(id);
-                        if (inv == null) { System.err.println("no write-up " + id); continue; }
+                        if (inv == null) { System.err.println("No report has the id " + id); continue; }
                         System.out.println("reviewing " + id + " for claims…");
                         var out = review.review(inv);
                         System.out.println(id + ": " + out.accepted().size() + " claim(s) accepted, " + out.disputed().size() + " disputed, " + out.keptDraft().size() + " kept as draft"
@@ -659,12 +659,12 @@ public final class LibrarianCli {
                     long lacking = store.scanFindings().findings().stream().filter(f -> f.subjects().isEmpty() && f.state() != Finding.State.retired).count();
                     if (lacking > 0) System.out.println("filing " + lacking + " claim(s) under subjects — one model call each, about " + Math.max(1, lacking * 3 / 60) + " minute(s)…");
                     var cat = Cataloger.run(store, Cataloger.driveJudge(client), false);
-                    System.out.println("subjects: " + cat.grounded() + " claim(s) filed under subjects from the vocabulary" + (cat.proposals() > 0 ? ", " + cat.proposals() + " new subject(s) proposed for you (catalog/subjects.proposed.md)" : ""));
+                    System.out.println("subjects: " + cat.grounded() + " claim(s) filed under known subjects" + (cat.proposals() > 0 ? ", " + cat.proposals() + " new subject(s) proposed for you (catalog/subjects.proposed.md)" : ""));
                     var t = Triples.fill(store, Triples.driveExtractor(client), 60);
-                    System.out.println("map: " + t.filled() + " of " + t.asked() + " new claim(s) given their place on the map");
+                    System.out.println("map: " + t.filled() + " of " + t.asked() + " new claim(s) added to the map");
                     var ret = Retractions.check(store, Retractions.live(), 60, java.time.LocalDate.now());
                     System.out.println("retractions: " + ret.checked() + " DOI(s) checked at Crossref, " + ret.retracted() + " retracted, " + ret.concerns() + " concern(s)" + (ret.notes().isEmpty() ? "" : " — " + String.join("; ", ret.notes())));
-                    System.out.println("rewriting the summaries of the subjects whose shelf changed — a minute or so each…");
+                    System.out.println("rewriting the summaries of the subjects that changed — a minute or so each…");
                     var abs = Abstracts.run(store, Abstracts.driveWriter(client), null);
                     System.out.println("summaries: " + abs.written() + " subject summar" + (abs.written() == 1 ? "y" : "ies") + " rewritten, " + abs.unchanged() + " unchanged" + (abs.problems().isEmpty() ? "" : "; " + String.join("; ", abs.problems())));
                 }
@@ -688,8 +688,8 @@ public final class LibrarianCli {
                         case "auto" -> {
                             if (args.length < 4 || !(args[3].equals("on") || args[3].equals("off"))) { System.err.println("usage: researchzosho update auto on|off"); return 2; }
                             org.researchzosho.Config.set("RESEARCHZOSHO_UPDATE", args[3].equals("on") ? "auto" : "check");
-                            System.out.println(args[3].equals("on") ? "auto-update is on: after each housekeeping, when no run is active, a newer release is installed and the service restarts"
-                                                                    : "auto-update is off: researchzosho status says when a newer release exists; researchzosho update now installs it");
+                            System.out.println(args[3].equals("on") ? "auto-update is on: after each nightly maintenance, when no research run is active, a newer release is installed and the service restarts"
+                                                                    : "auto-update is off: researchzosho status says when a newer release exists. researchzosho update now installs it");
                             return 0;
                         }
                         default -> { System.err.println("usage: researchzosho update [status | now [version] [--no-restart] | auto on|off]"); return 2; }
@@ -727,7 +727,7 @@ public final class LibrarianCli {
                                 }
                             }
                             f.putIfAbsent("show", "queued");
-                            if (open.isEmpty()) { System.out.println("no open questions"); return 0; }
+                            if (open.isEmpty()) { System.out.println("No open questions yet. researchzosho questions add <question…> adds one."); return 0; }
                             int budget = Crews.explorerBudget();
                             var listed = new LibraryProtocol(store).frontierList(hints);
                             var rows = new java.util.ArrayList<com.fasterxml.jackson.databind.node.ObjectNode>();
@@ -752,8 +752,8 @@ public final class LibrarianCli {
                             }
                             long parked = open.stream().filter(Frontier.Line::parked).count();
                             int dups = Frontier.duplicates(store).size();
-                            System.out.println("  " + rows.size() + " shown of " + open.size() + (parked > 0 && f.get("show").equals("queued") ? ", " + parked + " parked (--parked shows them, --all everything)" : "") + ". Types: report, asked, person, dispute, check (--type <t>). The explorer takes " + budget + " run(s) a night from " + String.join(", ", new java.util.TreeSet<>(Frontier.explorerTypes())) + "; \"waits\" = asked fewer than " + Frontier.MIN_ASKS + " times, or a type it leaves to you. A report's leftovers are filed parked."
-                                    + (dups > 0 ? "\n  " + dups + " line(s) are second copies of the same question: researchzosho questions tidy removes them." : ""));
+                            System.out.println("  " + rows.size() + " shown of " + open.size() + (parked > 0 && f.get("show").equals("queued") ? ", " + parked + " parked (--parked shows them, --all everything)" : "") + ". Types: report, asked, person, dispute, check (--type <t>). The nightly research takes " + budget + " research run(s) a night from " + String.join(", ", new java.util.TreeSet<>(Frontier.explorerTypes())) + ". \"waits\" = asked fewer than " + Frontier.MIN_ASKS + " times, or a type it leaves to you. A report's leftover questions are parked."
+                                    + (dups > 0 ? "\n  " + dups + " line(s) are second copies of the same question. researchzosho questions tidy removes them." : ""));
                             return 0;
                         }
                         case "tidy" -> {
@@ -765,7 +765,7 @@ public final class LibrarianCli {
                             if (args.length < 4) { System.err.println("usage: researchzosho questions add <question…>"); return 2; }
                             String q = String.join(" ", java.util.Arrays.copyOfRange(args, 3, args.length)).strip();
                             store.frontier("person", q);
-                            System.out.println("queued; researchzosho tonight shows when the explorer takes it");
+                            System.out.println("queued. researchzosho tonight shows when the nightly research takes it");
                             return 0;
                         }
                         case "drop", "next", "later", "park", "unpark" -> {
@@ -778,14 +778,14 @@ public final class LibrarianCli {
                                 case "park" -> Frontier.park(store, text);
                                 default -> Frontier.unpark(store, text);
                             };
-                            if (!ok) { System.err.println("no open question reads: " + text + (op.equals("unpark") ? " (or it is not parked)" : "")); return 1; }
+                            if (!ok) { System.err.println("No open question matches: " + text + (op.equals("unpark") ? " (or it is not parked)" : "")); return 1; }
                             System.out.println(switch (op) { case "drop" -> "dropped: "; case "next" -> "runs next: "; case "later" -> "moved to the end: "; case "park" -> "parked: "; default -> "back in the queue: "; } + text);
                             return 0;
                         }
                         case "budget", "tonight" -> {
                             if (args.length < 4 || !args[3].matches("\\d+")) { System.err.println("usage: researchzosho questions " + op + " <runs per night>"); return 2; }
-                            if (op.equals("budget")) { org.researchzosho.Config.set("RESEARCHZOSHO_EXPLORER_PER_NIGHT", args[3]); System.out.println("the explorer takes " + args[3] + " run(s) a night from now on" + (args[3].equals("0") ? " (off)" : "")); }
-                            else { org.researchzosho.Config.set("explorer.tonight", args[3]); System.out.println("tonight the explorer takes " + args[3] + " run(s); the standing number stays " + Crews.explorerPerNight()); }
+                            if (op.equals("budget")) { org.researchzosho.Config.set("RESEARCHZOSHO_EXPLORER_PER_NIGHT", args[3]); System.out.println("the nightly research takes " + args[3] + " research run(s) a night from now on" + (args[3].equals("0") ? " (off)" : "")); }
+                            else { org.researchzosho.Config.set("explorer.tonight", args[3]); System.out.println("tonight the nightly research takes " + args[3] + " research run(s). The usual number stays " + Crews.explorerPerNight()); }
                             return 0;
                         }
                         default -> { System.err.println("usage: researchzosho questions [list [--type t] [--parked | --all] [--report I-…] [--fate f] [--who text] [--subject slug] [--language x] [--grep words] [--by-report] [--hints] | add <question…> | file <file|url> [--as runs] | next|later|park|unpark|drop <n|question> | tidy | budget <n> | tonight <n>]"); return 2; }
@@ -817,7 +817,7 @@ public final class LibrarianCli {
                                 case "--exec" -> exec = flagValue(args, i++);
                                 case "--host" -> host = flagValue(args, i++);   // 0.0.0.0: the LAN may reach it; the reader list decides who may do what
                                 case "--port" -> port = flagInt(args, i++);
-                                case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour the housekeeping runs), or a negative number to turn it off"); return 2; } }
+                                case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour nightly maintenance runs), or a negative number to turn it off"); return 2; } }
                                 default -> { System.err.println("unknown option " + args[i]); return 2; }
                             }
                         }
@@ -846,8 +846,8 @@ public final class LibrarianCli {
                 case "raw" -> {
                     if (args.length > 2 && args[2].equals("prune")) {
                         int n = Reports.prune(store);
-                        System.out.println(n + " orphaned capture(s) deleted (the list was catalog/orphans.md; `researchzosho rebuild` or the next housekeeping drops them from the index)");
-                    } else { System.err.println("usage: researchzosho raw prune   — delete the captures the weekly orphans report listed"); return 2; }
+                        System.out.println(n + " orphaned saved page(s) deleted (the list was catalog/orphans.md). `researchzosho rebuild` or the next nightly maintenance drops them from the index");
+                    } else { System.err.println("usage: researchzosho raw prune   — delete the saved pages the weekly orphans report listed"); return 2; }
                 }
                 default -> {
                     Profile prof = Profiles.named(args[1]);
@@ -878,12 +878,12 @@ public final class LibrarianCli {
         try (var l = Files.list(store.rawDir())) { raw = l.filter(p -> p.toString().endsWith(".md")).count(); }
         catch (Exception ignored) { }
         System.out.println("library at " + store.root());
-        System.out.println("  findings: " + scan.findings().size() + " (" + drafts + " draft, " + stale + " with stale review)");
-        System.out.println("  investigations: " + invs + "   raw captures: " + raw);
+        System.out.println("  claims: " + scan.findings().size() + " (" + drafts + " draft, " + stale + " with stale review)");
+        System.out.println("  reports: " + invs + "   saved pages: " + raw);
         long waiting = AccessRequests.pending(store);
         if (waiting > 0) System.out.println("  access requests waiting: " + waiting + "   (researchzosho reader requests)");
-        System.out.println("  subjects in vocabulary: " + Cataloger.vocabulary(store).size()
-                + "   living shelves: " + Serials.shelves(store).size());
+        System.out.println("  subjects: " + Cataloger.vocabulary(store).size()
+                + "   saved searches: " + Serials.shelves(store).size());
         for (String p : scan.problems()) System.out.println("  PROBLEM: " + p);
         if (drafts + stale > 0) System.out.println("  → `researchzosho inbox` has " + (drafts + stale) + " item(s) for you");
     }
@@ -929,7 +929,7 @@ public final class LibrarianCli {
                 if (all.isEmpty()) { System.out.println("no peers yet — researchzosho peer add <name> <url> <token> [--group a,b]"); return 0; }
                 for (var p : all) System.out.println(p.name() + "  " + p.url() + "  groups: " + (p.groups().isEmpty() ? "(none)" : String.join(",", p.groups())));
                 String d = Peers.defaultGroup();
-                System.out.println(d.isEmpty() ? "asked only when an ask names them (peers.default is not set)" : "asked when this library holds nothing: " + d + " (peers.default)");
+                System.out.println(d.isEmpty() ? "asked only when a question names them (peers.default is not set)" : "asked when this library holds nothing: " + d + " (peers.default)");
             }
             case "add" -> {
                 if (args.length < 6) { System.err.println("usage: researchzosho peer add <name> <url> <token> [--group a,b]"); return 2; }
@@ -958,7 +958,7 @@ public final class LibrarianCli {
     static int research(LibraryStore store, String[] args) throws IOException {
         if (args.length < 3) {
             System.out.println("research: " + ResearchSettings.describe());
-            System.out.println("  settings live in " + org.researchzosho.Config.userConfigPath() + " (research.workers, research.pause, research.window) — a running ask follows at its next turn");
+            System.out.println("  settings live in " + org.researchzosho.Config.userConfigPath() + " (research.workers, research.pause, research.window). A running question follows at its next turn");
             Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
             var today = jobs.turnsTodayByPatron();
             if (today.isEmpty()) System.out.println("  today: no research turns spent yet");
@@ -973,7 +973,7 @@ public final class LibrarianCli {
             case "workers" -> {
                 if (args.length < 4 || !args[3].matches("\\d+") || Integer.parseInt(args[3]) < 1) { System.err.println("usage: researchzosho research workers <n≥1>"); return 2; }
                 org.researchzosho.Config.set(ResearchSettings.WORKERS, args[3]);
-                System.out.println("research.workers = " + args[3] + " — a running ask follows at its next turn");
+                System.out.println("research.workers = " + args[3] + ". A running question follows at its next turn");
             }
             case "ask" -> {
                 // file a question from the command line, as the person; the service picks it up within seconds
@@ -1003,7 +1003,7 @@ public final class LibrarianCli {
                 ask.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
                 try {
                     var r = new LibraryProtocol(store).research(ask);
-                    System.out.println("sent as " + r.path("job_id").asText() + (quick ? " (quick: front of the line, short limits)" : "") + " — researchzosho jobs " + r.path("job_id").asText() + " shows how it goes; the service picks it up within seconds");
+                    System.out.println("sent as " + r.path("job_id").asText() + (quick ? " (quick: front of the line, short limits)" : "") + ". The service picks it up within seconds. researchzosho jobs " + r.path("job_id").asText() + " shows how it goes");
                 } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
             }
             case "stop" -> {
@@ -1013,13 +1013,13 @@ public final class LibrarianCli {
                 try { var r = new LibraryProtocol(store).job(a); System.out.println(r.path("state").asText().equals("stopped") ? "stopped: " + args[3] + " never started" : "stopping: " + args[3] + " ends at its next turn"); }
                 catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
             }
-            case "pause" -> { org.researchzosho.Config.set(ResearchSettings.PAUSE, "on"); System.out.println("research paused — queued asks wait; a running ask holds at its next turn (resume: researchzosho research resume)"); }
+            case "pause" -> { org.researchzosho.Config.set(ResearchSettings.PAUSE, "on"); System.out.println("research paused. Queued questions wait, and a running question stops at its next turn (resume: researchzosho research resume)"); }
             case "resume" -> { org.researchzosho.Config.set(ResearchSettings.PAUSE, "off"); System.out.println("research resumed"); }
             case "window" -> {
                 if (args.length < 4) { System.err.println("usage: researchzosho research window <HH:MM-HH:MM|off>"); return 2; }
                 if (!args[3].equalsIgnoreCase("off") && !ResearchSettings.validWindow(args[3])) { System.err.println("a window is HH:MM-HH:MM (it may cross midnight), or off"); return 2; }
                 org.researchzosho.Config.set(ResearchSettings.WINDOW, args[3].equalsIgnoreCase("off") ? "off" : args[3]);
-                System.out.println(args[3].equalsIgnoreCase("off") ? "research.window = off — asks are picked up at any hour" : "research.window = " + args[3] + " — asks are picked up only inside it; a running ask finishes");
+                System.out.println(args[3].equalsIgnoreCase("off") ? "research.window = off. Questions are picked up at any hour" : "research.window = " + args[3] + ". Questions are picked up only inside it. A running question finishes");
             }
             default -> { System.err.println("usage: researchzosho research [ask \"<question…>\" [--depth] [--quick] | workers <n> | pause | resume | window <HH:MM-HH:MM|off>]"); return 2; }
         }
@@ -1030,7 +1030,7 @@ public final class LibrarianCli {
     static int stats(LibraryStore store, String[] args) throws Exception {
         int n = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : 20;
         var rows = RunLedger.read(store, n);
-        if (rows.isEmpty()) { System.out.println("no research runs on the ledger yet (" + RunLedger.file(store) + "); a run writes its row when it is filed"); return 0; }
+        if (rows.isEmpty()) { System.out.println("No research runs recorded yet (" + RunLedger.file(store) + "). A research run writes its row when it finishes"); return 0; }
         System.out.println("the last " + rows.size() + " research run(s), oldest first:");
         for (var r : rows) System.out.println("  " + RunLedger.line(r));
         System.out.println();
@@ -1064,7 +1064,7 @@ public final class LibrarianCli {
             line = line.strip();
             if (line.isEmpty()) continue;
             if (Librarian.QUIT.contains(line)) break;
-            if (line.equals("/help")) { System.out.println("  say anything · /new (a fresh conversation) · /sessions · /resume <id> · /quit\n  \"find out …\" files a research run; \"yes\" is enough for the Librarian's offers"); continue; }
+            if (line.equals("/help")) { System.out.println("  say anything · /new (a fresh conversation) · /sessions · /resume <id> · /quit\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers"); continue; }
             if (line.equals("/new")) { session = Librarian.Session.open(store); lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
             if (line.equals("/sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } continue; }
             if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
@@ -1095,16 +1095,16 @@ public final class LibrarianCli {
             if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText());
             if (j.hasNonNull("waiting")) System.out.println("  waiting: " + j.get("waiting").asText());
             if (j.has("progress") && j.get("progress").isObject()) System.out.println("  progress: " + progressWords(j.get("progress")));
-            if (j.hasNonNull("investigation")) System.out.println("  write-up: " + j.get("investigation").asText() + "  (researchzosho export " + j.get("investigation").asText() + " --md, or the Runs page)");
+            if (j.hasNonNull("investigation")) System.out.println("  report: " + j.get("investigation").asText() + "  (researchzosho export " + j.get("investigation").asText() + " --md, or the Runs page)");
             if (j.hasNonNull("result") && !j.get("result").asText().isBlank()) System.out.println("  " + (j.path("is_error").asBoolean(false) ? "error: " : "result: ") + Acquisitions.compress(j.get("result").asText(), 300));
             return 0;
         }
         int running = 0, queued = 0;
         for (var j : r.path("active")) { if ("running".equals(j.path("state").asText())) running++; else queued++; }
-        System.out.println("jobs: " + running + " running, " + queued + " queued" + (r.path("paused").asBoolean(false) ? "  (research paused)" : ""));
+        System.out.println("research runs: " + running + " running, " + queued + " queued" + (r.path("paused").asBoolean(false) ? "  (research paused)" : ""));
         for (var j : r.path("active")) System.out.println("  " + jobRow(j));
         if (r.path("finished").size() > 0) { System.out.println("finished (newest first):"); for (var j : r.path("finished")) System.out.println("  " + jobRow(j)); }
-        if (r.path("active").size() == 0 && r.path("finished").size() == 0) System.out.println("  nothing has been filed yet");
+        if (r.path("active").size() == 0 && r.path("finished").size() == 0) System.out.println("  No research runs yet. researchzosho research ask \"<question…>\" starts one");
         return 0;
     }
 
@@ -1215,7 +1215,7 @@ public final class LibrarianCli {
         ask.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
         String jobId = new LibraryProtocol(store).research(ask).path("job_id").asText();
         if (!now) { System.out.println("sent as " + jobId + " (full research: no limits, it waits its turn) — then: researchzosho explain \"" + what + "\"" + (in == null ? "" : " --in " + in)); return 0; }
-        System.out.println("looking it up now as " + jobId + " (the daemon picks it up within seconds; ceilings " + ask.path("max_turns").asInt() + " turns, " + ask.path("max_minutes").asInt() + " minutes)");
+        System.out.println("looking it up now as " + jobId + " (the service picks it up within seconds. Limits: " + ask.path("max_turns").asInt() + " turns, " + ask.path("max_minutes").asInt() + " minutes)");
         Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
         long deadline = System.currentTimeMillis() + (ask.path("max_minutes").asInt(6) + 3) * 60_000L;
         String state = "queued"; long queuedSince = System.currentTimeMillis();
@@ -1231,14 +1231,19 @@ public final class LibrarianCli {
             System.out.print("."); System.out.flush();
         }
         System.out.println();
-        if (!"done".equals(state)) { System.out.println("  the job ended as " + state + " — researchzosho jobs " + jobId + " says why"); return 1; }
+        if (!"done".equals(state)) { System.out.println("  the research run ended as " + state + ". researchzosho jobs " + jobId + " says why"); return 1; }
         try { printReading(Explain.term(store, Explain.drive(), what, in, rung, true)); }
         catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
         return 0;
     }
 
+    /** The reading level as a person reads it: Simple, Familiar or Original. */
+    private static String levelWord(Explain.Rung rung) {
+        return switch (rung) { case beginner -> "Simple"; case familiar -> "Familiar"; default -> "Original"; };
+    }
+
     private static void printReading(Explain.Reading r) {
-        String head = (r.term().isEmpty() ? r.of() : "\"" + r.term() + "\"" + (r.of().isEmpty() ? "" : " in " + r.of())) + " · " + r.rung().name()
+        String head = (r.term().isEmpty() ? r.of() : "\"" + r.term() + "\"" + (r.of().isEmpty() ? "" : " in " + r.of())) + " · " + levelWord(r.rung())
                 + " · based on the library: " + ("shelves".equals(r.grounding()) ? "fully" : "thin".equals(r.grounding()) ? "partly" : r.grounding()) + (r.checked() > 0 ? " (" + r.checked() + " paragraph(s) checked, " + r.unsupported() + " not backed up)" : "")
                 + (r.cached() ? " · cached" : " · just written");
         System.out.println(head);
@@ -1289,7 +1294,7 @@ public final class LibrarianCli {
             case "run" -> {
                 System.out.println(r.path("summary").asText());
                 for (var p : r.path("proposals")) {
-                    System.out.println("  " + p.path("a_label").asText() + "  ↔  " + p.path("c_label").asText() + "   [" + p.path("sensor").asText() + "] via " + String.join(", ", java.util.stream.StreamSupport.stream(p.path("via").spliterator(), false).map(com.fasterxml.jackson.databind.JsonNode::asText).toList()) + "   (score " + p.path("score").asText() + ", " + (p.path("hops").asInt() < 0 ? "not connected on the map" : p.path("hops").asInt() + " hop(s)") + (p.path("random").asBoolean() ? ", random pick" : "") + ")");
+                    System.out.println("  " + p.path("a_label").asText() + "  ↔  " + p.path("c_label").asText() + "   [" + p.path("sensor").asText() + "] via " + String.join(", ", java.util.stream.StreamSupport.stream(p.path("via").spliterator(), false).map(com.fasterxml.jackson.databind.JsonNode::asText).toList()) + "   (score " + p.path("score").asText() + ", " + (p.path("hops").asInt() < 0 ? "not connected on the map" : p.path("hops").asInt() + " step(s) apart on the map") + (p.path("random").asBoolean() ? ", random pick" : "") + ")");
                     for (var path : p.path("paths")) System.out.println("      path: " + path.asText());
                     for (var j : p.path("from_outside")) {
                         System.out.println("      from outside the library: " + j.path("middle").asText());
@@ -1299,11 +1304,11 @@ public final class LibrarianCli {
                     System.out.println("    ? " + p.path("question").asText() + (p.path("filed").asBoolean(false) ? "   [filed]" : ""));
                 }
                 for (var t : r.path("tried_outside")) System.out.println("  tried outside the library: " + t.asText());
-                for (var n : r.path("not_novel")) System.out.println("  not novel: " + n.path("a").asText() + " ↔ " + n.path("c").asText() + " — " + n.path("sources_naming_both").asInt() + " source(s) already name both");
+                for (var n : r.path("not_novel")) System.out.println("  already known: " + n.path("a").asText() + " ↔ " + n.path("c").asText() + " — " + n.path("sources_naming_both").asInt() + " source(s) already name both");
                 System.out.println("  " + r.path("next").asText());
             }
             case "list" -> {
-                if (r.path("count").asInt() == 0) System.out.println("no open bridge proposals");
+                if (r.path("count").asInt() == 0) System.out.println("No proposed connections yet. researchzosho bridges looks for some.");
                 for (var p : r.path("proposals")) {
                     System.out.println("  ? " + p.path("question").asText() + "\n      " + p.path("found_by").asText());
                     for (String line : p.path("evidence").asText("").split("\n")) if (!line.isBlank()) System.out.println("      " + line);
@@ -1320,7 +1325,7 @@ public final class LibrarianCli {
                 System.out.println("  concepts: " + r.path("concepts_a").asInt() + " on one side, " + r.path("concepts_c").asInt() + " on the other; embedder: " + r.path("embedder").asText() + "; fold at " + r.path("fold_at").asText());
                 for (var n : r.path("nearest_concepts")) System.out.println("    " + n.path("cosine").asText() + "  " + n.path("a").asText() + "  ~  " + n.path("c").asText() + (n.path("folded").asBoolean() ? "  (one node)" : ""));
             }
-            default -> System.out.println("proposed " + r.path("proposed").asInt() + ", kept " + r.path("kept").asInt() + ", dismissed " + r.path("dismissed").asInt() + ", corroborated " + r.path("corroborated").asInt());
+            default -> System.out.println("proposed " + r.path("proposed").asInt() + ", kept " + r.path("kept").asInt() + ", dismissed " + r.path("dismissed").asInt() + ", confirmed by a second source " + r.path("corroborated").asInt());
         }
         return 0;
     }
@@ -1399,14 +1404,14 @@ public final class LibrarianCli {
         com.fasterxml.jackson.databind.node.ObjectNode r;
         try { r = new LibraryProtocol(store).items(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
         System.out.println(r.path("summary").asText());
-        System.out.println("  lens: " + r.path("lens").asText());
+        System.out.println("  asked about each item: " + r.path("lens").asText());
         for (var it : r.path("items")) {
             String mark = it.path("held").isNull() ? "  " : "= ";
             System.out.println("  " + mark + it.path("item").asText() + (it.hasNonNull("note") ? " — " + it.path("note").asText() : "")
-                    + (it.path("held").isNull() ? "" : "  (held: " + it.path("held").asText() + ")") + (it.path("filed").asBoolean(false) ? "  ? filed" : ""));
+                    + (it.path("held").isNull() ? "" : "  (in the library: " + it.path("held").asText() + ")") + (it.path("filed").asBoolean(false) ? "  ? question saved" : ""));
         }
         if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more item(s) in the list; --limit takes more");
-        for (var j : r.path("jobs")) System.out.println("  run: " + j.asText() + " — researchzosho jobs " + j.asText());
+        for (var j : r.path("jobs")) System.out.println("  research run: " + j.asText() + " — researchzosho jobs " + j.asText());
         System.out.println("  " + r.path("next").asText());
         return 0;
     }
@@ -1482,15 +1487,15 @@ public final class LibrarianCli {
         com.fasterxml.jackson.databind.node.ObjectNode plan;
         try { plan = p.remove(a.deepCopy().put("dry", true)); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
         System.out.println(plan.path("plan").asText());
-        if (plan.path("claims_go").size() == 0 && !plan.path("report_goes").asBoolean()) { System.out.println("nothing to remove"); return 0; }
+        if (plan.path("claims_go").size() == 0 && !plan.path("report_goes").asBoolean()) { System.out.println("Nothing to delete."); return 0; }
         if (!yes) {
-            System.out.print("Remove for good? There is no undo. [y/N] ");
+            System.out.print("Delete these? This cannot be undone. [y/N] ");
             String line = System.console() != null ? System.console().readLine() : new java.io.BufferedReader(new java.io.InputStreamReader(System.in)).readLine();
-            if (line == null || !line.strip().toLowerCase(java.util.Locale.ROOT).startsWith("y")) { System.out.println("left as it was"); return 0; }
+            if (line == null || !line.strip().toLowerCase(java.util.Locale.ROOT).startsWith("y")) { System.out.println("Nothing was deleted."); return 0; }
         }
         com.fasterxml.jackson.databind.node.ObjectNode r;
         try { r = p.remove(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
-        for (var x : r.path("removed")) System.out.println("  removed " + x.asText());
+        for (var x : r.path("removed")) System.out.println("  deleted " + x.asText());
         System.out.println(r.path("summary").asText());
         return 0;
     }
@@ -1539,7 +1544,7 @@ public final class LibrarianCli {
         }
         if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more conversation(s) in the file; --limit takes more");
         if (r.hasNonNull("verify_job_id")) System.out.println("  checking the claims: " + r.path("verify_job_id").asText() + " — researchzosho jobs " + r.path("verify_job_id").asText());
-        else if (r.path("claims_to_check").asInt() > 0) System.out.println("  --verify files one run that checks the claims; researchzosho research ask \"" + r.path("main_question").asText().replace("\"", "'") + "\" researches the subject");
+        else if (r.path("claims_to_check").asInt() > 0) System.out.println("  --verify starts one research run that checks the claims. researchzosho research ask \"" + r.path("main_question").asText().replace("\"", "'") + "\" researches the subject");
         return 0;
     }
 
@@ -1563,13 +1568,13 @@ public final class LibrarianCli {
             if (survey) {
                 Corpus.Survey sv = Corpus.survey(store, dir, true);
                 System.out.println(dir + ": " + sv.line());
-                System.out.println("  keep it:  researchzosho add " + what + " --collection " + coll + "        (the text is copied onto the shelves; the files are not)");
+                System.out.println("  keep it:  researchzosho add " + what + " --collection " + coll + "        (the text is copied into the library, the files are not)");
                 System.out.println("  link it:  researchzosho add " + what + " --collection " + coll + " --link (read in place; nothing copied)");
                 return 0;
             }
             Corpus.Outcome o = Corpus.addFolder(store, dir, coll, true, link);
             if (register) Corpus.register(store, coll, dir, link);
-            System.out.println("collection " + coll + ": " + o.line() + (link ? " — read in place, nothing copied" : "") + (register ? " — registered; the crews rescan it" : ""));
+            System.out.println("collection " + coll + ": " + o.line() + (link ? " — read in place, nothing copied" : "") + (register ? " — registered, nightly maintenance rescans it" : ""));
             for (String pr : o.problems()) System.out.println("  " + pr);
             System.out.println("  ask them: researchzosho research ask \"…\" --shelves, or library_research {\"sources\":\"shelves\",\"collections\":[\"" + coll + "\"]}");
             return 0;
@@ -1582,7 +1587,7 @@ public final class LibrarianCli {
             Path f = Path.of(what).toAbsolutePath().normalize();
             Path raw = Corpus.addFile(store, f, "", true);
             if (raw == null) { System.err.println("no text could be read from " + f.getFileName()); return 1; }
-            System.out.println("linked " + (rest.isEmpty() ? RawCapture.read(raw)[1] : String.join(" ", rest)) + "\n  read in place from " + f + "; nothing copied → " + raw.getFileName());
+            System.out.println("linked " + (rest.isEmpty() ? RawCapture.read(raw)[1] : String.join(" ", rest)) + "\n  read in place from " + f + ", nothing copied → " + raw.getFileName());
             return 0;
         }
         if (forUrl != null) {
@@ -1591,7 +1596,7 @@ public final class LibrarianCli {
             if (doc.text().isBlank()) { System.err.println("no text could be extracted (" + doc.kind() + ")"); return 1; }
             Path raw = Requests.supply(store, forUrl, doc.text(), rest.isEmpty() ? doc.title() : String.join(" ", rest));
             System.out.println("supplied: " + forUrl + " ← " + f.getFileName() + " (" + doc.text().length() + " chars) → " + raw.getFileName()
-                    + "\n  the references, the cite-check and the inventory now read this document behind that url");
+                    + "\n  from now on this document is read for that url");
             return 0;
         }
         String givenTitle = rest.isEmpty() ? "" : String.join(" ", rest);
@@ -1619,16 +1624,16 @@ public final class LibrarianCli {
         if (meta != null && !meta.title().isEmpty() && givenTitle.isBlank()) title = meta.title();
         Captions.Extract cx = Captions.extract(doc.text());
         Path raw = RawCapture.capture(store, locator, doc.text(), title, "researchzosho-add", "");   // THIS store, not the configured one (a test with two libraries found the difference)
-        if (raw == null) { System.err.println("not shelved: this machine has no library (`researchzosho init`), or the capture was refused"); return 1; }
+        if (raw == null) { System.err.println("Not saved: this machine has no library (`researchzosho init`), or the page was refused"); return 1; }
         String[] onDisk = RawCapture.read(raw);
         boolean same = onDisk[2].strip().equals(doc.text().strip());
-        System.out.println("shelved [" + doc.kind() + "] " + (title.isEmpty() ? locator : title));
+        System.out.println("saved to the library [" + doc.kind() + "] " + (title.isEmpty() ? locator : title));
         if (meta != null) System.out.println("  citation: " + meta.edition());
         if (!cx.isEmpty()) System.out.println("  " + cx.figures().size() + " figure caption(s), " + cx.tables().size() + " table caption(s), " + cx.rows().size() + " table row(s) found in the text");
         System.out.println("  " + onDisk[2].length() + " chars on disk → " + raw
-                + (same ? "" : "  (an earlier capture of this locator today was kept)"));
-        System.out.println("  findable at the desk now; `researchzosho review` does not read raw —"
-                + " ask about it, or research it, to turn it into findings");
+                + (same ? "" : "  (an earlier saved copy of this url from today was kept)"));
+        System.out.println("  researchzosho ask finds it now. `researchzosho review` does not read saved pages:"
+                + " ask about it, or research it, to turn it into claims");
         return 0;
     }
 
@@ -1651,8 +1656,8 @@ public final class LibrarianCli {
                 for (String prob : out.problems()) System.out.println("  note: " + prob);
             }
         }
-        System.out.println(reviewed == 0 ? "nothing to review — no draft investigations"
-                : reviewed + " investigation(s) reviewed");
+        System.out.println(reviewed == 0 ? "Nothing to review: no draft reports"
+                : reviewed + " report(s) reviewed");
     }
 
     private static int inbox(LibraryStore store, String[] args) throws Exception {
@@ -1670,10 +1675,10 @@ public final class LibrarianCli {
             }
         }
         var all = new LibraryProtocol(store).inboxList();
-        if (all.isEmpty()) { System.out.println("inbox empty — nothing awaits you"); return 0; }
+        if (all.isEmpty()) { System.out.println("The inbox is empty."); return 0; }
         var rows = new java.util.ArrayList<com.fasterxml.jackson.databind.node.ObjectNode>();
         for (var o : all) if (LibraryProtocol.inboxMatches(o, f)) rows.add(o);
-        System.out.println(rows.size() + (rows.size() == all.size() ? "" : " of " + all.size()) + " item(s) awaiting the council:");
+        System.out.println(rows.size() + (rows.size() == all.size() ? "" : " of " + all.size()) + " item(s) waiting for your decision:");
         String lastGroup = null;
         for (var o : rows) {
             if (byReport) {
@@ -1724,13 +1729,13 @@ public final class LibrarianCli {
                 } else ids.addAll(args.length > 3 ? Arrays.asList(args).subList(2, args.length) : List.of(id));
                 for (String each : ids) {
                     Finding f = c.retire(each);
-                    System.out.println("retired " + f.id() + " — kept on disk, out of the push");
+                    System.out.println("retired " + f.id() + ": no longer used, its record is kept");
                 }
             }
             case "dispute" -> {
                 if (args.length < 4) { System.err.println("usage: researchzosho dispute <id> <why>"); return 2; }
                 Finding f = c.dispute(id, String.join(" ", Arrays.copyOfRange(args, 3, args.length)));
-                System.out.println("disputed " + f.id() + " — frontier entry added");
+                System.out.println("disputed " + f.id() + ": an open question was added");
             }
             default -> { return 2; }
         }

@@ -114,7 +114,7 @@ class ConversationsTest {
         assertTrue(r.path("claims_to_check").asInt() >= 2, r.toString());
         assertEquals("mechanical", r.path("claims_by").asText());
         assertEquals("How were the gears of the Antikythera mechanism made?", r.path("main_question").asText());
-        assertTrue(r.path("summary").asText().contains("none is filed as a finding"), r.path("summary").asText());
+        assertTrue(r.path("summary").asText().contains("None of them is saved as a claim."), r.path("summary").asText());
         // on the shelves, as a conversation, in the conversations collection
         String rawName = r.path("threads").get(0).path("raw").asText();
         Path raw = store.rawDir().resolve(rawName);
@@ -144,7 +144,7 @@ class ConversationsTest {
         String q = filed.path("args").path("question").asText();
         assertTrue(q.startsWith("Check each of these claims") && q.contains("1. ") && q.contains("223"), q);
         assertEquals("both", filed.path("args").path("sources").asText());
-        assertTrue(v.path("summary").asText().contains("a run is checking them"));
+        assertTrue(v.path("summary").asText().contains("A research run is checking them"));
     }
 
     @Test
@@ -168,7 +168,7 @@ class ConversationsTest {
         assertEquals("pasted", pr.path("source").asText());
         ObjectNode strangerPath = M.createObjectNode().put("path", f.toString());
         strangerPath.putObject("patron").put("did", "did:key:zFriend").put("name", "f").put("runtime", "mcp");
-        assertTrue(assertThrows(ProtocolError.class, () -> p.absorb(strangerPath)).getMessage().contains("keeper"));
+        assertTrue(assertThrows(ProtocolError.class, () -> p.absorb(strangerPath)).getMessage().contains("library owner"));
         assertThrows(ProtocolError.class, () -> p.absorb(M.createObjectNode().put("path", f.toString()).put("text", "x")), "one input, not two");
         // the chat and the MCP server offer it
         assertTrue(Librarian.TOOLS.contains("library_absorb"));

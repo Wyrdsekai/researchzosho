@@ -76,7 +76,7 @@ class LaunchPointsTest {
         assertTrue(RawCapture.read(raw)[0].startsWith("draft://") && "drafts".equals(RawCapture.collectionOf(raw)));
         assertEquals("drafts", RawCapture.collectionOf(RawCapture.find(store, base + "/harrison")), "the citation is shelved with the draft");
         assertEquals(0, store.scanFindings().findings().size());
-        assertTrue(r.path("summary").asText().contains("nothing is filed as a finding"), r.path("summary").asText());
+        assertTrue(r.path("summary").asText().contains("Nothing is saved as a claim."), r.path("summary").asText());
         // verify files the run, with the claims numbered
         ObjectNode v = new LibraryProtocol(store).check(person(M.createObjectNode().put("path", f.toString()).put("verify", true).put("fetch_citations", false)));
         String job = v.path("verify_job_id").asText();
