@@ -93,7 +93,12 @@ jobs:
           [ -n "$BUNDLE" ] && [ -f "$BUNDLE" ] || { echo "no bundle" >&2; exit 1; }
           OUT="assets/${{ steps.asset.outputs.file }}.sigstore.json"
           cp "$BUNDLE" "$OUT"
-          gh release upload "${{ steps.tag.outputs.tag }}" "$OUT" --repo "$GITHUB_REPOSITORY" --clobber
+          # GitHub's upload endpoint answers 500 now and then; one failed upload used to skip npm, the image and the registry
+          for i in 1 2 3 4 5; do
+            gh release upload "${{ steps.tag.outputs.tag }}" "$OUT" --repo "$GITHUB_REPOSITORY" --clobber && exit 0
+            echo "upload failed (try $i of 5); waiting 20 s" >&2; sleep 20
+          done
+          exit 1
 
   # The same bytes, in a container: the attested tarball unpacked on a Java runtime, pushed to ghcr.io as
   # wyrdsekai/researchzosho:<version> and :latest. Nothing is compiled here either.
