@@ -145,14 +145,16 @@ class PagesTest {
             var sharpening = post(c, base + "/research", "question=" + Pages.enc("how were the gears cut") + "&sharpen=1", null);
             assertEquals(200, sharpening.statusCode());
             assertTrue(sharpening.body().contains("Sharpening the question") && sharpening.body().contains("http-equiv=\"refresh\""), sharpening.body());
-            String sharpenedBody = null;
-            for (int i = 0; i < 60 && sharpenedBody == null; i++) {
+            // the sharpening runs in the background; a GitHub macOS runner took longer than twelve seconds once (2026-09-17)
+            String sharpenedBody = null, lastBody = "";
+            for (int i = 0; i < 300 && sharpenedBody == null; i++) {
                 Thread.sleep(200);
                 String key = Pages.sharpenKey("how were the gears cut");
                 var again = get(c, base + "/research?sharpen=" + key, null);
-                if (again.body().contains("How were the Antikythera gears cut?")) sharpenedBody = again.body();
+                lastBody = again.body();
+                if (lastBody.contains("How were the Antikythera gears cut?")) sharpenedBody = lastBody;
             }
-            assertNotNull(sharpenedBody, "the working page turns into the sharpened form");
+            assertNotNull(sharpenedBody, "the working page turns into the sharpened form within a minute; it held: " + Acquisitions.compress(lastBody.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " "), 600));
             assertTrue(sharpenedBody.contains("name=\"once\"") && sharpenedBody.contains("the Antikythera mechanism"), sharpenedBody);
             Explain.DRIVES = () -> null;
             // a send carries a one-time token: the same token again does not file a second job
