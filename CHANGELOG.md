@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.6
+
+This release fixes `researchzosho setup` choosing a model that cannot chat, and the read-only check for SQL Server.
+
+### Fixed
+
+- `setup`: when a model server has more than one model, setup asked "Which model?" with the first name in the server's list as the default. Servers list their models in alphabetical order, so on a server with an embedding model the default was `embed`. Pressing Enter kept it, and the library could not answer a question. Setup now says what the choice is, shows the models numbered, marks the ones that look like embedding or ranking models, and offers the model already in your settings as the default, or else the first chat model.
+- `setup`: a model that does not answer the hello test is not kept while another model is left to try. Setup says why and asks again. A server with one model asks nothing, and a server that lists none asks for the model's name.
+- A model server address with `/v1` on the end, such as `https://api.openai.com/v1`, now works, in setup and in the settings. Setup's own example is such an address, and requests went to `/v1/v1/…`.
+- SQL Server runs a second statement with no semicolon in front of it, for example `SELECT 1 SHUTDOWN`. The read-only check allowed this, because it only refused a second statement after a semicolon. With an admin login, such a statement could stop the server, kill a session or write a backup file. The check now refuses SQL Server's statement words anywhere in a query: SHUTDOWN, KILL, BACKUP, RESTORE, DBCC, RECONFIGURE, WAITFOR, USE, SET, DECLARE, BEGIN, COMMIT and others, and the locking hints UPDLOCK, XLOCK and TABLOCKX. A column with one of those names still works when you write it as `[use]` or `"use"`. `OPENQUERY` and `OPENXML` are refused too. A login that can only read was never able to run these statements. The other database kinds need a semicolon between statements and were not affected.
+
 ## 0.4.5
 
 This release lets the library read your databases. You add a connection, and research runs and the chat can query it, read-only. It also makes the downloads smaller.

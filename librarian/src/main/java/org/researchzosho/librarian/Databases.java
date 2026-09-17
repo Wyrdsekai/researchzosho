@@ -304,7 +304,7 @@ public final class Databases {
     /** One reading query. Refused with a plain reason when it is not one. The rows are capped, and the result is saved as a page. */
     public static Result query(LibraryStore store, Db db, String sql, int limit) throws IOException {
         if (db.kind().equals("mongo")) throw new IOException("This is a MongoDB database. Query it with a collection and a filter or a pipeline, not SQL.");
-        String no = SqlGuard.refuse(sql);
+        String no = SqlGuard.refuse(sql, db.kind());
         if (no != null) throw new IOException(no);
         int cap = Math.max(1, Math.min(MAX_ROWS, limit <= 0 ? DEFAULT_ROWS : limit));
         List<String> columns = new ArrayList<>(); List<List<String>> rows; boolean more;

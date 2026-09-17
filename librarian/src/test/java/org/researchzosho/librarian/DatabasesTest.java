@@ -46,6 +46,15 @@ class DatabasesTest {
             assertNotNull(SqlGuard.refuse(bad), "should be refused: " + bad);
         assertTrue(SqlGuard.refuse("DELETE FROM orders").contains("must start with SELECT"), SqlGuard.refuse("DELETE FROM orders"));
         assertTrue(SqlGuard.refuse("SELECT 1; DROP TABLE x").contains("one statement"));
+        // SQL Server runs a second statement with no semicolon; a rolled-back transaction does not undo SHUTDOWN, KILL or BACKUP
+        for (String bad : List.of("select 1 shutdown with nowait", "select 1 kill 99", "select 1 backup database d to disk='/tmp/x.bak'", "select 1 dbcc freeproccache", "select 1 reconfigure",
+                "select 1 use master", "select 1 waitfor delay '01:00:00'", "select 1 begin tran", "select 1 commit", "select 1 set noexec off", "select 1 declare @s int", "select 1 print 'x'",
+                "select * from towers with (updlock)", "select * from openquery(other, 'select 1')", "select '[' shutdown ']'", "select [a] from t shutdown"))
+            assertNotNull(SqlGuard.refuse(bad, "sqlserver"), "should be refused on SQL Server: " + bad);
+        for (String ok : List.of("select top 2 name from towers order by built", "select [use], [backup], \"set\" from t", "select name from t order by id offset 2 rows fetch next 2 rows only",
+                "select case when a = 1 then 'x' else 'y' end from t", "select 'please shutdown [now]' as note from t", "select [a]]b] from t"))
+            assertNull(SqlGuard.refuse(ok, "sqlserver"), ok + " -> " + SqlGuard.refuse(ok, "sqlserver"));
+        assertNull(SqlGuard.refuse("select \"use\", backup, arr[1] from t", "postgres"), "these words are SQL Server's alone");
         assertNotNull(SqlGuard.refuseMongo("[{\"$out\": \"copy\"}]")); assertNotNull(SqlGuard.refuseMongo("{\"$where\": \"sleep(1000)\"}"));
         assertNull(SqlGuard.refuseMongo("[{\"$match\": {\"a\": 1}}, {\"$group\": {\"_id\": \"$a\", \"n\": {\"$sum\": 1}}}]"));
     }

@@ -77,6 +77,28 @@ public final class Config {
 
     /** The value for a key such as {@code RESEARCHZOSHO_DRIVE}, or null. */
     public static String get(String envKey) {
+        String v = raw(envKey);
+        return envKey.endsWith("_DRIVE") || envKey.equals("RESEARCHZOSHO_EMBED") || envKey.equals("RESEARCHZOSHO_RERANK") ? driveBase(v) : v;
+    }
+
+    /**
+     * A model server's address as every caller expects it: the base, with no {@code /v1} on the end. Providers print
+     * their address as {@code https://host/v1}, setup's own example is one, and each request then went to
+     * {@code /v1/v1/…} and came back 404. A trailing {@code /v1}, {@code /v1/chat/completions}, {@code /v1/models} or
+     * {@code /v1/embeddings} is accepted, and trailing slashes. Anything that is not an http address is left alone.
+     */
+    public static String driveBase(String url) {
+        if (url == null) return null;
+        String u = url.strip();
+        if (!u.regionMatches(true, 0, "http", 0, 4)) return url;
+        u = u.replaceAll("/+$", "");
+        for (String tail : new String[]{"/chat/completions", "/completions", "/models", "/embeddings", "/rerank"})
+            if (u.endsWith("/v1" + tail)) { u = u.substring(0, u.length() - tail.length()); break; }
+        if (u.endsWith("/v1")) u = u.substring(0, u.length() - 3);
+        return u.replaceAll("/+$", "");
+    }
+
+    private static String raw(String envKey) {
         ensureLoaded();
         String key = normalize(envKey);
         for (String c : candidates(key)) {

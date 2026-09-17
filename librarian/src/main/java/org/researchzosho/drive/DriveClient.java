@@ -55,7 +55,7 @@ public final class DriveClient {
             .build();
 
     public DriveClient(String baseUrl, String model) {
-        this.baseUrl = baseUrl.replaceAll("/+$", "");
+        this.baseUrl = org.researchzosho.Config.driveBase(baseUrl);   // an address pasted with /v1 on the end is the same drive
         this.model = model;
         this.http = SHARED_HTTP;
     }

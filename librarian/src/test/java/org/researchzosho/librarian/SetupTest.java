@@ -231,6 +231,46 @@ class SetupTest {
         assertFalse(out.contains("Where is your model server?"), "the address question is skipped once the machine serves it: " + out);
     }
 
+    /** A server as llama-swap lists it: alphabetical, so the embedding model is first. Only the chat model answers a chat request. */
+    static final class TwoModelProbe implements Setup.Probe {
+        final List<String> asked = new java.util.ArrayList<>();
+        @Override public List<String> models(String base, String key) { return base.equals("http://localhost:8080") ? List.of("embed", "qwen3.8-27b") : null; }
+        @Override public String chat(String base, String model, String key) { asked.add(model); return model.equals("qwen3.8-27b") ? "ready" : "!the server answered 404"; }
+        @Override public boolean embeds(String base, String key) { return false; }
+    }
+
+    @Test
+    void enterNeverKeepsTheEmbeddingModelThatTheServerListsFirst(@TempDir Path home) throws Exception {
+        var probe = new TwoModelProbe();
+        String out = run(home, "", probe, new FakeActs(), true, false, false);                 // --yes: every default
+        assertTrue(out.contains("This server has 2 models. Pick the one the library should think with. It has to be a chat model"), out);
+        assertTrue(out.contains("1. embed") && out.contains("looks like an embedding or ranking model: it cannot chat"), out);
+        assertTrue(out.contains("Which one? (number or name) [qwen3.8-27b]"), out);
+        assertEquals(List.of("qwen3.8-27b"), probe.asked);
+        assertTrue(Files.readString(home.resolve(".researchzosho").resolve("config")).contains("qwen3.8-27b") && !Files.readString(home.resolve(".researchzosho").resolve("config")).matches("(?s).*model\\s*=\\s*embed.*"), Files.readString(home.resolve(".researchzosho").resolve("config")));
+    }
+
+    @Test
+    void aModelThatDoesNotAnswerIsNotKeptAndThePersonIsAskedAgain(@TempDir Path home) throws Exception {
+        var probe = new TwoModelProbe();
+        String script = String.join("\n", List.of("", "", "", "1", "", "", "", "", "", "")) + "\n";      // location, name, use the server, then number 1: embed
+        String out = run(home, script, probe, new FakeActs(), false, false, false);
+        assertTrue(out.contains("Asking embed to say hello… no: the server answered 404."), out);
+        assertTrue(out.contains("embed did not answer a chat request, so it is not kept. Pick another."), out);
+        assertEquals(List.of("embed", "qwen3.8-27b"), probe.asked);
+        assertTrue(Files.readString(home.resolve(".researchzosho").resolve("config")).contains("qwen3.8-27b"), Files.readString(home.resolve(".researchzosho").resolve("config")));
+    }
+
+    @Test
+    void anAddressPastedWithItsV1IsTheSameServer() {
+        for (String pasted : List.of("https://api.openai.com/v1", "https://api.openai.com/v1/", "https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/embeddings", "https://api.openai.com"))
+            assertEquals("https://api.openai.com", org.researchzosho.Config.driveBase(pasted), pasted);
+        assertEquals("http://localhost:11434", org.researchzosho.Config.driveBase("http://localhost:11434/"));
+        assertEquals("https://host/v1beta", org.researchzosho.Config.driveBase("https://host/v1beta"));
+        assertEquals("none", org.researchzosho.Config.driveBase("none"));
+        assertTrue(org.researchzosho.ModelChoice.looksUnableToChat("Qwen/Qwen3-Embedding-0.6B") && !org.researchzosho.ModelChoice.looksUnableToChat("qwen3.8-27b"));
+    }
+
     @Test
     void theHelloTestReadsAReasoningModelAsAnswered() {
         assertEquals("ready", Setup.helloReply("{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\" ready \"}}]}"));

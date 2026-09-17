@@ -110,7 +110,7 @@ public final class Setup {
         return new Probe() {
             @Override public List<String> models(String base, String key) {
                 try {
-                    var b = HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/models")).timeout(Duration.ofSeconds(6)).GET();
+                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/models")).timeout(Duration.ofSeconds(6)).GET();
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
                     if (r.statusCode() / 100 != 2) return null;
@@ -125,7 +125,7 @@ public final class Setup {
                     body.put("model", model); body.put("max_tokens", 400);   // a reasoning model spends its first tokens thinking; 12 left nothing for the word
                     ArrayNode msgs = body.putArray("messages");
                     msgs.addObject().put("role", "user").put("content", "Reply with the single word: ready");
-                    var b = HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
+                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
@@ -151,7 +151,7 @@ public final class Setup {
             @Override public boolean embeds(String base, String key) {
                 try {
                     var body = M.createObjectNode(); body.put("input", "ready"); body.put("model", "embed");   // the name a proxy set up by `model install` routes; a bare server ignores it
-                    var b = HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/embeddings")).timeout(Duration.ofSeconds(15))
+                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/embeddings")).timeout(Duration.ofSeconds(15))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
@@ -205,6 +205,64 @@ public final class Setup {
     }
 
     // ---- the conversation ----
+
+    /** The last hello test's reply: the words, or a reason prefixed with "!". */
+    private String lastHello = "";
+
+    /**
+     * Which of the server's models to use, settled by asking it to say hello. One server often holds several, and a
+     * llama-swap or Ollama box lists its embedding model beside the chat model in alphabetical order, so "embed" came
+     * first and used to be the default: Enter saved a model that cannot answer a question. The person is told what the
+     * choice is, sees the models numbered with the ones that cannot chat marked, and gets the model already in the
+     * settings as the default. A choice that does not answer is not kept while another is left to try. With one model,
+     * or one this machine just started ({@code preset}), there is nothing to choose; a server that lists nothing is
+     * asked about by name.
+     */
+    String settleModel(String base, String key, List<String> offeredIds, String preset) throws IOException {
+        List<String> ids = offeredIds == null ? List.of() : offeredIds;
+        String configured = Config.get("RESEARCHZOSHO_MODEL");
+        if (preset != null || ids.size() <= 1) {
+            String only = preset != null ? preset : ids.isEmpty()
+                    ? ask("  Which model? (its name, as the provider writes it)", configured == null ? "" : configured)
+                    : ids.get(0);
+            out.print("  Asking it to say hello… "); out.flush();
+            lastHello = probe.chat(base, only, key);
+            out.println(lastHello.startsWith("!") ? "no: " + lastHello.substring(1) + "." : "it answered: \"" + lastHello + "\"");
+            return only;
+        }
+        out.println("  This server has " + ids.size() + " models. Pick the one the library should think with. It has to be a chat model:");
+        out.println("  one that answers questions, not one that only turns text into numbers for search.");
+        int width = 0;
+        for (String id : ids.subList(0, Math.min(20, ids.size()))) width = Math.max(width, id.length());
+        for (int i = 0; i < Math.min(20, ids.size()); i++) {
+            String id = ids.get(i);
+            String note = org.researchzosho.ModelChoice.looksUnableToChat(id) ? "looks like an embedding or ranking model: it cannot chat" : id.equals(configured) ? "in your settings" : "";
+            out.println(String.format("    %2d. %-" + width + "s%s", i + 1, id, note.isEmpty() ? "" : "   (" + note + ")"));
+        }
+        if (ids.size() > 20) out.println("    … and " + (ids.size() - 20) + " more; type a name to use one of them.");
+        List<String> left = new ArrayList<>(ids);
+        String firstChoice = null;
+        int asked = 0;
+        while (!left.isEmpty() && asked++ < ids.size() + 5) {      // the cap is for a person who keeps typing names the server does not have
+            String dflt = org.researchzosho.ModelChoice.preferred(left, configured);
+            String answer = ask("  Which one? (number or name)", dflt);
+            String choice = answer;
+            if (answer.matches("\\d{1,3}")) {
+                int n = Integer.parseInt(answer);
+                if (n < 1 || n > ids.size()) { out.println("  There is no number " + n + " in the list."); continue; }
+                choice = ids.get(n - 1);
+            }
+            if (firstChoice == null) firstChoice = choice;
+            out.print("  Asking " + choice + " to say hello… "); out.flush();
+            lastHello = probe.chat(base, choice, key);
+            if (!lastHello.startsWith("!")) { out.println("it answered: \"" + lastHello + "\""); return choice; }
+            out.println("no: " + lastHello.substring(1) + ".");
+            left.remove(choice);
+            if (!left.isEmpty()) out.println("  " + choice + " did not answer a chat request, so it is not kept. Pick another.");
+        }
+        out.println("  None of them answered. Keeping " + firstChoice + " unchecked; if the model is still loading, run `researchzosho setup` again in a minute.");
+        return firstChoice;
+    }
 
     String ask(String question, String dflt) throws IOException {
         String shown = dflt == null || dflt.isEmpty() ? "" : " [" + dflt + "]";
@@ -263,6 +321,7 @@ public final class Setup {
         // 2. the model
         String key = Config.get("RESEARCHZOSHO_API_KEY");
         String base = null, model = null;
+        List<String> offered = null;       // the chosen server's models; which one is settled below, by asking it
         String configured = Config.get("RESEARCHZOSHO_DRIVE");
         List<String> tried = new ArrayList<>();
         if (configured != null && !configured.isBlank()) tried.add(configured);
@@ -270,13 +329,10 @@ public final class Setup {
         for (String cand : tried) {
             List<String> ids = probe.models(cand, local(cand) ? null : key);
             if (ids == null) continue;
-            String first = ids.isEmpty() ? Config.get("RESEARCHZOSHO_MODEL", "default") : ids.get(0);
-            String preferred = Config.get("RESEARCHZOSHO_MODEL");
-            if (preferred != null && ids.contains(preferred)) first = preferred;
             out.println("  Found a model server at " + cand + (ids.isEmpty() ? "." : " offering " + String.join(", ", ids.subList(0, Math.min(5, ids.size()))) + (ids.size() > 5 ? ", …" : "") + "."));
             if (yesNo("  Use it?", true)) {
                 base = cand;
-                model = ids.size() > 1 ? ask("  Which model?", first) : first;
+                offered = ids;
             }
             break;
         }
@@ -299,21 +355,19 @@ public final class Setup {
                     String k = ask("  Does it need a key? (paste it, or leave blank)", "");
                     if (!k.isBlank()) key = k;
                 }
-                List<String> ids = probe.models(base, key);
-                model = ask("  Which model?", ids != null && !ids.isEmpty() ? ids.get(0) : Config.get("RESEARCHZOSHO_MODEL", ""));
+                offered = probe.models(base, key);
             }
         }
         if (base != null) {
-            for (int attempt = 1; attempt <= 3; attempt++) {
-                out.print("  Asking it to say hello… "); out.flush();
-                String reply = probe.chat(base, model, local(base) ? key : key);
-                if (!reply.startsWith("!")) { out.println("it answered: \"" + reply + "\""); break; }
-                out.println("no: " + reply.substring(1) + ".");
-                if (reply.startsWith("!the server answered")) { out.println("  (the address is right; keep it, and check the model name or the server's settings)"); break; }
+            model = settleModel(base, key, offered, model);
+            for (int attempt = 1; lastHello.startsWith("!"); attempt++) {
+                if (lastHello.startsWith("!the server answered")) { out.println("  (the address is right; keep it, and check the model name or the server's settings)"); break; }
                 if (attempt == 3 || !yesNo("  Try a different address?", true)) break;
                 base = ask("  Address:", base);
                 if (!local(base) && (key == null || key.isBlank())) { String k = ask("  Key (or leave blank):", ""); if (!k.isBlank()) key = k; }
-                model = ask("  Model:", model == null ? "" : model);
+                List<String> there = probe.models(base, key);
+                // a server that lists nothing keeps the model already named (the one this machine just set up, or the one typed)
+                model = settleModel(base, key, there, there == null || there.isEmpty() ? model : null);
             }
             Config.set("RESEARCHZOSHO_DRIVE", base);
             if (model != null && !model.isBlank()) Config.set("RESEARCHZOSHO_MODEL", model);
