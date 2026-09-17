@@ -9,31 +9,31 @@
 
 Three people, one problem.
 
-Your vet mentions a new drug for your dog's cancer and says the follow-up is in three days. You want
-to know what the studies actually say: how well it works, for which breeds, and what the side
-effects are. The answer is spread across twenty papers, a regulator's review, and a lot of pages
-that only look like medical advice.
+Your vet mentions a new drug for your dog's cancer. The follow-up is in three days. You want to know
+what the studies say: how well it works, for which breeds, and what the side effects are. The answer
+is spread across twenty papers, a regulator's review, and many pages that only look like medical
+advice.
 
-You are tracing your family. Your great-grandfather appears in the 1911 census in Osaka, and by 1921
-he is gone from every record the family knows about. Somewhere there are ship manifests, a
-prefecture's emigration lists, and an old newspaper notice. Most of them are in Japanese, and none
-of them are on the first page of a search.
+You are tracing your family. Your great-grandfather is in the 1911 census in Osaka. By 1921 he is
+gone from every record the family knows about. Somewhere there are ship manifests, a prefecture's
+emigration lists, and an old newspaper notice. Most of them are in Japanese. None of them are on the
+first page of a search.
 
 You are writing one chapter of a thesis on the influence of the Soviet-Afghan War on 1990s British
-science fiction. You have forty papers and articles saved, in three different languages, and one
-week to work out what they agree on, where they disagree, and what nobody has looked at yet.
+science fiction. You have forty papers and articles saved, in three languages. You have one week to
+work out what they agree on, where they disagree, and what nobody has looked at yet.
 
 None of that can be read in one evening. That is the job ResearchZosho does. You give it the
-question. It reads, notes each fact with the source it came from, and when it is
-done there is a write-up waiting: what it found, where the sources disagree, and what it could
-not resolve. Every claim in it points at a source you can reference. Then it keeps what it found, so the
-next time you ask about the same thing you are not starting from zero. And if a paper you leaned on
-gets a new version, or two of your own findings contradict each other, it tells you.
+question. It reads and notes each fact with the source it came from. When it is done, a write-up is
+waiting: what it found, where the sources disagree, and what it could not resolve. Every claim in it
+points at a source you can check. It keeps what it found, so the next question on the same subject
+does not start from zero. If a paper you used gets a new version, or two of your own findings
+contradict each other, it tells you.
 
-The principle is simple. Nothing counts as valid until it has been reviewed by you.
+Nothing counts as valid until you have reviewed it.
 
-It runs on your own computer with a model you pick, local or rented. It is free and open source, and
-it is for anyone who needs some reliable research done.
+It runs on your own computer with a model you pick, local or hosted. It is free and open source. It
+is for anyone who needs reliable research done.
 
 This is The Research Harness For The Rest Of Us.
 
@@ -45,62 +45,65 @@ This is The Research Harness For The Rest Of Us.
 
 ## What you can do with it
 
-**Send it a question.** It works out what needs answering, reads in parallel (the web, and the
-scholarly literature by DOI through Crossref and OpenAlex), and writes it up in sections. It keeps going until the job is done, or as long as you allow it. It
-will also attempt to read sources in different languages, especially when it detects a non-english
-language may be associated with the question - it will state which languages its sources were in.
+**Send it a question.** It works out what needs answering. It reads in parallel: the web, and the
+scholarly literature by DOI through Crossref and OpenAlex. It writes the answer up in sections. It
+keeps going until the job is done, or for as long as you allow. It also reads sources in other
+languages, especially when the question points at a non-English language. The write-up says which
+languages its sources were in.
 
-**Check the answer.** At the end of every write-up there is a table of the facts it used, each with
-its source and a quote, and a numbered list of unique sources. Before the write-up is shelved, each
-sentence that cites a source is re-checked against the source referenced. If there is an issue that
-is called out.  If the service is unable to read the source (due to a paywall, login, or other issue),
-that source will be provided as a list for you to see if you can provide the data in question.
+**Check the answer.** Every write-up ends with a table of the facts it used. Each fact has its source
+and a quote. A numbered list of unique sources follows. Before the write-up is shelved, each sentence
+that cites a source is checked against that source. A problem is called out. If it cannot read a
+source, because of a paywall, a login or another issue, it lists that source so you can supply the
+text yourself.
 
-**Keep bad sources out.** A claim with one source stays a draft until a second, independent one backs
-it. A retracted paper disputes the claims that cite it. A site you ban will not be used, and a
-site you trust counts as a primary source.
+**Keep bad sources out.** A claim with one source stays a draft until a second, independent source
+backs it. A retracted paper disputes the claims that cite it. A site you ban is not used. A site you
+trust counts as a primary source.
 
-**Decide what stands.** Each claim starts as a draft. You accept it, dispute it, or retire it. What
-you accept is what the library uses next time.
+**Decide what stands.** Each claim starts as a draft. You accept it, dispute it or retire it. The
+library uses what you accept next time.
 
-**Talk to it.** `researchzosho chat` is a conversation with the Librarian: what the shelves hold, a follow-up, "find
-out …" to start a research run, "how did that go?", the inbox. Every reply stands on a look-up you can open, and a
-figure it cannot back is marked as its guess. The same conversation is on the pages at `/chat`.
+**Talk to it.** `researchzosho chat` is a conversation with the Librarian. Ask what the shelves hold,
+ask a follow-up, say "find out …" to start a research run, ask "how did that go?", or go through the
+inbox. Every reply cites a look-up you can open. A figure it cannot back is marked as its guess. The
+same conversation is on the pages at `/chat`.
 
-**Ask what you already know.** `researchzosho ask "…"` shows you what the library has on a
-question: each claim, where it came from, and whether it is accepted or still in dispute.
+**Ask what you already know.** `researchzosho ask "…"` shows what the library has on a question:
+each claim, where it came from, and whether it is accepted or still in dispute.
 
-**Bring your own documents.** A PDF, a web page, or a whole folder. Point it at the folder and every
-document in it is shelved as a collection. Then ask a question that researches only within those
-documents, or one that starts there and goes to the web afterwards for more data.
+**Bring your own documents.** A PDF, a web page, or a whole folder. Point it at a folder and every
+document in it is shelved as a collection. Then ask a question that searches only those documents,
+or one that starts there and goes to the web afterwards for more.
 
-**Ongoing research, every night.** Every night it checks the searches you have declared ongoing,
-it looks into questions it could not answer before, re-reads a few accepted claims against their
-sources, notices new versions of papers you cite, and keeps a dated backup. On Sundays it leaves
-you two lists: claims that look like duplicates, and documents to consider cleaning out. It never
-merges, deletes or decides for you.
+**Ongoing research, every night.** Every night it runs the searches you have declared ongoing. It
+looks into questions it could not answer before. It re-reads a few accepted claims against their
+sources. It notices new versions of papers you cite. It keeps a dated backup. On Sundays it leaves
+you two lists: claims that look like duplicates, and documents you might clean out. It never merges,
+deletes or decides for you.
 
 **See how things connect.** When a claim says a person lived in a place, or an author wrote a work,
-the library remembers the connection. `researchzosho map "Arthur Ellis"` shows everything around a
-name, and the service draws it in your browser. Making connections across the research you have
-accumulated.
+the library keeps the connection. `researchzosho map "Arthur Ellis"` shows everything around a name.
+The service draws it in your browser. This connects the research you have built up.
 
 **Open it in a browser.** The service has basic pages: search, ask, read a claim with its sources,
 walk the subjects, see what changed and what is running, send a question, and download any write-up
-as Markdown or PDF. Or, if you want a desktop editor, `researchzosho vault` writes a folder that
-Obsidian, SoloMD or SilverBullet can import
+as Markdown or PDF. For a desktop editor, `researchzosho vault` writes a folder that Obsidian, SoloMD
+or SilverBullet can import.
 
-**Let other programs use it.** Claude Code, Codex, Gemini CLI and any other MCP host can ask the library directly.
-There is a small HTTP service with Python and Java clients for everything else.
+**Let other programs use it.** Claude Code, Codex, Gemini CLI and any other MCP host can ask the
+library directly. A small HTTP service with Python and Java clients covers everything else.
 
 ## Getting started
 
-You need a model server that speaks the OpenAI chat API for the research runs (Java 21 or newer too,
-unless you take a build that carries its own runtime, which the installer does for you when Java is missing):
-a local one (llama.cpp, Ollama, LM Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini,
-OpenRouter and others). For research runs, a web search backend, which matters as much as the model: a Brave Search
+Research runs need a model server that speaks the OpenAI chat API. That can be a local one
+(llama.cpp, Ollama, LM Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and
+others). You also need Java 21 or newer, unless you take a build that carries its own runtime. The
+installer picks that build for you when Java is missing.
+
+Research runs also need a web search backend. It matters as much as the model. Use a Brave Search
 API key (free plan), or SearXNG (setup starts one with Docker). With neither, the built-in fallback
-searches Wikipedia and the scholarly literature only. Querying what the library already has works
+searches Wikipedia and the scholarly literature only. Asking what the library already has works
 without a model.
 
 ```
@@ -111,16 +114,23 @@ bin/researchzosho setup
 
 When it is done, open `http://127.0.0.1:4649/` in a browser.
 
-`setup` asks a few questions, each with an answer already filled in. Where the library installs. Which
-model it uses, which it will check for. Which web search backend. Whether search is by meaning and/or
-keyword. Whether to run it as a service. Which programs to connect. Then it shelves a document you name and answers a question
-about it.  Run it again any time to change one thing; `--yes` takes every default.
+`setup` asks a few questions. Each has an answer already filled in:
 
-The release will install on Linux, macOS and Windows. If you already use
-CodeZaiku, `codezaiku install researchzosho` fetches the release, checks it, and runs setup.
+- where the library installs
+- which model it uses, and which it checks for
+- which web search backend
+- whether search is by meaning, by keyword, or both
+- whether to run it as a service
+- which programs to connect
 
-Settings live in `~/.researchzosho/config` as `key = value` lines, or in the environment. The ones
-you are most likely to touch:
+Then it shelves a document you name and answers a question about it. Run it again any time to
+change one thing. `--yes` takes every default.
+
+The release installs on Linux, macOS and Windows. If you already use CodeZaiku,
+`codezaiku install researchzosho` fetches the release, checks it, and runs setup.
+
+Settings live in `~/.researchzosho/config` as `key = value` lines, or in the environment. These are
+the ones you are most likely to change:
 
 | setting | what it is |
 |---|---|
@@ -143,9 +153,10 @@ you are most likely to touch:
 bin/researchzosho service install           # Linux, macOS or Windows; a user service, no administrator rights
 ```
 
-The service listens on `127.0.0.1:4649`, does the housekeeping at 03:00, and runs the questions you send.
-`service install --host 0.0.0.0` opens it to your own network. The pages are open as shipped: anyone who
-can reach them can read and send questions. `researchzosho web signin on` turns on access control.
+The service listens on `127.0.0.1:4649`. It does the housekeeping at 03:00 and runs the questions
+you send. `service install --host 0.0.0.0` opens it to your own network. The pages are open as
+shipped: anyone who can reach them can read and send questions. `researchzosho web signin on` turns
+on access control.
 
 ### From Claude Code, Codex or Gemini CLI
 
@@ -164,16 +175,16 @@ Nothing to buy. In this order:
 
 - **A browser.** Open `http://127.0.0.1:4649/` once the service runs. Search, ask, read a claim
   with its sources, have it explained, see the map, send a question, download a write-up. Nothing
-  to install, and the way to let the rest of the house use the library.
-- **Obsidian or SoloMD**, open the folder `researchzosho vault`
+  to install. This is also how the rest of the house uses the library.
+- **Obsidian or SoloMD.** Open the folder that `researchzosho vault` writes.
 - **`codezaiku chat`**, to talk to the library on a local model, for free. It connects to the
-  service: what the library holds is pushed into each turn, `/librarian` asks it, and `/research`
+  service. What the library holds is pushed into each turn, `/librarian` asks it, and `/research`
   files runs with it.
-- **Claude Code, Codex or Gemini CLI**, if you have one. `setup` connects it; every session then has
+- **Claude Code, Codex or Gemini CLI**, if you have one. `setup` connects it. Every session then has
   the library's tools. Any other program that speaks MCP connects the same way.
 
-For programs there are two clients, both following [LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md),
-whose sections 1 to 6 are the contract and keep working across releases:
+For programs there are two clients. Both follow [LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md).
+Its sections 1 to 6 are the contract and keep working across releases.
 
 - **Python** (`sdk/python`, no dependencies): `pip install researchzosho`, then
   `Librarian("http://127.0.0.1:4649", token=…)`.
@@ -181,10 +192,10 @@ whose sections 1 to 6 are the contract and keep working across releases:
 
 ## The family
 
-ResearchZosho is part of [Wyrdsekai](https://wyrdsekai.org), and its sibling is
+ResearchZosho is part of [Wyrdsekai](https://wyrdsekai.org). Its sibling is
 [CodeZaiku](https://codezaiku.org), a coding and development harness that runs on local models or
-hosted APIs: code, review, research and guarded ops. `codezaiku install researchzosho` puts this library beside it,
-and the two share a model server, so one on-demand model on a machine serves both.
+hosted APIs: code, review, research and guarded ops. `codezaiku install researchzosho` installs this
+library beside it. The two share a model server, so one on-demand model on a machine serves both.
 
 ## Licence
 

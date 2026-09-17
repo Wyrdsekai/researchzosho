@@ -249,6 +249,14 @@ public final class LibrarianIndex {
         }
     }
 
+    /** One entry and its chunks out of the index, by id. */
+    public synchronized void remove(String id) throws IOException {
+        try (Directory dir = FSDirectory.open(store.luceneDir());
+             IndexWriter w = openWriter(dir, analyzer)) {
+            w.deleteDocuments(new Term(F_ID, id), new Term(F_PARENT, id));
+        }
+    }
+
     public synchronized void upsert(Investigation inv) throws IOException {
         try (Directory dir = FSDirectory.open(store.luceneDir());
              IndexWriter w = openWriter(dir, analyzer)) {

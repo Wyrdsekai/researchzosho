@@ -5,23 +5,23 @@ tree. If you are a person, read the README instead.
 
 ## What this is
 
-A research library for one machine, with a librarian in front of it. A person gives it a question in
-it reads, notes each fact with its source, writes up what it found, and checks
-each cited sentence against its source before the write-up is shelved. Then the person decides what
-stands. Nothing counts as known until they have accepted it. Do not build anything that decides on
-the person's behalf.
+A research library for one machine, with a librarian in front of it. A person gives it a question.
+It reads, notes each fact with its source, and writes up what it found. It checks each cited sentence
+against its source before the write-up is shelved. Then the person decides what stands. Nothing
+counts as known until they have accepted it. Do not build anything that decides on the person's
+behalf.
 
 Java 21 or newer, Gradle with the Kotlin DSL. Two modules: `librarian` is the product, `client` is the
 Java SDK. `sdk/python` is a Python SDK with no dependencies. The library speaks MCP over stdio and
-HTTP, plus a small HTTP protocol, and runs as a user service on Linux, macOS and Windows.
+HTTP, plus a small HTTP protocol. It runs as a user service on Linux, macOS and Windows.
 
 Read these before you change anything:
 
-1. [README.md](README.md), what it does and who it is for.
+1. [README.md](README.md): what it does and who it is for.
 2. [docs/LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md). Sections 1 to 6 are the contract other
-   programs rely on. Be careful with changes that could affect others: add, or bump the contract number.
-3. [docs/LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md), how a person uses it day to day.
-4. [CONTRIBUTING.md](CONTRIBUTING.md), what makes a change easy to take.
+   programs rely on. Be careful with changes that could affect them: add, or bump the contract number.
+3. [docs/LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md): how a person uses it day to day.
+4. [CONTRIBUTING.md](CONTRIBUTING.md): what makes a change easy to take.
 
 ## Build and run
 
@@ -38,11 +38,12 @@ negative.
 ## Words
 
 - The person who uses the library, or a program that does, is a **reader**. The protocol's field is
-  called `patron`; that word is used on the wire and nowhere else.
-- A question sent for research is a **run**; it starts when a worker is free, at any hour. The steps at
-  three each morning are **the crews** in the code and "the housekeeping" in prose. Never "overnight".
-- A write-up is an **investigation**; a claim is a **finding**; a finding is accepted, disputed or
-  retired, and those are the only states a person sets.
+  called `patron`. That word is used on the wire and nowhere else.
+- A question sent for research is a **run**. It starts when a worker is free, at any hour. The steps
+  at three each morning are **the crews** in the code and "the housekeeping" in prose. Never
+  "overnight".
+- A write-up is an **investigation**. A claim is a **finding**. A finding is accepted, disputed or
+  retired. Those are the only states a person sets.
 
 ## Rules
 
@@ -56,9 +57,9 @@ negative.
   neither). How the model is shared is a live setting, not a constant.
 - **Nothing runs from the user's config in a test.** Tests set `user.home` to a temp directory and
   call `Config.invalidate()`. A test that writes `~/.researchzosho/config` has escaped.
-- **No machine names, home paths or credentials in the tree.** The public export runs a scanner;
-  read its findings, do not trust a clean result.
+- **No machine names, home paths or credentials in the tree.** The public export runs a scanner.
+  Read its findings. Do not trust a clean result.
 - **Public prose is for people who are not programmers.** The README, the guide, CONTRIBUTING and the
-  site are written in plain words. State what the thing does; no punchlines, no metaphors. If a sentence
-  needs a programmer to understand it, it belongs in the protocol document. The README is not a
-  feature list; features go in the guide.
+  site are written in plain words. State what the thing does. No punchlines, no metaphors. If a
+  sentence needs a programmer to understand it, it belongs in the protocol document. The README is
+  not a feature list. Features go in the guide.

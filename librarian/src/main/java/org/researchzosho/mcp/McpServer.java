@@ -262,7 +262,28 @@ public final class McpServer {
                         prop("title", "string", "A name for the list (default: the file name)."),
                         prop("column", "string", "For a CSV: the column that holds the items (default: a column named title, name, item or book, else the first)."),
                         prop("collection", "string", "Where the list is shelved (default lists)."),
-                        prop("limit", "integer", "How many items to take (default all, up to 200)."),
+                        prop("limit", "integer", "How many of the selected items to look at, file or run in this call (default 200, the most). The whole list is shelved regardless."),
+                        prop("match", "string", "Only items whose line holds this text (a tag, an author, a year); an array for several, all must hold."),
+                        prop("sample", "integer", "Of the matched items, this many at random."),
+                        patronProp())));
+        tools.add(tool("library_holdings",
+                "What the person's own lists hold: a Calibre library, an inventory, a reading list — every list shelved through "
+                + "library_items. An exact lookup: every word of the query must appear in an entry (title words, an author, a year). "
+                + "Ask it for each candidate to tell owned from not owned; a search snippet is a guess, this is not.",
+                schema(new String[]{"query"},
+                        prop("query", "string", "Words of a title, an author, a year: \"wizard earthsea le guin\"."),
+                        prop("limit", "integer", "Matches to return (default 20, up to 100)."),
+                        patronProp())));
+        tools.add(tool("library_remove",
+                "Take a report or a claim out of the library for good. id is a report (I-…) or a claim (F-…). For a report, what=all "
+                + "(default) removes it and the claims that are its alone, what=report the report only, what=claims its claims only; a "
+                + "claim another report also cites stays and is named. dry=true shows the plan and removes nothing. Files are deleted, "
+                + "the index and the changes log updated; what the run fetched from the web stays. There is no undo — retire is the "
+                + "gentler thing for a claim.",
+                schema(new String[]{"id"},
+                        prop("id", "string", "A report id (I-…) or a claim id (F-…)."),
+                        prop("what", "string", "For a report: all (default), report, or claims."),
+                        prop("dry", "boolean", "Show the plan only."),
                         patronProp())));
         tools.add(tool("library_check",
                 "Check the person's own draft — a memo, a chapter, notes (text, markdown, Word, PDF) — as a starting point. One voice: "
@@ -531,6 +552,8 @@ public final class McpServer {
             case "library_survey" -> p.survey(args);
             case "library_repo" -> p.repo(args);
             case "library_items" -> p.items(args);
+            case "library_holdings" -> p.holdings(args);
+            case "library_remove" -> p.remove(args);
             case "library_check" -> p.check(args);
             case "library_reading" -> p.reading(args);
             case "library_questions" -> p.questions(args);

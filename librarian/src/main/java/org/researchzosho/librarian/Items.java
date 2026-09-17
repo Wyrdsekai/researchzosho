@@ -2,6 +2,7 @@ package org.researchzosho.librarian;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -38,8 +39,11 @@ public final class Items {
     static final Pattern BULLET = Pattern.compile("^\\s*(?:[-*•▪◦]|\\d+[.)]|\\[[ xX]\\])\\s*");
     static final Pattern SPLIT_NOTE = Pattern.compile("\\s+(?:—|–|-|\\||\\t)\\s+|\\t");
 
-    /** The items in a file's text. {@code column} names a CSV column (null = the first). */
-    public static List<Item> parse(String text, String column) {
+    /** The items in a file's text, all of them. {@code column} names a CSV column (null = one called title, name, item or book, else the first). */
+    public static List<Item> parse(String text, String column) { return parse(text, column, Integer.MAX_VALUE); }
+
+    /** The first {@code max} items in a file's text. */
+    public static List<Item> parse(String text, String column, int max) {
         List<Item> out = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         String[] lines = text.split("\\r?\\n");
@@ -78,10 +82,23 @@ public final class Items {
             }
             name = name.replaceAll("^[\"'“]+|[\"'”]+$", "").strip();
             if (name.length() < 2 || name.length() > 200) continue;
-            if (!seen.add(name.toLowerCase(Locale.ROOT))) continue;
+            if (!seen.add((csv ? name + "\u0000" + note : name).toLowerCase(Locale.ROOT))) continue;   // a CSV row is a record (two editions of a title are two); a line list names things (the same name twice is one)
             out.add(new Item(name, note));
-            if (out.size() >= MAX_ITEMS) break;
+            if (out.size() >= max) break;
         }
+        return out;
+    }
+
+    /** The items whose line holds every one of the {@code match} texts (case-insensitive; a tag, an author, a year), then {@code sample} of them at random when sample is set. */
+    public static List<Item> select(List<Item> all, List<String> match, int sample, long seed) {
+        List<Item> out = new ArrayList<>();
+        for (Item it : all) {
+            String line = it.line().toLowerCase(Locale.ROOT);
+            boolean ok = true;
+            for (String m : match) if (!m.isBlank() && !line.contains(m.strip().toLowerCase(Locale.ROOT))) { ok = false; break; }
+            if (ok) out.add(it);
+        }
+        if (sample > 0 && out.size() > sample) { java.util.Collections.shuffle(out, new java.util.Random(seed)); out = new ArrayList<>(out.subList(0, sample)); }
         return out;
     }
 
@@ -122,11 +139,30 @@ public final class Items {
         StringBuilder sb = new StringBuilder("# ").append(title).append("\n\n");
         for (Item it : items) sb.append("- ").append(it.line()).append('\n');
         String body = sb.toString();
-        String locator = "list://" + HexFormat.of().formatHex(sha(body), 0, 8);
-        return RawCapture.capture(store, locator, body, title, "list:" + Acquisitions.compress(source, 120), collection);
+        String hash = HexFormat.of().formatHex(sha(body), 0, 8);
+        // the whole list, kept where nothing cuts it; the raw record (which raw caps at 400k characters) says where
+        Path whole = store.listsDir().resolve(hash + ".md");
+        try { Files.createDirectories(whole.getParent()); Files.writeString(whole, body, StandardCharsets.UTF_8); } catch (IOException e) { whole = null; }
+        String head = "# " + title + "\n\n" + items.size() + " entries" + (whole == null ? "" : "; the whole list is lists/" + whole.getFileName()) + "\n\n";
+        return RawCapture.capture(store, "list://" + hash, head + body.substring(body.indexOf("\n\n") + 2), title, "list:" + Acquisitions.compress(source, 120), collection);
     }
 
-    /** What the shelves hold on an item: the best hit that names it, or null. Cheap, mechanical, before any model runs. */
+    /** What the shelves hold on an item: an entry of another shelved list that names it exactly, else the best search hit that names it, or null. Cheap, mechanical, before any model runs. */
+    public static LibrarianIndex.Hit held(LibraryStore store, LibrarianIndex index, Item it, String skipRaw, String skipList) {
+        try {
+            List<Holdings.Match> m = Holdings.find(store, it.name(), 1, skipList);
+            if (!m.isEmpty()) return new LibrarianIndex.Hit(m.get(0).raw(), "raw", "", m.get(0).list(), 1.0f, m.get(0).item() + (m.get(0).note().isEmpty() ? "" : " — " + m.get(0).note()));
+        } catch (Exception ignored) { }
+        return held(index, it, skipRaw);
+    }
+
+    /** The lists/ file a shelved list's raw record points at, by name ("<hash>.md"), or "" when the record does not say. */
+    public static String listFileName(LibraryStore store, Path raw) {
+        if (raw == null) return "";
+        try { java.util.regex.Matcher m = Pattern.compile("the whole list is lists/(\\S+\\.md)").matcher(RawCapture.read(raw)[2]); return m.find() ? m.group(1) : ""; } catch (IOException e) { return ""; }
+    }
+
+    /** The search half of {@link #held(LibraryStore, LibrarianIndex, Item, String)}. */
     public static LibrarianIndex.Hit held(LibrarianIndex index, Item it, String skipRaw) {
         try {
             for (LibrarianIndex.Hit h : index.search(it.name(), 3)) {

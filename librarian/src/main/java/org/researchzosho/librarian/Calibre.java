@@ -62,7 +62,7 @@ public final class Calibre {
             FROM books b ORDER BY b.id""";
 
     /** metadata.db, opened immutable (Calibre may have it open; nothing here writes). */
-    static List<Book> fromDatabase(Path db) throws Exception {
+    public static List<Book> fromDatabase(Path db) throws Exception {
         Class.forName("org.sqlite.JDBC");
         List<Book> out = new ArrayList<>();
         String url = "jdbc:sqlite:file:" + db.toAbsolutePath().toString().replace("\\", "/") + "?immutable=1&mode=ro";

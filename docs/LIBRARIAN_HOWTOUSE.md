@@ -3,9 +3,9 @@
 
 # Using ResearchZosho
 
-This document explains how to use ResearchZosho: how to set it up, how to send a question, how to
-read and review what comes back, and how to run it as a service. It is written for people who are
-not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTOCOL.md).
+This document explains how to use ResearchZosho. It covers setup, sending a question, reading and
+reviewing what comes back, and running it as a service. It is written for people who are not
+programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTOCOL.md).
 
 ## Contents
 
@@ -37,48 +37,58 @@ not programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_P
 
 ## 1. What you need
 
-- Java 21 or newer — or nothing: each release also carries builds with their own Java runtime for Linux,
-  macOS and Windows (x64 and arm64). The install one-liners take one when the machine has no Java 21;
+- Java 21 or newer, or none: each release also carries builds with their own Java runtime for Linux,
+  macOS and Windows (x64 and arm64). The install one-liners pick one when the machine has no Java 21.
   `RESEARCHZOSHO_RUNTIME=1` asks for it outright.
 - A model server that speaks the OpenAI chat API. This can be a local server (llama.cpp, Ollama, LM
-  Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and others; any that
-  speaks the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a
-  model you can still ask what the library has and read it; research runs need the model.
-  `researchzosho models` reads your card's memory and prints the measured choice for it with the
-  command that serves it; setup prints the same when it finds no model server.
-  Size matters in a particular way. Measured on the same five questions: a 27B-class model and a 9B
-  both get the facts right, but the 9B's write-ups yield fewer claims (10 against 25) and almost no
-  citation the checker can read (1 against 26), because the steps that judge a write-up ask for
-  structured answers a small model mangles. A 27B-class model, local or hosted, does the whole job.
-  On a 16 GB card, where a 27B at 4-bit does not fit, three choices measured well on the same
-  questions: gpt-oss-20b (right, eight claims, about five minutes a question, 13 GB in use with two
-  16,000-token slots), Gemma 4 26B-A4B (right and the most careful writer, ten claims, about nine
-  times slower), and Gemma 4 12B (right, ten claims, six times slower, 9 GB in use). Measured and
-  not recommended: Qwen3 14B and Mistral Small 24B got a fact wrong and Mistral needs 19 GB with a
-  working context; the 27B at 3-bit was careful but slow and missed twice; Phi-4-reasoning-plus and
-  the 8B and 9B models copied the prompt's own words or answered from memory without sources.
-  Smaller cards, measured the same way with one 16,000-token slot: on 8 GB, Qwen3.5 9B (right and
-  deep, ten claims, 5.9 GB in use) or Gemma 4 12B's smaller 4-bit file (right, 7.3 GB in use, slower);
-  on 4 GB, Gemma 4 E4B (right, nine claims, the best citation reader of the small models); on 2 GB,
-  Gemma 4 E2B got the claims right but wrote empty sections, and a hosted API is the better answer
-  that small. Measured and not recommended there: Qwen3 8B and Llama 3.1 8B (thin), Granite 4.1 8B
-  (needs 9.4 GB), Falcon-H1 7B and SmolLM3 3B (answered without fetching a source), Nemotron 3 Nano
-  4B and Granite 4.0 micro (mixed up the lead limits). Each drive saw each question once. Give the model server a context of 16,000 tokens or more per
-  request; a smaller one leaves the review too little room.
+  Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and any other that speaks
+  the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a model
+  you can still ask what the library has and read it. Research runs need the model.
+  `researchzosho models` reads your card's memory and prints the best choice for it, with the
+  command that serves it. Setup prints the same when it finds no model server.
+  Size matters. On the same five questions, a 27B-class model and a 9B both get the facts right.
+  But the 9B's write-ups yield fewer claims (10 against 25) and almost no citation the checker can
+  read (1 against 26). The steps that judge a write-up ask for structured answers, and a small model
+  mangles them. A 27B-class model, local or hosted, does the whole job.
+  On a 16 GB card a 27B at 4-bit does not fit. Three choices do well there on the same questions:
+  - gpt-oss-20b: right, eight claims, about five minutes a question, 13 GB in use with two
+    16,000-token slots.
+  - Gemma 4 26B-A4B: right and the most careful writer, ten claims, about nine times slower.
+  - Gemma 4 12B: right, ten claims, six times slower, 9 GB in use.
+
+  Not recommended on 16 GB: Qwen3 14B and Mistral Small 24B got a fact wrong, and Mistral needs
+  19 GB with a working context. The 27B at 3-bit was careful but slow and missed twice.
+  Phi-4-reasoning-plus and the 8B and 9B models copied the prompt's own words or answered from
+  memory without sources.
+  Smaller cards, with one 16,000-token slot:
+  - 8 GB: Qwen3.5 9B (right and deep, ten claims, 5.9 GB in use), or Gemma 4 12B's smaller 4-bit
+    file (right, 7.3 GB in use, slower).
+  - 4 GB: Gemma 4 E4B (right, nine claims, the best citation reader of the small models).
+  - 2 GB: Gemma 4 E2B got the claims right but wrote empty sections. A hosted API is the better
+    answer at this size.
+
+  Not recommended on small cards: Qwen3 8B and Llama 3.1 8B (thin), Granite 4.1 8B (needs 9.4 GB),
+  Falcon-H1 7B and SmolLM3 3B (answered without fetching a source), Nemotron 3 Nano 4B and Granite
+  4.0 micro (mixed up the lead limits). Each model answered each question once.
+  Give the model server a context of 16,000 tokens or more per request. A smaller one leaves the
+  review too little room.
 - A web search backend, for research runs that go to the web. This matters as much as the model: a
-  run can only read what a search finds. The choices, best first: a Brave Search API key
-  (https://brave.com/search/api/ has a free plan), a SearXNG instance (free, private; setup can start
-  one with Docker), or the built-in fallback, which searches Wikipedia and the scholarly literature
-  only. Section 2 explains.
+  run can only read what a search finds. The choices, best first:
+  - a Brave Search API key (https://brave.com/search/api/ has a free plan);
+  - a SearXNG instance (free, private; setup can start one with Docker);
+  - the built-in fallback, which searches only Wikipedia and the scholarly literature.
+
+  Section 2 explains.
 - Optional: an embeddings server, if you want search by meaning as well as by keywords. `researchzosho
-  model install` sets one up beside the model, at the same address, on all three platforms (Text
-  Embeddings Inference serving Qwen3-Embedding-0.6B on Linux with an NVIDIA card; llama.cpp's own
-  build on a Mac or Windows; the model downloads once, about 1.2 GB). Without a GPU on Linux there is
-  none: `researchzosho embed start --cpu` runs the CPU image, measured at a tenth of a chunk a second
-  (a thousand documents: more than a day), and an embeddings server on another machine is the better answer. Any server that answers the OpenAI embeddings call works. The server matters more than the
-  model: the same 0.6B model measured 13 chunks a second under llama.cpp and 115 under Text Embeddings
-  Inference on the same card, so a library of a thousand documents re-indexes in two minutes instead of
-  twenty.
+  model install` sets one up beside the model, at the same address, on all three platforms. On Linux
+  with an NVIDIA card it is Text Embeddings Inference serving Qwen3-Embedding-0.6B. On a Mac or
+  Windows it is llama.cpp's own build. The model downloads once, about 1.2 GB. Without a GPU on Linux
+  there is none. `researchzosho embed start --cpu` runs the CPU image at about a tenth of a chunk a
+  second, so a thousand documents take more than a day. An embeddings server on another machine is
+  the better answer. Any server that answers the OpenAI embeddings call works. The server matters more
+  than the model: the same 0.6B model does 13 chunks a second under llama.cpp and 115 under Text
+  Embeddings Inference on the same card. A library of a thousand documents re-indexes in two minutes
+  instead of twenty.
 
 ## 2. Setup
 
@@ -88,20 +98,20 @@ Run:
 researchzosho setup
 ```
 
-Setup asks a few questions. Each has a default answer; press Enter to accept it.
+Setup asks a few questions. Each has a default answer. Press Enter to accept it.
 
 1. Where the library folder goes, and what the library is called. The name is what the pages and
-   programs show; `researchzosho name <a name>` changes it later, and it is the `name:` line of
+   programs show. `researchzosho name <a name>` changes it later. It is the `name:` line of
    `catalog/library.md`.
-2. Which model server to use. Setup looks on the usual local ports and tests the server with one
+2. Which model server to use. Setup looks on the usual local ports. It tests the server with one
    call before saving the address.
 3. Which web search backend to use. Setup asks for a Brave Search API key first. Then it looks for
-   SearXNG on its usual local port, and if Docker is installed offers to start one. With neither, it
+   SearXNG on its usual local port. If Docker is installed, it offers to start one. With neither, it
    says that the built-in fallback will be used.
-4. Whether search works by meaning or by words only. If your model server also embeds, that is used;
-   the one `model install` sets up does. Otherwise, with Docker and an NVIDIA card, setup offers to
-   start an embeddings server (`researchzosho embed start` does the same later); without those it asks
-   for an address, and with none search is by words.
+4. Whether search works by meaning or by words only. If your model server also embeds, that is used.
+   The one `model install` sets up does. Otherwise, with Docker and an NVIDIA card, setup offers to
+   start an embeddings server. `researchzosho embed start` does the same later. Without those it asks
+   for an address. With none, search is by words.
 5. Whether to run ResearchZosho as a service that starts when you log in.
 6. Which programs to connect. If Claude Code, Codex or Gemini CLI is installed, setup can register
    the library with it. For any other program that speaks MCP, setup prints the command line and the
@@ -115,32 +125,33 @@ to change one of these answers.
 Research runs find their sources through a search backend. A run can only read what a search
 finds, so this choice matters as much as the model. ResearchZosho tries them in this order:
 
-1. **The Brave Search API.** The best results. A key from https://brave.com/search/api/ (there is a
-   free plan) goes in `RESEARCHZOSHO_BRAVE_KEY`, or into setup. The key is sent only to Brave.
+1. **The Brave Search API.** The best results. Get a key from https://brave.com/search/api/ (there
+   is a free plan). Put it in `RESEARCHZOSHO_BRAVE_KEY`, or give it to setup. The key is sent only
+   to Brave.
 2. **SearXNG**, a search engine you run yourself. Free, and your queries stay on your machine.
-   Setup starts it with Docker when Docker is installed, and so does:
+   Setup starts it with Docker when Docker is installed. So does:
 
    ```
    researchzosho search start
    ```
 
-   This starts the official container on port 8888 with a settings file ResearchZosho writes. That
-   file turns on the JSON format the search tool needs, and picks the engines that answered from a
-   home machine when we measured them: Seznam, Naver, Yandex, Yahoo and Wikipedia. SearXNG's own
-   default engines (DuckDuckGo, Google, Qwant, Startpage, Brave) answered the first query with a
-   CAPTCHA and stayed suspended, so they are off. The file is `~/.researchzosho/searxng/settings.yml`;
-   edit it if you like. A SearXNG elsewhere goes in `RESEARCHZOSHO_SEARXNG`.
-3. **The built-in fallback**, when neither is set: Wikipedia's own search, in the language of the
-   query, followed by papers from Crossref and OpenAlex. No key and no install, and all three answer
-   reliably, but it finds encyclopedia pages and the literature, not the whole web. A run follows
+   This starts the official container on port 8888 with a settings file ResearchZosho writes. The
+   file turns on the JSON format the search tool needs. It picks the engines that answer from a home
+   machine: Seznam, Naver, Yandex, Yahoo and Wikipedia. SearXNG's own default engines (DuckDuckGo,
+   Google, Qwant, Startpage, Brave) answer the first query with a CAPTCHA and stay suspended, so they
+   are off. The file is `~/.researchzosho/searxng/settings.yml`. You can edit it. A SearXNG elsewhere
+   goes in `RESEARCHZOSHO_SEARXNG`.
+3. **The built-in fallback**, when neither is set. It uses Wikipedia's own search, in the language of
+   the query, then papers from Crossref and OpenAlex. No key and no install, and all three answer
+   reliably. But it finds encyclopedia pages and the literature, not the whole web. A run follows
    the pages' references for primary sources. `RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off.
 
 With a key and a SearXNG both set, Brave is used and SearXNG is the fallback. The report's "Web
 search" section says when a run went through the fallback, or when no backend answered.
 
-Separately from all three, every research run also has `scholar_search`: Crossref and OpenAlex,
-papers and books by DOI. It is there in every configuration, because a web engine ranks the primary
-literature low or not at all, and a DOI is a source the library can resolve and check.
+Every research run also has `scholar_search`, separate from all three: Crossref and OpenAlex,
+papers and books by DOI. It is in every configuration. A web engine ranks the primary literature
+low or not at all, and a DOI is a source the library can resolve and check.
 
 ```
 researchzosho search                 # which backend answers, and the container's state
@@ -151,12 +162,12 @@ researchzosho search stop            # stop the container
 
 ### Search by meaning
 
-Search by words finds a claim by the words in it. Search by meaning also finds it when the question uses
-other words, or another language. It needs an embeddings server: the setting is `RESEARCHZOSHO_EMBED`,
-the address of any server that answers the OpenAI embeddings call, or `off`. `researchzosho embed status`
-says what is configured; `embed start` runs one with Docker; `embed test` measures it; `embed stop` stops it.
-After starting one, `researchzosho rebuild` indexes the library with it (the nightly housekeeping
-would do that on its own the next night).
+Search by words finds a claim by the words in it. Search by meaning also finds it when the question
+uses other words, or another language. It needs an embeddings server. The setting is
+`RESEARCHZOSHO_EMBED`: the address of any server that answers the OpenAI embeddings call, or `off`.
+`researchzosho embed status` says what is configured. `embed start` runs one with Docker. `embed test`
+measures it. `embed stop` stops it. After starting one, run `researchzosho rebuild` to index the
+library with it. The nightly housekeeping would do that the next night.
 
 ### Updating
 
@@ -168,9 +179,9 @@ researchzosho update now        # download, verify against the release's checksu
 researchzosho update auto on    # the service updates itself after each housekeeping, when no run is active
 ```
 
-The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. The library and the settings are
-never touched by an update. On Windows, stop the service first (`researchzosho service uninstall`), run
-`researchzosho update now`, then `researchzosho service install`.
+The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. An update never touches
+the library or the settings. On Windows, stop the service first (`researchzosho service uninstall`),
+run `researchzosho update now`, then `researchzosho service install`.
 
 ## 3. The basic loop
 
@@ -183,8 +194,8 @@ never touched by an update. On Windows, stop the service first (`researchzosho s
    has it in your notes.
 5. Check in now and then: open questions, proposed subjects, and claims whose source changed.
 
-Steps 2 to 4 happen as soon as a run is done. The housekeeping (section 11) runs every night and does
-the checks and cleanup.
+Steps 2 to 4 happen as soon as a run is done. The housekeeping (section 11) runs every night. It
+does the checks and cleanup.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="brand/loop-dark.png">
@@ -209,9 +220,9 @@ researchzosho research ask "…" --max-minutes 120
 From Claude Code or a program, the same thing is `library_research`. From the web pages, use the
 Research page.
 
-The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, the queued and running ones first;
-`researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is waiting for, and where its
-write-up went.
+The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, queued and running
+ones first. `researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is
+waiting for, and where its write-up went.
 
 ### Sharpening a question first
 
@@ -219,7 +230,7 @@ write-up went.
 researchzosho sharpen "how were the gears cut"
 ```
 
-Sharpen does not run any research. It returns:
+`sharpen` does not run any research. It returns:
 
 - the question rewritten to be more specific;
 - a list of what it assumed to get there, so you can see where it narrowed the question;
@@ -236,16 +247,16 @@ fills the form in with the result.
 ### What happens during a run
 
 1. Planning. If you gave sub-questions, they are the plan. If not, the library works out who studies
-   this kind of question and what each would ask, and makes sub-questions from that.
+   this kind of question and what each would ask. It makes sub-questions from that.
 2. Reading. Each sub-question gets its own reader. The readers work at the same time. A reader
    searches, opens the best sources, reads them, and writes down each fact with its source and a
-   quote. Search results are marked by kind (journal, primary record, reference work, blog, forum),
-   and readers prefer the first three.
-3. A critic checks for gaps and can send readers back for a second round.
+   quote. Search results are marked by kind (journal, primary record, reference work, blog, forum).
+   Readers prefer the first three.
+3. A critic checks for gaps. It can send readers back for a second round.
 4. The write-up is written: the answer, then where the sources disagree, then what could not be
    settled.
-5. Checks. The library adds a table of every fact with its source and quote, and a numbered list of
-   sources in which copies of one text count as one. Each sentence that cites a source is then
+5. Checks. The library adds a table of every fact with its source and quote. It adds a numbered list
+   of sources, in which copies of one text count as one. Each sentence that cites a source is then
    compared with that source. Sentences the source does not support are marked.
 
 The write-up is saved as a draft, with the readers' notes attached.
@@ -256,9 +267,9 @@ With no limit, a run continues until the work is done. You can limit it:
 
 - `--max-turns N`: at most N model steps for the whole run.
 - `--max-minutes N`: at most N minutes. The readers stop early enough for the write-up to be
-  finished; the write-up itself is never cut short, so the run may go a few minutes over.
+  finished. The write-up itself is never cut short, so the run may go a few minutes over.
 
-With a limit in steps, the library plans only what fits and puts the rest on the open-questions list.
+With a limit in steps, the library plans only what fits. The rest goes on the open-questions list.
 
 ### Pages it could not read
 
@@ -296,7 +307,7 @@ On the web pages, every entry has the choices "beginner", "familiar" and "as wri
 
 The simpler version is written only from the entry, the claims behind it, and their sources. Each
 paragraph names what it comes from and is checked against it. A paragraph the sources do not support
-is marked. Words you may not know are listed at the end; each one links to its own explanation.
+is marked. Words you may not know are listed at the end. Each one links to its own explanation.
 
 If the library cannot explain a term from what it has, it says so and offers two choices: a quick
 look (a short run, a few minutes) or full research. Either one runs as soon as a worker is free.
@@ -323,12 +334,12 @@ researchzosho dispute <id> "<reason>"
 researchzosho retire <id>
 ```
 
-- Accept: the claim is now part of what the library knows.
-- Dispute: the claim stays, marked as disputed, and the library says so whenever it comes up.
-- Retire: the claim is removed from answers. The record of it is kept.
+- `accept`: the claim is now part of what the library knows.
+- `dispute`: the claim stays, marked as disputed. The library says so whenever the claim comes up.
+- `retire`: the claim is removed from answers. The record of it is kept.
 
-A claim is not counted as known until you accept it. What you have accepted is what the library
-answers from. A draft is also accepted on its own when a later run finds the same claim from an
+A claim does not count as known until you accept it. The library answers from what you have
+accepted. A draft is also accepted on its own when a later run finds the same claim from an
 independent source.
 
 The same decisions, on every surface:
@@ -341,15 +352,16 @@ The same decisions, on every surface:
 | the files | the claim's file under `findings/` in the library folder | change its `state:` line: `draft` to `accepted`, `disputed`, or `retired`; the nightly housekeeping re-reads the files, `researchzosho refresh` does it now (a removed file leaves the search too) |
 
 Sorting a full inbox: the Inbox page, `researchzosho inbox`, and `library_inbox` filter the same way
-as the open questions (section 11): by the report the claim came from (grouped, one box per report),
-why it waits (a new claim, or a review that went stale), the kind of claim, the strongest source's
-tier, confidence, who wrote it, subject, language, and words in the title. On the command line:
+as the open questions (section 11). The filters are: the report the claim came from (grouped, one
+box per report), why it waits (a new claim, or a review that went stale), the kind of claim, the
+strongest source's tier, confidence, who wrote it, subject, language, and words in the title. On the
+command line:
 `inbox --report I-0025 --kind extraction --tier reference --confidence high --writer explorer
 --state draft --subject lead-paint --language english --grep "lead paint" --by-report`.
 
-The two pages point at each other: a report's group on the Open questions page links to its claims
-in the Inbox, and a report's group in the Inbox links to its open questions. Accepting a report's
-claims is what turns its questions' "what became of it" from "still in the inbox" to "kept".
+The two pages point at each other. A report's group on the Open questions page links to its claims
+in the Inbox. A report's group in the Inbox links to its open questions. Accepting a report's claims
+turns its questions' "what became of it" from "still in the inbox" to "kept".
 
 ## 7. Asking what the library already has
 
@@ -358,8 +370,8 @@ researchzosho ask "what do I have on keigo in subtitles?"
 ```
 
 The answer lists each matching claim with its source, its state (accepted, disputed or draft), its
-subjects, and nearby open questions. This answer is made from the entries themselves, not written by a
-model. If there is nothing, the library says so and records the question on the open list.
+subjects, and nearby open questions. The answer is built from the entries themselves, not written by
+a model. If there is nothing, the library says so and records the question on the open list.
 
 Some questions are looked up directly:
 
@@ -367,6 +379,29 @@ Some questions are looked up directly:
 - a web address returns the saved copy of that page, if the library has one;
 - "what changed since last Monday" returns the changes list;
 - a subject's name returns that subject.
+
+## 7b. Removing a report or a claim
+
+`retire` keeps a claim on disk and stops using it. `remove` deletes it.
+
+```
+researchzosho remove I-0007-recommend-five-science-fiction                 # the report and its claims
+researchzosho remove I-0007-recommend-five-science-fiction --report-only   # the report; the claims stay
+researchzosho remove I-0007-recommend-five-science-fiction --claims-only   # the claims; the report stays
+researchzosho remove F-0081-the-fifth-season-jemisin                       # one claim
+```
+
+Rules:
+
+- A claim that another report also lists or cites is not removed. The plan names it.
+- `--claims-only` also drops the removed ids from the report's list of claims.
+- Pages fetched from the web during the run are not removed. Other claims may cite them.
+- The command prints the plan and asks `y/N`. `--yes` skips the question.
+- Each removal is written to the changes log, so anyone who cited the id can see it is gone.
+- There is no undo.
+
+In the browser, each report and claim page has a "Remove…" section for a signed-in patron with write
+access. It shows the same plan and asks for one more click.
 
 ## 8. Adding your own documents
 
@@ -376,53 +411,54 @@ researchzosho add https://example.org/paper
 researchzosho add ~/papers --collection thesis --register
 ```
 
-Supported formats: PDF, Word, PowerPoint, OpenDocument, EPUB, HTML and plain text. The library keeps
-the text, where it came from, when it was added, and the captions of figures and tables. A paper that
-prints its DOI has its citation looked up.
+Supported formats: PDF, Word, PowerPoint, OpenDocument, EPUB, HTML and plain text. The library stores
+the text, where it came from, when it was added, and the captions of figures and tables. If a paper
+prints its DOI, the library looks up its citation.
 
-PDFs read best with poppler's `pdftotext` on the machine (`apt install poppler-utils` on Debian and
-Ubuntu, `brew install poppler` on a Mac): the library uses it when it is there, for fetched pages and
-added files alike, and falls back to its built-in reader otherwise. A two-column report the built-in
-reader garbles usually comes out clean this way. A PDF the runner could not fetch at all (a server that
-never answers, a wall) is the case for `researchzosho add <file> --for <url>`: download it yourself,
-supply it, and the shelves re-check against it.
+PDFs read best when poppler's `pdftotext` is installed. On Debian and Ubuntu, run
+`apt install poppler-utils`. On a Mac, run `brew install poppler`. The library uses it when it is
+present, for fetched pages and added files. Otherwise it uses its built-in reader. A two-column report
+that the built-in reader garbles usually reads cleanly with `pdftotext`.
+
+Sometimes the runner cannot fetch a PDF at all, because a server never answers or a wall blocks it.
+Then use `researchzosho add <file> --for <url>`. Download the file yourself and add it. The shelves
+re-check against it.
 
 Adding a folder makes a collection. With `--register`, the housekeeping checks the folder for new or
 changed files.
 
 ### Keep or link
 
-By default the library keeps the text it extracts from each file. The file itself is never copied, so
-a folder of PDFs costs a few percent of its size on the library's disk.
+By default the library stores the text it extracts from each file. It never copies the file itself.
+A folder of PDFs takes a few percent of its size on the library's disk.
 
-Sometimes even that is too much, or you do not want a second copy of the material anywhere. `--link`
-reads the files where they are:
+Sometimes even that is too much, or you do not want a second copy anywhere. `--link` reads the files
+where they are:
 
 ```
 researchzosho add /mnt/archive/papers --collection archive --link --register
 ```
 
-A linked file gets an entry with its path, a hash of its bytes and its size, and nothing else. When the
-library needs the text, it reads it from the file. If the drive is not mounted at that moment, the entry
-says so ("not reachable now: /mnt/archive/papers/x.pdf cannot be read; mount the drive"), and it reads
-again once the drive is back. When a linked file changes, the next rescan notices from the hash, reads
-the new text, and marks the claims that rest on that file for review.
+A linked file gets an entry with its path, a hash of its bytes, and its size. Nothing else is stored.
+When the library needs the text, it reads the file. If the drive is not mounted at that moment, the
+entry says so: "not reachable now: /mnt/archive/papers/x.pdf cannot be read; mount the drive". It
+reads the file again once the drive is back. When a linked file changes, the next rescan sees the new
+hash. It reads the new text and marks the claims that depend on that file for review.
 
-A network drive is a folder like any other once it is mounted. A URL is always kept, since the web
-changes under a link.
+A mounted network drive works like any other folder. A URL is always kept, because web pages change.
 
-Before deciding, count:
+To count before you decide:
 
 ```
 researchzosho add /mnt/archive/papers --survey
 ```
 
-This prints the number of files by type, their size, what keeping the text would take, and the free
-space on the library's disk. It shelves nothing.
+It prints the number of files by type, their size, how much disk keeping the text would take, and the
+free space on the library's disk. It shelves nothing.
 
 ### From the chat
 
-You can do the same by talking to the Librarian:
+You can do the same in the chat with the Librarian:
 
 ```
 > read in /mnt/archive/papers
@@ -433,36 +469,36 @@ Collection archive: 12,388 added, 12 skipped. Read in place, nothing copied. …
 > research the history of the Saros dial from those
 ```
 
-The last line is a research run with sources=shelves on that collection. A program does the same with
-the `library_add` tool (mode `keep`, `link` or `survey`). Paths are only accepted from the terminal or
-the library's own pages; a URL can be added by any patron with write access.
+The last line starts a research run with sources=shelves on that collection. A program does the same
+with the `library_add` tool, with mode `keep`, `link` or `survey`. Paths are accepted only from the
+terminal or the library's own pages. Any patron with write access can add a URL.
 
 ### A conversation you had with another assistant
 
-If you worked a subject through with ChatGPT, Claude or another chat, hand the library the thread:
+If you worked through a subject with ChatGPT, Claude or another chat, `absorb` reads the thread:
 
 ```
 researchzosho absorb ~/Downloads/conversations.json
 researchzosho absorb saros-chat.md --verify
 ```
 
-It reads ChatGPT's and Claude's export files, any `[{role, content}]` list, and a text or markdown
+It accepts ChatGPT's and Claude's export files, any `[{role, content}]` list, and a text or markdown
 transcript with `User:` and `Assistant:` markers. Three things happen:
 
-- The transcript is shelved as it is, in the collection `conversations`, so the shelves can find it.
-- Your questions from the thread join the open questions. The housekeeping's explorer works on those at
+- The transcript is shelved unchanged in the collection `conversations`, so search can find it.
+- Your questions from the thread join the open questions. The housekeeping's explorer works on them at
   night, and "find out" in the chat picks them up.
-- What the assistant asserted comes back as a list of claims to check. None of it becomes a finding: an
-  assistant's say-so is not a source. `--verify` files one research run that checks the claims against
-  real sources and says which hold.
+- The assistant's statements come back as a list of claims to check. None of them becomes a finding,
+  because an assistant is not a source. `--verify` files one research run that checks the claims
+  against real sources and reports which hold.
 
-An export with many conversations takes the first 25 and tells you how many remain; `--limit` takes
-more. In the chat, "absorb this thread" with a path or the pasted text does the same, and the
-Librarian offers the two follow-ups: check the claims, or research the thread's main question.
+From an export with many conversations, it takes the first 25 and tells you how many remain.
+`--limit` takes more. In the chat, "absorb this thread" with a path or the pasted text does the same.
+The Librarian then offers two follow-ups: check the claims, or research the thread's main question.
 
 ### A code repository, a paper, a website, an issue tracker
 
-Hand the library a thing you already have and let it read it first:
+`survey` reads one of these and suggests research questions about it.
 
 ```
 researchzosho survey ~/src/tidebook
@@ -473,58 +509,92 @@ researchzosho survey https://tidebook.example/pro
 researchzosho survey https://github.com/someone/tidebook/issues
 ```
 
-It tells the kind from the thing: a folder or a git url is a repository (a url is cloned into the
-library when git is installed; when it is not, the command stops and says so, with the clone to run by
-hand); a DOI, an arXiv page, a PDF or a document file is a paper; a GitHub issues page or an export
-file is an issue tracker; any other url is a website or product page. `--kind` says otherwise.
+The kind is detected from the argument. `--kind repo|paper|site|issues` overrides it.
 
-For each it shelves the text and files one draft claim: what this is, what it does or says, what it
-claims, what it rests on, and, for a paper or a discussion, what it leaves open. Then it prints
-numbered directions, each a research question about the thing: the published basis of a technique a
-repository uses, whether a paper's central claim holds against other sources, whether a page's claim
-is backed independently, whether a claim made in an issue thread without a source holds up. Nothing
-runs yet.
+- Repository: a folder, or a git url. A url is cloned with git. If git is not installed, the command
+  stops and prints the clone command to run by hand.
+- Paper: a PDF or document file, a DOI, or an arXiv page. An arXiv page is read as its PDF.
+- Issue tracker: a GitHub issues page, or an export file. From GitHub it reads the newest 100 issues
+  through the API.
+- Website: any other url. One page.
+
+What it does:
+
+1. Shelves the text.
+2. Files one draft claim: what this is, what it does or says, what it claims, what it rests on. For
+   a paper or a discussion, also what it leaves open.
+3. Prints numbered directions. Each is a research question about the thing. For example: the
+   published basis of a technique the code uses, or whether a paper's main claim holds against other
+   sources.
+
+Nothing runs at this point.
 
 ```
 researchzosho survey ~/src/tidebook --pick 1,3
 researchzosho survey ~/src/tidebook --do "compare its caching with what the papers recommend"
 ```
 
-`--pick` files a research run for each direction you name; `--do` files your own. Each run takes the
-model about half an hour. The directions you did not pick stay on the open questions, where the
-housekeeping's explorer can take them at night. In the chat, "look at ~/src/tidebook" or "read this
-paper" with the file gets the summary and the directions, and "do 1 and 3, and also check X" runs
-both. `researchzosho repo` is the same command for a repository.
+`--pick` starts a research run for each direction listed. `--do` starts a run for your own question.
+A run takes the model about half an hour. Directions you do not pick stay on the open questions. The
+nightly explorer may take them. `researchzosho repo` is the same command for a repository.
+
+In the chat, "look at ~/src/tidebook" or "read this paper" with the file returns the summary and the
+directions. "do 1 and 3, and also check X" starts the runs.
 
 ### A list of things
 
-A list of books, tools, places, products, anything: one item per line, a markdown table, or a CSV.
+`items` reads a list of books, tools, places, products, or anything else. The list is one item per
+line, a markdown table, or a CSV.
 
 ```
 researchzosho items books.md
 researchzosho items reading.csv --column title --lens "{item}: its main argument and how it was received"
 researchzosho items tools.txt --as runs
-researchzosho items ~/Calibre\ Library --as none
 ```
 
-A Calibre library folder is its books: the library reads `metadata.db` (read-only; Calibre may stay
-open) or, when that cannot be read, the `metadata.opf` beside each book. Each book is one item, its
-authors, year, series and tags the note. A CSV whose header has a title column, such as Calibre's own
-export, picks that column without `--column`. Start with `--as none` on a big shelf: it counts the
-books and says which the shelves already hold before anything is filed.
+The list is stored whole under `lists/` in the library. Each item is checked against the shelves and
+marked held or not held. Then each item becomes a question through the lens. The default lens asks
+what the item is, who made or wrote it, what it is for, and what is known about it. `--lens` replaces
+it. `{item}` marks where the item goes. A note after the item is appended to the question. The note
+is the rest of the line, as in `Longitude — Dava Sobel`, or the other columns of a CSV.
 
-The list is shelved as it is, in the collection `lists`, so the library knows what you have. Each item
-is checked against the shelves and marked held or not. Then each item becomes a question through the
-lens. The default lens asks what the item is, who made or wrote it, what it is for, and what is known
-about it; `--lens` says what you want to know instead, with `{item}` where the item goes.
+- `--as frontier`, the default: one open question per item. The nightly explorer works through them.
+- `--as runs`: research runs now, one lane per item, eight items per run.
+- `--as none`: only report what is held.
 
-`--as frontier` (the default) files a question per item on the open questions, and the housekeeping's
-explorer works through them at night. `--as runs` sends them out now as research runs, a lane per item
-in batches of eight. `--as none` only shows what is held. A note after the item (`Longitude — Dava
-Sobel`, or the other columns of a CSV) travels with the question.
+In a CSV, a column named `title`, `name`, `item` or `book` is used. `--column` picks another.
 
-In the chat, hand the Librarian the list and say what you want to know about each; it tells you what is
-held first, then files or runs.
+One call looks at, files or runs at most 200 items. To choose which:
+
+- `--match <text>`: keep items whose line contains the text, such as a tag, an author or a year.
+  Several `--match` flags must all match.
+- `--sample <n>`: take n of the matched items at random.
+
+**A Calibre library.** Give `items` the library folder or its `metadata.db`:
+
+```
+researchzosho items ~/Calibre\ Library --as none
+researchzosho items ~/Downloads/metadata.db --as none
+researchzosho items ~/Calibre\ Library --match "Le Guin" --as frontier
+researchzosho items ~/Calibre\ Library --match Sci-Fi --match 2019 --sample 10 --as runs
+```
+
+It opens `metadata.db` read-only, so Calibre can stay open. If it cannot read the database, it reads
+the `metadata.opf` file beside each book. Each book is one item. The note holds authors, year, series,
+tags, ISBN, publisher and formats. Start with `--as none` on a big library.
+
+**What you own.** `holdings` searches every list you have shelved:
+
+```
+researchzosho holdings wizard earthsea le guin
+```
+
+Every word must appear in an entry. Case and accents are ignored. The chat uses it for "do I have
+this" and "recommend something I don't own". A research run has it as a tool. It checks each title
+against your shelf instead of guessing from a search result.
+
+In the chat, give the Librarian the list and say what you want to know about each item. It reports
+what is held, then files or runs.
 
 ### Your own draft
 
@@ -532,11 +602,11 @@ held first, then files or runs.
 researchzosho check chapter.md --verify
 ```
 
-A memo, a chapter, notes, in text, markdown, Word or PDF. The draft is shelved in `drafts`. Its
-definite statements come back as claims to check. The citations it carries, as URLs, DOIs or arXiv
-ids, are fetched onto the shelves next to it, and one that cannot be read becomes a source request you
-can answer with `add <file> --for <url>`. Questions in the draft join the open questions. `--verify`
-files one research run that checks the claims against sources, the draft's own citations included.
+`check` reads a memo, a chapter or notes, in text, markdown, Word or PDF. The draft is shelved in
+`drafts`. Its definite statements come back as claims to check. Its citations, as URLs, DOIs or arXiv
+ids, are fetched onto the shelves next to it. A citation that cannot be read becomes a source request.
+You answer it with `add <file> --for <url>`. Questions in the draft join the open questions. `--verify`
+files one research run that checks the claims against sources, including the draft's own citations.
 
 ### A reading list
 
@@ -545,11 +615,12 @@ researchzosho reading library.bib
 researchzosho reading papers.csv --watch
 ```
 
-BibTeX, RIS from Zotero or EndNote, a CSV export, or plain lines of DOIs, URLs and titles. Every entry
-with a locator is fetched onto the shelves as a collection named after the list. An entry that cannot
-be read becomes a source request. An entry with a title and no DOI or URL is listed; hand those to
-`items` to research them by name. `--watch` has the housekeeping re-read the pages each night and keep
-a new copy when one changes. Then research from them with `--shelves` on that collection.
+`reading` accepts BibTeX, RIS from Zotero or EndNote, a CSV export, or plain lines of DOIs, URLs and
+titles. Every entry with a locator is fetched onto the shelves, as a collection named after the list.
+An entry that cannot be read becomes a source request. An entry with a title but no DOI or URL is
+listed. Give those to `items` to research them by name. With `--watch`, the housekeeping re-reads the
+pages each night and stores a new copy when one changes. Then research from them with `--shelves` on
+that collection.
 
 ### A file of questions
 
@@ -558,8 +629,8 @@ researchzosho questions file syllabus.md
 researchzosho questions file exam.txt --as runs
 ```
 
-One question per line. They join the open questions in that order, and the explorer works through
-them at night. `--as runs` sends the first ten out now as research runs and files the rest.
+The file has one question per line. They join the open questions in that order. The explorer works
+through them at night. `--as runs` starts research runs for the first ten now and files the rest.
 
 ### Your bookmarks
 
@@ -567,8 +638,9 @@ them at night. `--as runs` sends the first ten out now as research runs and file
 researchzosho bookmarks bookmarks.html --folder Research --watch
 ```
 
-The bookmarks file every browser exports, Chrome's `Bookmarks` file, or one URL per line. Each page is
-fetched onto the shelves, in a collection named after the folder. `--watch` re-reads them nightly.
+`bookmarks` accepts the bookmarks file any browser exports, Chrome's `Bookmarks` file, or one URL per
+line. Each page is fetched onto the shelves, in a collection named after the folder. `--watch`
+re-reads them each night.
 
 ### A meeting transcript
 
@@ -576,11 +648,13 @@ fetched onto the shelves, in a collection named after the folder. `--watch` re-r
 researchzosho meeting sync.vtt --verify
 ```
 
-WebVTT from Zoom, Teams or Otter, or lines of `Name: words`. The transcript is shelved in `meetings`
-with a list of the decisions at the top, so you can ask what was decided later. Questions anyone raised
-join the open questions. Claims made come back to check, with who said them. `--verify` files the run.
+`meeting` accepts WebVTT from Zoom, Teams or Otter, or lines of `Name: words`. The transcript is
+shelved in `meetings` with a list of the decisions at the top, so you can ask later what was decided.
+Questions anyone raised join the open questions. Claims come back to check, with who said them.
+`--verify` files the run.
 
-All of these work from the chat too: hand the Librarian the file or paste the text and say what it is.
+All of these work from the chat too. Give the Librarian the file or paste the text, and say what it
+is.
 
 To ask a question that uses only your documents:
 
@@ -588,25 +662,25 @@ To ask a question that uses only your documents:
 researchzosho research ask "…" --shelves
 ```
 
-With the default setting (`both`), readers use your documents first and the web second. A program can
+With the default setting, `both`, readers use your documents first and the web second. A program can
 also name a collection with the `collections` field of `library_research`.
 
 ## 9. Languages
 
-A model left to itself searches in English. When a question names a place or a culture whose language
-is not the language of the question, the plan gets one extra sub-question: what sources written in
-that language say. The reader on it:
+A model left alone searches in English. When a question names a place or a culture whose language
+differs from the question's language, the plan gets one extra sub-question: what sources in that
+language say. The reader on that sub-question:
 
-- starts from search queries written in that language;
+- starts from search queries in that language;
 - is told when a search it wrote is in the wrong language;
-- goes round again if the first round found nothing in that language.
+- tries again if the first round found nothing in that language.
 
-The write-up ends with a line listing the languages of its sources. At most two extra languages per
-question. The language of the question itself is never added.
+The write-up ends with a line that lists the languages of its sources. There are at most two extra
+languages per question. The language of the question itself is never added.
 
 ## 10. Checks against bad sources
 
-The citation check confirms that a source says what a claim says. These checks address whether the
+The citation check confirms that a source says what a claim says. The checks below ask whether the
 source itself is reliable. None of them uses a model's opinion.
 
 - **One source is not enough.** Copies of one text count as one source. A source that cites another
@@ -615,8 +689,8 @@ source itself is reliable. None of them uses a model's opinion.
   an independent source, the existing claim gains that source and is accepted. Every claim shows how
   many sources it has and how many are independent.
 - **Retractions.** Every claim that cites a paper by DOI is checked against Retraction Watch,
-  through Crossref, when it arrives and every thirty days. A retracted paper disputes the claim, with
-  the notice as the reason. An expression of concern is noted on the claim.
+  through Crossref. The check runs when the claim arrives and every thirty days. A retracted paper
+  disputes the claim, with the notice as the reason. An expression of concern is noted on the claim.
 - **Your own list of sites.**
 
   ```
@@ -629,11 +703,11 @@ source itself is reliable. None of them uses a model's opinion.
   A rule for a host covers its subdomains. No third-party ratings are used.
 - **Dates.** Each source shows the date its page says it was published. A write-up's reference list
   shows the range of dates.
-- **Unknown sites.** When a claim cites a site the library has not cited before, and the site is not
-  a journal, an archive, or one you trust, the library runs one search about the site and adds a note
-  to the claim with what it found.
+- **Unknown sites.** When a claim cites a site the library has not cited before, the library runs one
+  search about the site. It adds a note to the claim with what it found. Journals, archives and sites
+  you trust are skipped.
 
-The library does not decide whether a claim is true. It shows what supports the claim; you decide.
+The library does not decide whether a claim is true. It shows what supports the claim. You decide.
 
 ## 11. The housekeeping
 
@@ -654,29 +728,38 @@ The housekeeping runs at three each morning, or when you run `researchzosho crew
 | refresh | Updates the search index. On the first of the month it rebuilds the index. |
 | backup | Keeps a dated copy of the library. One week of copies is kept. |
 
-On Sundays there are two more: a list of accepted claims that look like duplicates, and a list of
-documents older than a month that nothing refers to. The housekeeping never merges, deletes or
+On Sundays there are two more steps. One lists accepted claims that look like duplicates. The other
+lists documents older than a month that nothing refers to. The housekeeping never merges, deletes or
 decides. `researchzosho raw prune` deletes the documents on the second list, when you run it.
 
 ### What will run tonight
 
-Two of the steps do research on their own. The serials step re-runs the searches you keep, on the
-cadence you gave each one. The explorer step takes open questions from a queue. Nothing else searches
-the web at night.
+Two steps do research unattended. The serials step re-runs the searches you keep, on the schedule you
+gave each one. The explorer step takes open questions from a queue. Nothing else searches the web at
+night.
 
-The queue: every open question has a type, a place in the order, and a state. The types are `report`
-(a run left it open), `asked` (the library could not answer it at the desk; counts how often),
-`person` (you added it), `dispute` (what would settle a disputed claim), and `check` (a re-read found
-the source does not support a claim; a chore for the Inbox, never researched). The explorer takes
-`report`, `asked` (once asked twice, `RESEARCHZOSHO_EXPLORER_MIN_ASKS`) and `person`; the set is
-`RESEARCHZOSHO_EXPLORER_TYPES`. A parked question stays on the list but is never taken until you
-unpark it. The questions a report leaves open are filed parked: a report leaves five to ten of them,
-one per perspective, and nothing runs on them until you look. `RESEARCHZOSHO_REPORT_QUESTIONS=queued`
-files them straight into the queue instead. The explorer takes the queue in order, `RESEARCHZOSHO_EXPLORER_PER_NIGHT` runs a night
-(default 2; 0 turns it off); `researchzosho questions budget <n>` changes that, and `questions
-tonight <n>` for one night only. Related questions share a run: the questions one report left open, or
-questions whose words overlap, ride together as one run's sub-questions, up to eight, so one run
-answers several. `RESEARCHZOSHO_EXPLORER_MINUTES` caps each run's minutes (default none).
+Every open question in the queue has a type, a place in the order, and a state. The types:
+
+- `report`: a run left it open.
+- `asked`: the library could not answer it at the desk. It counts how often this happened.
+- `person`: you added it.
+- `dispute`: what would settle a disputed claim.
+- `check`: a re-read found the source does not support a claim. This is a chore for the Inbox and is
+  never researched.
+
+The explorer takes `report`, `asked` and `person`. An `asked` question is taken once it has been asked
+twice; `RESEARCHZOSHO_EXPLORER_MIN_ASKS` sets that count. `RESEARCHZOSHO_EXPLORER_TYPES` sets which
+types it takes. A parked question stays on the list but is not taken until you unpark it. The
+questions a report leaves open are filed parked. A report leaves five to ten of them, one per
+perspective, and nothing runs on them until you look. `RESEARCHZOSHO_REPORT_QUESTIONS=queued` files
+them straight into the queue instead.
+
+The explorer takes the queue in order. It does `RESEARCHZOSHO_EXPLORER_PER_NIGHT` runs a night. The
+default is 2, and 0 turns it off. `researchzosho questions budget <n>` changes that. `questions
+tonight <n>` changes it for one night only. Related questions share a run. The questions one report
+left open, or questions whose words overlap, become one run's sub-questions, up to eight. So one run
+answers several questions. `RESEARCHZOSHO_EXPLORER_MINUTES` caps each run's minutes. There is no cap
+by default.
 
 To see the plan before it runs:
 
@@ -684,9 +767,9 @@ To see the plan before it runs:
 researchzosho tonight
 ```
 
-It lists the searches due tonight and the ones not yet due, the open questions the explorer will
-take and how many wait, how many accepted claims will be re-read, and the weekly or monthly extras.
-The Runs page shows the same. `researchzosho crews` runs the housekeeping now.
+It lists the searches due tonight and the ones not yet due. It lists the open questions the explorer
+will take and how many wait. It shows how many accepted claims will be re-read, and the weekly or
+monthly extras. The Runs page shows the same. `researchzosho crews` runs the housekeeping now.
 
 ### Sorting a long list of open questions
 
@@ -704,14 +787,14 @@ and `library_frontier` sort them the same eight ways:
 | language | the language the question is in, or asks for ("in Japanese-language sources") |
 | words | words that must all appear in the question |
 
-On the page each filter is a row of links with counts; the counts say what a click would show. On the
-command line: `questions list --report I-0016 --fate kept --who historian --subject vae --language
-japanese --grep "lead paint" --by-report --hints` (`--hints` runs the search; `--parked` shows parked
-questions, `--all` everything). Over MCP or HTTP, `library_frontier` takes the same names
-(`report`, `fate`, `who`, `subject`, `language`, `q`, `show`, `hints`).
+On the page, each filter is a row of links with counts. The counts say what a click would show. On
+the command line: `questions list --report I-0016 --fate kept --who historian --subject vae --language japanese --grep "lead paint" --by-report --hints`.
+`--hints` runs the search. `--parked` shows parked questions. `--all` shows everything. Over MCP or
+HTTP, `library_frontier` takes the same names: `report`, `fate`, `who`, `subject`, `language`, `q`,
+`show`, `hints`.
 
-Before 0.1.2, a report's questions were filed twice (once by the run, once by the review). The page
-says when it finds second copies; `researchzosho questions tidy` removes them.
+Before 0.1.2, a report's questions were filed twice, once by the run and once by the review. The page
+says when it finds second copies. `researchzosho questions tidy` deletes them.
 
 ### Setting and unsetting what runs on its own
 
@@ -724,13 +807,13 @@ There are two kinds: a kept search, and an open question. Each can be set or uns
 | a program (MCP or HTTP) | `library_serials` with `op` list, add `{name, query, every_days}`, every `{name, every_days}`, park or unpark `{name}`, or remove `{name}` | `library_frontier` with `op` list (with the filters; each question carries type, parked, position, tonight, report, report_fate, perspective, subjects, language, similar), add, next, later, park, unpark, drop `{question}`, or tidy |
 | the files | `catalog/shelves.md` in the library folder, one line each: `- name \| query \| every N days \| last YYYY-MM-DD`, with `\| parked` at the end to park one | `frontier/OPEN.md`, one line each: `- YYYY-MM-DD [kind] question`; a line ending `⇒ explored …` is closed |
 
-A parked search is kept and shown but does not run until you put it back; the questions' park works
+A parked search is kept and shown but does not run until you put it back. Parking a question works
 the same way.
 
-The files are plain markdown; edit them in any editor and the next housekeeping reads them. The vault
+The files are plain markdown. Edit them in any editor and the next housekeeping reads them. The vault
 has a `Housekeeping` note that shows both lists and says where the files are, so an Obsidian or
-SoloMD user can find them; the vault itself is a view and editing it changes nothing. A dropped
-question stays in the file, marked dropped, so it is not filed again.
+SoloMD user can find them. The vault itself is a view. Editing it changes nothing. A dropped question
+stays in the file, marked dropped, so it is not filed again.
 
 The review, catalog, triples and abstracts steps also run as soon as a write-up arrives, so you do not
 have to wait for the night. `researchzosho settle` runs them by hand for any write-ups still waiting.
@@ -748,14 +831,14 @@ You can also edit `catalog/subjects.md` directly.
 
 Everything the housekeeping does is logged in `catalog/crews.log`. Steps that need a model are
 skipped when no model is available. When a write-up arrives with no claims, or fewer than you
-expected, the `review` lines there say why: the extraction was cut off, could not be read, or each
-claim rested on one web source and waits in the Inbox for you. The `settle` line that follows counts
-those problems.
+expected, the `review` lines there say why. Either the extraction was cut off, or it could not be
+read, or each claim had one web source and waits in the Inbox for you. The `settle` line that follows
+counts those problems.
 
 ## 12. Sharing the model
 
 Research runs use the same model, and usually the same graphics card, as everything else on your
-computer. These settings can be changed while a run is in progress:
+computer. You can change these settings while a run is in progress:
 
 ```
 researchzosho research workers 2              # how many readers work at once (default 3)
@@ -767,28 +850,30 @@ researchzosho research window off
 researchzosho research                        # show the settings and what is running
 ```
 
-The Runs page has the same: "Pause the runner" and "Resume", and a "Stop" beside each run that is
-queued or going. A stopped run is recorded as stopped, not failed. If the stop comes after the
-write-up landed, while its claims are being reviewed and catalogued, those steps end at the next one
-and the nightly housekeeping finishes them. Over MCP or HTTP, `library_job`
-takes `op` stop with `job_id`, pause, or resume.
+The Runs page has the same controls: "Pause the runner" and "Resume", and a "Stop" beside each run
+that is queued or running. A stopped run is recorded as stopped, not failed. If you stop a run after
+its write-up landed, while its claims are being reviewed and catalogued, those steps end at the next
+step. The nightly housekeeping finishes them. Over MCP or HTTP, `library_job` takes `op` stop with
+`job_id`, pause, or resume.
 
 The settings are stored in your config file. A running question follows a changed setting at its next
 step.
 
-Without any setting, the readers slow themselves down when the model slows to half its usual speed
-because something else is using the card.
+With no setting, the readers slow down when the model drops to half its usual speed because something
+else is using the card.
 
 ### Letting the model server sleep
 
-The model does not have to be up all the time. The library is written for a server that comes and
-goes: searching, reading and the pages never call it; a research run waits and asks again every 30
-seconds until it answers, and says "waiting for the model" on its record and on the Runs page while
-it does; the nightly housekeeping skips the steps that need it; sharpen, perspectives and explain
-tell you at once.
+The model does not have to be up all the time. The library works with a server that comes and goes:
 
-Setup offers to serve the model on demand when it finds no server, and `researchzosho model
-install` does the same later, on all three platforms:
+- Searching, reading and the pages never call the model.
+- A research run waits and asks again every 30 seconds until the model answers. While it waits, its
+  record and the Runs page say "waiting for the model".
+- The nightly housekeeping skips the steps that need the model.
+- sharpen, perspectives and explain tell you at once.
+
+When setup finds no server, it offers to serve the model on demand. `researchzosho model install`
+does the same later, on all three platforms:
 
 ```
 researchzosho model install                 # the measured model for this machine, downloaded once, served on demand
@@ -798,19 +883,18 @@ researchzosho model uninstall               # remove the service; the model file
 researchzosho model check                   # every model file and pinned build still resolves where the rows say
 ```
 
-The embeddings server rides beside the model at the same address, under the model name `embed`, in
-its own group so neither evicts the other, and it never idles out: it is small, and every search
-wants it. `RESEARCHZOSHO_EMBED` is set to the proxy too, and uninstall puts both settings back.
+The embeddings server runs beside the model at the same address, under the model name `embed`. It is
+in its own group, so neither evicts the other. It never idles out, because it is small and every
+search uses it. `RESEARCHZOSHO_EMBED` is set to the proxy too. Uninstall restores both settings.
 
-Every download is checked against a recorded sha256 and refused on a mismatch, as the one-line
-installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless told
+Every download is checked against a recorded sha256 and refused on a mismatch, like the one-line
+installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless you pass
 `--force`.
 
-What it puts in place is a small proxy, [llama-swap](https://github.com/mostlygeek/llama-swap),
-as a service that starts with your session on port 8211, with llama.cpp behind it: the first request
-starts the server, and 20 idle minutes after the last one it stops, so the memory is free in
-between. The drive is set to `http://127.0.0.1:8211`. What runs behind the proxy depends on the
-machine:
+It installs a small proxy, [llama-swap](https://github.com/mostlygeek/llama-swap), as a service that
+starts with your session on port 8211. llama.cpp runs behind it. The first request starts the server.
+20 idle minutes after the last request, it stops, so the memory is free in between. The drive is set
+to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 
 | platform | the server | the service | sized by |
 |---|---|---|---|
@@ -818,30 +902,33 @@ machine:
 | macOS | llama.cpp's own Metal build | a launchd agent | seven tenths of unified memory |
 | Windows x64 | llama.cpp's own Vulkan build, any card | a logon task | the NVIDIA card's memory, else half the RAM |
 
-`--idle-minutes` changes the wait, `--gpu <index>` picks a card on a Linux machine with several,
-`--file <gguf>` serves a model file you already have, and `--share` makes the proxy answer on every
-interface so other machines can use this one. A machine that already has a proxy on 8211, from
-CodeZaiku's `model serve install` or from an earlier setup, is used as it is; nothing is installed
-twice.
+- `--idle-minutes` changes the wait.
+- `--gpu <index>` picks a card on a Linux machine with several.
+- `--file <gguf>` serves a model file you already have.
+- `--share` makes the proxy answer on every interface, so other machines can use this one.
 
-Every program points at the proxy and never at a server directly, so moving the model to another
-machine is one address in each program's settings: install on the machine with the memory with
-`--share`, and set `drive = http://<that machine>:8211` everywhere else. Measured on a 27B at
-4-bit on an RTX 6000 Ada: the model list answers at once, the first request after a quiet spell
-answers in about 25 seconds including the load, the next in half a second, and the card is empty
-again 20 minutes after the last request. Ollama does the same on its own (`OLLAMA_KEEP_ALIVE`);
-the guide's measurements are on llama.cpp.
+If the machine already has a proxy on 8211, from CodeZaiku's `model serve install` or from an earlier
+setup, it is used unchanged. Nothing is installed twice.
+
+Every program points at the proxy, never at a server directly. So moving the model to another machine
+means changing one address in each program's settings. Install on the machine with the memory, with
+`--share`. Set `drive = http://<that machine>:8211` everywhere else. On a 27B at 4-bit on an RTX 6000
+Ada: the model list answers at once, the first request after a quiet spell answers in about 25 seconds
+including the load, the next in half a second, and the card is empty again 20 minutes after the last
+request. Ollama does the same by itself, with `OLLAMA_KEEP_ALIVE`. The numbers in this guide are for
+llama.cpp.
 
 ### Which model
 
-`researchzosho models` prints the measured choice for the card it finds, with the command that serves it;
-the full list by VRAM (the graphics card's memory, not the computer's RAM) is in [MODELS.md](MODELS.md).
+`researchzosho models` prints the measured choice of model for the card it finds, with the command
+that serves it. The full list by VRAM is in [MODELS.md](MODELS.md). VRAM is the graphics card's
+memory, not the computer's RAM.
 
 ### Two models
 
 `RESEARCHZOSHO_JUDGE_DRIVE` names a second model server for planning, the critic, the write-up and the
-citation check. The readers keep using the first server. This lets a stronger rented model do the
-judging while a local model does the reading.
+citation check. The readers keep using the first server. So a stronger rented model can do the judging
+while a local model does the reading.
 
 ### What a write-up carries besides the answer
 
@@ -850,19 +937,19 @@ these.
 
 - **References.** Every source the readers used, numbered. When the writer cites a source it puts the number
   after the sentence, like `[3]`. Copies of one text count as one source. A source that only repeats another
-  is marked "cites [n]", so you can see how many independent voices there really are.
+  is marked "cites [n]", so you can see how many independent sources there are.
 - **Evidence.** Every note a reader took: the claim, the source, and a short quote.
 - **Cite-check.** Every cited sentence, read against the source it cites. A sentence its source does not
-  support is marked in place: `[not supported by the cited source on check]`. The check reads mechanically
-  first: when the sentence's numbers, or a run of its words, are in the source, that settles it. The rest goes
-  to the model, and before a sentence is marked, the model has to quote the passage from the source that would
-  support it. If the quote is really there, the sentence is not marked.
-- **Checks.** This section appears only when there is something to say. It lists numbers, licence names and
-  CVE ids the answer states that no note or source backs; quotations that appear in no source; and any cited
-  paper that Crossref lists as retracted.
+  support is marked in place: `[not supported by the cited source on check]`. The check is mechanical
+  first. When the sentence's numbers, or a run of its words, appear in the source, that settles it. The
+  rest goes to the model. Before a sentence is marked, the model has to quote the passage from the source
+  that would support it. If the quote is in the source, the sentence is not marked.
+- **Checks.** This section appears only when there is something to report. It lists numbers, licence names
+  and CVE ids in the answer that no note or source backs, quotations that appear in no source, and any
+  cited paper that Crossref lists as retracted.
 
-Read the Checks section before the prose. When something looks wrong, the evidence table is where you
-find what the readers actually saw.
+Read the Checks section before the prose. When something looks wrong, the Evidence table shows what
+the readers saw.
 
 ### What the runs cost
 
@@ -871,17 +958,17 @@ researchzosho stats            # the last 20 research runs and the totals
 researchzosho stats 100        # the last 100
 ```
 
-Every run adds one line to `catalog/runs.jsonl` when its write-up is filed: turns, rounds, whether the
-critic was satisfied on the first pass, whether a time or turn ceiling cut it short, how many cited sentences
-were checked and how many held, sources noted, fetches (total, and how many were pages another reader had
-already fetched), tokens and minutes. `stats` prints those lines and the totals over them. When you change a
-setting, this is where you see whether it changed anything.
+Every run adds one line to `catalog/runs.jsonl` when its write-up is filed. The line has: turns,
+rounds, whether the critic was satisfied on the first pass, whether a time or turn limit cut it short,
+how many cited sentences were checked and how many held, sources noted, fetches in total and how many
+were pages another reader had already fetched, tokens and minutes. `stats` prints those lines and
+their totals. When you change a setting, this is where you see whether it changed anything.
 
-Every run also leaves a trace in `catalog/traces/<job>.jsonl`: one line for every call to the model, with
-the exact request, the tools offered, the reply's shape, the server's token counts and how long it took,
-and one line for every time evidence was cut to fit the model's window. The newest fifty traces are kept.
-This is the file to open when a write-up says something its evidence does not. `RESEARCHZOSHO_TRACE=off`
-turns tracing off.
+Every run also writes a trace to `catalog/traces/<job>.jsonl`. It has one line for every call to the
+model: the exact request, the tools offered, the shape of the reply, the server's token counts and
+how long it took. It has one line for every time evidence was cut to fit the model's window. The
+newest fifty traces are kept. Open this file when a write-up says something its evidence does not.
+`RESEARCHZOSHO_TRACE=off` turns tracing off.
 
 ## 12b. Talking to the Librarian
 
@@ -895,27 +982,28 @@ researchzosho chat --resume C-…    # reopen one
 Type a question. The Librarian looks it up and answers with the entry ids, like `[F-0012-a]`, so you can
 open them. Things you can say:
 
-- "what do the shelves hold on X?" — the answer, with sources and states.
-- "why?" — it reads that against the last answer.
-- "find out how the gears were cut" — files a research run. "yes" is enough when it offers one.
-- "how did that go?" — the answer section and the checks from the finished run.
-- "what's waiting?" — the inbox. "accept the first" accepts it.
+- "what do the shelves hold on X?": the answer, with sources and states.
+- "why?": it takes that as a question about the last answer.
+- "find out how the gears were cut": files a research run. "yes" is enough when it offers one.
+- "how did that go?": the answer section and the checks from the finished run.
+- "what's waiting?": the inbox. "accept the first" accepts it.
 
 If the library has nothing, it says "I don't know" and offers to find out.
 
-Two rules it follows. It only uses the library's own tools: no commands, no reading your files, no web
-outside a research run. And it does not make things up: a figure or a source that none of its look-ups
+It follows two rules. It uses only the library's own tools: no commands, no reading your files, no web
+outside a research run. And it does not make things up. A figure or a source that none of its look-ups
 returned is marked under the reply as its guess.
 
 Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Conversations are saved in
 `catalog/chat/` and continue where they left off.
 
-The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the model
-takes; the page comes back with it.
+The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the
+model takes. The page returns when the reply is ready.
 
 ## 12c. Bridges: questions that connect two subjects
 
-Bridges finds two subjects that share a concept but that no source connects, and writes a research question about them. A research run tests it.
+`researchzosho bridges` finds two subjects that share a concept but that no source connects. It writes
+a research question about them. A research run tests the question.
 
 ```
 researchzosho bridges --dry                    # from the busiest areas: show the pairs, file nothing
@@ -923,15 +1011,15 @@ researchzosho bridges speech--wav2vec2 --dry   # from one area
 researchzosho bridges speech--wav2vec2 --reach high --loose
 ```
 
-An area is a subject of your catalog with at least two findings. For a pair of areas, a bridge is a
-specific term both areas' claims use while no source on the shelves names the two areas together. Fish oil
-and Raynaud's disease, joined through blood viscosity and platelet aggregation, is the classic case: two
-literatures that never cited each other, joined by what they shared. The pairs are found mechanically and
-ranked. The model reads only the top pairs and writes each as a question, never a claim: "does the platelet
-effect that fish oil has bear on Raynaud's, as viscosity links them?"
+An area is a subject in your catalog with at least two findings. For a pair of areas, a bridge is a
+specific term that both areas' claims use, while no source on the shelves names the two areas
+together. The classic example is fish oil and Raynaud's disease, joined through blood viscosity and
+platelet aggregation. The two literatures never cited each other. The pairs are found mechanically and
+ranked. The model reads only the top pairs and writes each as a question, never a claim: "does the
+platelet effect that fish oil has bear on Raynaud's, as viscosity links them?"
 
 Without `--dry`, the questions are filed on the open questions as proposals of type `bridge`. The
-housekeeping does not research them on its own. You decide:
+housekeeping does not research them by itself. You decide:
 
 ```
 researchzosho bridges list
@@ -940,53 +1028,56 @@ researchzosho bridges dismiss <question>
 researchzosho bridges measure                # proposed, kept, dismissed, and by which settings
 ```
 
-Two sensors look for the join, and `--via terms|graph|both` picks (both is the default). The term sensor
-looks for a word both areas' claims are about. The graph sensor walks the library's map: from what one
-area's claims are about, along the claims, to what the other area's claims are about, through concepts in
-between. "Fish oil lowers blood viscosity" and "Raynaud's involves blood viscosity" meet at the middle node
-even when the two sides never share a word, and nodes whose names mean the same are walked as one. The graph
-sensor walks two kinds of edge: the triples (what a claim asserts) and the concepts each claim rests on, which the
-housekeeping's `concepts` step notes on every finding and the map draws as "mentions" edges. Both are added
-nightly; `researchzosho triples` and `researchzosho concepts` do it now. Each
-proposal says which sensor found it, and `measure` keeps the score per sensor.
+Two sensors look for the join. `--via terms|graph|both` picks one, and `both` is the default. The term
+sensor looks for a word both areas' claims are about. The graph sensor walks the library's map. It
+starts from what one area's claims are about, follows the claims, and reaches what the other area's
+claims are about, through concepts in between. "Fish oil lowers blood viscosity" and "Raynaud's
+involves blood viscosity" meet at the middle node even when the two sides share no word. Nodes whose
+names mean the same are walked as one node. The graph sensor walks two kinds of edge: the triples,
+which are what a claim asserts, and the concepts each claim uses. The housekeeping's `concepts` step
+notes those concepts on every finding, and the map draws them as "mentions" edges. Both are added
+nightly. `researchzosho triples` and `researchzosho concepts` add them now. Each proposal says which
+sensor found it, and `measure` keeps the score per sensor.
 
-To see how far two areas are before asking for a bridge:
+To see how far apart two areas are before asking for a bridge:
 
 ```
 researchzosho bridges distance physics--quantum-electrodynamics astrophysics--black-holes
 ```
 
-It prints the hops between them on the map, any shared terms and paths, how many sources name both, and the
-nearest concepts on the two sides with their cosine from the embedder. Concepts closer than the fold (0.92,
-`RESEARCHZOSHO_BRIDGES_FOLD`) are walked as one node. Measured on a small library: "radiant heat" and "thermal
-radiation" sit at 0.85, "electromagnetic field" and "magnetic field" at 0.87, but so do "temperature" and
-"humidity" at 0.89, which is why the fold is not lower. The embedder has to be answering, or only exact names
-meet.
+It prints the hops between them on the map, any shared terms and paths, how many sources name both, and
+the nearest concepts on the two sides with their cosine from the embedder. Concepts closer than the fold
+are walked as one node. The fold is 0.92, set by `RESEARCHZOSHO_BRIDGES_FOLD`. For scale, on a small
+library "radiant heat" and "thermal radiation" sit at 0.85, and "electromagnetic field" and "magnetic
+field" at 0.87. But "temperature" and "humidity" sit at 0.89. That is why the fold is not lower. The
+embedder has to be running, or only exact names meet.
 
-The dials, per area or for all (`researchzosho bridges settings <area> --reach high --loose --per-night 2`):
+The settings, per area or for all. `researchzosho bridges settings <area> --reach high --loose --per-night 2`
+sets them:
 
-- **reach**: `low` pairs an area with its siblings (the same facet, `speech--…`), `medium` with areas a few
-  hops away on the map plus a tenth at random, `high` with anything plus a third at random.
-- **strict** (default) needs three shared specific terms and no source naming both areas; `--loose` needs
-  one term and only that no claim is filed under both.
-- **toward** an area measures distance toward it instead of outward; **away** rules areas out by word;
+- **reach**: `low` pairs an area with its siblings, the areas in the same facet, such as `speech--…`.
+  `medium` pairs it with areas a few hops away on the map, plus a tenth at random. `high` pairs it with
+  anything, plus a third at random.
+- **strict**, the default, needs three shared specific terms and no source that names both areas.
+  `--loose` needs one term, and only that no claim is filed under both.
+- **toward** an area measures distance toward it instead of outward. **away** rules areas out by word.
   **since** keeps only areas with a finding dated on or after a day.
-- **sources**: `library` (default), `peers`, `web`. With `web` two things happen. A search checks whether the two
-  areas are already discussed together, and a pair that is does not become a proposal. And a pair your shelves do
-  *not* join is taken outside: the model names a few things that could bear on both, and each one is kept only if a
-  search finds a source that is about it and about that area, on **both** sides, from a journal, a reference work or
-  the thing itself. A blog or a forum thread does not count. The proposal then shows the middle and both sources, so
-  you can judge it in a few seconds. This is for the case where what connects two areas is named in neither
-  of them.
+- **sources**: `library`, the default, `peers`, or `web`. With `web`, two things happen. First, a search
+  checks whether the two areas are already discussed together. A pair that is does not become a proposal.
+  Second, a pair your shelves do *not* join is searched outside the library. The model names a few things
+  that could bear on both areas. Each one is kept only if a search finds a source about it and about that
+  area, on **both** sides. The source must be a journal, a reference work or the thing itself. A blog or a
+  forum thread does not count. The proposal then shows the middle and both sources, so you can judge it
+  in a few seconds. This covers the case where what connects two areas is named in neither of them.
 
-The housekeeping runs one pass a night from the busiest areas and files up to three proposals; `per_night=0`
-turns it off. Every proposal carries the settings that found it, and `measure` reads the ledger, so over
-time you can see which settings produce bridges worth keeping.
+The housekeeping runs one pass a night from the busiest areas and files up to three proposals.
+`per_night=0` turns it off. Every proposal carries the settings that found it. `measure` reads that
+ledger, so over time you can see which settings produce bridges worth keeping.
 
 ## 13. The map
 
-When a claim says that a person lived in a place, an author wrote a work, or a company holds a
-patent, the library records that connection. The map shows these connections.
+A claim can say that a person lived in a place, an author wrote a work, or a company holds a
+patent. The library records each of these connections. The map shows them.
 
 ```
 researchzosho map "Arthur Ellis"
@@ -1015,12 +1106,12 @@ researchzosho graph proposals
 
 The core library has no built-in subject knowledge. A field adds some.
 
-- `science` is on by default: citations looked up from the record, preprint versions tracked, BibTeX
-  with `researchzosho bib <id>`.
-- `genealogy`: `researchzosho profile enable genealogy`. Adds family relations. `genealogy import
-  tree.ged` reads a family-tree file: each person becomes a node, each relation a draft claim with the
-  file as its source, and living people are kept private. `genealogy export "Arthur Ellis"` writes one
-  out.
+- `science` is on by default. It looks up citations from the record, tracks preprint versions, and
+  writes BibTeX with `researchzosho bib <id>`.
+- `genealogy`: turn it on with `researchzosho profile enable genealogy`. It adds family relations.
+  `genealogy import tree.ged` reads a family-tree file. Each person becomes a node. Each relation
+  becomes a draft claim with the file as its source. Living people are kept private.
+  `genealogy export "Arthur Ellis"` writes a family-tree file out.
 
 ## 15. Running it as a service
 
@@ -1030,9 +1121,9 @@ researchzosho service status
 researchzosho service uninstall
 ```
 
-The service listens on `127.0.0.1:4649`, runs the housekeeping at three each morning (`--crew-hour`
-changes the hour), and writes its log to `~/.researchzosho/logs/librarian-serve.log`. On Linux,
-`loginctl enable-linger <you>` keeps it running while you are logged out.
+The service listens on `127.0.0.1:4649`. It runs the housekeeping at three each morning;
+`--crew-hour` changes the hour. It writes its log to `~/.researchzosho/logs/librarian-serve.log`.
+On Linux, `loginctl enable-linger <you>` keeps it running while you are logged out.
 
 By default only the computer it runs on can reach it. To reach it from other machines on your network:
 
@@ -1041,8 +1132,8 @@ researchzosho service install --host 0.0.0.0
 ```
 
 It then also answers on the computer's network address, for example `http://192.168.1.20:4649/`.
-Before doing this, read section 16 on sign-in. Do not expose the service to the internet: there is no
-encryption, and tokens travel in the clear.
+Read section 16 on sign-in before you do this. Do not expose the service to the internet. There is
+no encryption, and tokens travel in the clear.
 
 ## 16. The web pages
 
@@ -1066,8 +1157,8 @@ Every entry has "Read it: beginner · familiar · as written" and a Download lin
 
 ### Sign-in
 
-Access is open as shipped, and the home page says so. To require a sign-in before a question can
-be sent:
+As shipped, anyone can use the pages, and the home page says so. To require a sign-in before a
+question can be sent:
 
 ```
 researchzosho web signin on
@@ -1075,23 +1166,26 @@ researchzosho reader token <did>         # make a token for a person; they enter
 researchzosho web signin off
 ```
 
-Programs are open too, as shipped: anyone who can reach the service can read, ask, and file runs.
-To restrict that, set the default level for callers not on the list: `researchzosho reader default
-read` (they can read and ask, not file runs or submit claims) or `researchzosho reader default deny`
-(nothing without a name on the list). Then `researchzosho reader allow <did> write <name>` lets a
-named program through. The list is `catalog/patrons.md`; `reader list` shows it.
+Programs are open too, as shipped. Anyone who can reach the service can read, ask, and file runs.
+To restrict that, set the default level for callers not on the list:
+
+- `researchzosho reader default read`: they can read and ask, but not file runs or submit claims.
+- `researchzosho reader default deny`: nothing without a name on the list.
+
+Then `researchzosho reader allow <did> write <name>` lets a named program through. The list is
+`catalog/patrons.md`. `reader list` shows it.
 
 ### Waiting and double sends
 
-When the library has to think (sharpening a question, writing a simpler version), the page returns
-at once, shows what it is doing, and updates itself until the result is ready. A second click on
-Send, a refresh, or the back button does not send a question twice; the page shows what was already
-sent.
+Some requests take time, for example sharpening a question or writing a simpler version. The page
+returns at once, shows what it is doing, and updates itself until the result is ready. A second
+click on Send, a refresh, or the back button does not send a question twice. The page shows what was
+already sent.
 
 ## 17. Obsidian and SoloMD
 
-The library's own files are records and are not meant to be edited by hand. The library can write a
-separate folder for an editor:
+The library's own files are records. Do not edit them by hand. The library can write a separate
+folder for an editor:
 
 ```
 researchzosho vault                      # writes <library>-vault next to the library
@@ -1102,18 +1196,18 @@ at the Home note. Every claim, write-up, saved document, subject, person and pla
 frontmatter and links. The editor's graph view shows the same connections as the map. The Inbox note
 lists what is waiting for you.
 
-Once the folder exists, the service keeps it up to date within seconds of any change to the library.
-Only notes that changed are rewritten.
+Once the folder exists, the service keeps it up to date. It rewrites the folder within seconds of
+any change to the library. Only notes that changed are rewritten.
 
 The vault is a one-way view. Editing a note there does not change the library. Notes you add are left
-alone, and a note the library wrote is not overwritten after you edit it. To accept or dispute, use
+alone. A note the library wrote is not overwritten after you edit it. To accept or dispute, use
 `researchzosho inbox` or a program connected over MCP.
 
-In Obsidian nothing needs to be installed. Two things help:
+Obsidian needs nothing installed for this. Two things help:
 
-- Bases (built into Obsidian) turns the notes' frontmatter into tables, for example every claim by
+- Bases, built into Obsidian, turns the notes' frontmatter into tables. For example, every claim by
   state, or everything under one subject.
-- The AI Copilot community plugin can connect to `researchzosho mcp` as a local server, so you can
+- The AI Copilot community plugin can connect to `researchzosho mcp` as a local server. You can then
   ask the library from the sidebar, using your own key or a local model.
 
 SoloMD has no plugins and needs none. Its agent panel works with the vault. To talk to the library
@@ -1124,8 +1218,8 @@ itself, use the web pages or `codezaiku chat`.
 Anyone or any program that uses the library is a reader. You decide who may read and who may write.
 
 The web pages and the vault need no program. To talk to the library, `codezaiku chat` runs on a local
-model, for free, and connects to the service: what the library holds is pushed into each turn,
-`/librarian` asks it, and `/research` files runs with it. `codezaiku install researchzosho` sets that
+model, for free, and connects to the service. What the library holds is pushed into each turn.
+`/librarian` asks it. `/research` files runs with it. `codezaiku install researchzosho` sets that
 up, including the write token the chat needs to file runs.
 
 Claude Code, Codex and Gemini CLI can use the library directly, without the service running:
@@ -1137,30 +1231,33 @@ gemini mcp add -s user librarian researchzosho mcp
 ```
 
 A program registered this way can do everything, as shipped. If you have restricted the library
-with `researchzosho reader default read` or `deny`, allow it by name: the refusal it gets names its
-id, and `researchzosho reader allow <did> write "Claude Code"` puts it on the list.
+with `researchzosho reader default read` or `deny`, allow the program by name. The refusal it gets
+names its id. `researchzosho reader allow <did> write "Claude Code"` puts it on the list.
 
-Setup gives each program one identity per machine and person (`did:key:local-claude-…`, the same
-however often setup runs), so `reader list` shows one line per program, not one per run of setup.
-A library set up before 0.1.5 carries `default: read` in `catalog/patrons.md` from the setup of
-the day: `researchzosho reader default write` opens it, as a fresh library is.
+Setup gives each program one identity per machine and person. The id looks like
+`did:key:local-claude-…` and stays the same however often setup runs. So `reader list` shows one
+line per program, not one per run of setup. A library set up before 0.1.5 carries `default: read`
+in `catalog/patrons.md` from the setup of the day. `researchzosho reader default write` opens it,
+the same as a fresh library.
 
-A program that runs MCP servers through `npx` can start the library without installing it first:
-`npx -y @wyrdsekai/researchzosho-mcp` finds an installed ResearchZosho and starts `researchzosho mcp`, or
-fetches the release of the same version, checks it against the release's checksums and unpacks it under
-`~/.researchzosho/launcher`: the small tarball when the machine has Java 21, otherwise the build for the
-platform that carries its own runtime. A machine with no library gets one made.
+A program that runs MCP servers through `npx` can start the library without installing it first.
+`npx -y @wyrdsekai/researchzosho-mcp` finds an installed ResearchZosho and starts `researchzosho mcp`.
+If none is installed, it fetches the release of the same version, checks it against the release's
+checksums, and unpacks it under `~/.researchzosho/launcher`. It takes the small tarball when the
+machine has Java 21, otherwise the build for the platform that carries its own runtime. A machine
+with no library gets one made.
 
 ```
 claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 ```
 
-The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
-settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.1 mcp` is the same
-MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
+The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
+the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.2 mcp`
+runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
+`RESEARCHZOSHO_DRIVE`.
 
-Any other program that speaks MCP takes the same server: the command `researchzosho` with the
+Any other program that speaks MCP uses the same server: the command `researchzosho` with the
 argument `mcp`. In JSON form:
 
 ```
@@ -1176,7 +1273,7 @@ claude mcp add --transport http --scope user librarian http://127.0.0.1:4649/rpc
 gemini mcp add -s user -t http librarian http://127.0.0.1:4649/rpc -H "Authorization: Bearer <token>"
 ```
 
-The tools available are: ask, search, get, read, established, submit, research, sharpen, explain, job,
+The tools are: ask, search, get, read, established, submit, research, sharpen, explain, job,
 map, perspectives, frontier, subjects, status and changes. [LIBRARY_PROTOCOL.md](LIBRARY_PROTOCOL.md)
 describes each one.
 
@@ -1193,8 +1290,8 @@ researchzosho reader webhook remove did:key:zW https://their.example/hook
 Every change on the feed is posted to the address: a claim retired, disputed or revised, or a source
 you supplied for a page that could not be read. Each post carries the change, the library it came
 from, and a signature made with a secret the reader was given. If the address does not answer, the
-library tries three times and then writes a line in `catalog/webhooks.log`. The changes feed remains
-the record; a missed post is caught the next time the reader asks for changes.
+library tries three times and then writes a line in `catalog/webhooks.log`. The changes feed stays
+the record. A missed post is caught the next time the reader asks for changes.
 
 A program can subscribe itself with `library_subscribe`.
 
@@ -1210,10 +1307,12 @@ researchzosho peer ask family "where did Tanaka Ichiro live after 1920"
 ```
 
 The answer comes back one library at a time, labelled with whose it is. Nothing is copied or merged.
-To keep one of their claims, accept it; it then carries their library's name as its source.
+To keep one of their claims, accept it. It then carries their library's name as its source.
 
-Two rules. One hop only: your library asks its peers and never its peers' peers. And a peer sees only
-what its reader level allows.
+Two rules:
+
+- One hop only. Your library asks its peers, never its peers' peers.
+- A peer sees only what its reader level allows.
 
 A program can name a peer, a group or `all` in the `peers` field of `library_ask`. With
 `peers.default = family` in your config, an ask that finds nothing at home asks the family group.
@@ -1221,7 +1320,7 @@ A program can name a peer, a group or `all` in the `peers` field of `library_ask
 ## 21. Access requests
 
 Someone who finds your library can ask to be let in. `library_request_access` takes a did, a name
-and a note, and works even on a library whose default is deny. They receive a request id and a claim
+and a note. It works even on a library whose default is deny. They receive a request id and a claim
 secret, shown once. `researchzosho status` shows "access requests waiting".
 
 ```
@@ -1231,8 +1330,9 @@ researchzosho reader deny R-0004 "not a member of the society"
 ```
 
 Approving adds them to the reader list and makes a token. They collect it with `library_access`,
-using the request id and their claim secret, and can collect it exactly once. A denial returns your
-reason. One pending request per person, fifty per library. A request expires after thirty days.
+using the request id and their claim secret. They can collect it exactly once. A denial returns your
+reason. Limits: one pending request per person, fifty per library. A request expires after thirty
+days.
 
 ## 22. Directories
 
@@ -1244,11 +1344,12 @@ researchzosho directory find https://family-libraries.example "who has records o
 researchzosho directory list                        # where this library is listed
 ```
 
-Publishing submits one claim to the directory: your library's name and id, its address, up to twelve of
-its subjects, and where to ask for access. It says nothing about the library's contents. It is a draft
-until the directory's owner accepts it. You need a writer's token on the directory to publish.
+`directory publish` submits one claim to the directory: your library's name and id, its address, up
+to twelve of its subjects, and where to ask for access. It says nothing about the library's contents.
+The claim is a draft until the directory's owner accepts it. You need a writer's token on the
+directory to publish.
 
-Finding is a search of the directory. The result is a name and an address; access is requested as in
+`directory find` searches the directory. The result is a name and an address. Request access as in
 section 21.
 
 Anyone can run a directory. It is a library with its default access set to read and a few writers.

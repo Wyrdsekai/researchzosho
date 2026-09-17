@@ -64,6 +64,8 @@ public final class LibraryStore {
 
     public Path root() { return root; }
     public Path rawDir() { return root.resolve("raw"); }
+    /** The lists shelved through items, kept whole (raw keeps the first 400k characters of anything): one markdown file per list. */
+    public Path listsDir() { return root.resolve("lists"); }
     public Path extractsDir() { return root.resolve("extracts"); }
     public Path findingsDir() { return root.resolve("findings"); }
     public Path investigationsDir() { return root.resolve("investigations"); }

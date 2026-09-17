@@ -120,8 +120,11 @@ public final class Explain {
         Reading hit = fresh ? null : cached(cache, mat.hash, id, "", rung);
         if (hit != null) return hit;
         if (drive == null) throw ProtocolError.unavailable("No model drive answers; a reading needs one the first time.");
-        String prompt = "Explain the entry below for " + rung.audience + ". "
-                + "Write 120 to 350 words in short paragraphs, as markdown without headings. Every paragraph ends with the ids of the "
+        boolean sectioned = mat.text.contains("\n## ");
+        String prompt = "Rewrite the entry below for " + rung.audience + ". "
+                + (sectioned ? "Keep the entry's section headings exactly as they are, as '## ' lines, in the same order, and rewrite what is under each; do not add or drop a section. Under each heading, short paragraphs, no longer than the original section. "
+                             : "Write 120 to 350 words in short paragraphs, as markdown without headings. ")
+                + "Every paragraph ends with the ids of the "
                 + "material it draws on, copied exactly in square brackets, like [" + id + "] or [F-0031-…] — the ids are given in the material. "
                 + "Use ONLY the material: everything you write is a plainer way of saying what it says. When this reader would need a word or an idea "
                 + "explained that the material does not explain, list it under Terms instead of explaining it yourself. "
@@ -182,7 +185,7 @@ public final class Explain {
         StringBuilder sb = new StringBuilder();
         java.util.Map<String, String> byId = new java.util.LinkedHashMap<>();
         String id = e.path("id").asText();
-        String head = "[" + id + "] " + e.path("kind").asText() + " · " + e.path("state").asText() + " · " + e.path("title").asText() + "\n" + cap(e.path("body").asText(), 7_000);
+        String head = "[" + id + "] " + e.path("kind").asText() + " · " + e.path("state").asText() + " · " + e.path("title").asText() + "\n" + cap(substance(e.path("body").asText()), 9_000);
         byId.put(id, head);
         sb.append(head).append("\n\n");
         // an investigation's findings: what the write-up rests on
@@ -208,7 +211,36 @@ public final class Explain {
                 sb.append(t).append("\n\n");
             }
         }
-        return new Material(sb.toString(), sha(sb.toString()), byId);
+        return new Material(sb.toString(), sha(sb.toString() + "|" + MATERIAL_VERSION), byId);
+    }
+
+    /** Bumped when the prompt or the material changes shape, so cached readings from before are written again. */
+    static final String MATERIAL_VERSION = "sections-1";
+
+    /** The sections of a write-up that are not the substance: the question asked, the run's own bookkeeping, the sources. A rewrite shows the answer and the body sections, structured as the original. */
+    static final java.util.Set<String> APPARATUS = java.util.Set.of("question", "conflicts and uncertainty", "sources", "caveats", "checks", "cite-check", "evidence", "references");
+
+    /**
+     * What a rewrite is made from: for a write-up, the final "## Answer" and the body sections after it, up to the
+     * apparatus (conflicts, sources, checks…); everything else as it is. The headings are kept, so the rewrite has
+     * the shape of the original.
+     */
+    static String substance(String body) {
+        if (body == null) return "";
+        String[] lines = body.split("\n");
+        int start = -1;
+        for (int i = 0; i < lines.length; i++) if (lines[i].strip().equals("## Answer")) start = i;   // the last one: the draft "as submitted" comes first
+        if (start < 0) return body;
+        StringBuilder sb = new StringBuilder();
+        for (int i = start; i < lines.length; i++) {
+            String l = lines[i];
+            if (i > start && l.startsWith("## ")) {
+                String name = l.substring(3).strip().toLowerCase(Locale.ROOT).replaceAll("\\s*\\(.*\\)$", "");
+                if (APPARATUS.contains(name)) break;
+            }
+            sb.append(l).append('\n');
+        }
+        return sb.toString().strip();
     }
 
     private static Material termMaterial(LibraryStore store, LibraryProtocol p, String term, ObjectNode ctx) throws IOException {
@@ -319,6 +351,7 @@ public final class Explain {
         for (String para : paras) {
             String pt = para.strip();
             if (pt.isEmpty()) continue;
+            if (pt.startsWith("## ") && !pt.contains("\n")) { if (out.length() > 0) out.append("\n\n"); out.append(pt); continue; }   // a heading is the original's shape, not a claim
             seen++;
             List<String> ids = new ArrayList<>();
             Matcher m = CITE.matcher(pt);

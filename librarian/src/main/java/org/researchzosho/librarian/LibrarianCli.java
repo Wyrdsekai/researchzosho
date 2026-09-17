@@ -31,9 +31,12 @@ public final class LibrarianCli {
               add <folder> [--collection N] [--register] [--link] [--survey]
               absorb <transcript|export|url> [--verify]
               survey <repo|paper|url|issues> [--kind k] [--pick 1,3] [--do "…"]
-                                           a code repository, a paper, a website or an issue tracker: read, one draft claim on what it is, numbered research directions; --pick runs them, --do runs your own
-              items <list|csv|url|calibre-library> [--lens "…"] [--as frontier|runs|none]
-                                           a list of things (books, tools, an inventory; a Calibre library folder is its books): shelved, checked against the shelves, a question per item
+                                           read a code repository, a paper, a website or an issue tracker; file one draft claim on what it is; list research directions. --pick runs them, --do runs your own question
+              items <list|csv|url|calibre-library> [--lens "…"] [--as frontier|runs|none] [--match T]… [--sample N]
+                                           a list of things (books, tools, an inventory; a Calibre library or its metadata.db counts): stored whole, each item checked against the shelves, a question per selected item
+              holdings <words…>            look up your shelved lists: every word must appear in an entry
+              remove <I-…|F-…> [--report-only | --claims-only] [--yes]
+                                           delete a report and its claims, the report only, the claims only, or one claim; retire keeps a claim on disk
               check <draft> [--verify]     your own draft or notes: claims to check, its citations fetched, its questions filed
               reading <bib|ris|csv|list> [--watch]
                                            a reading list: every DOI and url fetched onto the shelves as a collection
@@ -386,6 +389,8 @@ public final class LibrarianCli {
                 }
                 case "add" -> { return add(store, args); }
                 case "absorb" -> { return absorb(store, args); }
+                case "holdings" -> { return holdings(store, args); }
+                case "remove" -> { return remove(store, args); }
                 case "survey", "repo" -> { return survey(store, args); }
                 case "items" -> { return items(store, args); }
                 case "check", "reading", "bookmarks", "meeting" -> { return launch(store, args); }
@@ -1371,7 +1376,7 @@ public final class LibrarianCli {
 
     /** researchzosho items <file|url> [--lens "…"] [--as frontier|runs|none] [--column C] [--title T] [--limit N]: a list of things as a starting point. */
     static int items(LibraryStore store, String[] args) throws Exception {
-        if (args.length < 3) { System.err.println("usage: researchzosho items <list.txt|list.md|list.csv|url|calibre-library-folder> [--lens \"{item}: …\"] [--as frontier|runs|none] [--column <name>] [--title <t>] [--limit <n>]"); return 2; }
+        if (args.length < 3) { System.err.println("usage: researchzosho items <list.txt|list.md|list.csv|url|calibre-library|metadata.db> [--lens \"{item}: …\"] [--as frontier|runs|none] [--column <name>] [--title <t>] [--limit <n>] [--match <text>]... [--sample <n>]"); return 2; }
         var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
         String what = args[2];
         if (what.startsWith("http://") || what.startsWith("https://")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
@@ -1384,6 +1389,8 @@ public final class LibrarianCli {
                     case "--title" -> a.put("title", flagValue(args, i++));
                     case "--collection" -> a.put("collection", flagValue(args, i++));
                     case "--limit" -> a.put("limit", flagInt(args, i++));
+                    case "--match" -> { if (!a.has("match")) a.putArray("match"); ((com.fasterxml.jackson.databind.node.ArrayNode) a.get("match")).add(flagValue(args, i++)); }
+                    case "--sample" -> a.put("sample", flagInt(args, i++));
                     default -> { System.err.println("unknown flag " + args[i]); return 2; }
                 }
             }
@@ -1453,6 +1460,53 @@ public final class LibrarianCli {
             System.out.println(r.path("summary").asText());
         }
         System.out.println("  researchzosho jobs follows them");
+        return 0;
+    }
+
+    /** researchzosho remove <id> [--report-only | --claims-only] [--yes]: a report or a claim out of the library for good, after showing the plan. */
+    static int remove(LibraryStore store, String[] args) throws Exception {
+        if (args.length < 3) { System.err.println("usage: researchzosho remove <I-…|F-…> [--report-only | --claims-only] [--yes]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        a.put("id", args[2]);
+        boolean yes = false;
+        for (int i = 3; i < args.length; i++) {
+            switch (args[i]) {
+                case "--report-only" -> a.put("what", "report");
+                case "--claims-only" -> a.put("what", "claims");
+                case "--yes" -> yes = true;
+                default -> { System.err.println("unknown flag " + args[i]); return 2; }
+            }
+        }
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        LibraryProtocol p = new LibraryProtocol(store);
+        com.fasterxml.jackson.databind.node.ObjectNode plan;
+        try { plan = p.remove(a.deepCopy().put("dry", true)); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(plan.path("plan").asText());
+        if (plan.path("claims_go").size() == 0 && !plan.path("report_goes").asBoolean()) { System.out.println("nothing to remove"); return 0; }
+        if (!yes) {
+            System.out.print("Remove for good? There is no undo. [y/N] ");
+            String line = System.console() != null ? System.console().readLine() : new java.io.BufferedReader(new java.io.InputStreamReader(System.in)).readLine();
+            if (line == null || !line.strip().toLowerCase(java.util.Locale.ROOT).startsWith("y")) { System.out.println("left as it was"); return 0; }
+        }
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try { r = p.remove(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        for (var x : r.path("removed")) System.out.println("  removed " + x.asText());
+        System.out.println(r.path("summary").asText());
+        return 0;
+    }
+
+    /** researchzosho holdings <words…>: what the person's lists hold. */
+    static int holdings(LibraryStore store, String[] args) throws Exception {
+        if (args.length < 3) { System.err.println("usage: researchzosho holdings <title words, author, year…> [--limit <n>]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        StringBuilder q = new StringBuilder();
+        for (int i = 2; i < args.length; i++) { if (args[i].equals("--limit")) { a.put("limit", flagInt(args, i++)); continue; } if (q.length() > 0) q.append(' '); q.append(args[i]); }
+        a.put("query", q.toString());
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        try { r = new LibraryProtocol(store).holdings(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        for (var m : r.path("matches")) System.out.println("  " + m.path("item").asText() + (m.hasNonNull("note") ? " — " + m.path("note").asText() : "") + "   [" + m.path("list").asText() + "]");
         return 0;
     }
 

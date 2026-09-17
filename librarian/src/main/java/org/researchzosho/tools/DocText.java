@@ -44,6 +44,7 @@ public final class DocText {
     public static Doc convert(byte[] bytes, String nameHint) {
         if (bytes == null || bytes.length == 0) return new Doc("", "", "empty");
         if (isPdf(bytes)) return pdf(bytes);
+        if (isSqlite(bytes)) return sqlite(bytes, nameHint);
         if (isZip(bytes)) {
             Doc z = zipDocument(bytes);
             if (z != null) return z;
@@ -55,6 +56,55 @@ public final class DocText {
             return new Doc(WebFetchTool.readable(s), WebFetchTool.pageTitle(s), "html");
         }
         return new Doc(s, "", "text");
+    }
+
+    static final byte[] SQLITE_MAGIC = "SQLite format 3\u0000".getBytes(StandardCharsets.US_ASCII);
+
+    /** A SQLite file: sixteen fixed bytes at the front. */
+    public static boolean isSqlite(byte[] bytes) {
+        if (bytes.length < SQLITE_MAGIC.length) return false;
+        for (int i = 0; i < SQLITE_MAGIC.length; i++) if (bytes[i] != SQLITE_MAGIC[i]) return false;
+        return true;
+    }
+
+    /**
+     * A SQLite database as text. Calibre's metadata.db becomes the CSV of its books (title, authors, year, series, tags,
+     * ISBN, publisher, formats), which the list starting point reads as it is; any other database becomes its tables
+     * and their row counts, so a reader sees what it holds instead of fragments of the binary (a research run on a
+     * Calibre database recovered eleven titles out of hundreds by reading it as text, 2026-09-17).
+     */
+    static Doc sqlite(byte[] bytes, String nameHint) {
+        java.nio.file.Path tmp = null;
+        try {
+            tmp = java.nio.file.Files.createTempFile("researchzosho-", ".db");
+            java.nio.file.Files.write(tmp, bytes);
+            try {
+                java.util.List<org.researchzosho.librarian.Calibre.Book> books = org.researchzosho.librarian.Calibre.fromDatabase(tmp);
+                return new Doc(org.researchzosho.librarian.Calibre.csv(books), "Calibre library (" + books.size() + " books)", "calibre");
+            } catch (Exception notCalibre) {
+                return new Doc(tables(tmp), (nameHint == null || nameHint.isBlank() ? "SQLite database" : nameHint) + " (SQLite)", "sqlite");
+            }
+        } catch (Exception e) {
+            return new Doc("An SQLite database that could not be opened: " + e.getMessage(), "", "sqlite");
+        } finally {
+            if (tmp != null) try { java.nio.file.Files.deleteIfExists(tmp); } catch (java.io.IOException ignored) { }
+        }
+    }
+
+    /** The tables of a database and how many rows each holds, one per line. */
+    static String tables(java.nio.file.Path db) throws Exception {
+        Class.forName("org.sqlite.JDBC");
+        StringBuilder sb = new StringBuilder("An SQLite database. Tables and rows:\n");
+        try (java.sql.Connection c = java.sql.DriverManager.getConnection("jdbc:sqlite:file:" + db.toAbsolutePath().toString().replace("\\", "/") + "?immutable=1&mode=ro");
+             java.sql.Statement st = c.createStatement(); java.sql.ResultSet rs = st.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
+            java.util.List<String> names = new java.util.ArrayList<>();
+            while (rs.next()) names.add(rs.getString(1));
+            for (String n : names) {
+                try (java.sql.Statement s2 = c.createStatement(); java.sql.ResultSet r2 = s2.executeQuery("SELECT count(*) FROM \"" + n.replace("\"", "\"\"") + "\"")) { sb.append("- ").append(n).append(": ").append(r2.next() ? r2.getLong(1) : 0).append(" row(s)\n"); }
+                catch (Exception e) { sb.append("- ").append(n).append('\n'); }
+            }
+        }
+        return sb.toString();
     }
 
     // ---- sniffing -----------------------------------------------------------------

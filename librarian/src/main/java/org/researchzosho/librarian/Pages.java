@@ -33,7 +33,7 @@ final class Pages {
     static boolean isPage(String path) {
         return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat");
+                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/remove");
     }
 
     /** One page. {@code form} holds the POSTed fields (empty on GET); {@code patron} is who the cookie or header proved. */
@@ -52,6 +52,7 @@ final class Pages {
                 case "/changes" -> send(x, 200, changes(store, p, patron, q));
                 case "/questions" -> { if ("POST".equals(method)) { String to = questionsPost(d, store, p, patron, form); redirect(x, to); } else send(x, 200, questions(store, p, patron, q)); }
                 case "/inbox" -> { if ("POST".equals(method)) { inboxPost(store, patron, form); redirect(x, "/inbox"); } else send(x, 200, inbox(store, p, patron, q)); }
+                case "/remove" -> { if ("POST".equals(method)) send(x, 200, removePost(store, p, patron, form)); else redirect(x, "/"); }
                 case "/jobs" -> { if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron)); }
                 case "/explain" -> send(x, 200, explain(store, p, patron, q));
                 case "/download" -> download(x, store, patron, q);
@@ -194,6 +195,7 @@ final class Pages {
         if (e.hasNonNull("review_by")) b.append(" · review by ").append(esc(e.path("review_by").asText()));
         b.append("</p>");
         if (!"raw".equals(kind)) b.append(ladder(id, Explain.Rung.written)).append(downloads(id, null));
+        if (!"raw".equals(kind) && mayWrite(store, patron)) b.append(removeForm(id, kind));
         if (e.path("subjects").size() > 0) {
             b.append("<p class=\"k\">Subjects: ");
             for (JsonNode s : e.path("subjects")) b.append("<a href=\"/search?subject=").append(enc(s.asText())).append("\">").append(esc(s.asText())).append("</a> ");
@@ -586,6 +588,46 @@ final class Pages {
         }
         b.append("</form>");
         return page(store, patron, "Inbox", b.toString());
+    }
+
+    /** Whether the patron may write, without throwing: the form is shown only to those who could use it. */
+    static boolean mayWrite(LibraryStore store, Patrons.Patron patron) { try { Patrons.check(store, patron, Patrons.Level.write); return true; } catch (Exception e) { return false; } }
+
+    /** The remove form on an entry: for a report the three choices, for a claim the one; the plan is shown before anything goes. */
+    static String removeForm(String id, String kind) {
+        StringBuilder b = new StringBuilder("<details class=\"remove\"><summary class=\"k\">Remove…</summary><form method=\"post\" action=\"/remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(id)).append("\">");
+        if ("investigation".equals(kind)) {
+            b.append("<label><input type=\"radio\" name=\"what\" value=\"all\" checked> the report and the claims that are its alone</label><br>")
+             .append("<label><input type=\"radio\" name=\"what\" value=\"report\"> the report only; its claims stay</label><br>")
+             .append("<label><input type=\"radio\" name=\"what\" value=\"claims\"> its claims only; the report stays</label><br>");
+        } else b.append("<input type=\"hidden\" name=\"what\" value=\"all\"><p class=\"k\">Delete this claim for good. Retiring it from the inbox keeps it on disk.</p>");
+        b.append("<button class=\"quiet\">Show what would go</button></form></details>");
+        return b.toString();
+    }
+
+    /** POST /remove: the first post shows the plan with a Confirm button; the post with confirm=1 and an unspent token removes. */
+    private static String removePost(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.write);
+        String id = form.getOrDefault("id", "").strip(), what = form.getOrDefault("what", "all");
+        ObjectNode a = M.createObjectNode().put("id", id).put("what", what);
+        a.set("patron", LibrarianDaemon.patronNode(patron));
+        boolean confirm = "1".equals(form.get("confirm"));
+        String once = form.getOrDefault("once", "");
+        if (confirm && (once.isEmpty() || SENT.containsKey(once))) confirm = false;   // a refresh or a second click does not remove twice
+        ObjectNode r = p.remove(a.deepCopy().put("dry", !confirm));
+        StringBuilder b = new StringBuilder();
+        if (!confirm) {
+            b.append("<pre>").append(esc(r.path("plan").asText())).append("</pre>");
+            if (r.path("claims_go").size() == 0 && !r.path("report_goes").asBoolean()) b.append("<p>Nothing to remove.</p>");
+            else b.append("<form method=\"post\" action=\"/remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(id)).append("\"><input type=\"hidden\" name=\"what\" value=\"").append(esc(what)).append("\"><input type=\"hidden\" name=\"confirm\" value=\"1\">")
+                  .append(nonceField()).append("<button>Remove for good</button> <a class=\"quiet\" href=\"/entry/").append(enc(id)).append("\">Leave it</a></form><p class=\"k\">There is no undo.</p>");
+            return page(store, patron, "Remove " + id, b.toString());
+        }
+        SENT.put(once, id);
+        b.append("<p>").append(esc(r.path("summary").asText())).append("</p><ul>");
+        for (JsonNode x : r.path("removed")) b.append("<li>").append(esc(x.asText())).append("</li>");
+        b.append("</ul><p class=\"k\"><a href=\"/changes\">The changes log</a> records it.</p>");
+        return page(store, patron, "Removed", b.toString());
     }
 
     private static void inboxPost(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {

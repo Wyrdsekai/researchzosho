@@ -814,7 +814,7 @@ public final class Researcher {
                 "Finish this sub-investigation. Pass a short SUMMARY of what the sources established and what "
                 + "stayed unknown. Everything you noted is already kept — do not repeat it.");
         Map<String, Tool> byName = new LinkedHashMap<>();
-        if (store != null && ask.shelves()) byName.put("shelf_search", new ShelfSearchTool(store, ask.collections()));
+        if (store != null && ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); }
         if (ask.web()) for (Tool t : tools.web(sub)) byName.put(t.name(), t);
         if (store != null) byName.put("read_pages", new PagesTool(store));
         byName.put(notebook.name(), notebook);
@@ -1127,7 +1127,7 @@ public final class Researcher {
                 + "The sections you wrote are the answer; do not repeat them here.");
         Map<String, Tool> byName = new LinkedHashMap<>();
         if (ask.web()) for (Tool t : tools.web(ask.question())) if ("web_fetch".equals(t.name())) byName.put(t.name(), t);
-        if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); }
+        if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); } }
         byName.put(sections.name(), sections);
         byName.put(done.name(), done);
         String notes = coverage(pieces) + "\n" + fitted("synthesis", pieces);
@@ -1351,6 +1351,35 @@ public final class Researcher {
                 if (!h.snippet().isBlank()) sb.append("   ").append(Acquisitions.compress(h.snippet(), 240)).append('\n');
             }
             sb.append(Fence.close("SHELF RESULTS")).append('\n').append(Fence.rule("SHELF RESULTS")).append('\n');
+            return sb.toString();
+        }
+    }
+
+    /** What the person's own lists hold: an exact lookup, for telling owned from not owned. Offered only when a list is shelved. */
+    static final class HoldingsTool implements Tool {
+        private final LibraryStore store;
+        HoldingsTool(LibraryStore store) { this.store = store; }
+        @Override public String name() { return "holdings"; }
+        @Override public String description() {
+            return "What the person's own lists hold (a library of books, an inventory, a reading list): an exact lookup — every word of the query must appear in an entry. "
+                    + "Ask it for each title you consider, with a word or two of the title and the author's surname. What it returns is owned; anything it does not return is not. A search snippet is not evidence of ownership.";
+        }
+        @Override public ObjectNode parametersSchema(ObjectMapper j) {
+            ObjectNode p = j.createObjectNode();
+            p.put("type", "object");
+            p.putObject("properties").putObject("query").put("type", "string");
+            p.putArray("required").add("query");
+            return p;
+        }
+        @Override public String execute(JsonNode args) throws Exception {
+            String q = args.path("query").asText("").strip();
+            if (q.isEmpty()) return "ERROR: empty query";
+            List<Holdings.Match> m = Holdings.find(store, q, 10, null);
+            if (m.isEmpty()) return "the person's lists hold nothing matching: " + q;
+            StringBuilder sb = new StringBuilder("held, matching \"" + q + "\":\n" + Fence.open("HOLDINGS") + "\n");
+            int n = 0;
+            for (Holdings.Match x : m) sb.append(++n).append(". ").append(x.item()).append(x.note().isEmpty() ? "" : " — " + Acquisitions.compress(x.note(), 160)).append("   [").append(x.list()).append("]\n");
+            sb.append(Fence.close("HOLDINGS")).append('\n').append(Fence.rule("HOLDINGS")).append('\n');
             return sb.toString();
         }
     }

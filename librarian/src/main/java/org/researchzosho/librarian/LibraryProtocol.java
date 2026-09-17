@@ -471,6 +471,58 @@ public final class LibraryProtocol {
     public ObjectNode repo(JsonNode args) throws IOException { ObjectNode a = args.deepCopy(); if (!a.hasNonNull("kind")) a.put("kind", "repo"); return survey(a); }
 
     /**
+     * library_remove: a report or a claim out of the library for good. id is an investigation (I-…) or a claim
+     * (F-…); what=all (default) takes a report and the claims that are its alone, what=report the report only,
+     * what=claims its claims only. dry=true returns the plan and removes nothing. A claim another report cites
+     * stays and is named. What the run fetched from the web stays on the shelves. Retiring is the gentler thing.
+     */
+    public ObjectNode remove(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String id = args.path("id").asText("").strip();
+        if (id.isEmpty()) throw ProtocolError.invalidArgs("Name what to remove: id = a report (I-…) or a claim (F-…).");
+        Removal.What what;
+        try { what = Removal.What.valueOf(args.path("what").asText("all").strip().toLowerCase(Locale.ROOT)); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("what is all, report or claims"); }
+        boolean dry = args.path("dry").asBoolean(false);
+        Removal.Plan plan;
+        try { plan = Removal.plan(store, id, what); } catch (IOException e) { throw ProtocolError.notFound(e.getMessage()); }
+        ObjectNode r = envelope();
+        r.put("id", plan.id()); r.put("kind", plan.kind()); r.put("title", plan.title()); r.put("what", plan.what().name()); r.put("dry", dry);
+        r.put("report_goes", plan.reportGoes());
+        ArrayNode go = r.putArray("claims_go"); for (int i = 0; i < plan.claimsGo().size(); i++) go.addObject().put("id", plan.claimsGo().get(i)).put("title", plan.titles().get(i));
+        ArrayNode stay = r.putArray("claims_stay"); plan.claimsStay().forEach(stay::add);
+        r.put("plan", Removal.describe(plan));
+        if (dry) { r.put("summary", "would remove " + plan.count() + " entr" + (plan.count() == 1 ? "y" : "ies") + (plan.claimsStay().isEmpty() ? "" : ", keeping " + plan.claimsStay().size() + " cited elsewhere") + "; nothing removed"); r.put("next", "the same call with dry=false removes them"); return r; }
+        Removal.Done done = Removal.apply(store, plan, patron.writer());
+        ArrayNode removed = r.putArray("removed"); done.removed().forEach(removed::add);
+        r.put("summary", "removed " + done.removed().size() + " entr" + (done.removed().size() == 1 ? "y" : "ies") + (plan.claimsStay().isEmpty() ? "" : "; " + plan.claimsStay().size() + " claim(s) kept, cited by another report") + "; the changes log says so");
+        r.put("next", "library_changes lists the removals; there is no undo");
+        return r;
+    }
+
+    /**
+     * library_holdings: what the person's own lists hold — a Calibre library, an inventory, a reading list, every list
+     * shelved through items. An exact lookup: every word of the query must appear in the entry (title words, an
+     * author, a year). Cheap enough to ask for each candidate, so "which of these do I own" is answered by the
+     * shelves, not guessed.
+     */
+    public ObjectNode holdings(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
+        String q = args.path("query").asText("").strip();
+        if (q.isEmpty()) throw ProtocolError.invalidArgs("Give a query: words of a title, an author, a year.");
+        int limit = Math.max(1, Math.min(100, args.path("limit").asInt(20)));
+        List<Holdings.Match> found = Holdings.find(store, q, limit, null);
+        ObjectNode r = envelope();
+        r.put("query", q); r.put("lists_hold", Holdings.size(store));
+        ArrayNode out = r.putArray("matches");
+        for (Holdings.Match m : found) { ObjectNode n = out.addObject(); n.put("item", m.item()); if (!m.note().isEmpty()) n.put("note", m.note()); n.put("list", m.list()); n.put("raw", m.raw()); }
+        r.put("count", found.size());
+        r.put("summary", found.isEmpty() ? "the person's lists hold nothing matching \"" + q + "\" (" + Holdings.size(store) + " entries in all)" : found.size() + " entr" + (found.size() == 1 ? "y" : "ies") + " match \"" + q + "\"" + (found.size() >= limit ? " (the first " + limit + ")" : ""));
+        return r;
+    }
+
+    /**
      * library_absorb: a conversation the person had with another assistant, as a starting point. The
      * transcript is shelved as it is (collection "conversations" unless named); the person's questions join
      * the open questions; the assistant's claims come back as a list to check and are filed as nothing.
@@ -579,8 +631,10 @@ public final class LibraryProtocol {
                 source = f.toString(); if (title.isEmpty()) title = "Calibre library " + f.getFileName();
             } else {
                 if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
-                body = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), f.getFileName().toString()).text();
+                org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), f.getFileName().toString());
+                body = doc.text();
                 if (Corpus.ext(f).equals("csv") || Corpus.ext(f).equals("txt") || Corpus.ext(f).equals("md")) body = Files.readString(f, StandardCharsets.UTF_8);
+                if ("calibre".equals(doc.kind())) { readFrom = "metadata.db"; if (title.isEmpty()) title = doc.title(); }   // a bare metadata.db is the library's books
                 source = f.toString(); if (title.isEmpty()) title = Conversations.titleFrom(f.getFileName().toString());
             }
         } else if (!url.isEmpty()) {
@@ -593,15 +647,24 @@ public final class LibraryProtocol {
         } else { body = text; source = "pasted"; if (title.isEmpty()) title = "list"; }
         List<Items.Item> all = Items.parse(body, column);
         if (all.isEmpty()) throw ProtocolError.invalidArgs("No items found: one per line, a markdown table, or a CSV.");
-        List<Items.Item> items = all.subList(0, Math.min(limit, all.size()));
+        // the whole list goes on the shelves; what is looked at, filed or run is the selection: --match texts, --sample n, then the first limit
+        List<String> match = new ArrayList<>();
+        if (args.path("match").isArray()) for (JsonNode m : args.get("match")) match.add(m.asText()); else if (args.hasNonNull("match") && !args.get("match").asText().isBlank()) match.add(args.get("match").asText());
+        int sample = Math.max(0, args.path("sample").asInt(0));
+        List<Items.Item> matched = match.isEmpty() ? all : Items.select(all, match, 0, 0);
+        List<Items.Item> chosen = sample > 0 ? Items.select(matched, List.of(), sample, args.path("seed").asLong(System.nanoTime())) : matched;
+        List<Items.Item> items = chosen.subList(0, Math.min(Math.min(limit, Items.MAX_ITEMS), chosen.size()));
         Path raw = Items.shelve(store, title, all, source, collection);
         String rawName = raw == null ? "" : raw.getFileName().toString();
+        String listName = Items.listFileName(store, raw);
         LibrarianIndex index = new LibrarianIndex(store);
         List<Frontier.Line> open = Frontier.read(store);
         ObjectNode r = envelope();
         r.put("title", title); r.put("source", source); r.put("raw", rawName); r.put("collection", collection);
         if (!readFrom.isEmpty()) r.put("read_from", readFrom);
-        r.put("items_found", all.size()); r.put("taken", items.size()); r.put("remaining", all.size() - items.size());
+        r.put("items_found", all.size()); r.put("matched", matched.size()); r.put("taken", items.size()); r.put("remaining", chosen.size() - items.size());
+        if (!match.isEmpty()) { ArrayNode mm = r.putArray("match"); match.forEach(mm::add); }
+        if (sample > 0) r.put("sample", sample);
         r.put("lens", lens.isBlank() ? Items.DEFAULT_LENS : lens); r.put("as", as);
         ArrayNode out = r.putArray("items");
         int held = 0, filed = 0, already = 0;
@@ -609,7 +672,7 @@ public final class LibraryProtocol {
         for (Items.Item it : items) {
             ObjectNode n = out.addObject();
             n.put("item", it.name()); if (!it.note().isEmpty()) n.put("note", it.note());
-            LibrarianIndex.Hit h = Items.held(index, it, rawName);
+            LibrarianIndex.Hit h = Items.held(store, index, it, rawName, listName);
             if (h != null) { held++; n.put("held", h.id()); n.put("held_title", h.title()); } else n.putNull("held");
             String q = Items.question(it, lens);
             n.put("question", q); questions.add(q);
@@ -632,7 +695,8 @@ public final class LibraryProtocol {
             }
         }
         r.put("questions_filed", filed); r.put("questions_already_open", already);
-        String what = items.size() + " item(s)" + (all.size() > items.size() ? " of " + all.size() : "") + ", " + held + " already on the shelves";
+        String what = items.size() + " item(s)" + (matched.size() < all.size() ? " of " + matched.size() + " matched" + (sample > 0 && matched.size() > items.size() ? ", a sample" : "") : all.size() > items.size() ? " of " + all.size() + (sample > 0 ? ", a sample" : "") : "")
+                + (all.size() > items.size() ? " (all " + all.size() + " are on the shelves)" : "") + ", " + held + " already on the shelves";
         r.put("summary", "list \"" + Acquisitions.compress(title, 60) + "\": " + what
                 + (as.equals("frontier") ? "; " + filed + " question(s) joined the open questions" + (already > 0 ? ", " + already + " were open already" : "")
                 : as.equals("runs") ? "; " + jobsOut.size() + " research run(s) filed, a lane per item" : "; nothing filed, the list is on the shelves")

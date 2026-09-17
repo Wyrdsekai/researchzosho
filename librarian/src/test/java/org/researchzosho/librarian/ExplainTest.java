@@ -41,6 +41,37 @@ class ExplainTest {
     }
 
     @Test
+    void aWriteUpIsRewrittenSectionBySectionWithoutItsApparatus(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        store.write(f("F-0001-gears", "The gears were cut by hand", "The museum says the gears were cut with files.\n"));
+        String body = "## Question\n\nHow were the gears cut?\n\n## Answer (as submitted by the run — draft until reviewed)\n\nBy hand, roughly.\n\n## Answer\n\nBy hand, with files [F-0001-gears].\n\n## Tools\n\nFiles and a dividing plate [F-0001-gears].\n\n## Conflicts and uncertainty\n\nNone.\n\n## Sources\n\n1. https://museum.example/gears\n\n## Checks\n\nnothing\n\n## Cite-check\n\n1 cited, 1 supported\n\n## Evidence\n\n| a | b |\n\n## References\n\n[1] museum\n";
+        store.write(new Investigation("I-0001-gears", "How were the gears cut?", Finding.State.accepted, "model:t", Instant.now().toString(), List.of("F-0001-gears"), List.of(), body));
+        new LibrarianIndex(store, Embeddings.none()).rebuild();
+        // the substance: the final Answer and the body sections; the question, the draft answer, the conflicts, the sources and the checks are left out
+        String sub = Explain.substance(body);
+        assertTrue(sub.startsWith("## Answer\n\nBy hand, with files") && sub.contains("## Tools"), sub);
+        for (String gone : List.of("## Question", "as submitted", "## Conflicts", "## Sources", "## Checks", "## Cite-check", "## Evidence", "## References", "roughly")) assertFalse(sub.contains(gone), gone + " in " + sub);
+        Researcher.Drive drive = new Researcher.Drive() {
+            @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int x, String c) { throw new UnsupportedOperationException(); }
+            @Override public int contextWindow() { return 32_000; }
+            @Override public String classify(ArrayNode messages, int maxTokens) {
+                String p = messages.get(messages.size() - 1).path("content").asText();
+                if (p.startsWith("A report sentence cites")) return "{\"verdict\":\"supported\"}";
+                assertTrue(p.contains("Keep the entry's section headings exactly"), "the prompt asks for the original's shape");
+                assertFalse(p.contains("## Sources") || p.contains("## Question") || p.contains("roughly"), "the apparatus is not in the material");
+                return "## Answer\n\nSomeone shaped each tooth with a file [I-0001-gears].\n\n## Tools\n\nA file, and a plate with holes to space the teeth [F-0001-gears].\n\n## Terms\n- file — a hand tool for metal\n";
+            }
+        };
+        Explain.Reading r = Explain.entry(store, drive, "I-0001-gears", Explain.Rung.beginner, false);
+        assertTrue(r.text().startsWith("## Answer\n\nSomeone shaped") && r.text().contains("\n\n## Tools\n\nA file"), "the rewrite keeps the original's headings: " + r.text());
+        assertEquals(2, r.checked(), "two paragraphs checked; the headings are not paragraphs");
+        assertFalse(r.text().contains(Explain.UNCITED_MARK), "a heading is not marked as uncited");
+        assertEquals("shelves", r.grounding());
+        // as written is still the whole entry
+        assertTrue(Explain.entry(store, null, "I-0001-gears", Explain.Rung.written, false).text().contains("## Sources"));
+    }
+
+    @Test
     void anEntryIsReExplainedFromTheShelvesAndChecked(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         store.write(f("F-0001-gears", "The gears were cut by hand", "The museum says the gears were cut with files against a dividing plate.\n"));

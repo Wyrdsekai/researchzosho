@@ -85,6 +85,23 @@ class CalibreTest {
         // a CSV with the title column second still finds it without --column
         assertEquals("Dune", Items.parse("author,title,year\nHerbert,Dune,1965\n", null).get(0).name());
         assertEquals("Herbert", Items.parse("author,title,year\nHerbert,Dune,1965\n", "author").get(0).name(), "--column still wins");
+        // a bare metadata.db handed to any reader — add, items, a research run's file read — is the books, not binary fragments
+        org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(lib.resolve("metadata.db")), "metadata.db");
+        assertEquals("calibre", doc.kind()); assertEquals("Calibre library (3 books)", doc.title());
+        assertTrue(doc.text().startsWith("title,authors,year,series,tags,isbn,publisher,formats\n"), doc.text());
+        LibraryStore store2 = new LibraryStore(home.resolve("lib2")); store2.init();
+        new LibrarianIndex(store2, Embeddings.none()).rebuild();
+        ObjectNode a2 = M.createObjectNode().put("path", lib.resolve("metadata.db").toString()).put("as", "none");
+        a2.putObject("patron").put("did", "person").put("name", "keeper").put("runtime", "cli");
+        ObjectNode r2 = new LibraryProtocol(store2).items(a2);
+        assertEquals(3, r2.path("taken").asInt()); assertEquals("Calibre library (3 books)", r2.path("title").asText()); assertEquals("metadata.db", r2.path("read_from").asText());
+        assertEquals("A Wizard of Earthsea", r2.path("items").get(1).path("item").asText());
+        // any other SQLite file is its tables and counts, not fragments
+        Path other = home.resolve("other.db");
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + other); Statement st = c.createStatement()) { st.execute("CREATE TABLE notes (id INTEGER, body TEXT)"); st.execute("INSERT INTO notes VALUES (1, 'a'), (2, 'b')"); }
+        org.researchzosho.tools.DocText.Doc od = org.researchzosho.tools.DocText.convert(Files.readAllBytes(other), "other.db");
+        assertEquals("sqlite", od.kind()); assertTrue(od.text().contains("- notes: 2 row(s)"), od.text());
+        assertFalse(org.researchzosho.tools.DocText.isSqlite("SQLite format 3 is a phrase".getBytes()), "the header is sixteen exact bytes, not the words");
         // the database stays untouched: the file is the same afterwards
         long before = Files.size(lib.resolve("metadata.db"));
         Calibre.read(lib);
