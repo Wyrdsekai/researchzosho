@@ -501,6 +501,72 @@ public final class LibraryProtocol {
         return r;
     }
 
+    static final int READ_IN_FILES = 3;
+
+    /**
+     * The files and Calibre libraries a question names, read into the library before the run: a Calibre library or
+     * its metadata.db becomes a list (so the run has the holdings lookup); any other document is added. Only for the
+     * library owner, whose paths these are. Returns one phrase per thing read in.
+     */
+    List<String> readInNamedFiles(String question, JsonNode patronNode, Patrons.Patron patron) {
+        List<String> out = new ArrayList<>();
+        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) return out;
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (Path f : namedPaths(question)) {
+            if (seen.size() >= READ_IN_FILES) break;
+            if (!seen.add(f.toString())) continue;
+            try {
+                boolean calibre = Files.isDirectory(f) ? Calibre.isLibrary(f) : isCalibreDatabase(f);
+                ObjectNode a = M.createObjectNode().put("path", f.toString());
+                if (patronNode != null && patronNode.isObject()) a.set("patron", patronNode.deepCopy());
+                if (calibre) {
+                    ObjectNode r = items(a.put("as", "none"));
+                    out.add("the Calibre library at " + f + " as the list \"" + r.path("title").asText() + "\" (" + r.path("items_found").asInt() + " books)");
+                } else if (Files.isRegularFile(f) && Corpus.EXTENSIONS.contains(Corpus.ext(f))) {
+                    add(a);
+                    out.add("the document " + f);
+                }
+            } catch (Exception e) { out.add(f + " could not be read in (" + e.getMessage() + ")"); }
+        }
+        return out;
+    }
+
+    /**
+     * The paths a text names that exist on this machine. A path may hold spaces ("Calibre Library" is Calibre's own
+     * default), so from each place a path starts, the longest run of words that names something that exists is taken.
+     */
+    static List<Path> namedPaths(String text) {
+        List<Path> out = new ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?<![\\w/.~])(~?/)").matcher(text);
+        int from = 0;
+        while (m.find()) {
+            if (m.start() < from) continue;
+            String rest = text.substring(m.start(), Math.min(text.length(), m.start() + 400));
+            int nl = rest.indexOf('\n'); if (nl >= 0) rest = rest.substring(0, nl);
+            String[] words = rest.split(" ");
+            Path best = null; int bestLen = 0;
+            StringBuilder cand = new StringBuilder();
+            for (int k = 0; k < words.length && k < 12; k++) {
+                if (k > 0) cand.append(' ');
+                cand.append(words[k]);
+                String c = cand.toString().replaceAll("[\"'`.,;:)\\]]+$", "");
+                if (c.length() < 2) continue;
+                String expanded = c.startsWith("~/") ? System.getProperty("user.home") + c.substring(1) : c;
+                try { Path f = Path.of(expanded).toAbsolutePath().normalize(); if (f.getNameCount() >= 2 && Files.exists(f)) { best = f; bestLen = cand.length(); } } catch (Exception ignored) { }
+            }
+            if (best != null) { out.add(best); from = m.start() + bestLen; }
+        }
+        return out;
+    }
+
+    static boolean isCalibreDatabase(Path f) {
+        if (!Files.isRegularFile(f)) return false;
+        try (var in = Files.newInputStream(f)) {
+            if (!org.researchzosho.tools.DocText.isSqlite(in.readNBytes(16))) return false;
+        } catch (IOException e) { return false; }
+        try { Calibre.fromDatabase(f); return true; } catch (Exception e) { return false; }
+    }
+
     /**
      * library_holdings: what the person's own lists hold — a Calibre library, an inventory, a reading list, every list
      * shelved through items. An exact lookup: every word of the query must appear in the entry (title words, an
@@ -636,6 +702,7 @@ public final class LibraryProtocol {
                 body = doc.text();
                 if (Corpus.ext(f).equals("csv") || Corpus.ext(f).equals("txt") || Corpus.ext(f).equals("md")) body = Files.readString(f, StandardCharsets.UTF_8);
                 if ("calibre".equals(doc.kind())) { readFrom = "metadata.db"; if (title.isEmpty()) title = doc.title(); }   // a bare metadata.db is the library's books
+                RawCapture.dropUnreadable(store, f.toUri().toString());   // an earlier version may have saved this file as unreadable text
                 source = f.toString(); if (title.isEmpty()) title = Conversations.titleFrom(f.getFileName().toString());
             }
         } else if (!url.isEmpty()) {
@@ -1342,6 +1409,10 @@ public final class LibraryProtocol {
         Patrons.check(store, patron, Patrons.Level.write);
         validateResearch(args);
         String question = reqStr(args, "question").strip();
+        // a run cannot open files on this machine: it reads the web and the library. So when the library owner's question
+        // names a file that exists, the library reads it in first and tells the run where to look.
+        List<String> readIn = readInNamedFiles(question, args.path("patron"), patron);
+        if (!readIn.isEmpty()) question = question + "\n\n[Before this run the library read in: " + String.join("; ", readIn) + ". A research run cannot open files or run commands on this machine. Read these from the library instead: shelf_search finds documents, and the holdings tool says whether a title is in a list the person owns.]";
         String mode = args.path("mode").asText("broad");
         boolean quick = args.path("quick").asBoolean(false);   // "look it up now": short ceilings unless the ask names its own, and the front of the line
         int maxTurns = args.path("max_turns").asInt(quick ? Explain.QUICK_TURNS : DEFAULT_TURNS);
@@ -1350,6 +1421,7 @@ public final class LibraryProtocol {
         String who = patron.anonymous() ? "anonymous" : patron.did();
         ObjectNode a = M.createObjectNode();
         a.put("question", question); a.put("mode", mode); a.put("max_turns", maxTurns); a.put("max_minutes", maxMinutes);
+        if (!readIn.isEmpty()) { ArrayNode ri = a.putArray("read_in"); readIn.forEach(ri::add); }
         if (quick) a.put("quick", true);
         if (args.path("sub_questions").isArray() && args.path("sub_questions").size() > 0) {
             ArrayNode subs = a.putArray("sub_questions");

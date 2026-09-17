@@ -24,6 +24,7 @@ public final class LibrarianCli {
               status                       counts, drafts, stale reviews, problems
               name [<name…>]               show or set the library's name (the folder's name until you set one)
               refresh                      re-index the files that changed or were removed (takes seconds)
+              repair                       fix what an earlier version saved wrongly, such as a database or PDF saved as unreadable text. The service does this by itself once after each update
               rebuild                      rebuild the whole search index and INDEX.md from the files (slow: every entry is read again)
               ask <question…>              what the library holds on a question, with sources
               chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, start a research run, read what it found, decide the inbox. /help inside
@@ -294,6 +295,8 @@ public final class LibrarianCli {
         }
         // a model server of this machine's own, installed by an earlier release: bring it up to this one (the embeddings server beside the model)
         try { String up = ModelServer.upgrade(System.out); if (up.startsWith("!")) System.out.println("  model server not upgraded: " + up.substring(1)); } catch (Exception ignored) { }
+        // what an update owes the library: things an earlier version saved wrongly are fixed by this one, once per version
+        try { Repairs.Outcome fixed = Repairs.onceFor(store, org.researchzosho.Version.number() == null ? "dev" : org.researchzosho.Version.number()); if (fixed != null && !fixed.repaired().isEmpty()) { System.out.println("  repaired after the update: " + fixed.summary()); for (String r : fixed.repaired()) System.out.println("    " + r); } } catch (Exception e) { System.out.println("  repair skipped: " + e.getMessage()); }
         LibrarianDaemon d = LibrarianDaemon.start(store, host, port, baseUrl, model, hour);
         Service.recordPid();
         var id = store.identity();
@@ -370,6 +373,13 @@ public final class LibrarianCli {
                     System.out.println("Research runs now save their drafts here.");
                 }
                 case "status" -> { status(store); String up = org.researchzosho.Version.updateNotice(); if (!up.isEmpty()) System.out.println("\n" + up); }
+                case "repair" -> {
+                    Repairs.Outcome o = Repairs.run(store);
+                    System.out.println(o.summary());
+                    for (String r : o.repaired()) System.out.println("  repaired: " + r);
+                    for (String r : o.leftAlone()) System.out.println("  left alone: " + r);
+                    return 0;
+                }
                 case "refresh" -> {
                     // what changed on disk since the last pass, and what is gone — seconds, where a rebuild re-embeds everything
                     int n = new LibrarianIndex(store).refresh();
@@ -1040,6 +1050,11 @@ public final class LibrarianCli {
     }
 
     /** `researchzosho chat`: the terminal front of the Librarian. Lines in, replies out; a few slash commands. */
+    /** How often the terminal chat looks at the runs it follows. */
+    static final int CHAT_WATCH_SECONDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_WATCH_SECONDS", 15);
+    /** The terminal chat prints a followed run's line on every stage change, and this often in between. */
+    static final int CHAT_STATUS_MINUTES = Math.max(1, org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_STATUS_MINUTES", 5));
+
     static int chat(LibraryStore store, String[] args, String baseUrl, String model) throws Exception {
         Librarian.Session session = null;
         for (int i = 2; i < args.length; i++) {
@@ -1053,28 +1068,54 @@ public final class LibrarianCli {
         // a quiet screen: the drive's request lines belong in a log, not between the person and the Librarian
         try { ((ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger("org.researchzosho")).setLevel(ch.qos.logback.classic.Level.WARN); } catch (Throwable ignored) { }
         Librarian lib = new Librarian(store, drive, Librarian.person(), session);
-        var in = new java.io.BufferedReader(new java.io.InputStreamReader(System.in, java.nio.charset.StandardCharsets.UTF_8));
+        ChatIo io = ChatIo.open(store);
         String name = store.identity().name();
         System.out.println("The Librarian of " + name + ". Session " + session.id + (session.messages().isEmpty() ? "" : ", continued") + ". /help for the commands, /quit to leave.");
         if (!session.messages().isEmpty()) { var ms = session.messages(); for (int i = Math.max(0, ms.size() - 2); i < ms.size(); i++) { var m = ms.get(i); if (m.path("role").asText().equals("user")) System.out.println("\n> " + m.path("content").asText()); else if (m.path("role").asText().equals("assistant") && !m.path("content").asText("").isBlank()) System.out.println("\n" + m.path("content").asText()); } }
+        // the chat follows the runs it starts: a line when a run's stage changes, one notice when it is done
+        final Librarian.Session[] current = {session};
+        Thread watcher = new Thread(() -> {
+            java.util.Map<String, String> lastStage = new java.util.HashMap<>(), lastMinute = new java.util.HashMap<>();
+            LibraryProtocol lp = new LibraryProtocol(store);
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(CHAT_WATCH_SECONDS * 1000L);
+                    for (String jobId : current[0].watched()) {
+                        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("job_id", jobId);
+                        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+                        RunProgress.View v = RunProgress.of(lp.job(a).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, a.path("patron")));
+                        if (!v.active()) { io.notifyLine("  " + current[0].told(jobId, v)); lastStage.remove(jobId); continue; }
+                        long minute = v.elapsedSeconds() / 60;
+                        boolean due = minute > 0 && minute % CHAT_STATUS_MINUTES == 0 && !String.valueOf(minute).equals(lastMinute.put(jobId, String.valueOf(minute)));   // a long stage is not silent
+                        if (!v.stage().equals(lastStage.put(jobId, v.stage())) || due) io.notifyLine("  " + RunProgress.line(v));
+                    }
+                } catch (InterruptedException e) { return; } catch (Exception ignored) { }
+            }
+        }, "chat-runs");
+        watcher.setDaemon(true); watcher.start();
+        java.util.Set<String> announced = new java.util.HashSet<>(session.watched());
         while (true) {
-            System.out.print("\n> "); System.out.flush();
-            String line = in.readLine();
+            System.out.println();
+            String line = io.readLine("> ");
             if (line == null) break;
             line = line.strip();
             if (line.isEmpty()) continue;
             if (Librarian.QUIT.contains(line)) break;
-            if (line.equals("/help")) { System.out.println("  say anything · /new (a fresh conversation) · /sessions · /resume <id> · /quit\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers"); continue; }
-            if (line.equals("/new")) { session = Librarian.Session.open(store); lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
+            if (line.equals("/help")) { System.out.println("  say anything · /new (a fresh conversation) · /runs (the research runs this chat follows) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers"); continue; }
+            if (line.equals("/new")) { session = Librarian.Session.open(store); current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
+            if (line.equals("/runs")) { LibraryProtocol lp2 = new LibraryProtocol(store); java.util.List<String> w = session.watched(); if (w.isEmpty()) System.out.println("  no research run is being followed in this conversation"); for (String jobId : w) { var a2 = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("job_id", jobId); a2.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli"); try { System.out.println("  " + RunProgress.line(RunProgress.of(lp2.job(a2).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp2, a2.path("patron"))))); } catch (Exception e) { System.out.println("  " + jobId + ": " + e.getMessage()); } } continue; }
             if (line.equals("/sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } continue; }
-            if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
+            if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
             if (line.startsWith("/")) { System.out.println("  not a command; /help lists them"); continue; }
             System.out.print("  …"); System.out.flush();
             String reply;
             try { reply = lib.say(line); } catch (Exception e) { reply = "(the model did not answer: " + e.getMessage() + ")"; }
             System.out.print("\r   \r");
-            System.out.println(reply);
+            synchronized (System.out) { System.out.println(reply); }
+            for (String jobId : current[0].watched()) if (announced.add(jobId)) System.out.println("  following " + jobId + ": this chat shows its stage and says when it is done. /runs shows it now");
         }
+        watcher.interrupt();
+        io.close();
         System.out.println("Session " + session.id + " is kept; researchzosho chat continues it.");
         return 0;
     }
@@ -1094,6 +1135,7 @@ public final class LibrarianCli {
             System.out.println("  queued " + j.path("queued_at").asText() + (j.hasNonNull("started_at") ? " · started " + j.get("started_at").asText() : "") + (j.hasNonNull("ended_at") ? " · ended " + j.get("ended_at").asText() : "") + " · " + elapsed(j.path("elapsed_s").asLong()));
             if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText());
             if (j.hasNonNull("waiting")) System.out.println("  waiting: " + j.get("waiting").asText());
+            if (j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(new LibraryProtocol(store), a.path("patron"))); System.out.println("  " + v.stage() + " · " + RunProgress.elapsed(v.elapsedSeconds()) + " elapsed · about " + v.percent() + "% done"); }
             if (j.has("progress") && j.get("progress").isObject()) System.out.println("  progress: " + progressWords(j.get("progress")));
             if (j.hasNonNull("investigation")) System.out.println("  report: " + j.get("investigation").asText() + "  (researchzosho export " + j.get("investigation").asText() + " --md, or the Runs page)");
             if (j.hasNonNull("result") && !j.get("result").asText().isBlank()) System.out.println("  " + (j.path("is_error").asBoolean(false) ? "error: " : "result: ") + Acquisitions.compress(j.get("result").asText(), 300));

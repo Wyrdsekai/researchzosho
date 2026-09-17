@@ -102,6 +102,54 @@ class CalibreTest {
         org.researchzosho.tools.DocText.Doc od = org.researchzosho.tools.DocText.convert(Files.readAllBytes(other), "other.db");
         assertEquals("sqlite", od.kind()); assertTrue(od.text().contains("- notes: 2 row(s)"), od.text());
         assertFalse(org.researchzosho.tools.DocText.isSqlite("SQLite format 3 is a phrase".getBytes()), "the header is sixteen exact bytes, not the words");
+        // a question that names the database: the library reads it in before the run, and tells the run where to look
+        LibraryStore store3 = new LibraryStore(home.resolve("lib3")); store3.init();
+        new LibrarianIndex(store3, Embeddings.none()).rebuild();
+        // an old unreadable copy, as an earlier version saved it: the readable one replaces it
+        java.nio.file.Path old = store3.rawDir().resolve("2026-09-01-" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest((lib.resolve("metadata.db").toUri().toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)), 0, 6) + ".md");
+        Files.createDirectories(old.getParent());
+        Files.writeString(old, "---\nurl: " + lib.resolve("metadata.db").toUri() + "\ntitle: metadata\n---\nSQLite format 3\u0000\u0010\u0000\u0001\u0001 binary \u0000\u0000\u0000");
+        assertTrue(RawCapture.looksBinary(RawCapture.read(old)[2]), "a database saved as text is unreadable");
+        ObjectNode ask = M.createObjectNode().put("question", "First, read the calibre database at " + lib.resolve("metadata.db") + " with sqlite3, then recommend books I do not own.");
+        ask.putObject("patron").put("did", "person").put("name", "keeper").put("runtime", "cli");
+        LibraryProtocol p3 = new LibraryProtocol(store3);
+        ObjectNode filed = p3.research(ask);
+        assertTrue(filed.path("job_id").asText().startsWith("J-"));
+        assertEquals(3, Holdings.size(store3), "the books are a list the run can look up");
+        assertFalse(Files.exists(old), "the old unreadable copy of the file is gone");
+        var jobs3 = new Jobs(store3, j -> { throw new IllegalStateException("read only"); });
+        String q3 = jobs3.active().get(0).path("args").path("question").asText();
+        assertTrue(q3.contains("[Before this run the library read in: the Calibre library at " + lib.resolve("metadata.db")) && q3.contains("(3 books)") && q3.contains("holdings tool"), q3);
+        // a stranger's question does not make the library open files
+        ObjectNode stranger = M.createObjectNode().put("question", "Read " + lib.resolve("metadata.db") + " and list the books in it please.");
+        stranger.putObject("patron").put("did", "did:key:zStranger").put("name", "s").put("runtime", "mcp");
+        Patrons.setDefault(store3, Patrons.Level.write);
+        assertTrue(p3.readInNamedFiles(stranger.path("question").asText(), stranger.path("patron"), Patrons.Patron.from(stranger)).isEmpty());
+        // a path with a space in it (Calibre's own default folder) is found whole, with the punctuation after it left out
+        assertEquals(List.of(lib.resolve("metadata.db")), LibraryProtocol.namedPaths("read " + lib.resolve("metadata.db") + ", then stop."));
+        assertEquals(List.of(lib), LibraryProtocol.namedPaths("my books are in " + lib + " (the whole folder)"));
+        // a path that does not exist is left alone
+        assertTrue(p3.readInNamedFiles("see /no/such/file.db please", ask.path("patron"), Patrons.Patron.from(ask)).isEmpty());
+        // an update repairs what an earlier version saved wrongly, by itself, once per version
+        LibraryStore store4 = new LibraryStore(home.resolve("lib4")); store4.init();
+        new LibrarianIndex(store4, Embeddings.none()).rebuild();
+        String loc = lib.resolve("metadata.db").toUri().toString();
+        java.nio.file.Path bad = store4.rawDir().resolve("2026-09-01-" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(loc.getBytes(java.nio.charset.StandardCharsets.UTF_8)), 0, 6) + ".md");
+        Files.createDirectories(bad.getParent());
+        Files.writeString(bad, "---\nurl: " + loc + "\ntitle: metadata\n---\nSQLite format 3\u0000\u0010\u0000\u0001\u0001 binary \u0000\u0000\u0000");
+        java.nio.file.Path orphan = store4.rawDir().resolve("2026-09-01-aaaaaaaaaaaa.md");
+        Files.writeString(orphan, "---\nurl: file:///no/such/file.pdf\ntitle: gone\n---\n%PDF-1.7 \u0000\u0001\u0002 binary");
+        assertEquals(2, Repairs.unreadable(store4).size());
+        assertFalse(Repairs.doneFor(store4, "9.9.9"));
+        Repairs.Outcome fixed = Repairs.onceFor(store4, "9.9.9");
+        assertEquals(1, fixed.repaired().size(), fixed.toString());
+        assertTrue(fixed.repaired().get(0).contains("is now the list \"Calibre library (3 books)\""), fixed.repaired().get(0));
+        assertEquals(1, fixed.leftAlone().size(), "the page whose file is gone is left alone and counted");
+        assertFalse(Files.exists(bad), "the unreadable copy is gone"); assertTrue(Files.exists(orphan));
+        assertEquals(3, Holdings.size(store4), "and the books can be looked up");
+        assertTrue(fixed.summary().startsWith("1 repaired, 1 unreadable and left alone"), fixed.summary());
+        assertNull(Repairs.onceFor(store4, "9.9.9"), "once per version");
+        assertNotNull(Repairs.onceFor(store4, "9.9.10"), "and again after the next update");
         // the database stays untouched: the file is the same afterwards
         long before = Files.size(lib.resolve("metadata.db"));
         Calibre.read(lib);

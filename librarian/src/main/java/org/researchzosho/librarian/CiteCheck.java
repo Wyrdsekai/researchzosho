@@ -247,6 +247,7 @@ public final class CiteCheck {
             for (Marker mk : ms) {
                 Ref ref = map(mk.inner(), refs);
                 if (ref == null) continue;
+                if (mk.end() <= clauseStart) continue;   // a marker inside one already taken, as in "(Field 1866 [3])": the outer one closed that clause; cutting from 143 to 103 lost a finished run (2026-09-17)
                 spans.add(new int[]{clauseStart, mk.end()});
                 mapped.add(ref);
                 clauseStart = mk.end();

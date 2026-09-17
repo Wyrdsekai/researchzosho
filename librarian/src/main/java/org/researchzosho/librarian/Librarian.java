@@ -39,6 +39,10 @@ public class Librarian {
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
             "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
             "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings");
+    /** The tools that can start a research run, and the shape of a run's id in their result. */
+    static final java.util.Set<String> STARTS_RUNS = java.util.Set.of("library_research", "library_absorb", "library_items", "library_check", "library_questions", "library_meeting", "library_bridges", "library_survey");
+    static final java.util.regex.Pattern JOB_ID = java.util.regex.Pattern.compile("\"(J-\\d{3,})\"");
+
     /** Tool rounds one turn may take before the Librarian has to speak. */
     static final int MAX_TOOL_ROUNDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_TOOL_ROUNDS", 5);
     /** Look-ups one turn may make in all; past it the Librarian answers from what it has (17 opens on one question, 2026-09-13). */
@@ -99,6 +103,7 @@ public class Librarian {
                     JsonNode args = Researcher.parseArgs(c.path("function").path("arguments"));
                     String result = call(name, args);
                     toolsCalled.add(name);
+                    if (STARTS_RUNS.contains(name)) { java.util.regex.Matcher jm = JOB_ID.matcher(result); while (jm.find()) session.watch(jm.group(1)); }   // the chat follows the runs it starts
                     ObjectNode tm = M.createObjectNode(); tm.put("role", "tool"); tm.put("tool_call_id", c.path("id").asText("")); tm.put("name", name); tm.put("content", result);
                     session.append(tm);
                     evidence.append('\n').append(result); turnEvidence.append('\n').append(result);
@@ -187,7 +192,7 @@ public class Librarian {
                 + "2. Every fact carries where it came from: the entry id or the source, so the person can open it.\n"
                 + "3. Read a follow-up against the conversation. \"Why\" after an answer means why that answer; \"the other one\" resolves to what was shown. A change of subject is a new thread; say so.\n"
                 + "4. After an answer, offer one adjacent thing: a related finding, an open question, a claim that disagrees, a serial that watches this. One, not a list.\n"
-                + "5. \"Find out\" means file a research run with library_research: say what it will cost and that it takes a while, then carry on. When asked how it went, use library_job and library_get and give the answer section and the checks, not the whole text. A plain yes from the person is enough to file a run or to accept an inbox item.\n"
+                + "5. \"Find out\" means file a research run with library_research: say in one sentence that it has started and that it usually takes twenty to forty minutes, then carry on. The chat itself shows the run's stage and tells the person when it is done, so never tell them to ask how it is going. When a run is done and they say \"show it\", or they ask how it went, use library_job and library_get and give the answer section and the checks, not the whole text. A plain yes from the person is enough to file a run or to accept an inbox item.\n"
                 + "6. Short exact sentences. No enthusiasm, no apology, no filler. Courteous.\n"
                 + "7. Never state a name, a number, a date or a quotation that is not in a tool result. If you must estimate, say it is an estimate.\n"
                 + "Look things up before answering, and read only what the answer needs: library_ask for a question (it returns the relevant entries whole), library_search for a term, library_get to open one entry, library_map around a name, library_inbox for what waits, library_frontier for open questions, library_changes for what is new. A few look-ups a turn, then answer; a list that says N of M shown is a list of M. "
@@ -427,6 +432,36 @@ public class Librarian {
             if (!Files.isDirectory(dir(store))) return out;
             try (var l = Files.list(dir(store))) { l.filter(p -> p.getFileName().toString().endsWith(".jsonl")).map(p -> p.getFileName().toString().replace(".jsonl", "")).sorted(java.util.Comparator.reverseOrder()).forEach(out::add); }
             return out;
+        }
+
+        // ---- the research runs this conversation started: watched until each is done and the person has been told ----
+
+        Path runsFile() { return file.resolveSibling(id + ".runs"); }
+
+        /** Every run this conversation started, oldest first; "!" before an id means the person has been told it is done. */
+        List<String> runLines() { try { return Files.exists(runsFile()) ? Files.readAllLines(runsFile(), StandardCharsets.UTF_8) : List.of(); } catch (IOException e) { return List.of(); } }
+
+        /** Start watching a run. */
+        public void watch(String jobId) throws IOException {
+            for (String l : runLines()) if (l.replace("!", "").strip().equals(jobId)) return;
+            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); }   // a conversation that follows a run can be resumed, even before anything is said in it
+            Files.writeString(runsFile(), jobId + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        }
+
+        /** The runs the person has not yet been told are done. */
+        public List<String> watched() { List<String> out = new ArrayList<>(); for (String l : runLines()) if (!l.isBlank() && !l.startsWith("!")) out.add(l.strip()); return out; }
+
+        /** A run finished: say so once, as the Librarian, so "show it" has something to point at; stop watching it. */
+        public String told(String jobId, RunProgress.View v) throws IOException {
+            String notice = v.state().equals("done")
+                    ? "Research run " + jobId + " is done after " + RunProgress.elapsed(v.elapsedSeconds()) + (v.report().isEmpty() ? "." : ". Its report is [" + v.report() + "].") + " Say \"show it\" to read the answer."
+                    : "Research run " + jobId + " ended as " + v.state() + " after " + RunProgress.elapsed(v.elapsedSeconds()) + ". Say \"what happened\" and I will look.";
+            ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", notice);
+            append(a);
+            List<String> lines = new ArrayList<>();
+            for (String l : runLines()) lines.add(l.strip().equals(jobId) ? "!" + jobId : l);
+            Files.writeString(runsFile(), String.join("\n", lines) + "\n", StandardCharsets.UTF_8);
+            return notice;
         }
 
         void append(ObjectNode m) throws IOException {

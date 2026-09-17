@@ -33,7 +33,7 @@ final class Pages {
     static boolean isPage(String path) {
         return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/remove");
+                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/remove");
     }
 
     /** One page. {@code form} holds the POSTed fields (empty on GET); {@code patron} is who the cookie or header proved. */
@@ -41,11 +41,13 @@ final class Pages {
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
         LibraryProtocol p = new LibraryProtocol(store);
+        TYPICAL = () -> RunProgress.typicalSeconds(p, LibrarianDaemon.patronNode(Patrons.Patron.PERSON));   // looked up at most every five minutes
         try {
             switch (path) {
                 case "/" -> send(x, 200, home(d, store, p, patron));
                 case "/search" -> send(x, 200, search(store, p, patron, q));
                 case "/ask" -> send(x, 200, ask(store, p, patron, q));
+                case "/chat/runs" -> send(x, 200, chatRuns(store, p, patron, q.getOrDefault("session", "")));
                 case "/chat" -> { if ("POST".equals(method)) { chatPost(d, store, patron, form); redirect(x, "/chat"); } else send(x, 200, chat(store, patron, q)); }
                 case "/read" -> send(x, 200, read(store, p, patron, q));
                 case "/subjects" -> send(x, 200, subjects(store, p, patron));
@@ -739,6 +741,7 @@ final class Pages {
         b.append(" · ").append(j.path("elapsed_s").asLong()).append(" s");
         if (j.hasNonNull("drive")) b.append(" · on ").append(esc(j.path("drive").asText()));
         b.append("</p>");
+        if (live && j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(p, args(patron).path("patron"))); b.append("<p><b>").append(esc(v.stage())).append("</b> · ").append(esc(RunProgress.elapsed(v.elapsedSeconds()))).append(" elapsed · about ").append(v.percent()).append("% done <progress max=\"100\" value=\"").append(v.percent()).append("\"></progress></p>"); }
         if (live && j.has("progress")) b.append("<p class=\"k\">").append(esc(progressLine(j.get("progress")))).append("</p>");
         if (live && j.hasNonNull("waiting")) b.append("<p class=\"k\">Waiting for the model: ").append(esc(j.get("waiting").asText())).append(". A model server that sleeps between uses is starting.</p>");
         if (j.hasNonNull("question")) b.append("<p><b>").append(esc(j.path("question").asText())).append("</b></p>");
@@ -1110,8 +1113,18 @@ final class Pages {
     static String jobLine(JsonNode j) {
         String id = j.path("job_id").asText();
         return "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a> " + badge(j.path("state").asText()) + (j.hasNonNull("waiting") ? " <span class=\"badge\">waiting for the model</span>" : "") + " <span class=\"k\">" + esc(j.path("kind").asText()) + " · " + j.path("elapsed_s").asLong() + " s</span>"
+                + (j.path("state").asText().equals("running") ? runBar(j) : "")
                 + (j.hasNonNull("question") ? "<br>" + esc(Acquisitions.compress(j.path("question").asText(), 160)) : "")
                 + (j.hasNonNull("investigation") ? " → " + idLink(j.path("investigation").asText()) : "");
+    }
+
+    /** How long a run usually takes here, for list rows that have no protocol at hand; set by the pages that do. */
+    static volatile java.util.function.LongSupplier TYPICAL = () -> 0;
+
+    /** A running run's stage, time and percent with a bar, for a list row. */
+    static String runBar(JsonNode j) {
+        RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), TYPICAL.getAsLong());
+        return "<br><span class=\"k\">" + esc(v.stage()) + " · " + esc(RunProgress.elapsed(v.elapsedSeconds())) + " elapsed · about " + v.percent() + "% done</span> <progress max=\"100\" value=\"" + v.percent() + "\"></progress>";
     }
 
     /** Markdown marks stripped, for a one-paragraph preview. */
@@ -1264,6 +1277,11 @@ final class Pages {
                 + "Session <code>").append(esc(s.id)).append("</code> · <a href=\"/chat?new=1\">new conversation</a>");
         List<String> ids = Librarian.Session.list(store);
         if (ids.size() > 1) { b.append(" · earlier: "); int n = 0; for (String id : ids) { if (id.equals(s.id)) continue; if (n++ >= 5) break; b.append("<a href=\"/chat?session=").append(enc(id)).append("\">").append(esc(id.substring(2, Math.min(id.length(), 18)))).append("</a> "); } }
+        // the runs this conversation started: a finished one is announced once, in the conversation itself
+        LibraryProtocol lp = new LibraryProtocol(store);
+        for (String jobId : s.watched()) {
+            try { RunProgress.View v = RunProgress.of(lp.job(args(patron).put("job_id", jobId)).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, args(patron).path("patron"))); if (!v.active()) s.told(jobId, v); } catch (Exception ignored) { }
+        }
         b.append("</p><div class=\"chat\">");
         for (JsonNode m : s.messages()) {
             String role = m.path("role").asText();
@@ -1271,10 +1289,38 @@ final class Pages {
             else if (role.equals("assistant") && !m.path("content").asText("").isBlank() && !m.has("tool_calls")) b.append("<div class=\"say lib\"><b>The Librarian</b>").append(prose(m.path("content").asText(""))).append("</div>");
             else if (role.equals("tool")) b.append("<p class=\"k tool\">looked up: ").append(esc(m.path("name").asText("a tool"))).append("</p>");
         }
-        b.append("</div><form class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
+        b.append("</div>");
+        if (!s.watched().isEmpty()) {
+            // the runs still going: their stage, time and percent, refreshed in place so what is being typed stays
+            b.append("<div id=\"runs-strip\" data-session=\"").append(esc(s.id)).append("\">").append(runsStrip(lp, patron, s)).append("</div>")
+             .append("<script>(function(){var el=document.getElementById('runs-strip');if(!el)return;setInterval(function(){fetch('/chat/runs?session='+encodeURIComponent(el.dataset.session)).then(function(r){return r.text()}).then(function(t){el.innerHTML=t}).catch(function(){})},15000)})();</script>");
+        }
+        b.append("<form class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
          .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required><button>Send</button></form>")
-         .append("<p class=\"k\">The reply appears when the model has finished. This can take a while.</p>");
+         .append("<p class=\"k\">The reply appears when the model has finished. This can take a while. A research run you start here shows its progress above, and the chat says when it is done.</p>");
         return page(store, patron, "Chat", b.toString());
+    }
+
+    /** The research runs a conversation follows, one line each: stage, time, percent, a bar; a finished one links to its report. */
+    static String runsStrip(LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s) {
+        StringBuilder b = new StringBuilder();
+        for (String jobId : s.watched()) {
+            try {
+                RunProgress.View v = RunProgress.of(lp.job(args(patron).put("job_id", jobId)).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, args(patron).path("patron")));
+                b.append("<p class=\"k run\"><a href=\"/jobs/").append(enc(jobId)).append("\">").append(esc(jobId)).append("</a> ");
+                if (v.active()) b.append(esc(v.stage())).append(" · ").append(esc(RunProgress.elapsed(v.elapsedSeconds()))).append(" elapsed · about ").append(v.percent()).append("% done <progress max=\"100\" value=\"").append(v.percent()).append("\"></progress>");
+                else b.append(esc(v.stage())).append(" after ").append(esc(RunProgress.elapsed(v.elapsedSeconds()))).append(v.report().isEmpty() ? "" : ". " + idLink(v.report(), "Read the report")).append(". <a href=\"/chat?session=").append(enc(s.id)).append("\">Show it in the chat</a>");
+                b.append("</p>");
+            } catch (Exception e) { b.append("<p class=\"k run\">").append(esc(jobId)).append(": ").append(esc(String.valueOf(e.getMessage()))).append("</p>"); }
+        }
+        return b.toString();
+    }
+
+    /** GET /chat/runs?session=…: the strip alone, for the page's own refresh. */
+    static String chatRuns(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, String sessionId) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        Librarian.Session s = sessionId.isBlank() ? null : Librarian.Session.resume(store, sessionId);
+        return s == null ? "" : runsStrip(lp, patron, s);
     }
 
     /** One turn from the form: the words go to the Librarian, the reply lands in the session, the page shows it. */
@@ -1342,7 +1388,7 @@ final class Pages {
             + ".body{margin:1em 0}.triple{font-style:italic}code{font-size:.92em}"
             + ".notice{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);padding:.6em 1em}"
             + ".working{display:flex;gap:1em;align-items:flex-start;margin:1.5em 0}.spin{flex:none;width:22px;height:22px;margin-top:1em;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}"
-            + ".body{word-break:break-word}p.src{margin:.3em 0}"
+            + ".body{word-break:break-word}p.src{margin:.3em 0}progress{width:10em;height:.7em;vertical-align:middle;accent-color:var(--accent)}p.run{margin:.3em 0}"
             + "p.ref{margin:.3em 0;padding-left:2.2em;text-indent:-2.2em;word-break:break-word}p.ref b{color:var(--k)}"
             + ".tablewrap{overflow-x:auto;margin:1em 0}table{border-collapse:collapse;font-size:.92em;min-width:100%}th,td{border:1px solid var(--line);padding:.4em .6em;vertical-align:top;text-align:left}th{background:var(--card)}"
             + ".reading p{margin:.8em 0}a.cite{font-size:.8em;text-decoration:none;color:var(--k)}.mark{font-size:.8em;padding:0 .4em;border-radius:.5em;background:var(--line)}.mark.bad{background:var(--accent);color:#fff}form.inline{display:inline}";
@@ -1375,7 +1421,7 @@ final class Pages {
         x.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         // no scripts, except: the map (its own script, its own data) and a pick form (the "all" and group boxes tick the others
         // with an inline handler; with scripts blocked they ticked nothing, 2026-09-09)
-        x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>")
+        x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>") || html.contains("id=\"runs-strip\"")
                 ? "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'"
                 : html.contains("class=\"pick\"")
                 ? "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'"

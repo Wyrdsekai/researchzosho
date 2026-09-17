@@ -642,7 +642,10 @@ public final class Researcher {
         synchronized (fetchedInRun) { for (String l : fetchedInRun) readCanon.add(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l); }
         java.util.Set<Integer> unread = new java.util.HashSet<>();
         { int k = 0; for (List<String> group : byWork.values()) { k++; boolean read = false; for (String l : group) if (readCanon.contains(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l) || l.startsWith("cite:") || l.startsWith("file://")) { read = true; break; } if (!read) unread.add(k); } }
-        CiteCheck.Outcome cc = CiteCheck.run(store, text, refs, judge, budget, unread);
+        // the check reads a finished write-up: whatever goes wrong inside it, the write-up is kept and the report says the check did not run
+        CiteCheck.Outcome cc;
+        try { cc = CiteCheck.run(store, text, refs, judge, budget, unread); }
+        catch (RuntimeException e) { cc = new CiteCheck.Outcome(text, 0, 0, 0, 0, List.of("the citation check could not run on this report (" + e + "); its citations are unchecked"), 0, 0, 0); }
         runStats.put("cite_checked", cc.checked()); runStats.put("cite_supported", cc.supported()); runStats.put("cite_unsupported", cc.unsupported());
         runStats.put("cite_unmapped", cc.unmapped()); runStats.put("references", byWork.size()); runStats.put("coverage_flags", coverageFlags.size());
         runStats.put("cite_mechanical", cc.mechanical()); runStats.put("cite_overruled", cc.overruled()); runStats.put("cite_unretrieved", cc.unretrieved());
@@ -1306,6 +1309,7 @@ public final class Researcher {
             java.nio.file.Path p = RawCapture.find(store, url);
             if (p == null) return "ERROR: nothing captured for " + url + " — web_fetch it first.";
             String text = RawCapture.read(p)[2];
+            if (RawCapture.looksBinary(text)) return "ERROR: the saved copy of " + url + " is not readable text (it was saved from a binary file). It cannot be read page by page. If it is a list the person owns, such as a book database, use the holdings tool instead.";
             int pages = Math.max(1, (text.length() + PAGE_CHARS - 1) / PAGE_CHARS);
             if (page > pages) return "ERROR: " + url + " has " + pages + " page(s).";
             String body = text.substring((page - 1) * PAGE_CHARS, Math.min(text.length(), page * PAGE_CHARS));

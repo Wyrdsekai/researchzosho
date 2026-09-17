@@ -80,6 +80,15 @@ public final class RawCapture {
                     ? text.substring(0, MAX_TEXT) + "\n\n[truncated at capture]" : text;
             String t = title == null ? "" : title.strip().replaceAll("\\s+", " ");
             Files.createDirectories(p.getParent());
+            // an older capture of the same locator that is unreadable binary gives way to this readable one: a database or a
+            // PDF mis-saved as text by an earlier version would otherwise stay what the library holds for that file (2026-09-17)
+            if (!looksBinary(body)) {
+                try (var older = Files.list(p.getParent())) {
+                    for (Path o : older.filter(x -> x.getFileName().toString().endsWith("-" + hash + ".md") && !x.equals(p)).toList()) {
+                        try { if (linkedFile(o) == null && looksBinary(read(o)[2])) Files.delete(o); } catch (Exception ignored) { }
+                    }
+                } catch (Exception ignored) { }
+            }
             Files.writeString(p, "---\nurl: " + locator + "\ntitle: " + t + "\nfetched_at: "
                     + Instant.now() + "\nfetched_by: " + by + (collection == null || collection.isBlank() ? "" : "\ncollection: " + collection) + (published == null || published.isBlank() ? "" : "\npublished: " + published) + "\n---\n" + body, StandardCharsets.UTF_8);
             // raw joins the catalog: "do we hold anything on X?" must see the documents, not
@@ -164,10 +173,25 @@ public final class RawCapture {
 
     /** A capture that is bytes, not text: a PDF/zip header, or a body dense with control and
      *  replacement characters. Mechanical, so the immutability exception cannot be argued with. */
+    /** Delete the saved copies of a locator that are unreadable binary. Returns how many went. A file read in again through another door (a database read as a list) must not leave its old unreadable copy for a run to find. */
+    public static int dropUnreadable(LibraryStore store, String locator) {
+        int gone = 0;
+        try {
+            String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(locator.getBytes(StandardCharsets.UTF_8)), 0, 6);
+            if (!Files.isDirectory(store.rawDir())) return 0;
+            try (var files = Files.list(store.rawDir())) {
+                for (Path o : files.filter(x -> x.getFileName().toString().endsWith("-" + hash + ".md")).toList()) {
+                    try { if (linkedFile(o) == null && looksBinary(read(o)[2])) { Files.delete(o); gone++; } } catch (Exception ignored) { }
+                }
+            }
+        } catch (Exception ignored) { }
+        return gone;
+    }
+
     public static boolean looksBinary(String body) {
         if (body == null) return false;
         String head = body.stripLeading();
-        if (head.startsWith("%PDF") || head.startsWith("PK")) return true;
+        if (head.startsWith("%PDF") || head.startsWith("PK") || head.startsWith("SQLite format 3")) return true;
         int n = Math.min(head.length(), 4000);
         if (n == 0) return false;
         int bad = 0;

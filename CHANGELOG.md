@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.4.4
+
+This release makes the chat follow the research runs it starts, so you no longer have to ask how a run is going. It will also properly select a file referenced by the questioner. It will also update earlier library versions to the latest version.
+
+### Added
+
+- The chat follows every research run it starts. The terminal chat prints a line when a run moves to a new stage, for example "Reading, 3 of 8 parts done · 12 min elapsed · about 40% done". When the run is done it prints one notice with the report's id. Say "show it" to read the answer. `/runs` shows the followed runs at any time. If you close the chat, the notice is there when you resume the conversation.
+- The web Chat page shows the same line for each followed run, with a progress bar, above the input box. It refreshes in place, so what you are typing stays. A finished run links to its report.
+- The Runs page, each run's own page, and "Running now" on the home page show the stage in plain words, the time elapsed, and about how far along the run is. `researchzosho jobs <id>` prints the same.
+- A question can name a file or a Calibre library on the machine where the library runs. The library reads it in before the run starts, because a research run cannot open files or run commands. A Calibre library or its `metadata.db` becomes a list, so the run can look up what you own. Any other document is added. Paths with spaces work. Only the library owner's questions do this.
+- `researchzosho repair` fixes what an earlier version saved wrongly, such as a database or a PDF saved as unreadable text. If the original file is still on disk, it is read again and the unreadable copy is removed. The service runs this by itself once after each update.
+- The percent is the larger of two numbers. One comes from the stage the run is in. The other comes from the clock: against the run's time limit when it has one, otherwise against how long research runs usually take in this library. It never reads 100 until the run is done. The terminal chat also prints the line every five minutes, so a long stage is not silent.
+- The terminal chat has a line editor. The up and down arrows go through what you typed before, in this and earlier sessions. Ctrl-R searches it. Ctrl-C clears the line. Ctrl-D leaves. Run notices appear above the prompt and do not disturb what you are typing. The history is kept in the library under `catalog/chat/history`. When input is a pipe, the chat reads plain lines as before.
+
+### Fixed
+
+- A research run no longer fails when a citation in square brackets sits inside a parenthetical citation, as in "(Field 1866, and see [3])". That lost a finished report at the last step.
+- If the citation check itself fails, the report is kept and says that its citations are unchecked. The run no longer fails.
+- A research run's page reader refuses a saved page that is unreadable binary and says so, instead of reading it page by page.
+- Reading a file in again replaces an older saved copy of it that is unreadable.
+
 ## 0.4.3
 
 This release rewrites the text on the web pages and in the command line in plain words. It changes no commands and no flags.

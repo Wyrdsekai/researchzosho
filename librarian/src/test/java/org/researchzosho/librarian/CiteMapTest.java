@@ -45,6 +45,20 @@ class CiteMapTest {
     }
 
     @Test
+    void aCitationInsideAnotherDoesNotBreakTheCheck(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        RawCapture.capture(store, "https://example.org/cable", "The 1858 transatlantic cable worked for about three weeks before its insulation failed.", "The cable", "test", "");
+        RawCapture.capture(store, "https://example.org/field", "Cyrus Field financed the 1858 cable and its 1866 successor.", "Field", "test", "");
+        List<CiteCheck.Ref> refs = List.of(new CiteCheck.Ref(1, "https://example.org/cable", "", "The cable"), new CiteCheck.Ref(3, "https://example.org/field", "", "Field"));
+        List<String> asked = new ArrayList<>();
+        // a bracketed number inside a parenthetical that itself names a source: the outer one closes the clause, the inner one is inside it.
+        // Cutting the inner one as its own clause asked for the text from 143 to 103 and lost a finished 36-minute run (2026-09-17).
+        String text = "The 1858 transatlantic cable worked for about three weeks before its insulation failed under high voltage (https://example.org/cable, and see [3]) and the 1866 cable replaced it.";
+        var out = CiteCheck.run(store, text, refs, judgeOf(asked), new Researcher.Budget(50));
+        assertEquals(1, out.checked(), "one clause, checked once, and no exception: " + out.problems());
+    }
+
+    @Test
     void theClauseACitationClosesIsWhatIsRead(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         RawCapture.capture(store, "https://example.org/readai", "In 159,870 meetings women spoke 9% more airtime when an AI notetaker was present.", "Read AI", "test", "");

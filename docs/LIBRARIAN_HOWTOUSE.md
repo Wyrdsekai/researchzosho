@@ -282,6 +282,17 @@ researchzosho add paper.pdf --for <address>         # supply the document yourse
 
 After you supply a document, the library uses your copy for that address.
 
+**Naming a file in the question.** A research run cannot open files or run commands on your machine.
+It reads the web and the library. If your question names a file that exists, the library reads it in
+before the run starts:
+
+```
+researchzosho research ask "Recommend books like the ones in ~/Calibre Library that I do not own"
+```
+
+A Calibre library or its `metadata.db` becomes a list, and the run can look up what you own. Any
+other document is added to the library. This happens only for the library owner's questions.
+
 ## 5. Reading the write-up
 
 The write-up appears on the web pages when the run is done, and in the vault if you use one. It
@@ -1000,6 +1011,30 @@ Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Co
 The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the
 model takes. The page returns when the reply is ready.
 
+**Research runs started from the chat.** The chat follows every run it starts. You do not have to ask
+how it is going.
+
+- When a run moves to a new stage, the terminal chat prints one line: the stage, the time elapsed,
+  and about how far along it is. For example: `J-0012 · Reading, 3 of 8 parts done · 12 min elapsed
+  · about 40% done`.
+- When the run is done, the chat prints one notice with the report's id. Say "show it" to read the
+  answer.
+- `/runs` shows the followed runs at any time.
+- If you close the chat first, the notice is waiting when you resume the conversation.
+- The web Chat page shows the same line for each run, with a progress bar, above the input box. It
+  refreshes in place.
+
+The stages are: Planning, Reading, Checking what is still missing, Writing the report, Checking
+citations, Saving the report and its claims. The percent is the larger of two numbers. One comes from
+the stage. The other comes from the clock: against the run's time limit when it has one, otherwise
+against how long research runs usually take in this library. It never reads 100 until the run is
+done. The terminal chat prints the line on every stage change and every five minutes.
+
+**Keys in the terminal chat.** The up and down arrows go through what you typed before, in this and
+earlier sessions. Ctrl-R searches it. Ctrl-C clears the line. Ctrl-D leaves. The history is kept in
+the library under `catalog/chat/history`.
+
+
 ## 12c. Bridges: questions that connect two subjects
 
 `researchzosho bridges` finds two subjects that share a concept but that no source connects. It writes
@@ -1253,7 +1288,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.3 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.4 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

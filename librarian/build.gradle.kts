@@ -21,6 +21,9 @@ dependencies {
     // works on all three platforms without poppler on PATH. The other document formats (DOCX, PPTX, ODT,
     // EPUB) are zip+XML and need no library — see tools/DocText.
     implementation("org.apache.pdfbox:pdfbox:3.0.8")
+    // The terminal chat's line editor: history with the arrow keys, Ctrl-R, notices above the prompt. The same version CodeZaiku ships.
+    implementation("org.jline:jline:4.0.4")
+
     // Calibre's metadata.db, read only (a Calibre library as a list of books)
     implementation("org.xerial:sqlite-jdbc:3.50.3.0")
 
