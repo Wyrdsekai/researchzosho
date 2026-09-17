@@ -52,6 +52,12 @@ class PagesTest {
             assertEquals(200, home.statusCode());
             assertTrue(home.headers().firstValue("content-type").orElse("").startsWith("text/html"));
             assertTrue(home.body().contains("2 claims") && home.body().contains("Open questions") && home.body().contains("sign in"), home.body());
+            // the header says which version this is, next to the library's name; the footer says it in full
+            String v = org.researchzosho.Version.number();
+            assertNotNull(v, "the build writes the version into a resource, so a run from the source tree knows it");
+            assertTrue(home.body().contains("<span class=\"ver\">" + v + "</span>"), "the version in the header: " + v);
+            assertTrue(home.body().contains("ResearchZosho " + org.researchzosho.Version.string()), "the version in the footer");
+            assertTrue(org.researchzosho.Version.string().equals(v) || org.researchzosho.Version.string().equals(v + " (source tree)"), org.researchzosho.Version.string());
 
             var search = get(c, base + "/search?q=gears", null);
             assertTrue(search.body().contains("/entry/F-0001-gears") && search.body().contains("The gears were cut by hand"), search.body());

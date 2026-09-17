@@ -21,6 +21,8 @@ dependencies {
     // works on all three platforms without poppler on PATH. The other document formats (DOCX, PPTX, ODT,
     // EPUB) are zip+XML and need no library — see tools/DocText.
     implementation("org.apache.pdfbox:pdfbox:3.0.8")
+    // Calibre's metadata.db, read only (a Calibre library as a list of books)
+    implementation("org.xerial:sqlite-jdbc:3.50.3.0")
 
     // HTTP: java.net.http, no dependency. The daemon: com.sun.net.httpserver, no dependency.
 }
@@ -85,4 +87,11 @@ distributions {
 tasks.register("printCp") {
     val cp = sourceSets["main"].runtimeClasspath
     doLast { println(cp.asPath) }
+}
+
+// A run from the source tree has no jar manifest; the version goes into a resource so the pages and --version can say it.
+tasks.processResources {
+    val v = project.version.toString()
+    inputs.property("version", v)
+    doLast { file("$destinationDir/org/researchzosho/version.txt").apply { parentFile.mkdirs(); writeText(v) } }
 }

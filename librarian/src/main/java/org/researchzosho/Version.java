@@ -11,7 +11,20 @@ public final class Version {
 
     public static String string() {
         String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();
-        return v == null || v.isBlank() ? "dev (from the source tree)" : v;
+        if (v != null && !v.isBlank()) return v;
+        String n = number();
+        return n == null ? "dev (from the source tree)" : n + " (source tree)";
+    }
+
+    /** The version number alone: from the jar's manifest, else from the resource the build writes; null when neither says. */
+    public static String number() {
+        String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();
+        if (v != null && !v.isBlank()) return v.strip();
+        try (java.io.InputStream in = Version.class.getResourceAsStream("/org/researchzosho/version.txt")) {
+            if (in == null) return null;
+            String r = new String(in.readAllBytes(), StandardCharsets.UTF_8).strip();
+            return r.isEmpty() ? null : r;
+        } catch (java.io.IOException e) { return null; }
     }
 
     /** Whether this is a release build (a number), not a run from the source tree. */

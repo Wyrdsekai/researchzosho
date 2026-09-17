@@ -383,6 +383,94 @@ public final class LibraryProtocol {
     }
 
     /**
+     * library_survey: a thing the person has, read as a starting point — a code repository, a paper, a website
+     * or product page, an issue tracker. op=survey (default) reads it (kind detected from the thing, or given),
+     * shelves the text, files one draft claim (what it is, what it says, what it rests on) and offers numbered
+     * directions on the open questions; nothing runs. op=pick with picks="1,3" files a research run per direction
+     * named. op=do with question files the person's own direction and its run. pick and do take the thing by name.
+     */
+    public ObjectNode survey(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String op = args.path("op").asText("survey").strip().toLowerCase(Locale.ROOT);
+        String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), name = args.path("name").asText("").strip();
+        if (path.startsWith("http://") || path.startsWith("https://") || Repos.isUrl(path)) { url = path; path = ""; }
+        if (!path.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: survey a file or a folder from the terminal or the library's own pages. A url works from here.");
+        String spec = path.isEmpty() ? url : path;
+        ObjectNode r = envelope();
+        r.put("op", op);
+        if (op.equals("survey")) {
+            if (spec.isEmpty()) throw ProtocolError.invalidArgs("Give the thing to read: a path on this machine (a repository folder, a paper, an export), or a url (a repository, a paper, a page, a GitHub issues page).");
+            Surveys.Kind kind;
+            String kindGiven = args.path("kind").asText("").strip().toLowerCase(Locale.ROOT);
+            try { kind = kindGiven.isEmpty() ? Surveys.detect(spec) : Surveys.Kind.valueOf(kindGiven); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("kind is repo, paper, site or issues"); }
+            Surveys.Read read;
+            try { read = Surveys.read(store, kind, spec); } catch (IOException e) { throw ProtocolError.unavailable(e.getMessage()); }
+            Surveys.Description d = Surveys.describe(read, Explain.drive());
+            Surveys.Filed f = Surveys.file(store, read, d, patron.writer());
+            r.put("kind", kind.name()); r.put("name", read.name()); r.put("origin", read.origin()); r.put("title", read.title());
+            ObjectNode facts = r.putObject("facts"); read.facts().forEach(facts::put);
+            r.put("what_it_is", d.whatItIs()); r.put("summary_text", d.summary());
+            ArrayNode cl = r.putArray("claims"); d.claims().forEach(cl::add);
+            ArrayNode ro = r.putArray("rests_on"); d.restsOn().forEach(ro::add);
+            ArrayNode lo = r.putArray("leaves_open"); d.leavesOpen().forEach(lo::add);
+            r.put("described_by", d.byModel() ? "model" : "mechanical");
+            r.put("raw", f.raw()); r.put("claim_id", f.claimId());
+            ArrayNode opts = r.putArray("options"); for (Surveys.Option o : f.options()) opts.addObject().put("n", o.n()).put("question", o.question());
+            ArrayNode already = r.putArray("already_open"); f.alreadyOpen().forEach(already::add);
+            String about = switch (kind) { case repo -> read.facts().getOrDefault("files", "?") + " files" + (read.facts().getOrDefault("languages", "").isEmpty() ? "" : "; " + read.facts().get("languages")); case paper, site -> read.facts().getOrDefault("characters", "?") + " characters"; case issues -> read.facts().getOrDefault("issues", "?") + " issues"; };
+            r.put("summary", "read the " + Surveys.noun(kind) + " " + read.name() + " (" + about + "): the text is on the shelves (collection " + Surveys.collection(kind) + "), one draft claim says what it is (" + f.claimId() + "), " + f.options().size() + " direction(s) are offered on the open questions; nothing runs until one is picked");
+            r.put("next", "op=pick with picks=\"1,3\" and name=\"" + read.name() + "\" files a research run per direction; op=do with question=\"…\" files your own");
+            return r;
+        }
+        if (name.isEmpty() && !spec.isEmpty()) name = Repos.nameOf(spec);
+        if (name.isEmpty()) throw ProtocolError.invalidArgs("Name the thing (name=…, as the survey called it) that was surveyed.");
+        Finding claim = Surveys.claimFor(store, name);
+        if (claim == null) throw ProtocolError.notFound("no survey named " + name + "; op=survey reads it first");
+        Surveys.Kind kind = Surveys.kindOf(claim);
+        String origin = claim.sources().isEmpty() ? name : claim.sources().get(0).locator();
+        r.put("kind", kind.name()); r.put("name", name); r.put("origin", origin); r.put("claim_id", claim.id());
+        ArrayNode runs = r.putArray("runs");
+        if (op.equals("pick")) {
+            String picks = args.path("picks").asText("").strip();
+            if (picks.isEmpty()) throw ProtocolError.invalidArgs("Say which directions to run: picks=\"1,3\" as the survey numbered them.");
+            List<Surveys.Option> options = Surveys.options(store, name);
+            List<Integer> wanted = new ArrayList<>();
+            for (String t : picks.split("[,\\s]+")) if (t.matches("\\d+")) wanted.add(Integer.parseInt(t));
+            if (wanted.isEmpty()) throw ProtocolError.invalidArgs("picks must be numbers, like \"1,3\"");
+            for (int n : wanted) {
+                Surveys.Option o = options.stream().filter(x -> x.n() == n).findFirst().orElse(null);
+                if (o == null) { runs.addObject().put("n", n).put("error", "no open direction numbered " + n + " for " + name); continue; }
+                ObjectNode ask = M.createObjectNode();
+                ask.put("question", Surveys.runQuestion(kind, name, origin, o.question())); ask.put("mode", "depth"); ask.put("sources", "both");
+                ask.set("patron", args.path("patron").deepCopy());
+                String job = research(ask).path("job_id").asText();
+                Frontier.markExplored(store, o.question(), job);
+                runs.addObject().put("n", n).put("question", o.question()).put("job_id", job);
+            }
+        } else if (op.equals("do")) {
+            String q = args.path("question").asText("").strip();
+            if (q.isEmpty()) throw ProtocolError.invalidArgs("Say what to research about " + name + ": question=\"…\"");
+            store.frontier(Surveys.kind(name, patron.writer(), 0), q);
+            ObjectNode ask = M.createObjectNode();
+            ask.put("question", Surveys.runQuestion(kind, name, origin, q)); ask.put("mode", "depth"); ask.put("sources", "both");
+            ask.set("patron", args.path("patron").deepCopy());
+            String job = research(ask).path("job_id").asText();
+            Frontier.markExplored(store, q, job);
+            runs.addObject().put("question", q).put("job_id", job);
+        } else throw ProtocolError.invalidArgs("op is survey, pick or do");
+        int filed = 0; for (JsonNode j : runs) if (j.hasNonNull("job_id")) filed++;
+        ArrayNode left = r.putArray("options"); for (Surveys.Option o : Surveys.options(store, name)) left.addObject().put("n", o.n()).put("question", o.question());
+        r.put("summary", filed + " research run(s) filed about " + name + (left.size() > 0 ? "; " + left.size() + " direction(s) still open" : ""));
+        r.put("next", "library_job follows each run; op=pick or op=do files more");
+        store.circulate("survey", patron.label() + " :: " + name + " " + op + " — " + filed + " run(s)");
+        return r;
+    }
+
+    /** library_repo: library_survey with kind=repo (the first kind built; kept as a name). */
+    public ObjectNode repo(JsonNode args) throws IOException { ObjectNode a = args.deepCopy(); if (!a.hasNonNull("kind")) a.put("kind", "repo"); return survey(a); }
+
+    /**
      * library_absorb: a conversation the person had with another assistant, as a starting point. The
      * transcript is shelved as it is (collection "conversations" unless named); the person's questions join
      * the open questions; the assistant's claims come back as a list to check and are filed as nothing.
@@ -478,14 +566,23 @@ public final class LibraryProtocol {
         String collection = args.path("collection").asText("lists").strip();
         String column = args.hasNonNull("column") ? args.get("column").asText() : null;
         int limit = Math.max(1, args.path("limit").asInt(Items.MAX_ITEMS));
-        String title = args.path("title").asText("").strip(), source, body;
+        String title = args.path("title").asText("").strip(), source, body, readFrom = "";
         if (!path.isEmpty()) {
             if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Paths on this machine are the keeper's to give: hand a list file over from the terminal or the library's own pages. A url or the pasted list works from here.");
             Path f = Path.of(path).toAbsolutePath().normalize();
-            if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
-            body = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), f.getFileName().toString()).text();
-            if (Corpus.ext(f).equals("csv") || Corpus.ext(f).equals("txt") || Corpus.ext(f).equals("md")) body = Files.readString(f, StandardCharsets.UTF_8);
-            source = f.toString(); if (title.isEmpty()) title = Conversations.titleFrom(f.getFileName().toString());
+            if (Files.isDirectory(f)) {
+                // a Calibre library: its books as the list, each with its authors, year, series and tags as the note
+                if (!Calibre.isLibrary(f)) throw ProtocolError.notFound(f + " is a folder but not a Calibre library (no metadata.db, no metadata.opf); for a folder of documents use library_add");
+                Calibre.Shelf shelf;
+                try { shelf = Calibre.read(f); } catch (IOException e) { throw ProtocolError.unavailable(e.getMessage()); }
+                body = Calibre.csv(shelf.books()); readFrom = shelf.readFrom();
+                source = f.toString(); if (title.isEmpty()) title = "Calibre library " + f.getFileName();
+            } else {
+                if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
+                body = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), f.getFileName().toString()).text();
+                if (Corpus.ext(f).equals("csv") || Corpus.ext(f).equals("txt") || Corpus.ext(f).equals("md")) body = Files.readString(f, StandardCharsets.UTF_8);
+                source = f.toString(); if (title.isEmpty()) title = Conversations.titleFrom(f.getFileName().toString());
+            }
         } else if (!url.isEmpty()) {
             try {
                 var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
@@ -503,6 +600,7 @@ public final class LibraryProtocol {
         List<Frontier.Line> open = Frontier.read(store);
         ObjectNode r = envelope();
         r.put("title", title); r.put("source", source); r.put("raw", rawName); r.put("collection", collection);
+        if (!readFrom.isEmpty()) r.put("read_from", readFrom);
         r.put("items_found", all.size()); r.put("taken", items.size()); r.put("remaining", all.size() - items.size());
         r.put("lens", lens.isBlank() ? Items.DEFAULT_LENS : lens); r.put("as", as);
         ArrayNode out = r.putArray("items");

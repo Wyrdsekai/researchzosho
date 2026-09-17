@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+`researchzosho survey` reads a repository, a paper, a website or an issue tracker and offers research directions; `items` reads a Calibre library.
+
+### Added
+
+- `researchzosho items` takes a Calibre library folder: its books become the list, each with authors, year, series and tags. It reads `metadata.db` read-only, or the `metadata.opf` files when the database cannot be read. A CSV whose header has a title column picks that column by itself.
+- `researchzosho survey <thing>` takes something you already have as a starting point: a code repository (a folder, or a git url cloned when git is installed; without git it says so), a paper (a PDF or document file, a DOI, an arXiv page), a website or product page, or an issue tracker (a GitHub issues page, or an export file). It reads it, files one draft claim on what it is, what it claims and what it rests on, and prints numbered research directions. `--pick 1,3` runs the ones you choose; `--do "…"` runs your own. The kind is told from the thing; `--kind` says otherwise. Same thing in the chat and over MCP and HTTP as `library_survey`; `researchzosho repo` is the same command for a repository.
+- The pages show the version in the header next to the library's name, as well as in the footer. A service running from a source checkout says its number with "(source tree)" after it instead of "dev".
+
 ## 0.4.0
 
 `researchzosho bridges` writes research questions that connect two subjects in your library. The embeddings server is now part of the model install.

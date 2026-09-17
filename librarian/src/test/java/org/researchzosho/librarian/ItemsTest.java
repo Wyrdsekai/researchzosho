@@ -41,7 +41,8 @@ class ItemsTest {
         List<Items.Item> csv = Items.parse("isbn,title,year\n978-1,\"Longitude, a story\",1995\n978-2,Cosmos,1980\n", "title");
         assertEquals(List.of("Longitude, a story", "Cosmos"), csv.stream().map(Items.Item::name).toList());
         assertEquals("978-2, 1980", csv.get(1).note());
-        assertEquals("978-1", Items.parse("isbn,title\n978-1,Longitude\n", null).get(0).name(), "no column named: the first");
+        assertEquals("Longitude", Items.parse("isbn,title\n978-1,Longitude\n", null).get(0).name(), "no column named: a header column called title is the one");
+        assertEquals("978-1", Items.parse("isbn,thing\n978-1,Longitude\n", null).get(0).name(), "no column named and no title column: the first");
 
         assertEquals("Longitude: what it is, who made or wrote it, what it is for, and what is known about it (Dava Sobel)", Items.question(new Items.Item("Longitude", "Dava Sobel"), ""));
         assertEquals("Is Cosmos still in print?", Items.question(new Items.Item("Cosmos", ""), "Is {item} still in print?"));

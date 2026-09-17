@@ -460,6 +460,42 @@ An export with many conversations takes the first 25 and tells you how many rema
 more. In the chat, "absorb this thread" with a path or the pasted text does the same, and the
 Librarian offers the two follow-ups: check the claims, or research the thread's main question.
 
+### A code repository, a paper, a website, an issue tracker
+
+Hand the library a thing you already have and let it read it first:
+
+```
+researchzosho survey ~/src/tidebook
+researchzosho survey https://github.com/someone/tidebook
+researchzosho survey ~/papers/kalman-tides.pdf
+researchzosho survey https://arxiv.org/abs/2401.00001
+researchzosho survey https://tidebook.example/pro
+researchzosho survey https://github.com/someone/tidebook/issues
+```
+
+It tells the kind from the thing: a folder or a git url is a repository (a url is cloned into the
+library when git is installed; when it is not, the command stops and says so, with the clone to run by
+hand); a DOI, an arXiv page, a PDF or a document file is a paper; a GitHub issues page or an export
+file is an issue tracker; any other url is a website or product page. `--kind` says otherwise.
+
+For each it shelves the text and files one draft claim: what this is, what it does or says, what it
+claims, what it rests on, and, for a paper or a discussion, what it leaves open. Then it prints
+numbered directions, each a research question about the thing: the published basis of a technique a
+repository uses, whether a paper's central claim holds against other sources, whether a page's claim
+is backed independently, whether a claim made in an issue thread without a source holds up. Nothing
+runs yet.
+
+```
+researchzosho survey ~/src/tidebook --pick 1,3
+researchzosho survey ~/src/tidebook --do "compare its caching with what the papers recommend"
+```
+
+`--pick` files a research run for each direction you name; `--do` files your own. Each run takes the
+model about half an hour. The directions you did not pick stay on the open questions, where the
+housekeeping's explorer can take them at night. In the chat, "look at ~/src/tidebook" or "read this
+paper" with the file gets the summary and the directions, and "do 1 and 3, and also check X" runs
+both. `researchzosho repo` is the same command for a repository.
+
 ### A list of things
 
 A list of books, tools, places, products, anything: one item per line, a markdown table, or a CSV.
@@ -468,7 +504,14 @@ A list of books, tools, places, products, anything: one item per line, a markdow
 researchzosho items books.md
 researchzosho items reading.csv --column title --lens "{item}: its main argument and how it was received"
 researchzosho items tools.txt --as runs
+researchzosho items ~/Calibre\ Library --as none
 ```
+
+A Calibre library folder is its books: the library reads `metadata.db` (read-only; Calibre may stay
+open) or, when that cannot be read, the `metadata.opf` beside each book. Each book is one item, its
+authors, year, series and tags the note. A CSV whose header has a title column, such as Calibre's own
+export, picks that column without `--column`. Start with `--as none` on a big shelf: it counts the
+books and says which the shelves already hold before anything is filed.
 
 The list is shelved as it is, in the collection `lists`, so the library knows what you have. Each item
 is checked against the shelves and marked held or not. Then each item becomes a question through the
@@ -1114,7 +1157,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`, with the library and the
 settings on volumes and the pages on 4649; the `docker-compose.yml` in the repository runs it beside an
-embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.0 mcp` is the same
+embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.1 mcp` is the same
 MCP server over stdio, from the container. The model server stays outside: name it in `RESEARCHZOSHO_DRIVE`.
 
 Any other program that speaks MCP takes the same server: the command `researchzosho` with the

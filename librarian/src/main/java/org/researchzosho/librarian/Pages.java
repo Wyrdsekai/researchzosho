@@ -1265,7 +1265,7 @@ final class Pages {
                 : esc(patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/logout\">sign out</a>";
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><style>" + CSS + "</style></head><body>"
-                + "<header><a class=\"home\" href=\"/\"><img src=\"/favicon.ico\" alt=\"\"> <span class=\"brand\">ResearchZosho</span><span class=\"lib\">" + esc(name) + "</span></a><nav>"
+                + "<header><a class=\"home\" href=\"/\"><img src=\"/favicon.ico\" alt=\"\"> <span class=\"brand\">ResearchZosho</span><span class=\"ver\">" + esc(org.researchzosho.Version.number() == null ? "dev" : org.researchzosho.Version.number()) + "</span><span class=\"lib\">" + esc(name) + "</span></a><nav>"
                 + "<a href=\"/chat\">Chat</a><a href=\"/ask\">Ask</a><a href=\"/search\">Search</a><a href=\"/inbox\">Inbox</a><a href=\"/subjects\">Subjects</a><a href=\"/questions\">Open</a><a href=\"/changes\">Changes</a><a href=\"/jobs\">Runs</a><a href=\"/research\">Research</a><a href=\"/map\">Map</a>"
                 + "</nav><span class=\"who\">" + who + "</span></header><main" + (wide ? " class=\"wide\"" : "") + ">"
                 + (title == null ? "" : "<h1>" + esc(title) + "</h1>") + body + "</main>"
@@ -1279,7 +1279,7 @@ final class Pages {
             + "@media(prefers-color-scheme:dark){:root{--bg:#12161d;--ink:#f3ede1;--k:#9aa3b2;--accent:#e0654f;--line:#2a3140;--card:#1b2130}}"
             + "body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 Georgia,'Noto Serif',serif}"
             + "header{display:flex;flex-wrap:wrap;align-items:center;gap:.6em 1.2em;padding:.7em 1.2em;border-bottom:1px solid var(--line)}"
-            + "header .home{text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:.5em}header .home img{height:28px}header .brand{font-weight:bold}header .lib{color:var(--k);font-size:.92em}header .lib::before{content:'·';margin:0 .5em}"
+            + "header .home{text-decoration:none;color:var(--ink);display:flex;align-items:center;gap:.5em}header .home img{height:28px}header .brand{font-weight:bold}header .ver{color:var(--k);font-size:.8em;border:1px solid var(--line);border-radius:.4em;padding:0 .35em}header .lib{color:var(--k);font-size:.92em}header .lib::before{content:'·';margin:0 .5em}"
             + "nav a{margin-right:1em;color:var(--ink)}.who{margin-left:auto;color:var(--k);font-size:.9em}"
             + "main{max-width:52em;margin:0 auto;padding:1em 1.2em 3em}main.wide{max-width:none}footer{text-align:center;padding:2em;border-top:1px solid var(--line)}"
             + "a{color:var(--accent)}h1{font-size:1.6em;line-height:1.2}h2{font-size:1.15em;margin-top:1.6em;border-bottom:1px solid var(--line)}h2 a.k{font-weight:normal;font-size:.8em;margin-left:.8em}"

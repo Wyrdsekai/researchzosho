@@ -322,6 +322,8 @@ public final class LibrarianDaemon {
                     case "submit" -> p.submit(body);
                     case "add" -> p.add(body);
                     case "absorb" -> p.absorb(body);
+                    case "survey" -> p.survey(body);
+                    case "repo" -> p.repo(body);
                     case "items" -> p.items(body);
                     case "check" -> p.check(body);
                     case "reading" -> p.reading(body);

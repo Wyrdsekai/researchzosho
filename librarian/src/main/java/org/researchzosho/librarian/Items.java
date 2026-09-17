@@ -47,7 +47,12 @@ public final class Items {
         int col = 0;
         if (csv) {
             String[] header = splitCsv(lines[0]);
-            if (column != null) for (int i = 0; i < header.length; i++) if (header[i].strip().equalsIgnoreCase(column)) col = i;
+            if (column != null) { for (int i = 0; i < header.length; i++) if (header[i].strip().equalsIgnoreCase(column)) col = i; }
+            else for (String want : new String[]{"title", "name", "item", "book"}) {   // a header that names the thing's column picks it; else the first column
+                boolean found = false;
+                for (int i = 0; i < header.length; i++) if (header[i].strip().equalsIgnoreCase(want)) { col = i; found = true; break; }
+                if (found) break;
+            }
         }
         boolean first = true;
         for (String raw : lines) {

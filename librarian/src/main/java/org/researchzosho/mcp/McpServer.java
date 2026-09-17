@@ -228,6 +228,24 @@ public final class McpServer {
                         prop("verify", "boolean", "File one research run that checks the assistant's claims."),
                         prop("limit", "integer", "How many conversations of an export to take (default 25)."),
                         patronProp())));
+        tools.add(tool("library_survey",
+                "A thing the person already has, read as a starting point for research: a code repository (a folder, or a git url "
+                + "cloned when git is installed — it says so when git is missing), a paper (a PDF or document file, a DOI, an arXiv page), "
+                + "a website or product page (any other url), or an issue tracker (a GitHub issues page, or an export file). The kind "
+                + "is detected from the thing, or given. op=survey (the default) reads it, shelves the text, files one draft claim saying "
+                + "what it is, what it says or does, what it claims and what it rests on, and returns numbered directions: research "
+                + "questions the library could answer about it. Nothing runs at that point. op=pick with picks=\"1,3\" files a research "
+                + "run for each direction named; op=do with question files the person's own direction and its run. pick and do take "
+                + "the thing by name (as surveyed).",
+                schema(new String[]{},
+                        prop("op", "string", "survey (default), pick, or do."),
+                        prop("path", "string", "A folder or a file on this machine (absolute path). Keeper only."),
+                        prop("url", "string", "A url: a git repository, a paper, a page, or a GitHub issues page."),
+                        prop("kind", "string", "repo, paper, site or issues; detected from the thing when not given."),
+                        prop("name", "string", "The name the survey gave the thing, for pick and do."),
+                        prop("picks", "string", "For pick: the direction numbers, like \"1,3\"."),
+                        prop("question", "string", "For do: what to research about it, in your own words."),
+                        patronProp())));
         tools.add(tool("library_items",
                 "A list of things — books, tools, places, an inventory of line items — as a starting point for research. Give a path "
                 + "(one item per line, a markdown table, or a CSV), a url, or the list as text. The list is shelved as it is so the library "
@@ -236,13 +254,13 @@ public final class McpServer {
                 + "they want to know), as=frontier (default) files a question per item on the open questions, as=runs sends them out as "
                 + "research runs with a lane per item (batches of 8), as=none only reports what is held. Paths from the keeper only.",
                 schema(new String[]{},
-                        prop("path", "string", "The list file on this machine (absolute path)."),
+                        prop("path", "string", "A list file on this machine (absolute path): one item per line, a markdown table, or a CSV (a header with a title column picks that column). A Calibre library folder gives its books, each with authors, year, series and tags."),
                         prop("url", "string", "A list on the web."),
                         prop("text", "string", "The list itself, pasted."),
                         prop("lens", "string", "What to find out about each item; {item} marks where the item goes (default: what it is, who made it, what it is for)."),
                         prop("as", "string", "frontier | runs | none (default frontier)."),
                         prop("title", "string", "A name for the list (default: the file name)."),
-                        prop("column", "string", "For a CSV: the column that holds the items (default: the first)."),
+                        prop("column", "string", "For a CSV: the column that holds the items (default: a column named title, name, item or book, else the first)."),
                         prop("collection", "string", "Where the list is shelved (default lists)."),
                         prop("limit", "integer", "How many items to take (default all, up to 200)."),
                         patronProp())));
@@ -510,6 +528,8 @@ public final class McpServer {
             case "library_submit" -> p.submit(args);
             case "library_add" -> p.add(args);
             case "library_absorb" -> p.absorb(args);
+            case "library_survey" -> p.survey(args);
+            case "library_repo" -> p.repo(args);
             case "library_items" -> p.items(args);
             case "library_check" -> p.check(args);
             case "library_reading" -> p.reading(args);

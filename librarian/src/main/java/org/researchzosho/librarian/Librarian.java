@@ -37,7 +37,7 @@ public class Librarian {
     static final ObjectMapper M = new ObjectMapper();
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
-            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_items",
+            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
             "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges");
     /** Tool rounds one turn may take before the Librarian has to speak. */
     static final int MAX_TOOL_ROUNDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CHAT_TOOL_ROUNDS", 5);
@@ -193,6 +193,7 @@ public class Librarian {
                 + "Look things up before answering, and read only what the answer needs: library_ask for a question (it returns the relevant entries whole), library_search for a term, library_get to open one entry, library_map around a name, library_inbox for what waits, library_frontier for open questions, library_changes for what is new. A few look-ups a turn, then answer; a list that says N of M shown is a list of M. "
                 + "To read material in — a file, a folder, a drive, a url the person names — use library_add. For a folder, run mode=survey first and put the numbers to the person: keep (the text is copied onto the shelves) or link (read in place, nothing copied). If they already said which, do that. Then \"research X from those\" is library_research with sources=shelves and the collection. "
                 + "A conversation the person had with another assistant — a file, a url, or text they paste — is absorbed with library_absorb: say what was shelved, which of their questions joined the open questions, and list the claims to check; then offer two things, verify=true (one run that checks the claims) and a research run on the thread's main question. "
+                + "A code repository, a paper, a website or product page, or an issue tracker — a folder or file on this machine, or a url — goes through library_survey: op=survey first, then tell the person what it is in one or two sentences and list the numbered directions exactly as returned; ask which to run, or take their own words with op=do. Runs cost the model about half an hour each; say so. op=pick with the numbers they chose.\n"
                 + "A list of things — books, tools, places, an inventory — goes through library_items: first with as=none to say how many items there are and which the shelves already hold, and ask what they want to know about each (that is the lens) unless they said; then as=frontier files a question per item for the housekeeping, or as=runs sends them out now as research runs. "
                 + "The other starting points: their own draft or notes to check → library_check (claims to check, citations fetched; offer verify=true); a reading list, BibTeX or a file of DOIs → library_reading (fetched onto the shelves as a collection); a list of questions → library_questions (onto the open questions in order); a bookmarks export → library_bookmarks (the pages onto the shelves; watch=true re-reads them); a meeting transcript → library_meeting (decisions kept, questions raised filed, claims to check with who said them). After any of them, say what was shelved and filed, and what could not be read. "
                 + "\"What could connect X to something far from it\", \"any discoveries\", \"look for a bridge\" is library_bridges: op=run with the area and dry=true first, show the pairs with their shared terms and the question for each, and ask which to file; op=accept files the run that tests one. Say plainly that a bridge is a question the shelves have not answered, not a finding. "
@@ -220,6 +221,7 @@ public class Librarian {
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
+            Map.entry("library_survey", "A code repository, a paper, a website or an issue tracker (a path or a url): read, shelved, one draft claim on what it is, and numbered research directions offered; op=pick runs the ones chosen, op=do runs the person's own."),
             Map.entry("library_items", "A list of things (books, tools, an inventory): shelved, each checked against the shelves, then a question per item through the lens; as=none only looks, as=frontier files, as=runs sends runs."),
             Map.entry("library_check", "The person's own draft: its claims returned to check, its citations fetched, its questions filed; verify=true files the checking run."),
             Map.entry("library_reading", "A reading list (BibTeX, RIS, CSV, lines of DOIs and urls): every entry fetched onto the shelves as a collection; watch=true re-reads them nightly."),
@@ -282,6 +284,7 @@ public class Librarian {
                 case "library_submit" -> protocol.submit(args);
                 case "library_add" -> protocol.add(args);
                 case "library_absorb" -> protocol.absorb(args);
+                case "library_survey" -> protocol.survey(args);
                 case "library_items" -> protocol.items(args);
                 case "library_check" -> protocol.check(args);
                 case "library_reading" -> protocol.reading(args);

@@ -30,8 +30,10 @@ public final class LibrarianCli {
               add <file|url> [title]       add your own document (PDF/DOCX/PPTX/ODT/EPUB/HTML/text)
               add <folder> [--collection N] [--register] [--link] [--survey]
               absorb <transcript|export|url> [--verify]
-              items <list|csv|url> [--lens "…"] [--as frontier|runs|none]
-                                           a list of things (books, tools, an inventory): shelved, checked against the shelves, a question per item
+              survey <repo|paper|url|issues> [--kind k] [--pick 1,3] [--do "…"]
+                                           a code repository, a paper, a website or an issue tracker: read, one draft claim on what it is, numbered research directions; --pick runs them, --do runs your own
+              items <list|csv|url|calibre-library> [--lens "…"] [--as frontier|runs|none]
+                                           a list of things (books, tools, an inventory; a Calibre library folder is its books): shelved, checked against the shelves, a question per item
               check <draft> [--verify]     your own draft or notes: claims to check, its citations fetched, its questions filed
               reading <bib|ris|csv|list> [--watch]
                                            a reading list: every DOI and url fetched onto the shelves as a collection
@@ -384,6 +386,7 @@ public final class LibrarianCli {
                 }
                 case "add" -> { return add(store, args); }
                 case "absorb" -> { return absorb(store, args); }
+                case "survey", "repo" -> { return survey(store, args); }
                 case "items" -> { return items(store, args); }
                 case "check", "reading", "bookmarks", "meeting" -> { return launch(store, args); }
                 case "bridges" -> { return bridges(store, args); }
@@ -1368,7 +1371,7 @@ public final class LibrarianCli {
 
     /** researchzosho items <file|url> [--lens "…"] [--as frontier|runs|none] [--column C] [--title T] [--limit N]: a list of things as a starting point. */
     static int items(LibraryStore store, String[] args) throws Exception {
-        if (args.length < 3) { System.err.println("usage: researchzosho items <list.txt|list.md|list.csv|url> [--lens \"{item}: …\"] [--as frontier|runs|none] [--column <name>] [--title <t>] [--limit <n>]"); return 2; }
+        if (args.length < 3) { System.err.println("usage: researchzosho items <list.txt|list.md|list.csv|url|calibre-library-folder> [--lens \"{item}: …\"] [--as frontier|runs|none] [--column <name>] [--title <t>] [--limit <n>]"); return 2; }
         var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
         String what = args[2];
         if (what.startsWith("http://") || what.startsWith("https://")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
@@ -1398,6 +1401,58 @@ public final class LibrarianCli {
         if (r.path("remaining").asInt() > 0) System.out.println("  " + r.path("remaining").asInt() + " more item(s) in the list; --limit takes more");
         for (var j : r.path("jobs")) System.out.println("  run: " + j.asText() + " — researchzosho jobs " + j.asText());
         System.out.println("  " + r.path("next").asText());
+        return 0;
+    }
+
+    /** researchzosho survey <thing> [--kind k] [--pick 1,3] [--do "…"]: a repository, a paper, a page or an issue tracker as a starting point. Without flags: read and offer directions. */
+    static int survey(LibraryStore store, String[] args) throws Exception {
+        if (args.length < 3) { System.err.println("usage: researchzosho survey <folder|file|url> [--kind repo|paper|site|issues] [--pick 1,3] [--do \"what to research\"]"); return 2; }
+        var a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        String what = args[2];
+        if (what.startsWith("http://") || what.startsWith("https://") || what.startsWith("git@")) a.put("url", what); else a.put("path", Path.of(what).toAbsolutePath().normalize().toString());
+        if (args[1].equals("repo")) a.put("kind", "repo");
+        String picks = null, own = null;
+        try {
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--kind" -> a.put("kind", flagValue(args, i++));
+                    case "--pick" -> picks = flagValue(args, i++);
+                    case "--do" -> own = flagValue(args, i++);
+                    default -> { System.err.println("unknown flag " + args[i]); return 2; }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        LibraryProtocol p = new LibraryProtocol(store);
+        com.fasterxml.jackson.databind.node.ObjectNode r;
+        if (picks == null && own == null) {
+            try { r = p.survey(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+            System.out.println(r.path("summary").asText());
+            System.out.println();
+            System.out.println("  " + r.path("what_it_is").asText());
+            if (!r.path("summary_text").asText().isBlank()) System.out.println("  " + r.path("summary_text").asText());
+            if (r.path("claims").size() > 0) { System.out.println("  claims:"); for (var x : r.path("claims")) System.out.println("    - " + x.asText()); }
+            if (r.path("rests_on").size() > 0) { System.out.println("  rests on:"); for (var x : r.path("rests_on")) System.out.println("    - " + x.asText()); }
+            if (r.path("leaves_open").size() > 0) { System.out.println("  leaves open:"); for (var x : r.path("leaves_open")) System.out.println("    - " + x.asText()); }
+            System.out.println();
+            System.out.println("  directions (researchzosho survey " + what + " --pick 1,3 runs them; --do \"…\" runs your own):");
+            for (var o : r.path("options")) System.out.println("    " + o.path("n").asInt() + ". " + o.path("question").asText());
+            for (var q : r.path("already_open")) System.out.println("    = " + q.asText() + "  (already open)");
+            return 0;
+        }
+        if (picks != null) {
+            a.put("op", "pick"); a.put("picks", picks);
+            try { r = p.survey(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+            for (var j : r.path("runs")) System.out.println(j.hasNonNull("job_id") ? "  " + j.path("n").asInt() + ". " + j.path("question").asText() + " → " + j.path("job_id").asText() : "  " + j.path("error").asText());
+            System.out.println(r.path("summary").asText());
+        }
+        if (own != null) {
+            a.put("op", "do"); a.put("question", own); a.remove("picks");
+            try { r = p.survey(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+            for (var j : r.path("runs")) System.out.println("  " + j.path("question").asText() + " → " + j.path("job_id").asText());
+            System.out.println(r.path("summary").asText());
+        }
+        System.out.println("  researchzosho jobs follows them");
         return 0;
     }
 
