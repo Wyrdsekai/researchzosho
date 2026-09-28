@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Assumptions;
 import org.researchzosho.Config;
@@ -31,7 +32,50 @@ class ModelServerTest {
     final Predicate<String> realHealth = ModelServer.health;
     final ModelServer.Detacher realDetach = ModelServer.detach;
     final Map<String, String> realSums = new HashMap<>(ModelServer.sums);
-    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; }
+    final Function<String, ModelServer.Served> realServedAt = ModelServer.servedAt;
+    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; }
+
+    @Test
+    void anInstallUsesAServerAnotherProgramAlreadyRunsWithAMeasuredModelAndDownloadsNothing(@TempDir Path home) throws Exception {
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+        Config.invalidate();
+        boolean[] started = {false}; List<String> fetched = new ArrayList<>();
+        try {
+            fakeMachine(ModelServer.Os.linux, started, fetched);   // a 16 GB card: gpt-oss-20b is this machine's suggestion
+            ModelServer.health = base -> started[0];               // nothing of ours on 8211 until an install starts it
+            Map<String, ModelServer.Served> ports = new HashMap<>();
+            ports.put("http://127.0.0.1:8200", new ModelServer.Served(List.of("drive"), "/var/lib/other/models/Qwen3.5-9B-Q4_K_M.gguf"));   // started with --alias
+            ports.put("http://127.0.0.1:11434", new ModelServer.Served(List.of("llama3:8b"), null));                                         // a model we have no row for
+            ModelServer.servedAt = ports::get;
+            var out = new ByteArrayOutputStream();
+            String r = ModelServer.install(null, null, "all", 20, false, false, new PrintStream(out, true));
+            assertEquals("drive", r, out.toString());
+            assertEquals("http://127.0.0.1:8200", Config.get("RESEARCHZOSHO_DRIVE"));
+            assertEquals("drive", Config.get("RESEARCHZOSHO_MODEL"), "the name that server answers to, not the row's");
+            assertTrue(fetched.isEmpty() && !started[0] && !Files.exists(ModelServer.dir()), "nothing downloaded, nothing started: " + fetched);
+            assertTrue(out.toString().contains("with the model drive (qwen3.5-9b)") && out.toString().contains("This machine could run gpt-oss-20b")
+                    && out.toString().contains("researchzosho model install --own"), out.toString());
+
+            // the best measured model among the servers that answer, whichever port it is on
+            ports.put("http://127.0.0.1:1234", new ModelServer.Served(List.of("unsloth/qwen3.8-27b-gguf"), null));
+            assertEquals("unsloth/qwen3.8-27b-gguf", ModelServer.install(null, null, "all", 20, false, false, new PrintStream(new ByteArrayOutputStream())));
+            assertEquals("http://127.0.0.1:1234", Config.get("RESEARCHZOSHO_DRIVE"));
+
+            // an Ollama name and a vLLM name are the same rows
+            assertEquals("qwen3.6-35b-a3b", ModelServer.rowServed("qwen3.6:35b-a3b-q4_K_M").name());
+            assertEquals("qwen3.6-35b-a3b", ModelServer.rowServed("Qwen/Qwen3.6-35B-A3B").name());
+            assertNull(ModelServer.rowServed("gpt-oss-120b"), "a bigger sibling is not the measured row");
+
+            // --own, a file or a named row: the library's own install, as before
+            ModelServer.install(null, null, "all", 20, false, true, new PrintStream(new ByteArrayOutputStream()));
+            assertTrue(!fetched.isEmpty() && fetched.get(0).endsWith("/gpt-oss-20b-F16.gguf"), fetched.toString());
+            assertEquals("http://127.0.0.1:8211", Config.get("RESEARCHZOSHO_DRIVE"));
+        } finally {
+            System.setProperty("user.home", realHome);
+            Config.invalidate();
+        }
+    }
 
     @Test
     void theRowFollowsTheMemory() {

@@ -129,7 +129,8 @@ class DriveStopTest {
         String realHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());   // streaming is a setting: a scratch config, never the machine's own
         Config.invalidate();
-        try (HangingServer s = new HangingServer(HangingServer.Mode.HEAD_ONLY)) {
+        // the server says what it is at once (a llama.cpp server with one slot); the stream it starts is what stops coming
+        try (HangingServer s = new HangingServer(HangingServer.Mode.HEAD_ONLY, r -> r.line().startsWith("GET "), "{\"total_slots\":1}")) {
             Config.set("stream", "on");
             DriveClient c = new DriveClient(s.url(), "placeholder-model");
             StringBuilder shown = new StringBuilder();

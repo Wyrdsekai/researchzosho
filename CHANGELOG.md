@@ -63,6 +63,8 @@ This release adds family history: you give the library what your family already 
 - `researchzosho model install` sets up Qwen3.6-35B-A3B on a Linux or Windows machine with 4 GB free on the graphics card and 32 GB of RAM. It keeps most of the model in RAM, so a machine that cannot hold the 27B gets a 35B-class model instead of a 9B. `docs/MODELS.md` has the speeds.
 - After an update, the library tells you in one line when a different model now suits your machine. Nothing is switched by itself. `researchzosho model switch` changes to it, and `model prune` removes model files no longer in use.
 - `model install` also downloads the file that lets the model read pictures, for the models that have one. Run it again to get it.
+- `researchzosho model install` first looks for a model server that another program already runs on this machine: Wyrdsekai's on port 8200, llama.cpp, vLLM, Ollama or LM Studio. When it serves one of the measured models, the library uses it and downloads nothing, so the model is in memory once for every program. `model install --own` installs the library's own model instead.
+- A research run sends the model server no more requests at a time than the server takes at once, which llama.cpp reports. On a server shared with other programs, their requests are answered between the library's.
 
 **Reports, claims and searches**
 
@@ -90,6 +92,7 @@ This release adds family history: you give the library what your family already 
 
 - The citation check called a quotation made up when it had an apostrophe, a quote mark or an ampersand in it. It now reads those characters correctly, also in pages saved before.
 - Stopping a research run did nothing while it waited for the model. A stop now ends a run within seconds.
+- A research run whose model server went away for a minute or two, while it restarted or loaded its model, ended the sub-questions it was working on. It now waits for the server and goes on when it answers, within the run's time limit.
 - A streamed answer from the model, or a site that stopped sending, could hold a run for hours. Both now have a time limit. A run with no progress for 15 minutes shows "no progress since" in `researchzosho jobs`.
 - On a model with a 16k window, the report could be cut off because the request was a few tokens too long. The request is now measured in full, and sent once more with less in it when the server refuses it.
 - The Chat page opened the owner's latest conversation for anyone who could read the library. A reader now has conversations of their own.

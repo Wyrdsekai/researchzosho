@@ -72,7 +72,8 @@ class PageCheckCannotRunTest {
         List<String> sent = new CopyOnWriteArrayList<>();
         HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         s.createContext("/", x -> {
-            sent.add(new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            String got = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (x.getRequestURI().getPath().endsWith("/chat/completions")) sent.add(got);   // not the look at what the server is (/props)
             byte[] b = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"no\"}}]}".getBytes(StandardCharsets.UTF_8);
             x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(200, b.length); x.getResponseBody().write(b); x.close();
         });

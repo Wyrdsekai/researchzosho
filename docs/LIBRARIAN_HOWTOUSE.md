@@ -1270,11 +1270,19 @@ The model does not have to be up all the time. The library works with a server t
 - Searching, reading and the pages never call the model.
 - A research run waits and asks again every 30 seconds until the model answers. While it waits, its
   record and the Runs page say "waiting for the model".
+- A run whose model server goes away in the middle, while it restarts or loads its model, waits for it
+  and goes on when it answers, within the run's time limit. Its log says how long it waited.
+- A run sends the server no more requests at a time than the server takes at once (llama.cpp reports
+  it), so on a server shared with other programs their requests are answered between the library's.
 - The nightly housekeeping skips the steps that need the model.
 - sharpen, perspectives and explain tell you at once.
 
 When setup finds no server, it offers to serve the model on demand. `researchzosho model install`
-does the same later, on all three platforms:
+does the same later, on all three platforms. It first looks for a server another program already runs
+on this machine (Wyrdsekai's on port 8200, llama.cpp on 8080, vLLM on 8000, Ollama on 11434, LM Studio
+on 1234). When one serves a model from the table in [MODELS.md](MODELS.md), the library uses that server and
+downloads nothing, so the model is in memory once for every program. `model install --own` installs
+the library's own model even then, and `--file` or a model named to `model switch` always do.
 
 ```
 researchzosho model install                 # the measured model for this machine, downloaded once, served on demand

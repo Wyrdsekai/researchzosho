@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.net.URI;
@@ -26,6 +28,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -261,6 +264,7 @@ public final class ModelServer {
         if (p.waitFor() != 0) throw new IOException("download failed: " + url);
         Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING);
     };
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
 
     /** Whether a proxy answers at {@code base}: llama-swap's /health says OK; any other server's model list will do. */
@@ -273,6 +277,56 @@ public final class ModelServer {
             return r.statusCode() == 200;
         } catch (Exception e) { return false; }
     };
+
+    /** The ports another program's model server usually listens on: Wyrdsekai's drive, llama.cpp, vLLM, Ollama, LM Studio. */
+    static final List<Integer> SHARED_PORTS = List.of(8200, 8080, 8000, 11434, 1234);
+
+    /** What a server serves: the names its /v1/models lists, and the file llama.cpp's /props says it loaded (a server started with --alias lists only the alias). */
+    public record Served(List<String> ids, String file) { }
+
+    /** What the server at {@code base} serves; null when nothing answers there. */
+    public static Function<String, Served> servedAt = base -> {
+        try {
+            HttpResponse<String> r = PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/v1/models")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() != 200) return null;
+            List<String> ids = new ArrayList<>();
+            for (JsonNode m : JSON.readTree(r.body()).path("data")) if (m.hasNonNull("id")) ids.add(m.get("id").asText());
+            String file = null;
+            try {
+                HttpResponse<String> p = PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/props")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString());
+                if (p.statusCode() == 200) file = JSON.readTree(p.body()).path("model_path").asText(null);
+            } catch (Exception ignored) { }
+            return new Served(ids, file);
+        } catch (Exception e) { return null; }
+    };
+
+    /** A server another program runs on this machine that serves one of the measured models: its address, the name to ask it for, the row. */
+    record Shared(String base, String model, Row row) { }
+
+    /** The shared server with the best measured model on the usual ports (the rows are in order, best first), or null. */
+    static Shared shared() {
+        Shared best = null;
+        for (int port : SHARED_PORTS) {
+            String base = "http://127.0.0.1:" + port;
+            Served s = servedAt.apply(base);
+            if (s == null) continue;
+            List<Shared> here = new ArrayList<>();
+            for (String id : s.ids()) { Row r = rowServed(id); if (r != null) here.add(new Shared(base, id, r)); }
+            if (here.isEmpty() && s.file() != null && s.ids().size() == 1) {
+                Row r = rowServed(s.file().substring(Math.max(s.file().lastIndexOf('/'), s.file().lastIndexOf('\\')) + 1));
+                if (r != null) here.add(new Shared(base, s.ids().get(0), r));
+            }
+            for (Shared h : here) if (best == null || ROWS.indexOf(h.row()) < ROWS.indexOf(best.row())) best = h;
+        }
+        return best;
+    }
+
+    /** The measured row a served model is, by the letters and digits of its name or file ("Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "qwen3.6:35b-a3b"); null for any other model. */
+    static Row rowServed(String name) {
+        String s = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        for (Row r : ROWS) if (s.contains(r.name().toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", ""))) return r;
+        return null;
+    }
 
     // ---- what this machine is ----
 
@@ -530,10 +584,16 @@ public final class ModelServer {
      * the measured row's; {@code gpus} is "all" or a device index (Linux); {@code share} listens on every interface so other
      * machines can use this card.
      */
-    public static String install(Path file, String gpus, int idleMinutes, boolean share, PrintStream out) { return install(file, null, gpus, idleMinutes, share, out); }
+    public static String install(Path file, String gpus, int idleMinutes, boolean share, PrintStream out) { return install(file, null, gpus, idleMinutes, share, true, out); }
 
-    /** {@code named}: the row the person asked for by name (`model switch <name>`); null takes the one this machine is suggested. */
-    static String install(Path file, Row named, String gpus, int idleMinutes, boolean share, PrintStream out) {
+    static String install(Path file, Row named, String gpus, int idleMinutes, boolean share, PrintStream out) { return install(file, named, gpus, idleMinutes, share, true, out); }
+
+    /**
+     * {@code named}: the row the person asked for by name (`model switch <name>`); null takes the one this machine is suggested.
+     * {@code own}: install a model of the library's own even when another program's server on this machine already serves a
+     * measured one; without it, and with no file or row named, the library uses that server and downloads nothing.
+     */
+    static String install(Path file, Row named, String gpus, int idleMinutes, boolean share, boolean own, PrintStream out) {
         try {
             if (health.test(URL)) {
                 String up = upgrade(out);
@@ -542,6 +602,8 @@ public final class ModelServer {
                 Config.set("RESEARCHZOSHO_DRIVE", URL);
                 return up.isEmpty() ? "local-model" : up;
             }
+            Shared there = own || file != null || named != null ? null : shared();
+            if (there != null) return useShared(there, out);
             String why = unsupported();
             if (why != null) return "!" + why;
             Row row = named != null ? named : rowFor(budgetGb());
@@ -630,6 +692,24 @@ public final class ModelServer {
         } catch (Exception e) {
             return "!" + e.getMessage();
         }
+    }
+
+    /** Point the library at another program's server that serves a measured model, and say what that means. */
+    static String useShared(Shared s, PrintStream out) throws IOException {
+        out.println("  Another program already runs a model server on this machine, at " + s.base() + ", with the model " + s.model()
+                + (s.model().equals(s.row().name()) ? "" : " (" + s.row().name() + ")") + ", one of the models ResearchZosho is measured with."
+                + " The library uses that server, so nothing is downloaded and the model is in memory once for every program that uses it.");
+        Row suggested = null;
+        try { if (unsupported() == null) suggested = rowFor(budgetGb()); } catch (Exception ignored) { }
+        if (suggested != null && ROWS.indexOf(suggested) < ROWS.indexOf(s.row()))
+            out.println("  This machine could run " + suggested.name() + ", which did better in ResearchZosho's measurements. To install it as the library's own model beside the other one: researchzosho model install --own");
+        else out.println("  To install a model of the library's own instead: researchzosho model install --own");
+        String embed = Config.get("RESEARCHZOSHO_EMBED");
+        if (embed == null || embed.isBlank() || embed.equalsIgnoreCase("off") || embed.equalsIgnoreCase("none"))
+            out.println("  The library searches by words. Searching by meaning needs an embeddings server, which comes with a model of the library's own; the setting RESEARCHZOSHO_EMBED can also point at one that runs elsewhere.");
+        Config.set("RESEARCHZOSHO_DRIVE", s.base());
+        Config.set("RESEARCHZOSHO_MODEL", s.model());
+        return s.model();
     }
 
     static String logHint() {
@@ -920,19 +1000,20 @@ public final class ModelServer {
         String op = a.length > from ? a[from] : "status";
         switch (op) {
             case "install" -> {
-                Path file = null; String gpus = "all"; int idle = DEFAULT_IDLE_MINUTES; boolean share = false;
+                Path file = null; String gpus = "all"; int idle = DEFAULT_IDLE_MINUTES; boolean share = false, own = false;
                 for (int i = from + 1; i < a.length; i++) {
                     switch (a[i]) {
                         case "--file" -> file = Path.of(a[++i]);
                         case "--gpu" -> gpus = a[++i];
                         case "--idle-minutes" -> idle = Integer.parseInt(a[++i]);
                         case "--share" -> share = true;
-                        default -> { out.println("usage: researchzosho model install [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share]"); return 2; }
+                        case "--own" -> own = true;
+                        default -> { out.println("usage: researchzosho model install [--own] [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share]"); return 2; }
                     }
                 }
-                String r = install(file, gpus, idle, share, out);
+                String r = install(file, null, gpus, idle, share, own, out);
                 if (r.startsWith("!")) { out.println("  The model could not be set up: " + r.substring(1)); return 1; }
-                out.println("  The library now uses the model " + r + " at " + URL + ". To see how it is doing: researchzosho model status");
+                out.println("  The library now uses the model " + r + " at " + Config.get("RESEARCHZOSHO_DRIVE") + ". To see how it is doing: researchzosho model status");
                 return 0;
             }
             case "status" -> { out.print(status()); String n = suggestionNotice(); if (!n.isEmpty()) out.println("  " + n); return 0; }

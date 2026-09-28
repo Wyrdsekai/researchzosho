@@ -21,6 +21,8 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 import java.io.IOException;
+import java.util.function.Supplier;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
@@ -1234,7 +1236,7 @@ public final class Researcher {
                         + "say so in the sub-question. Skip anything the library block above already settles. " + planRules + recordsForThePlan() + codeForThePlan(ask)
                         + "Answer with a JSON array of strings and nothing else.\n\nQUESTION:\n" + ask.question());
                 String raw;
-                try (var step = Declines.step("break a research question into sub-questions, as a JSON list: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 1200); }
+                try (var step = Declines.step("break a research question into sub-questions, as a JSON list: " + Acquisitions.compress(ask.question(), 300))) { raw = decide(judge, msgs, 1200); }
                 int a = raw.indexOf('['), b = raw.lastIndexOf(']');
                 if (a >= 0 && b > a) {
                     for (JsonNode q : J.readTree(raw.substring(a, b + 1)))
@@ -1610,7 +1612,7 @@ public final class Researcher {
                     + "(a table, a list, a language, a length, an order, a comparison). Copy the format words as written; say none when the request names none.\n\nREQUEST:\n"
                     + ask.question() + "\n\nAnswer with JSON only: {\"task\": \"…\", \"format\": \"…|none\"}");
             String raw;
-            try (var step = Declines.step("say what format a research request asks its answer to take, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 300); }
+            try (var step = Declines.step("say what format a research request asks its answer to take, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = decide(judge, msgs, 300); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return "";
             String f = J.readTree(raw.substring(a, b + 1)).path("format").asText("").strip();
@@ -1656,7 +1658,7 @@ public final class Researcher {
                     + "\"missing\": [{\"question\": \"<self-contained sub-question>\", \"type\": \"critical|contextual|detail|extension\", "
                     + "\"central\": true|false}, ...]} (at most 4; only gaps a further search could fill).");
             String raw;
-            try (var step = Declines.step("check whether the research so far covers the question, and name the gaps, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 900); }
+            try (var step = Declines.step("check whether the research so far covers the question, and name the gaps, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = decide(judge, msgs, 900); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return missing;
             JsonNode v = J.readTree(raw.substring(a, b + 1));
@@ -2174,6 +2176,7 @@ public final class Researcher {
         ResearchSettings.awaitUnpaused(log);
         try { throttle.enter(workersNow()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("interrupted"); }
         long t0 = System.currentTimeMillis();
+        WAITED.get()[0] = 0;
         int in = 0;
         for (JsonNode m : history) in += estTokens(m.path("content").asText("")) + estTokens(m.path("tool_calls").toString()) + 8;
         ObjectNode reply = null;
@@ -2181,6 +2184,7 @@ public final class Researcher {
             reply = chatOnce(history, tools, maxTokens);
             return reply;
         } finally {
+            t0 += WAITED.get()[0];   // a wait for an absent server is not the turn's own time
             throttle.leave();
             // a turn's cost is its tokens — a late turn carries a long history and is slower on its own, which is
             // not contention (measured, J-0009: "slowed" fired on the run's own growth). Decoding costs ~20× prefill.
@@ -2223,15 +2227,92 @@ public final class Researcher {
                 log.accept("drive: the request was over the model's window of " + nctx + " tokens; " + cleared + " older observation(s) cleared, " + cuts + " long message(s) cut in the middle, reply " + reply + " tokens — trying once more");
                 return drive.chat(history, tools, reply, "required");
             }
+            final int asked = maxTokens;
+            if (serverAway(e)) return whenBack(e, () -> drive.chat(history, tools, asked, "required"));
             boolean transport = m.startsWith("chat() failed") || e.getCause() instanceof IOException;
-            if (!transport) throw e;
-            if (!askAgain(e)) {
+            if (transport && !askAgain(e))
                 log.accept("drive: " + (e.getCause() == null ? m : e.getCause().getMessage()) + "; a call that ran out of its time limit is not asked again with the same limit");
-                throw e;
+            throw e;
+        }
+    }
+
+    /**
+     * Whether a failed call is the model server being away — not reachable, its connection cut, restarting, loading its model (502, 503,
+     * 504) — rather than an answer about the request, or a request the server held until its time limit ran out, which would only run
+     * out again. A server another program owns goes away for a minute or two when that program restarts it (Wyrdsekai moves its brain
+     * between the card and RAM that way), and for longer at night.
+     */
+    static boolean serverAway(Throwable e) {
+        String m = String.valueOf(e.getMessage());
+        if (m.startsWith("drive HTTP 502") || m.startsWith("drive HTTP 503") || m.startsWith("drive HTTP 504")) return true;
+        for (Throwable c = e instanceof IOException ? e : e.getCause(); c != null; c = c.getCause()) {
+            if (c instanceof DriveClient.ErrorStatus s) return s.status == 502 || s.status == 503 || s.status == 504;
+            if (c instanceof HttpConnectTimeoutException) return true;
+            if (c instanceof HttpTimeoutException || c instanceof JsonProcessingException) return false;
+            if (c instanceof IOException io) return !String.valueOf(io.getMessage()).contains(" answered HTTP ");   // a 5xx about this request is its answer
+        }
+        return false;
+    }
+
+    /** The waits between asking an absent model server again: 5 seconds, 10, then every 15. */
+    static volatile long[] awayWaitsMs = {5_000, 10_000, 15_000};
+    /** How long this thread waited for an absent server during its current turn, so the wait is not taken for the turn's own time. */
+    private static final ThreadLocal<long[]> WAITED = ThreadLocal.withInitial(() -> new long[1]);
+
+    /**
+     * The call asked again once the model server answers again: for as long as the run's time allows, and with no time limit until it
+     * answers or a person stops the run, as a run that has not started waits for its model. Said on the run's log when the wait starts and
+     * when it ends.
+     */
+    private <T> T whenBack(RuntimeException first, Supplier<T> call) {
+        long start = System.currentTimeMillis();
+        String why = first.getCause() == null ? first.getMessage() : first.getCause().getMessage();
+        log.accept("drive: the model server is not answering (" + why + "); the run waits for it and goes on when it answers");
+        RuntimeException last = first;
+        try {
+            for (int i = 0; ; i++) {
+                long wait = awayWaitsMs[Math.min(i, awayWaitsMs.length - 1)];
+                long deadline = currentBudget.deadlineMs();
+                if (deadline > 0 && System.currentTimeMillis() + wait >= deadline) {
+                    log.accept("drive: the run's time ran out while it waited " + (System.currentTimeMillis() - start) / 1000 + " s for the model server");
+                    throw last;
+                }
+                try { Stopping.sleep(wait); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw last; }
+                if (stopWhen.getAsBoolean()) { log.accept("stopped: a person stopped this run while it waited for the model server"); throw new Stopped(); }
+                try {
+                    T back = call.get();
+                    log.accept("drive: the model server answers again after " + (System.currentTimeMillis() - start) / 1000 + " s; the run goes on");
+                    return back;
+                } catch (Declined | Stopping.Requested d) {
+                    throw d;
+                } catch (RuntimeException e) {
+                    if (!serverAway(e)) throw e;
+                    last = e;
+                }
             }
-            log.accept("drive: transport failure (" + (e.getCause() == null ? m : e.getCause().getMessage()) + ") — retrying once");
-            try { Stopping.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
-            return drive.chat(history, tools, maxTokens, "required");
+        } finally {
+            WAITED.get()[0] += System.currentTimeMillis() - start;
+        }
+    }
+
+    /** A decision asked of {@code d}; when the server was away for it, asked again once it answers. "" when it never did in the run's time. */
+    private String decide(Drive d, ArrayNode msgs, int maxTokens) {
+        DriveClient.forgetUnanswered();
+        String raw = d.classify(msgs, maxTokens);
+        IOException none = DriveClient.lastClassifyUnanswered();
+        if (!raw.isEmpty() || none == null || !serverAway(none)) return raw;
+        try {
+            return whenBack(new IllegalStateException(none.getMessage(), none), () -> {
+                DriveClient.forgetUnanswered();
+                String r = d.classify(msgs, maxTokens);
+                IOException n = DriveClient.lastClassifyUnanswered();
+                if (r.isEmpty() && n != null && serverAway(n)) throw new IllegalStateException(n.getMessage(), n);
+                return r;
+            });
+        } catch (Stopping.Requested stop) {
+            throw stop;
+        } catch (RuntimeException gaveUp) {
+            return "";
         }
     }
 

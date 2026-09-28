@@ -34,6 +34,8 @@ import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import org.researchzosho.drive.aws.AwsCredentials;
@@ -685,9 +687,76 @@ public final class DriveClient {
      * ends it within a second, and a server that took it and never answers is given up at the limit. Each is logged.
      */
     private <T> HttpResponse<T> send(HttpRequest req, HttpResponse.BodyHandler<T> body, Duration limit) throws IOException, InterruptedException {
+        Semaphore slot = req.uri().getPath().endsWith("/chat/completions") ? takeSlot() : null;
         try { return Stopping.send(http, req, body, limit, who()); }
         catch (HttpTimeoutException t) { log.warn("drive ← {}", t.getMessage()); throw t; }
         catch (Stopping.Requested stop) { log.info("drive ← the request to {} was given up and its connection closed, because the run was stopped", baseUrl); throw stop; }
+        finally { if (slot != null) slot.release(); }
+    }
+
+    /** What a llama.cpp server says of itself that changes how the library sends to it: how many requests it serves at once ({@code /props} total_slots, 0 when it does not say). */
+    record Served(int slots) { static final Served UNKNOWN = new Served(0); }
+    private static final Map<String, Served> SERVED = new ConcurrentHashMap<>();
+    /** When a server that did not answer is asked again (System.nanoTime), so a server that hangs costs one short wait a minute, not one a request. */
+    private static final Map<String, Long> ASK_AGAIN = new ConcurrentHashMap<>();
+    /** A llama.cpp server answers these pages at once; one that does not is taken as saying nothing until it is asked again. */
+    private static final Duration PROBE = Duration.ofSeconds(2);
+    private static final Map<String, Semaphore> SLOTS = new ConcurrentHashMap<>();
+    private static final Map<String, Long> SAID_WAITING = new ConcurrentHashMap<>();
+    /** The chat requests this thread is inside of: a stream holds its slot while it is read, and the requests it makes meanwhile take none. */
+    private static final ThreadLocal<int[]> HELD = ThreadLocal.withInitial(() -> new int[1]);
+
+    /** What this client's server says of itself, asked once in this process (again later when it could not be reached). */
+    Served served() {
+        if (bedrock != null) return Served.UNKNOWN;
+        String key = baseUrl + " " + (model == null ? "" : model);
+        Served s = SERVED.get(key);
+        if (s != null) return s;
+        Long again = ASK_AGAIN.get(key);
+        if (again != null && System.nanoTime() < again) return Served.UNKNOWN;
+        try {
+            JsonNode props = pageOf("/props");
+            s = new Served(props == null ? 0 : props.path("total_slots").asInt(0));
+            SERVED.put(key, s);
+            if (s.slots() > 0) log.info("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
+            return s;
+        } catch (Stopping.Requested stop) {
+            throw stop;
+        } catch (Exception e) {
+            ASK_AGAIN.put(key, System.nanoTime() + Duration.ofMinutes(1).toNanos());
+            return Served.UNKNOWN;
+        }
+    }
+
+    /** A llama.cpp page as JSON: the server's own, or behind llama-swap its upstream's for this model; null when neither is there (another kind of server). */
+    private JsonNode pageOf(String path) throws Exception {
+        HttpResponse<String> r = send(auth(HttpRequest.newBuilder(URI.create(baseUrl + path))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE);
+        if (r.statusCode() == 200) return json.readTree(r.body());
+        if (model == null || model.isBlank()) return null;
+        r = send(auth(HttpRequest.newBuilder(URI.create(baseUrl + "/upstream/" + URLEncoder.encode(model, StandardCharsets.UTF_8).replace("+", "%20") + path))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE);
+        return r.statusCode() == 200 ? json.readTree(r.body()) : null;
+    }
+
+    /**
+     * A place among the requests the server serves at once, waited for here rather than in the server's queue: a server shared with
+     * other programs serves theirs between the library's, and the wait does not count against a request's time limit. Null when the
+     * server does not say how many it serves, or this thread is already inside a request that holds one.
+     */
+    private Semaphore takeSlot() throws InterruptedException {
+        if (HELD.get()[0] > 0) return null;
+        int n = served().slots();
+        if (n <= 0) return null;
+        String key = baseUrl + " " + (model == null ? "" : model);
+        Semaphore s = SLOTS.computeIfAbsent(key, k -> new Semaphore(n, true));
+        if (!s.tryAcquire()) {
+            long now = System.nanoTime(), last = SAID_WAITING.getOrDefault(key, now - Duration.ofMinutes(2).toNanos());
+            if (now - last > Duration.ofMinutes(1).toNanos()) {   // once a minute at most: with several workers every request waits
+                SAID_WAITING.put(key, now);
+                log.info("requests wait their turn for the model server at {}: it serves {} at once", baseUrl, n);
+            }
+            while (!s.tryAcquire(1, TimeUnit.SECONDS)) Stopping.check();
+        }
+        return s;
     }
 
     /** A shorter limit for the decisions asked inside a request a person or a program waits on; null: the drive's own. */
@@ -857,6 +926,8 @@ public final class DriveClient {
      */
     private static final ThreadLocal<IOException> CLASSIFY_UNANSWERED = new ThreadLocal<>();
     public static IOException lastClassifyUnanswered() { return CLASSIFY_UNANSWERED.get(); }
+    /** Forget why an earlier call on this thread got no answer, before a call whose own outcome is to be read. */
+    public static void forgetUnanswered() { CLASSIFY_UNANSWERED.remove(); }
     static void clearClassifyProblem() { CLASSIFY_PROBLEM.set(""); }
 
     private static final ObjectMapper SETTINGS_JSON = new ObjectMapper();
@@ -1032,6 +1103,14 @@ public final class DriveClient {
     private ObjectNode chatStreaming(String payload, Duration limit) {
         var sink = onDelta;
         if (sink == null) return null;
+        Semaphore slot;
+        try { slot = takeSlot(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+        HELD.get()[0]++;
+        try { return readStream(sink, payload, limit); }
+        finally { HELD.get()[0]--; if (slot != null) slot.release(); }
+    }
+
+    private ObjectNode readStream(Consumer<String> sink, String payload, Duration limit) {
         try {
             long t0 = System.nanoTime();
             HttpRequest req = auth(HttpRequest.newBuilder(URI.create(baseUrl + "/v1/chat/completions")))
