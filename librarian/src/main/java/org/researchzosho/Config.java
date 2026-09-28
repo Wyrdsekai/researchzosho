@@ -224,6 +224,11 @@ public final class Config {
         synchronized (Config.class) {
             if (loaded) return;
             for (Path p : new Path[]{userConfigPath(), Paths.get("/etc/researchzosho/config")}) {
+                // a folder is no config file: said once, and the settings stay as they are without one, instead of every command ending in an error
+                if (p != null && Files.isDirectory(p)) {
+                    System.err.println("The config file " + p + " is a folder, so no settings are read from it. If you set RESEARCHZOSHO_CONFIG, it names the file itself.");
+                    continue;
+                }
                 if (p != null && Files.isReadable(p)) {
                     read(p);
                     loadedFrom = p;

@@ -4,10 +4,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.regex.Pattern;
 /** The release version: the jar's manifest says it; a run from the source tree says so instead. */
 public final class Version {
     private Version() { }
-    private static final java.net.http.HttpClient HTTP = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
     public static String string() {
         String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();
@@ -20,11 +28,11 @@ public final class Version {
     public static String number() {
         String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();
         if (v != null && !v.isBlank()) return v.strip();
-        try (java.io.InputStream in = Version.class.getResourceAsStream("/org/researchzosho/version.txt")) {
+        try (InputStream in = Version.class.getResourceAsStream("/org/researchzosho/version.txt")) {
             if (in == null) return null;
             String r = new String(in.readAllBytes(), StandardCharsets.UTF_8).strip();
             return r.isEmpty() ? null : r;
-        } catch (java.io.IOException e) { return null; }
+        } catch (IOException e) { return null; }
     }
 
     /** Whether this is a release build (a number), not a run from the source tree. */
@@ -56,10 +64,10 @@ public final class Version {
     public static String latest() {
         try {
             var http = HTTP;
-            var r = http.send(java.net.http.HttpRequest.newBuilder(java.net.URI.create(RELEASES)).timeout(java.time.Duration.ofSeconds(10))
-                    .header("User-Agent", "ResearchZosho/" + string()).header("Accept", "application/vnd.github+json").GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+            var r = http.send(HttpRequest.newBuilder(URI.create(RELEASES)).timeout(Duration.ofSeconds(10))
+                    .header("User-Agent", "ResearchZosho/" + string()).header("Accept", "application/vnd.github+json").GET().build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() != 200) return null;
-            var m = java.util.regex.Pattern.compile("\"tag_name\"\\s*:\\s*\"v?([0-9][^\"]*)\"").matcher(r.body());
+            var m = Pattern.compile("\"tag_name\"\\s*:\\s*\"v?([0-9][^\"]*)\"").matcher(r.body());
             return m.find() ? m.group(1) : null;
         } catch (Exception e) { return null; }
     }

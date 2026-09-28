@@ -11,6 +11,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Instant;
 /** The vault: clean notes with YAML an editor parses, links between them, refreshed without churn, stale notes removed. */
 class VaultTest {
 
@@ -82,7 +83,7 @@ class VaultTest {
         assertTrue(Vault.refresh(store).contains("unchanged"));
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void theServiceKeepsTheVaultWithinSecondsOfAChange(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Path vault = Vault.dir(store);
@@ -95,7 +96,7 @@ class VaultTest {
         try {
             Thread.sleep(50);
             Finding f = new Finding(store.nextFindingId("late claim"), "A late claim", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.high,
-                    "person", java.time.Instant.now().toString(), "2026-09-08", Finding.Volatility.stable, "",
+                    "person", Instant.now().toString(), "2026-09-08", Finding.Volatility.stable, "",
                     List.of(new Finding.Source("https://a.example/1", "n/a", "s")), List.of(), null, "It was late.\n");
             store.write(f);
             assertTrue(Vault.newest(store) >= mark);

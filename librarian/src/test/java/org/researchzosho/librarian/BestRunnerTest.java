@@ -14,6 +14,10 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.researchzosho.tools.Fetch;
 /** The per-question levers, model aside: independence, perspectives, the cite-check, paged reading, the assembled sections. */
 class BestRunnerTest {
 
@@ -57,7 +61,7 @@ class BestRunnerTest {
                     @Override public String name() { return "web_search"; }
                     @Override public String description() { return "s"; }
                     @Override public ObjectNode parametersSchema(ObjectMapper j) { ObjectNode p = j.createObjectNode(); p.put("type", "object"); p.putObject("properties").putObject("query").put("type", "string"); return p; }
-                    @Override public String execute(com.fasterxml.jackson.databind.JsonNode a) { return searchResult; }
+                    @Override public String execute(JsonNode a) { return searchResult; }
                 });
             }
             @Override public BooleanSupplier exhausted() { return () -> false; }
@@ -74,7 +78,7 @@ class BestRunnerTest {
 
     @Test
     void aWorkerThatReadSourcesAndNotedNothingIsBouncedOnce() {
-        java.util.concurrent.atomic.AtomicInteger dones = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger dones = new AtomicInteger();
         ResearcherTest.ScriptedDrive drive = new ResearcherTest.ScriptedDrive() {
             @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {
                 if (names(tools).contains("write_section")) return super.chat(history, tools, maxTokens, toolChoice);
@@ -125,12 +129,12 @@ class BestRunnerTest {
             assertNull(CiteCheck.map("Radiocarbon 47(3)", refs), "a word most references share identifies nothing (three false 'not supported' marks live)");
             assertEquals(4, CiteCheck.map("bone collagen radiocarbon", refs).n(), "two rare words map");
             // walls and canonical URLs
-            assertEquals("a cookie wall", org.researchzosho.tools.Fetch.wall("Error - Cookies Turned Off", "Please enable cookies."));
-            assertEquals("a bot wall", org.researchzosho.tools.Fetch.wall("Making sure you're not a bot!", "…"));
-            assertNull(org.researchzosho.tools.Fetch.wall("A real paper about cookies in baking", lorem("dough", 900)));
-            assertEquals("https://www.nature.com/articles/537462a", org.researchzosho.tools.Fetch.canonical("https://www.nature.com/articles/537462a?error=cookies_not_supported&code=b545f80e"));
-            assertEquals("https://x.example/p?id=7", org.researchzosho.tools.Fetch.canonical("https://x.example/p?utm_source=a&id=7&fbclid=z#top"));
-            assertEquals("https://researchgate.net/publication/356410513", org.researchzosho.tools.Fetch.canonical("https://researchgate.net/publication/356410513_Bone_diagenesis_in_the_marine_environment"));
+            assertEquals("a cookie wall", Fetch.wall("Error - Cookies Turned Off", "Please enable cookies."));
+            assertEquals("a bot wall", Fetch.wall("Making sure you're not a bot!", "…"));
+            assertNull(Fetch.wall("A real paper about cookies in baking", lorem("dough", 900)));
+            assertEquals("https://www.nature.com/articles/537462a", Fetch.canonical("https://www.nature.com/articles/537462a?error=cookies_not_supported&code=b545f80e"));
+            assertEquals("https://x.example/p?id=7", Fetch.canonical("https://x.example/p?utm_source=a&id=7&fbclid=z#top"));
+            assertEquals("https://researchgate.net/publication/356410513", Fetch.canonical("https://researchgate.net/publication/356410513_Bone_diagenesis_in_the_marine_environment"));
             // an identifier read from the captured page
             RawCapture.capture("https://journal.example/marine", "Radiocarbon 44(1) 2002. https://doi.org/10.1017/S0033822200064766 Marine reservoir corrections. " + lorem("res", 200), "Marine reservoir corrections");
             assertEquals("doi:10.1017/S0033822200064766", Citations.identifyCaptured(store, "https://journal.example/marine"));
@@ -177,7 +181,7 @@ class BestRunnerTest {
             String evidence = "SUB-QUESTION: q\nSUMMARY: s\nEVIDENCE:\n- the key claim — source: https://journal.example/paper — quote: \"THE KEY SENTENCE\"\n- a second claim — source: https://mirror.example/paper\n";
             var r = new Researcher(judgeSaying("{\"verdict\":\"supported\"}"), judgeSaying("{\"verdict\":\"supported\"}"), fakeTools(""), null, 1, store);
             var syn = new Researcher.Synthesis(true, List.of("## Answer\n\nThe key claim holds (https://journal.example/paper)."));
-            String out = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn, evidence, new Researcher.Budget(20), new java.util.ArrayList<>());
+            String out = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn, evidence, new Researcher.Budget(20), new ArrayList<>());
             assertTrue(out.contains("## Evidence") && out.contains("| the key claim | [1] | THE KEY SENTENCE |"), out);
             assertTrue(out.contains("## References") && out.contains("[1] A paper — https://journal.example/paper") && out.contains("[2] A paper (mirror) — https://mirror.example/paper  (same text as [1])"), out);
             assertTrue(out.contains("2 source(s), 1 independent"), out);
@@ -187,21 +191,21 @@ class BestRunnerTest {
             RawCapture.capture("file:///corpus/method/guardrails.md", "Percentages are estimates within a margin of error. " + lorem("g", 200), "guardrails");
             String ev3 = "SUB-QUESTION: q\nSUMMARY: s\nEVIDENCE:\n- percentages are estimates — source: guardrails.md, file:///corpus/method/guardrails.md — quote: \"estimates within a margin of error\"\n";
             var syn3 = new Researcher.Synthesis(true, List.of("## Answer\n\nSpecific percentages are estimates within a margin of error, not measurements (guardrails.md)."));
-            String out3 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn3, ev3, new Researcher.Budget(20), new java.util.ArrayList<>());
+            String out3 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn3, ev3, new Researcher.Budget(20), new ArrayList<>());
             assertTrue(out3.contains("| percentages are estimates | [1] |"), out3);
             assertTrue(out3.contains("[1] guardrails — file:///corpus/method/guardrails.md"), out3);
             assertTrue(out3.contains("cite-check: 1 cited sentence(s) read against their source — 1 supported"), out3);
-            assertEquals("file:///corpus/method/guardrails.md", org.researchzosho.tools.Fetch.canonical("file:///corpus/method/guardrails.md"));
+            assertEquals("file:///corpus/method/guardrails.md", Fetch.canonical("file:///corpus/method/guardrails.md"));
             // a worker that noted the bare file name is citing the same capture, not a second reference (J-0009: eleven references for five files)
             String ev4 = "SUB-QUESTION: q\nSUMMARY: s\nEVIDENCE:\n- percentages are estimates — source: guardrails.md — quote: \"estimates within a margin of error\"\n- also estimates — source: guardrails.md, file:///corpus/method/guardrails.md\n";
-            String out4 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn3, ev4, new Researcher.Budget(20), new java.util.ArrayList<>());
+            String out4 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn3, ev4, new Researcher.Budget(20), new ArrayList<>());
             assertTrue(out4.contains("1 source(s), 1 independent"), out4);
             assertTrue(out4.contains("[1] guardrails — file:///corpus/method/guardrails.md") && !out4.contains("[2]"), out4);
             assertTrue(out4.contains("| percentages are estimates | [1] |") && out4.contains("| also estimates | [1] |"), out4);
             assertTrue(out4.contains("cite-check: 1 cited sentence(s) read against their source — 1 supported"), out4);
             // the model's prose decorates a locator ("(file:///…/guardrails.md):**") and names a folder and an unshelved file: one reference (J-0010 listed three junk ones)
             var syn5 = new Researcher.Synthesis(true, List.of("## Answer\n\n**Estimates (file:///corpus/method/guardrails.md):** percentages are estimates within a margin of error (guardrails.md). See file:///corpus/method/ and file:///corpus/method/nothing.md."));
-            String out5 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn5, ev4, new Researcher.Budget(20), new java.util.ArrayList<>());
+            String out5 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn5, ev4, new Researcher.Budget(20), new ArrayList<>());
             assertTrue(out5.contains("1 source(s), 1 independent"), out5);
             String refs5 = out5.substring(out5.indexOf("## References"));
             assertFalse(refs5.contains("[2]") || refs5.contains("):**") || refs5.contains("/method/\n") || refs5.contains("nothing.md"), refs5);
@@ -209,7 +213,7 @@ class BestRunnerTest {
             RawCapture.capture("https://doi.org/10.1234/abc", "Abstract page. " + lorem("abs", 100), "A paper on gears");
             RawCapture.capture("https://publisher.example/pdf/10.1234/abc.pdf", "Full text of the paper. " + lorem("full", 800), "A paper on gears");
             String ev2 = "SUB-QUESTION: q\nSUMMARY: s\nEVIDENCE:\n- claim one — source: Smith 2020, Journal, https://doi.org/10.1234/abc — quote: \"x\"\n- claim two — source: cite:doi:10.1234/abc Smith 2020\n";
-            String out2 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn, ev2, new Researcher.Budget(20), new java.util.ArrayList<>());
+            String out2 = r.assemble(new Researcher.Ask("q long enough to be a question", "broad", 20, List.of()), syn, ev2, new Researcher.Budget(20), new ArrayList<>());
             assertTrue(out2.contains("[1] A paper on gears — https://doi.org/10.1234/abc"), out2);
             assertFalse(out2.contains("[3]"), "the DOI page, its citation line and the mirror are not three references: " + out2);
             assertTrue(out2.contains("| claim one | [1] |") && out2.contains("| claim two | [1] |"), out2);

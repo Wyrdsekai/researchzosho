@@ -49,4 +49,18 @@ public final class ProtocolError extends RuntimeException {
     public static ProtocolError unavailable(String message) {
         return new ProtocolError("unavailable", -32002, message);
     }
+    /** The model declined the step; the message is the library's statement of it. Not an outage: asking again gets the same answer. */
+    public static ProtocolError declined(String statement) {
+        return new ProtocolError("declined", -32006, statement);
+    }
+    /**
+     * The request needs the person's own yes before anything starts: the message is what to show them (for a question that reads as a
+     * person asking about harming themselves, where to find help) and the one sentence that says how to send their yes. Not an outage,
+     * and not something a program answers for the person.
+     */
+    public static ProtocolError confirm(String message) {
+        return new ProtocolError(CONFIRM, -32007, message);
+    }
+    /** The code of {@link #confirm}. */
+    public static final String CONFIRM = "confirm";
 }

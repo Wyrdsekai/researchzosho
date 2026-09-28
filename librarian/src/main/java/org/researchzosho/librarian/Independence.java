@@ -10,6 +10,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import org.researchzosho.tools.Fetch;
 /**
  * Source independence: fifty copies of one press release argue with the weight of one source. Two
  * captured documents whose text overlaps heavily (word-shingle Jaccard) or whose titles are the same
@@ -24,30 +27,30 @@ public final class Independence {
 
     private Independence() { }
 
-    /** locator → cluster number (1-based, in first-seen order). Locators with no capture are their own cluster. */
+    /**
+     * locator → cluster number (1-based, in first-seen order). Locators with no capture are their own cluster. Lines of one file of a
+     * repository the library cloned are that file, read from disk, and so is a forge's page of it ({@link CodeTool#clonedFileOf}): a
+     * claim on one file of the code is on one source, however many of its lines or pages a run cites.
+     */
     public static Map<String, Integer> clusters(LibraryStore store, List<String> locators) {
-        // one address in two spellings (tracking parameters, a trailing slash, http/https) is one locator
-        List<String> uniq = new ArrayList<>();
-        Map<String, String> byCanon = new LinkedHashMap<>();
+        // one address in two spellings (tracking parameters, a trailing slash, http/https) is one locator, and every spelling keeps its number
+        Map<String, String> keyOf = new LinkedHashMap<>();
+        Map<String, String> firstOf = new LinkedHashMap<>();
         for (String loc : locators) {
-            String canon = loc != null && loc.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(loc) : loc;
-            if (canon == null || byCanon.containsKey(canon)) continue;
-            byCanon.put(canon, loc); uniq.add(loc);
+            String key = key(store, loc);
+            if (key == null) continue;
+            keyOf.put(loc, key);
+            firstOf.putIfAbsent(key, loc);
         }
+        List<String> keys = new ArrayList<>(firstOf.keySet()), uniq = new ArrayList<>(firstOf.values());
         List<Set<String>> shingles = new ArrayList<>();
         List<String> titles = new ArrayList<>();
         List<String> texts = new ArrayList<>();
-        for (String loc : uniq) {
-            String text = "", title = "";
-            try {
-                Path p = RawCapture.find(store, loc);
-                if (p != null) { String[] r = RawCapture.read(p); text = r[2]; title = r[1]; }
-            } catch (IOException ignored) {
-                // no capture: stands alone
-            }
-            shingles.add(shingle(text));
-            titles.add(Vocabulary.norm(title));
-            texts.add(text);
+        for (int i = 0; i < uniq.size(); i++) {
+            String[] read = read(store, keys.get(i), uniq.get(i));   // no capture: stands alone
+            shingles.add(shingle(read[0]));
+            titles.add(Vocabulary.norm(read[1]));
+            texts.add(read[0]);
         }
         int[] parent = new int[uniq.size()];
         for (int i = 0; i < parent.length; i++) parent[i] = i;
@@ -69,24 +72,48 @@ public final class Independence {
             }
         }
         Map<Integer, Integer> number = new HashMap<>();
-        Map<String, Integer> out = new LinkedHashMap<>();
+        Map<String, Integer> byKey = new HashMap<>();
         for (int i = 0; i < uniq.size(); i++) {
             int root = find(parent, i);
             number.putIfAbsent(root, number.size() + 1);
-            out.put(uniq.get(i), number.get(root));
+            byKey.put(keys.get(i), number.get(root));
         }
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Map.Entry<String, String> e : keyOf.entrySet()) out.put(e.getKey(), byKey.get(e.getValue()));
         return out;
+    }
+
+    /** What a locator is compared as: a cloned repository's file for its lines and for a forge's page of it, else the address in one spelling. */
+    static String key(LibraryStore store, String loc) {
+        if (loc == null) return null;
+        String file = CodeTool.fileOf(loc);
+        if (file == null && loc.startsWith("http")) file = CodeTool.clonedFileOf(store, loc);
+        if (file != null) return file;
+        return loc.startsWith("http") ? Fetch.canonical(loc) : loc;
+    }
+
+    /** [text, title] of what a locator's key names: a cloned repository's file as it is on disk, anything else as it was captured; empty when neither is there. */
+    static String[] read(LibraryStore store, String key, String loc) {
+        String code = key != null && key.startsWith("raw/repos/") ? CodeTool.textOf(store, key) : null;
+        if (code != null) return new String[]{code, ""};
+        try {
+            Path p = RawCapture.find(store, loc);
+            if (p != null) { String[] r = RawCapture.read(p); return new String[]{r[2], r[1]}; }
+        } catch (IOException ignored) {
+            // no capture
+        }
+        return new String[]{"", ""};
     }
 
     /** Whether a captured text cites a locator: the URL itself, or its DOI / arXiv id, appears in the text. */
     static boolean cites(String text, String locator) {
         if (text == null || text.isEmpty() || locator == null || !locator.contains("://")) return false;
-        String t = text.toLowerCase(java.util.Locale.ROOT);
-        String l = locator.toLowerCase(java.util.Locale.ROOT).replaceFirst("^https?://(www\\.)?", "").replaceAll("[/#?]+$", "");
+        String t = text.toLowerCase(Locale.ROOT);
+        String l = locator.toLowerCase(Locale.ROOT).replaceFirst("^https?://(www\\.)?", "").replaceAll("[/#?]+$", "");
         if (l.length() > 12 && t.contains(l)) return true;
         String id = Citations.identify(locator);
         if (id != null) {
-            String bare = id.substring(id.indexOf(':') + 1).toLowerCase(java.util.Locale.ROOT);
+            String bare = id.substring(id.indexOf(':') + 1).toLowerCase(Locale.ROOT);
             return bare.length() > 6 && t.contains(bare);
         }
         return false;
@@ -122,9 +149,9 @@ public final class Independence {
      */
     public static Map<String, String> derivatives(LibraryStore store, List<String> locators) {
         Map<String, String> out = new LinkedHashMap<>();
-        List<String> uniq = new ArrayList<>(new java.util.LinkedHashSet<>(locators));
+        List<String> uniq = new ArrayList<>(new LinkedHashSet<>(locators));
         Map<String, String> texts = new HashMap<>();
-        for (String loc : uniq) { try { Path p = RawCapture.find(store, loc); texts.put(loc, p == null ? "" : RawCapture.read(p)[2]); } catch (IOException e) { texts.put(loc, ""); } }
+        for (String loc : uniq) texts.put(loc, read(store, key(store, loc), loc)[0]);
         for (String a : uniq) for (String b : uniq) {
             if (a.equals(b) || texts.get(a).isEmpty()) continue;
             String ia = Citations.identify(a), ib = Citations.identify(b);
@@ -142,7 +169,7 @@ public final class Independence {
         if (locators.isEmpty()) return 0;
         Map<String, Integer> clusters = clusters(store, locators);
         Map<String, String> deriv = derivatives(store, locators);
-        java.util.Set<Integer> voices = new HashSet<>(clusters.values());
+        Set<Integer> voices = new HashSet<>(clusters.values());
         for (Map.Entry<String, String> e : deriv.entrySet()) {
             Integer from = clusters.get(e.getKey()), to = clusters.get(e.getValue());
             if (from != null && to != null && !from.equals(to)) voices.remove(from);

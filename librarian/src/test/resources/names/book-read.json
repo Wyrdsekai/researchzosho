@@ -1,0 +1,208 @@
+{
+ "people": [
+  {
+   "name": "Morita Kenji",
+   "family": "Morita",
+   "given": "Kenji"
+  },
+  {
+   "name": "森田健二",
+   "reading": "もりた けんじ",
+   "also": [
+    "Morita Kenji"
+   ],
+   "family": "森田",
+   "given": "健二"
+  },
+  {
+   "name": "Kenji",
+   "given": "Kenji"
+  },
+  {
+   "name": "Endo",
+   "family": "Endo"
+  },
+  {
+   "name": "Morita Isamu",
+   "family": "Morita",
+   "given": "Isamu"
+  },
+  {
+   "name": "Morita Haru",
+   "family": "Morita",
+   "given": "Haru"
+  },
+  {
+   "name": "森田正二",
+   "also": [
+    "Morita Shōji"
+   ],
+   "family": "森田",
+   "given": "正二"
+  },
+  {
+   "name": "森田勝",
+   "also": [
+    "Morita Masaru"
+   ],
+   "family": "森田",
+   "given": "勝"
+  }
+ ],
+ "facts": [
+  {
+   "subject": "Morita Kenji",
+   "relation": "child-of",
+   "object": "Endo",
+   "date": "",
+   "quote": "Endo's son, Morita Kenji, went to the village school in 1920.",
+   "only_family_name": true
+  },
+  {
+   "subject": "Morita Kenji",
+   "relation": "life-event",
+   "object": "went to the village school",
+   "date": "1920",
+   "quote": "Endo's son, Morita Kenji, went to the village school in 1920."
+  },
+  {
+   "subject": "Morita Kenji",
+   "relation": "adopted-by",
+   "object": "Morita Isamu",
+   "kind": "mukoyoshi",
+   "date": "1932",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "subject": "Morita Kenji",
+   "relation": "married-to",
+   "object": "Morita Haru",
+   "date": "1932",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "subject": "Morita Kenji",
+   "relation": "member-of",
+   "object": "the Morita family (森田家)",
+   "how": "mukoyoshi",
+   "date": "1932",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "subject": "Morita Isamu",
+   "relation": "member-of",
+   "object": "the Morita family (森田家)",
+   "role": "head",
+   "date": "",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "subject": "Morita Haru",
+   "relation": "child-of",
+   "object": "Morita Isamu",
+   "date": "",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "subject": "森田健二",
+   "relation": "occupation",
+   "object": "ran the family shop",
+   "date": "",
+   "quote": "森田健二（もりた けんじ）ran the family shop for thirty years."
+  },
+  {
+   "subject": "森田正二",
+   "relation": "child-of",
+   "object": "Morita Isamu",
+   "date": "",
+   "quote": "Isamu's son Morita Shōji (森田正二) left the Morita family in 1940, when he was adopted as heir into the Takahashi family (髙橋家), and became Takahashi Shōji (髙橋正二)."
+  },
+  {
+   "subject": "森田正二",
+   "relation": "member-of",
+   "object": "the Morita family",
+   "left": "adoption-out",
+   "date": "1940",
+   "quote": "Isamu's son Morita Shōji (森田正二) left the Morita family in 1940, when he was adopted as heir into the Takahashi family (髙橋家), and became Takahashi Shōji (髙橋正二)."
+  },
+  {
+   "subject": "森田正二",
+   "relation": "member-of",
+   "object": "the Takahashi family (髙橋家)",
+   "how": "adoption",
+   "role": "heir",
+   "date": "1940",
+   "quote": "Isamu's son Morita Shōji (森田正二) left the Morita family in 1940, when he was adopted as heir into the Takahashi family (髙橋家), and became Takahashi Shōji (髙橋正二)."
+  },
+  {
+   "subject": "森田勝",
+   "relation": "relative-of",
+   "object": "Kenji",
+   "date": "",
+   "quote": "In 1990 Kenji's grandson Morita Masaru (森田勝) became Takahashi Masaru (髙橋勝) and carried on the Takahashi line."
+  },
+  {
+   "subject": "森田勝",
+   "relation": "member-of",
+   "object": "the Takahashi line",
+   "role": "heir",
+   "date": "1990",
+   "quote": "In 1990 Kenji's grandson Morita Masaru (森田勝) became Takahashi Masaru (髙橋勝) and carried on the Takahashi line."
+  }
+ ],
+ "names": [
+  {
+   "person": "Morita Kenji",
+   "name": "森田健二",
+   "family": "森田",
+   "given": "健二",
+   "also": [
+    "もりた けんじ"
+   ],
+   "kind": "mukoyoshi",
+   "said": "婿養子",
+   "date": "1932",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "person": "森田正二",
+   "name": "髙橋正二",
+   "family": "髙橋",
+   "given": "正二",
+   "also": [
+    "Takahashi Shōji"
+   ],
+   "kind": "adoptive",
+   "said": "adopted as heir",
+   "date": "1940",
+   "quote": "Isamu's son Morita Shōji (森田正二) left the Morita family in 1940, when he was adopted as heir into the Takahashi family (髙橋家), and became Takahashi Shōji (髙橋正二)."
+  },
+  {
+   "person": "森田勝",
+   "name": "髙橋勝",
+   "family": "髙橋",
+   "given": "勝",
+   "also": [
+    "Takahashi Masaru"
+   ],
+   "kind": "unknown",
+   "said": "became",
+   "date": "1990",
+   "quote": "In 1990 Kenji's grandson Morita Masaru (森田勝) became Takahashi Masaru (髙橋勝) and carried on the Takahashi line."
+  }
+ ],
+ "families": [
+  {
+   "name": "森田",
+   "written": "the Morita family (森田家)",
+   "seat": "",
+   "quote": "In 1932 he entered the Morita family (森田家), whose head was Morita Isamu, as mukoyōshi (婿養子) of Isamu, and married Isamu's daughter Haru."
+  },
+  {
+   "name": "髙橋",
+   "written": "the Takahashi family (髙橋家)",
+   "seat": "",
+   "quote": "Isamu's son Morita Shōji (森田正二) left the Morita family in 1940, when he was adopted as heir into the Takahashi family (髙橋家), and became Takahashi Shōji (髙橋正二)."
+  }
+ ]
+}

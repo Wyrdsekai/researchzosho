@@ -5,9 +5,19 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
+import java.io.File;
+import java.io.PrintStream;
+import java.nio.file.StandardCopyOption;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
+import java.util.function.UnaryOperator;
+import org.researchzosho.Config;
 /**
  * Run The Librarian as a user service on all three platforms: a systemd --user unit on Linux, a
  * LaunchAgent on macOS, a logon Scheduled Task on Windows. No root, no admin. The daemon writes
@@ -38,22 +48,26 @@ public final class Service {
 
     // ---- the three definitions, as pure text (tested) ----
 
-    static String systemdUnit(String exec, String host, int port, int crewHour, Path log) {
+    static String systemdUnit(String exec, String host, int port, int crewHour, Path log, String javaHome) {
         return "[Unit]\nDescription=ResearchZosho — The Librarian: the library protocol over HTTP, research runs, the housekeeping\n"
                 + "After=network-online.target\n\n[Service]\nType=simple\n"
-                + "ExecStart=" + exec + " " + verbFor(exec) + "serve" + hostFlag(host, " --host ", "") + " --port " + port + " --crew-hour " + crewHour + " --log " + log + "\n"
-                + "Restart=on-failure\nRestartSec=10\nEnvironment=RESEARCHZOSHO_SERVICE=1\n" + passthroughEnv("Environment=", "\n")
+                + "ExecStart=/bin/sh -c '" + UNIX_JAVA_FALLBACK.replace("$", "$$") + "' "
+                + exec + " " + verbFor(exec) + "serve" + hostFlag(host, " --host ", "") + " --port " + port + " --crew-hour " + crewHour + " --log " + log + "\n"
+                // Java ends with 143 when systemd stops it (SIGTERM): a normal stop, not a failure, or `status` would say failed after every stop
+                + "Restart=on-failure\nRestartSec=10\nSuccessExitStatus=143\nEnvironment=RESEARCHZOSHO_SERVICE=1\n" + passthroughEnv("Environment=\"", "=", "\"\n", Service::systemdQuoted)
+                + "Environment=\"" + SERVICE_JAVA_HOME + "=" + systemdQuoted(javaHome) + "\"\n"
                 + (heapOpts().isEmpty() ? "" : "Environment=\"RESEARCHZOSHO_JAVA_OPTS=" + heapOpts() + "\"\n")
                 + "\n"
                 + "[Install]\nWantedBy=default.target\n";
     }
 
-    static String launchAgent(String exec, String host, int port, int crewHour, Path log) {
+    static String launchAgent(String exec, String host, int port, int crewHour, Path log, String javaHome) {
         return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
                 + "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n"
                 + "<plist version=\"1.0\"><dict>\n"
                 + "  <key>Label</key><string>" + MAC_LABEL + "</string>\n"
                 + "  <key>ProgramArguments</key><array>\n"
+                + "    <string>/bin/sh</string><string>-c</string><string>" + xml(UNIX_JAVA_FALLBACK) + "</string>\n"
                 + "    <string>" + exec + "</string>" + (verbFor(exec).isEmpty() ? "" : "<string>librarian</string>") + "<string>serve</string>\n"
                 + hostFlag(host, "    <string>--host</string><string>", "</string>\n")
                 + "    <string>--port</string><string>" + port + "</string>\n"
@@ -61,7 +75,8 @@ public final class Service {
                 + "    <string>--log</string><string>" + log + "</string>\n"
                 + "  </array>\n"
                 + "  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><true/>\n"
-                + "  <key>EnvironmentVariables</key><dict><key>RESEARCHZOSHO_SERVICE</key><string>1</string>\n" + passthroughEnv("    <key>", "</key><string>", "</string>\n")
+                + "  <key>EnvironmentVariables</key><dict><key>RESEARCHZOSHO_SERVICE</key><string>1</string>\n" + passthroughEnv("    <key>", "</key><string>", "</string>\n", v -> v)
+                + "    <key>" + SERVICE_JAVA_HOME + "</key><string>" + xml(javaHome) + "</string>\n"
                 + (heapOpts().isEmpty() ? "" : "    <key>RESEARCHZOSHO_JAVA_OPTS</key><string>" + heapOpts() + "</string>\n")
                 + "    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string></dict>\n"
                 + "  <key>StandardOutPath</key><string>" + log + "</string>\n"
@@ -69,13 +84,30 @@ public final class Service {
                 + "</dict></plist>\n";
     }
 
+    /** Where the unit and the LaunchAgent keep the Java that `service install` ran under, for {@link #UNIX_JAVA_FALLBACK}. */
+    static final String SERVICE_JAVA_HOME = "RESEARCHZOSHO_SERVICE_JAVA_HOME";
+
+    /**
+     * The shell line in front of the launcher on Linux and macOS. systemd and launchd start the service with a PATH of their own,
+     * never the installing shell's: a Java found only there (SDKMAN, a JDK unpacked in the home folder, Homebrew's openjdk, which
+     * is not linked into /opt/homebrew/bin) is not found by the service. JAVA_HOME, or a java on the service's PATH that runs,
+     * still wins; the Java `service install` ran under is used only when there is neither. {@code java -version}, not
+     * {@code command -v java}: macOS always has /usr/bin/java, which fails when no Java is installed.
+     */
+    static final String UNIX_JAVA_FALLBACK = "[ -n \"$JAVA_HOME\" ] || java -version >/dev/null 2>&1 || export JAVA_HOME=\"$" + SERVICE_JAVA_HOME + "\"; exec \"$0\" \"$@\"";
+
+    static String xml(String v) { return v.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"); }
+
     /**
      * Settings the service must inherit from the installing shell: which JVM to run (the sibling
      * project's session once `pkill java`'d ours — RESEARCHZOSHO_JAVA points at a renamed copy) and
      * the model/embedder/library locations when they are env-only rather than in the config file. Both
-     * spellings: an install from before the split is configured in the CODEZAIKU_ names.
+     * spellings: an install from before the split is configured in the CODEZAIKU_ names. The config file the
+     * install was made with, when RESEARCHZOSHO_CONFIG named one: without it the service read the machine's own
+     * config instead. JAVA_OPTS, which the installed launcher hands to Java, so the service runs as the
+     * installing shell's commands did.
      */
-    static final String[] PASSTHROUGH = {"JAVA_HOME",
+    static final String[] PASSTHROUGH = {"JAVA_HOME", "JAVA_OPTS", "RESEARCHZOSHO_CONFIG",
             "RESEARCHZOSHO_JAVA", "RESEARCHZOSHO_DRIVE", "RESEARCHZOSHO_EMBED", "RESEARCHZOSHO_LIBRARY", "RESEARCHZOSHO_MODEL", "RESEARCHZOSHO_RERANK", "RESEARCHZOSHO_JAVA_OPTS",
             "CODEZAIKU_JAVA", "CODEZAIKU_LIBRARIAN_DRIVE", "CODEZAIKU_EMBED", "CODEZAIKU_LIBRARY", "CODEZAIKU_MODEL", "CODEZAIKU_RERANK", "CODEZAIKU_JAVA_OPTS"};
 
@@ -88,19 +120,22 @@ public final class Service {
      */
     static String heapOpts() {
         if (System.getenv("RESEARCHZOSHO_JAVA_OPTS") != null || System.getenv("CODEZAIKU_JAVA_OPTS") != null) return "";   // the person set their own; passed through above
-        String xmx = org.researchzosho.Config.get("RESEARCHZOSHO_XMX", "4g");
+        String xmx = Config.get("RESEARCHZOSHO_XMX", "4g");
         return "--add-opens java.base/java.lang=ALL-UNNAMED --enable-native-access=ALL-UNNAMED -Xmx" + xmx;
     }
 
-    static String passthroughEnv(String prefix, String sep) { return passthroughEnv(prefix, "=", sep); }
-
-    static String passthroughEnv(String prefix, String eq, String sep) {
+    static String passthroughEnv(String prefix, String eq, String sep, UnaryOperator<String> quote) {
         StringBuilder sb = new StringBuilder();
         for (String k : PASSTHROUGH) {
             String v = System.getenv(k);
-            if (v != null && !v.isBlank()) sb.append(prefix).append(k).append(eq).append(v).append(sep);
+            if (v != null && !v.isBlank()) sb.append(prefix).append(k).append(eq).append(quote.apply(v)).append(sep);
         }
         return sb.toString();
+    }
+
+    /** A value inside systemd's {@code Environment="K=V"}: a value with spaces (JAVA_OPTS) stays one setting. */
+    static String systemdQuoted(String v) {
+        return v.replace("\\", "\\\\").replace("\"", "\\\"").replace("%", "%%");
     }
 
     /**
@@ -108,24 +143,117 @@ public final class Service {
      * is not a service, and schtasks cannot take the settings inline (its /TR argument breaks on
      * the quotes and semicolons; measured on the Windows test box 2026-09-03). The script carries the
      * settings a logon environment would not have.
+     *
+     * A logon has only the saved settings, never the PATH of the terminal that ran `service install`. With Java found only
+     * there, the task used to start nothing at the next logon while Windows recorded success: the launcher's error went to a
+     * hidden window, and PowerShell exits 0 after a failed command (measured on the Windows test box, 2026-09-25). So the
+     * script falls back to the Java `service install` ran under, when the logon environment names none; says in the server's
+     * log when no Java can be found at all, and exits 1; and exits with the launcher's own code.
      */
-    static String windowsScript(String exec, String host, int port, int crewHour, Path log) {
+    static String windowsScript(String exec, String host, int port, int crewHour, Path log, String javaHome) {
+        String launcher = exec.replace("'", "''");
         return "# ResearchZosho (The Librarian) as a logon task - written by 'researchzosho service install' (ASCII only: PowerShell reads a BOM-less file as ANSI)\n"
-                + passthroughEnv("$env:", " = '", "'\n").replace("\\'", "''")
+                + passthroughEnv("$env:", " = '", "'\n", v -> v.replace("'", "''"))
                 + (heapOpts().isEmpty() ? "" : "$env:RESEARCHZOSHO_JAVA_OPTS = '" + heapOpts() + "'\n")
-                + "& '" + exec.replace("'", "''") + "' " + verbFor(exec) + "serve" + hostFlag(host, " --host ", "") + " --port " + port + " --crew-hour " + crewHour
-                + " --log '" + log.toString().replace("'", "''") + "'\n";
+                + "$log = '" + log.toString().replace("'", "''") + "'\n"
+                + "# the installed launcher finds Java through JAVA_HOME or PATH: a Java named by RESEARCHZOSHO_JAVA becomes JAVA_HOME\n"
+                + "$named = if ($env:RESEARCHZOSHO_JAVA) { $env:RESEARCHZOSHO_JAVA } else { $env:CODEZAIKU_JAVA }\n"
+                + "if (-not $env:JAVA_HOME -and $named) {\n"
+                + "    $j = Get-Command $named -ErrorAction SilentlyContinue | Select-Object -First 1\n"
+                + "    if ($j -and $j.Source) { $h = Split-Path (Split-Path $j.Source); if (Test-Path -LiteralPath (Join-Path $h 'bin\\java.exe')) { $env:JAVA_HOME = $h } }\n"
+                + "}\n"
+                + "# the Java 'service install' ran under, when the logon environment has none: JAVA_HOME or a Java on PATH still wins\n"
+                + "if (-not $env:JAVA_HOME -and -not (Get-Command java.exe -ErrorAction SilentlyContinue)) { $env:JAVA_HOME = '" + javaHome.replace("'", "''") + "' }\n"
+                + "$java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\\java.exe' } else { (Get-Command java.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source }\n"
+                + "$own = Join-Path (Split-Path (Split-Path '" + launcher + "')) 'jre\\bin\\java.exe'\n"
+                + "if (-not (Test-Path -LiteralPath $own) -and -not ($java -and (Test-Path -LiteralPath $java))) {\n"
+                + "    New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null\n"
+                + "    [IO.File]::AppendAllText($log, (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  " + NO_JAVA_AT_LOGON.replace("'", "''") + "' + [Environment]::NewLine)\n"
+                + "    exit 1\n"
+                + "}\n"
+                + "& '" + launcher + "' " + verbFor(exec) + "serve" + hostFlag(host, " --host ", "") + " --port " + port + " --crew-hour " + crewHour + " --log $log\n"
+                + "exit $LASTEXITCODE\n";
     }
 
-    /** Start the task's script now, detached, with no inherited handles: Start-Process from a throwaway shell. */
+    /** The command that installs the Windows build carrying its own Java. */
+    static final String WINDOWS_RUNTIME_INSTALL = "$env:RESEARCHZOSHO_RUNTIME = '1'; irm https://researchzosho.org/install.ps1 | iex";
+
+    /** What the task script writes to the server's log when a logon finds no Java. */
+    static final String NO_JAVA_AT_LOGON = "Java was not found when Windows started ResearchZosho at logon, so the server did not start;"
+            + " install Java 21 or newer, set JAVA_HOME, or install the build that carries its own Java with this PowerShell command: " + WINDOWS_RUNTIME_INSTALL;
+
+    /**
+     * Whether a Windows logon finds a Java without the fallback: the JAVA_HOME the task script copies from the installing shell,
+     * else the saved one (the User setting over the Machine one); a Java named by RESEARCHZOSHO_JAVA; else java.exe in a folder
+     * of the saved PATH, which a logon builds from the Machine PATH and then the User PATH. {@code saved} maps
+     * "Machine Path", "User JAVA_HOME" and the like to the saved values; {@code shell} reads the installing shell's environment.
+     */
+    static boolean logonFindsJava(UnaryOperator<String> shell, Map<String, String> saved, Predicate<String> isFile) {
+        String home = firstSet(shell.apply("JAVA_HOME"), saved.get("User JAVA_HOME"), saved.get("Machine JAVA_HOME"));
+        if (home != null) return isFile.test(winJoin(home, "bin\\java.exe"));
+        String named = firstSet(shell.apply("RESEARCHZOSHO_JAVA"), shell.apply("CODEZAIKU_JAVA"), saved.get("User RESEARCHZOSHO_JAVA"), saved.get("Machine RESEARCHZOSHO_JAVA"));
+        if (named != null && named.contains("\\") && isFile.test(named)) return true;
+        for (String dir : (saved.getOrDefault("Machine Path", "") + ";" + saved.getOrDefault("User Path", "")).split(";")) {
+            String d = dir.strip().replace("\"", "");
+            if (!d.isEmpty() && isFile.test(winJoin(d, "java.exe"))) return true;
+        }
+        return false;
+    }
+
+    private static String firstSet(String... vs) {
+        for (String v : vs) if (v != null && !v.isBlank()) return v.strip();
+        return null;
+    }
+
+    private static String winJoin(String dir, String name) { return (dir.endsWith("\\") ? dir : dir + "\\") + name; }
+
+    /** Printed by `service install` on Windows when a logon would find no Java of its own and the fallback will be what runs. */
+    static String windowsJavaWarning(String javaHome, Path log) {
+        return "  Note: when you log on, Windows will not find Java by itself. This terminal finds it, but your saved Windows settings do not.\n"
+                + "  The service will use the Java this command ran with, " + javaHome + ". If that folder is moved or removed, the service\n"
+                + "  will not start at logon, and its log says why:\n"
+                + "    " + log + "\n"
+                + "  To make the service independent of that folder, install Java 21 or newer for all programs, set JAVA_HOME in your\n"
+                + "  Windows settings, or install the build that carries its own Java with this PowerShell command:\n"
+                + "    " + WINDOWS_RUNTIME_INSTALL;
+    }
+
+    /**
+     * The saved Machine and User settings a logon builds its environment from, read through PowerShell: "Machine Path",
+     * "User JAVA_HOME" and so on. Base64 of UTF-8 on the way out, so a user folder in any script survives the console's code
+     * page. Null when they cannot be read.
+     */
+    static Map<String, String> savedWindowsEnvironment() {
+        String command = "foreach ($n in 'Path','JAVA_HOME','RESEARCHZOSHO_JAVA') { foreach ($t in 'Machine','User') { $v = [Environment]::GetEnvironmentVariable($n, $t); if ($null -eq $v) { $v = '' };"
+                + " Write-Output ($t + ' ' + $n + '=' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($v))) } }";
+        try {
+            Process p = new ProcessBuilder("powershell", "-NoProfile", "-NonInteractive", "-Command", command).redirectErrorStream(true).start();
+            p.getOutputStream().close();   // Windows PowerShell can wait for its input to end before it exits
+            String o = new String(p.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
+            if (!p.waitFor(30, TimeUnit.SECONDS) || p.exitValue() != 0) return null;
+            Map<String, String> saved = new HashMap<>();
+            for (String line : o.split("\r?\n")) {
+                int eq = line.indexOf('=');
+                if (eq > 0 && (line.startsWith("Machine ") || line.startsWith("User "))) saved.put(line.substring(0, eq), new String(Base64.getDecoder().decode(line.substring(eq + 1).strip()), StandardCharsets.UTF_8));
+            }
+            return saved.size() == 6 ? saved : null;
+        } catch (Exception e) { return null; }
+    }
+
+    /**
+     * Start the task's script now, detached, with no inherited handles: Start-Process from a throwaway shell. Start-Process joins its
+     * argument list with spaces and quotes nothing, so the script's path goes in double quotes of its own: a user folder with a space
+     * (C:\Users\Ann Hale) is one argument. No double quote in the command itself, which the JVM's quoting would break; [char]34 writes it.
+     */
     static List<String> windowsStartNow(Path script) {
         String quoted = "'" + script.toString().replace("'", "''") + "'";
         return List.of("powershell", "-NoProfile", "-Command",
-                "Start-Process -FilePath powershell -ArgumentList @('-NoProfile','-WindowStyle','Hidden','-ExecutionPolicy','Bypass','-File'," + quoted + ") -WindowStyle Hidden");
+                "Start-Process -FilePath powershell -ArgumentList ('-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ' + [char]34 + " + quoted + " + [char]34) -WindowStyle Hidden");
     }
 
+    /** The logon task's command line. The script's path is in double quotes, written \" so that they reach schtasks through the JVM's quoting. */
     static String windowsCommand(Path script) {
-        return "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File " + script;
+        return "powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\\"" + script + "\\\"";
     }
 
     /** Loopback is the default and needs no flag; any other address is written out, so the unit says when the LAN can reach it. */
@@ -136,7 +264,15 @@ public final class Service {
     public static Plan plan(Os os, String exec, int port, int crewHour, Path home) { return plan(os, exec, "127.0.0.1", port, crewHour, home); }
 
     public static Plan plan(Os os, String exec, String host, int port, int crewHour, Path home) {
-        Path state = org.researchzosho.Config.stateDir(home);
+        return plan(os, exec, host, port, crewHour, home, installedJavaHome());
+    }
+
+    /** The Java this program runs under: the service's fallback when its own environment finds none. */
+    static String installedJavaHome() { return System.getProperty("java.home"); }
+
+    /** {@code javaHome}: the Java the service falls back to when the environment it starts in finds none. */
+    static Plan plan(Os os, String exec, String host, int port, int crewHour, Path home, String javaHome) {
+        Path state = Config.stateDir(home);
         Path log = state.resolve("logs").resolve("librarian-serve.log");
         switch (os) {
             case linux -> {
@@ -144,7 +280,7 @@ public final class Service {
                 return new Plan(os, unit,
                         List.of(List.of("systemctl", "--user", "daemon-reload"), List.of("systemctl", "--user", "enable", "--now", NAME)),
                         List.of(List.of("systemctl", "--user", "disable", "--now", NAME), List.of("systemctl", "--user", "daemon-reload")),
-                        List.of("systemctl", "--user", "is-active", NAME), systemdUnit(exec, host, port, crewHour, log));
+                        List.of("systemctl", "--user", "is-active", NAME), systemdUnit(exec, host, port, crewHour, log, javaHome));
             }
             case macos -> {
                 Path plist = home.resolve("Library").resolve("LaunchAgents").resolve(MAC_LABEL + ".plist");
@@ -152,10 +288,10 @@ public final class Service {
                 return new Plan(os, plist,
                         List.of(List.of("launchctl", "bootout", "gui/" + uid + "/" + MAC_LABEL), List.of("launchctl", "bootstrap", "gui/" + uid, plist.toString())),
                         List.of(List.of("launchctl", "bootout", "gui/" + uid + "/" + MAC_LABEL)),
-                        List.of("launchctl", "print", "gui/" + uid + "/" + MAC_LABEL), launchAgent(exec, host, port, crewHour, log));
+                        List.of("launchctl", "print", "gui/" + uid + "/" + MAC_LABEL), launchAgent(exec, host, port, crewHour, log, javaHome));
             }
             default -> {
-                Path script = state.resolve(WIN_TASK + ".ps1");
+                Path script = windowsTaskScript(home);
                 // ONLOGON tasks are "interactive only": schtasks /Run does nothing from a session with no
                 // desktop (ssh). So install ALSO launches the script now — through Start-Process, which hands the
                 // child NO inherited handles. A child started straight from this JVM inherits the caller's output
@@ -165,10 +301,13 @@ public final class Service {
                         List.of(List.of("schtasks", "/Create", "/F", "/SC", "ONLOGON", "/TN", WIN_TASK, "/TR", windowsCommand(script), "/RL", "LIMITED"),
                                 windowsStartNow(script)),
                         List.of(List.of("schtasks", "/End", "/TN", WIN_TASK), List.of("schtasks", "/Delete", "/F", "/TN", WIN_TASK)),
-                        List.of("schtasks", "/Query", "/TN", WIN_TASK), windowsScript(exec, host, port, crewHour, log));
+                        List.of("schtasks", "/Query", "/TN", WIN_TASK), windowsScript(exec, host, port, crewHour, log, javaHome));
             }
         }
     }
+
+    /** The script the Windows logon task runs; it exists while the service is installed. */
+    public static Path windowsTaskScript(Path home) { return Config.stateDir(home).resolve(WIN_TASK + ".ps1"); }
 
     static String uid() {
         try {
@@ -207,7 +346,7 @@ public final class Service {
             String[] names = os() == Os.windows
                     ? new String[]{"researchzosho.bat", "researchzosho.cmd", "zosho.bat", "codezaiku.bat", "codezaiku.cmd"}
                     : new String[]{"researchzosho", "zosho", "codezaiku"};
-            for (String dir : path.split(java.io.File.pathSeparator)) {
+            for (String dir : path.split(File.pathSeparator)) {
                 for (String name : names) {
                     Path p = Path.of(dir, name);
                     if (Files.isRegularFile(p)) return p.toAbsolutePath().toString();
@@ -226,11 +365,11 @@ public final class Service {
     }
 
     /** install | uninstall | status. Returns the process exit code. */
-    public static int run(String op, Plan plan, java.io.PrintStream out) throws IOException, InterruptedException {
+    public static int run(String op, Plan plan, PrintStream out) throws IOException, InterruptedException {
         switch (op) {
             case "install" -> {
                 Files.createDirectories(plan.definition().getParent());
-                Files.createDirectories(org.researchzosho.Config.home().resolve("logs"));
+                Files.createDirectories(Config.home().resolve("logs"));
                 Files.writeString(plan.definition(), plan.text(), StandardCharsets.UTF_8);
                 out.println("wrote " + plan.definition());
                 int rc = 0;
@@ -243,6 +382,12 @@ public final class Service {
                 if (rc == 0) {
                     out.println("installed: " + describe(plan));
                     if (plan.os() == Os.linux) out.println("  (to keep it running while you are logged out: loginctl enable-linger " + System.getProperty("user.name") + ")");
+                    if (plan.os() == Os.windows) {
+                        // the script always carries the fallback; say so when a logon would need it
+                        Map<String, String> saved = savedWindowsEnvironment();
+                        if (saved != null && !logonFindsJava(System::getenv, saved, f -> Files.isRegularFile(Path.of(f))))
+                            out.println(windowsJavaWarning(installedJavaHome(), Config.home().resolve("logs").resolve("librarian-serve.log")));
+                    }
                 }
                 return rc;
             }
@@ -268,7 +413,7 @@ public final class Service {
     }
 
     /** Where a running server records its pid: the state dir, beside the logs. */
-    public static Path pidFile() { return org.researchzosho.Config.home().resolve("researchzosho.pid"); }
+    public static Path pidFile() { return Config.home().resolve("researchzosho.pid"); }
 
     /** Called by `serve`: record this process so `service uninstall` can stop it on a platform that will not. */
     public static void recordPid() {
@@ -287,16 +432,30 @@ public final class Service {
         catch (IOException | NumberFormatException e) { return null; }
     }
 
+    /** The recorded server's pid when it is running and is a JVM other than this one; else null. */
+    static Long runningServer(Path pidFile) {
+        Long pid = recordedPid(pidFile);
+        if (pid == null || pid == ProcessHandle.current().pid()) return null;
+        var h = ProcessHandle.of(pid);
+        if (h.isEmpty() || !h.get().isAlive()) return null;
+        return h.get().info().command().orElse("").toLowerCase(Locale.ROOT).contains("java") ? pid : null;
+    }
+
     /** Stop the recorded server if it is alive and is a JVM (never a pid that was reused by something else). */
-    static boolean stopRecorded(Path pidFile, java.io.PrintStream out) {
+    static boolean stopRecorded(Path pidFile, PrintStream out) {
         Long pid = recordedPid(pidFile);
         if (pid == null) return false;
         var h = ProcessHandle.of(pid);
         if (h.isEmpty() || !h.get().isAlive()) { try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { } return false; }
         String cmd = h.get().info().command().orElse("").toLowerCase(Locale.ROOT);
-        if (!cmd.contains("java")) { out.println("  pid " + pid + " is not the server any more (" + cmd + "); left alone"); return false; }
+        if (!cmd.contains("java")) {
+            // the server is gone and another program has its number now: that program is left alone, and the stale record goes
+            out.println("  pid " + pid + " is not the server any more (" + cmd + "); left alone");
+            try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { }
+            return false;
+        }
         h.get().destroy();
-        try { h.get().onExit().get(10, java.util.concurrent.TimeUnit.SECONDS); } catch (Exception e) { h.get().destroyForcibly(); }
+        try { h.get().onExit().get(10, TimeUnit.SECONDS); } catch (Exception e) { h.get().destroyForcibly(); }
         try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { }
         out.println("stopped the running server (pid " + pid + ")");
         return true;
@@ -310,7 +469,7 @@ public final class Service {
         };
     }
 
-    private static int exec(List<String> cmd, java.io.PrintStream out) throws IOException, InterruptedException {
+    private static int exec(List<String> cmd, PrintStream out) throws IOException, InterruptedException {
         if (!cmd.isEmpty() && "@detach".equals(cmd.get(0))) {   // start and do not wait: the service itself
             List<String> real = cmd.subList(1, cmd.size());
             out.println("  $ " + String.join(" ", real) + "  (detached)");
@@ -329,7 +488,7 @@ public final class Service {
     public static void rotate(Path log, long maxBytes) {
         try {
             if (Files.exists(log) && Files.size(log) > maxBytes) {
-                Files.move(log, log.resolveSibling(log.getFileName() + ".1"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                Files.move(log, log.resolveSibling(log.getFileName() + ".1"), StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException ignored) { }
     }

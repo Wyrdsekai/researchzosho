@@ -16,7 +16,15 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import org.researchzosho.Config;
+import org.researchzosho.Stopping;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.researchzosho.librarian.Fence;
+import org.researchzosho.librarian.SearchLog;
+import org.researchzosho.librarian.SourceRules;
+import org.researchzosho.librarian.SourceTier;
 /**
  * Web search via a self-hosted SearXNG meta-search instance (keyless, aggregates many engines — fits
  * CodeZaiku's self-hosted ethos: local model, local embeddings, local search). Returns a compact ranked list
@@ -31,8 +39,8 @@ public final class WebSearchTool implements Tool {
      *  run to judge the run's SUBSTRATE (a refused draft names infrastructure, not the model).
      *  Same pattern as DriveClient's SESSION_*_TOKENS. Shared across parallel fan workers on
      *  purpose: the gate judges the whole run's substrate, not one worker's. */
-    public static final java.util.concurrent.atomic.AtomicInteger DEGRADED_EVENTS =
-            new java.util.concurrent.atomic.AtomicInteger();
+    public static final AtomicInteger DEGRADED_EVENTS =
+            new AtomicInteger();
 
     private static final ObjectMapper M = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder()
@@ -52,9 +60,26 @@ public final class WebSearchTool implements Tool {
         return this;
     }
 
+    /** Which lists take results out before the model sees them: the run's, or {@link Fetch.Policy#DEFAULT}, both lists. */
+    private volatile Fetch.Policy policy = Fetch.Policy.DEFAULT;
+
+    /** The run's lists: a run whose person let in what the site list leaves out sees those results. */
+    public WebSearchTool policy(Fetch.Policy p) { this.policy = p == null ? Fetch.Policy.DEFAULT : p; return this; }
+
+    /**
+     * The lines that say how many results were left out and why: the person's refused-sources list, and the site list. Nothing of what
+     * was left out is shown.
+     */
+    static String leftOutLines(int refused, int listed) {
+        StringBuilder b = new StringBuilder();
+        if (refused > 0) b.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
+        if (listed > 0) b.append("(").append(listed).append(" result(s) left out: on ").append(Fetch.SITE_LIST_NAME).append(")\n");
+        return b.toString();
+    }
+
     /** Append the steerer's note (if any) to a formatted result; hosts parsed from its url lines. */
     private String steered(String query, String result) {
-        var urls = new java.util.ArrayList<String>();
+        var urls = new ArrayList<String>();
         for (String line : result.split("\n")) if (line.startsWith("   http")) urls.add(line.strip());
         return result + steer.observe(query, urls);
     }
@@ -71,10 +96,10 @@ public final class WebSearchTool implements Tool {
     }
 
     /** Session-wide count of searches that found NO backend at all (SearXNG down, no Brave key, fallback off): the report says so. */
-    public static final java.util.concurrent.atomic.AtomicInteger UNREACHABLE = new java.util.concurrent.atomic.AtomicInteger();
+    public static final AtomicInteger UNREACHABLE = new AtomicInteger();
     /** Which backend answered, session-wide: the report says which one a run searched through. */
-    public static final java.util.concurrent.atomic.AtomicInteger BRAVE_USED = new java.util.concurrent.atomic.AtomicInteger(),
-            SEARXNG_USED = new java.util.concurrent.atomic.AtomicInteger(), FALLBACK_USED = new java.util.concurrent.atomic.AtomicInteger();
+    public static final AtomicInteger BRAVE_USED = new AtomicInteger(),
+            SEARXNG_USED = new AtomicInteger(), FALLBACK_USED = new AtomicInteger();
     /** When SearXNG last failed to answer at all; for a minute after that the fallback is tried first, so a firewalled address does not cost 30 s per search. */
     private static volatile long searxDownAt;
 
@@ -98,30 +123,32 @@ public final class WebSearchTool implements Tool {
         try {
             String lang = languageOf(query);
             String wiki = lang == null ? "en" : switch (lang) { case "ja", "zh", "ko", "ru", "ar", "th", "he", "el" -> lang; default -> "en"; };
-            HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create("https://" + wiki + ".wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit="
+            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create("https://" + wiki + ".wikipedia.org/w/api.php?action=query&list=search&format=json&srlimit="
                             + Math.min(limit, 20) + "&srsearch=" + URLEncoder.encode(query, StandardCharsets.UTF_8)))
                     .timeout(Duration.ofSeconds(20))
                     .header("User-Agent", ScholarSearch.UA)
-                    .header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
+                    .header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "Wikipedia's search");
             if (resp.statusCode() == 200) rows.addAll(parseFallback(resp.body(), wiki));
-        } catch (Exception ignored) { }
+        } catch (Stopping.Requested stop) { throw stop; }
+        catch (Exception ignored) { }
         int half = Math.max(2, limit / 2);
         if (rows.size() > half) rows = new ArrayList<>(rows.subList(0, half));   // leave room for the papers
         for (ScholarSearch.Row r : ScholarSearch.merged(query, limit)) rows.add(new String[]{r.title(), r.url(), r.snippet()});
         if (rows.isEmpty()) return null;
-        StringBuilder sb = new StringBuilder("results for \"" + query + "\" (built-in fallback: Wikipedia, then papers from Crossref and OpenAlex: follow the pages' references for primary sources):\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
-        int shown = 0, refused = 0;
-        var rules = org.researchzosho.librarian.SourceRules.live();
+        StringBuilder sb = new StringBuilder("results for \"" + query + "\" (built-in fallback: Wikipedia, then papers from Crossref and OpenAlex: follow the pages' references for primary sources):\n" + Fence.open("SEARCH RESULTS") + "\n");
+        int shown = 0, refused = 0, listed = 0;
+        var rules = SourceRules.live();
         for (String[] r : rows) {
             if (shown >= limit) break;
-            if (rules.refused(r[1])) { refused++; continue; }
+            if (policy.refused(r[1])) { refused++; continue; }
+            if (policy.onSiteList(r[1])) { listed++; continue; }
             shown++;
             sb.append(shown).append(". ").append(r[0]).append('\n')
-              .append("   ").append(r[1]).append("  [").append(org.researchzosho.librarian.SourceTier.of(r[1])).append(rules.trusted(r[1]) ? ", trusted by the person" : "").append("]\n");
+              .append("   ").append(r[1]).append("  [").append(SourceTier.of(r[1])).append(rules.trusted(r[1]) ? ", trusted by the person" : "").append("]\n");
             if (!r[2].isEmpty()) sb.append("   ").append(r[2]).append('\n');
         }
-        if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
-        sb.append(org.researchzosho.librarian.Fence.close("SEARCH RESULTS")).append('\n').append(org.researchzosho.librarian.Fence.rule("SEARCH RESULTS")).append('\n');
+        sb.append(leftOutLines(refused, listed));
+        sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
         FALLBACK_USED.incrementAndGet();
         return sb.toString();
     }
@@ -145,14 +172,14 @@ public final class WebSearchTool implements Tool {
     private static String untag(String s) {
         String t = s.replaceAll("<[^>]+>", "");
         StringBuilder sb = new StringBuilder();
-        var m = java.util.regex.Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);").matcher(t);
+        var m = Pattern.compile("&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos|nbsp);").matcher(t);
         while (m.find()) {
             String e = m.group(1); String rep;
             try {
                 rep = switch (e) { case "amp" -> "&"; case "lt" -> "<"; case "gt" -> ">"; case "quot" -> "\""; case "apos" -> "'"; case "nbsp" -> " ";
                     default -> new String(Character.toChars(e.startsWith("#x") ? Integer.parseInt(e.substring(2), 16) : Integer.parseInt(e.substring(1)))); };
             } catch (Exception ex) { rep = m.group(0); }
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(rep));
+            m.appendReplacement(sb, Matcher.quoteReplacement(rep));
         }
         m.appendTail(sb);
         return sb.toString().replaceAll("\\s+", " ").strip();
@@ -179,41 +206,66 @@ public final class WebSearchTool implements Tool {
         String key = Config.get("RESEARCHZOSHO_BRAVE_KEY");
         if (key == null || key.isBlank()) return null;
         try {
-            HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(
-                            "https://api.search.brave.com/res/v1/web/search?count="
-                            + Math.min(limit, 20) + "&q="
-                            + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                            + (languageOf(query) == null ? "" : "&search_lang=" + languageOf(query))))
+            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(braveUrl(query, limit, safeSearch())))
                     .timeout(Duration.ofSeconds(20))
                     .header("Accept", "application/json")
                     .header("X-Subscription-Token", key.strip())
-                    .GET().build(), HttpResponse.BodyHandlers.ofString());
+                    .GET().build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "Brave's search");
             if (resp.statusCode() != 200) return null;   // 401/429/5xx → SearXNG carries on
             JsonNode rs = M.readTree(resp.body()).path("web").path("results");
             if (!rs.isArray() || rs.isEmpty()) return null;
             BRAVE_USED.incrementAndGet();
-            StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
-            int shown = 0, refused = 0;
-            var rules = org.researchzosho.librarian.SourceRules.live();
+            StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + Fence.open("SEARCH RESULTS") + "\n");
+            int shown = 0, refused = 0, listed = 0;
+            var rules = SourceRules.live();
             for (int i = 0; i < rs.size() && shown < limit; i++) {
                 JsonNode r = rs.get(i);
                 String url = r.path("url").asText("");
-                if (rules.refused(url)) { refused++; continue; }   // the person's refused list: never shown, never cited
+                if (policy.refused(url)) { refused++; continue; }   // the person's refused list: never shown, never cited
+                if (policy.onSiteList(url)) { listed++; continue; }   // Brave's moderate safe search lets adult sites through in web results
                 String desc = r.path("description").asText("").replaceAll("<[^>]+>", "")
                         .replaceAll("\\s+", " ").strip();
                 if (desc.length() > 240) desc = desc.substring(0, 240) + "…";
                 shown++;
                 sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
-                  .append("   ").append(url).append("  [").append(org.researchzosho.librarian.SourceTier.of(url)).append(rules.trusted(url) ? ", trusted by the person" : "").append("]\n");
+                  .append("   ").append(url).append("  [").append(SourceTier.of(url)).append(rules.trusted(url) ? ", trusted by the person" : "").append("]\n");
                 if (!desc.isEmpty()) sb.append("   ").append(desc).append('\n');
             }
-            if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
-            sb.append(org.researchzosho.librarian.Fence.close("SEARCH RESULTS")).append('\n').append(org.researchzosho.librarian.Fence.rule("SEARCH RESULTS")).append('\n');
+            sb.append(leftOutLines(refused, listed));
+            sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
             return sb.toString();
+        } catch (Stopping.Requested stop) {
+            throw stop;
         } catch (Exception e) {
             return null;
         }
     }
+
+    /**
+     * Brave's address for a query. {@code safesearch=moderate} leaves out explicit pictures and videos; Brave's moderate setting still
+     * lets adult sites through in web results, and the site list ({@code SiteList}) takes those out of the results afterwards.
+     */
+    static String braveUrl(String query, int limit) { return braveUrl(query, limit, true); }
+
+    /** {@code safe} false: a run whose person let in pornography and gore for that question, for which safe search is off ({@code off}). */
+    static String braveUrl(String query, int limit, boolean safe) {
+        return "https://api.search.brave.com/res/v1/web/search?count=" + Math.min(limit, 20) + "&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + (languageOf(query) == null ? "" : "&search_lang=" + languageOf(query)) + "&safesearch=" + (safe ? "moderate" : "off");
+    }
+
+    /** SearXNG's address for a query: {@code safesearch=1} is moderate, for the engines that have the setting. */
+    static String searxUrl(String query) { return searxUrl(query, true); }
+
+    /** {@code safe} false: {@code safesearch=0}, for a run whose person let in pornography and gore for that question. */
+    static String searxUrl(String query, boolean safe) {
+        String lang = languageOf(query);
+        // a query in a non-Latin script tells the engine its language, or it answers with whatever matches the bytes
+        // (measured: a Japanese query with no language came back as Brazilian news and a Microsoft forum)
+        return endpoint() + "/search?format=json&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang) + "&safesearch=" + (safe ? "1" : "0");
+    }
+
+    /** Safe search is moderate unless this run's person let in what the site list leaves out, for this question: then it is off. */
+    private boolean safeSearch() { return policy.siteList(); }
 
     @Override public String name() { return "web_search"; }
 
@@ -267,7 +319,7 @@ public final class WebSearchTool implements Tool {
         if (query.isBlank()) return "ERROR: empty query";
         int limit = Math.min(Math.max(args.path("limit").asInt(8), 1), 20);
         if (!queried.add(query.strip().toLowerCase()))
-            return "ALREADY SEARCHED: you already ran this exact query; its results are above in your history. "
+            return SearchLog.ALREADY + ": you already ran this exact query; its results are above in your history. "
                     + "Use a DIFFERENT query, web_fetch one of the results you have not read yet, or write your "
                     + "answer and call task_done.";
         String brave = endpointOverride == null ? braveSearch(query, limit) : null;   // a test's local server, never Brave
@@ -285,10 +337,7 @@ public final class WebSearchTool implements Tool {
             String fb = fallbackSearch(query, limit);
             if (fb != null) return steered(query, fb);
         }
-        String lang = languageOf(query);
-        // a query in a non-Latin script tells the engine its language, or it answers with whatever matches the bytes
-        // (measured: a Japanese query with no language came back as Brazilian news and a Microsoft forum)
-        String url = endpoint() + "/search?format=json&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang);
+        String url = searxUrl(query, safeSearch());
         JsonNode body = null;
         // The free upstream engines rate-limit under sustained load, and SearXNG then SUSPENDS them —
         // every engine down comes back as an empty result list, which reads exactly like "the web does not
@@ -296,9 +345,12 @@ public final class WebSearchTool implements Tool {
         for (int attempt = 1; attempt <= 2 && body == null; attempt++) {
             HttpResponse<String> resp;
             try {
-                resp = HTTP.send(HttpRequest.newBuilder(URI.create(url))
+                resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(url))
                         .timeout(Duration.ofSeconds(30)).header("Accept", "application/json").GET().build(),
-                        HttpResponse.BodyHandlers.ofString());
+                        HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(30), "the search service at " + endpoint());
+            } catch (Stopping.Requested stop) {
+                queried.remove(query.strip().toLowerCase());   // a stopped search was not made
+                throw stop;
             } catch (Exception e) {
                 searxDownAt = System.currentTimeMillis();
                 String fb = fallbackSearch(query, limit);
@@ -329,7 +381,7 @@ public final class WebSearchTool implements Tool {
             String down = degradedEngines(body);
             if (!down.isEmpty()) {
                 DEGRADED_EVENTS.incrementAndGet();
-                return "SEARCH BACKEND DEGRADED: no results came back because the upstream engines are "
+                return SearchLog.DEGRADED + ": no results came back because the upstream engines are "
                         + "currently rate-limited or blocked (" + down + "). This is a TRANSIENT infrastructure "
                         + "problem, not evidence that the information does not exist: do NOT conclude the answer "
                         + "is unavailable and do NOT answer from memory. Try a different phrasing, or fetch a "
@@ -338,28 +390,29 @@ public final class WebSearchTool implements Tool {
             return "no results for: " + query;
         }
         SEARXNG_USED.incrementAndGet();
-        StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
-        int shown = 0, refused = 0;
-        var rules = org.researchzosho.librarian.SourceRules.live();
+        StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + Fence.open("SEARCH RESULTS") + "\n");
+        int shown = 0, refused = 0, listed = 0;
+        var rules = SourceRules.live();
         for (int i = 0; i < results.size() && shown < limit; i++) {
             JsonNode r = results.get(i);
             String ru = r.path("url").asText("");
-            if (rules.refused(ru)) { refused++; continue; }   // the person's refused list: never shown, never cited
+            if (policy.refused(ru)) { refused++; continue; }   // the person's refused list: never shown, never cited
+            if (policy.onSiteList(ru)) { listed++; continue; }
             String content = r.path("content").asText("").replaceAll("\\s+", " ").strip();
             if (content.length() > 240) content = content.substring(0, 240) + "…";
             shown++;
             sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
-              .append("   ").append(ru).append("  [").append(org.researchzosho.librarian.SourceTier.of(ru)).append(rules.trusted(ru) ? ", trusted by the person" : "").append("]\n");
+              .append("   ").append(ru).append("  [").append(SourceTier.of(ru)).append(rules.trusted(ru) ? ", trusted by the person" : "").append("]\n");
             if (!content.isEmpty()) sb.append("   ").append(content).append('\n');
         }
-        if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
+        sb.append(leftOutLines(refused, listed));
         if (!sweepNoted && looksBatched(query)) {
             sweepNoted = true;
             sb.append("\nNOTE: this query names several distinct items at once: engines require ALL terms, "
                     + "so batched queries surface homepages, not data. Search for ONE page listing all the "
                     + "items (\"list of …\" / \"comparison of …\"), or query ONE item at a time.");
         }
-        sb.append(org.researchzosho.librarian.Fence.close("SEARCH RESULTS")).append('\n').append(org.researchzosho.librarian.Fence.rule("SEARCH RESULTS")).append('\n');
+        sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
         return steered(query, sb.toString());
     }
 }

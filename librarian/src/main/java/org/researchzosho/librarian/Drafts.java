@@ -10,6 +10,8 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.Config;
+import org.researchzosho.drive.Declined;
 /**
  * "Check my draft": the person's own text — a memo, a chapter, notes — as a starting point. One voice, so
  * every definite statement is a claim to check and every question in it is theirs. The citations it
@@ -18,9 +20,12 @@ import java.util.regex.Pattern;
 public final class Drafts {
 
     static final Pattern URL = Pattern.compile("https?://[^\\s<>\"'()\\[\\]]+[^\\s<>\"'()\\[\\].,;:]");
-    static final int MAX_CITATIONS = org.researchzosho.Config.getInt("RESEARCHZOSHO_DRAFT_CITATIONS", 40);
+    static final int MAX_CITATIONS = Config.getInt("RESEARCHZOSHO_DRAFT_CITATIONS", 40);
 
-    public record Outcome(String title, String raw, List<String> claims, List<String> questionsFiled, List<String> questionsHeld, List<Shelving.Got> citations) { }
+    /** {@code declined}: the library's statement when the model declined to list the claims, "" when it did not; the rest was shelved and filed. */
+    public record Outcome(String title, String raw, List<String> claims, List<String> questionsFiled, List<String> questionsHeld, List<Shelving.Got> citations, String declined) {
+        public Outcome(String title, String raw, List<String> claims, List<String> questionsFiled, List<String> questionsHeld, List<Shelving.Got> citations) { this(title, raw, claims, questionsFiled, questionsHeld, citations, ""); }
+    }
 
     private Drafts() { }
 
@@ -45,11 +50,13 @@ public final class Drafts {
         for (String q : Conversations.questions(t)) {
             if (Items.file(store, open, q, who, title)) filed.add(q); else held.add(q);
         }
-        List<String> claims = Conversations.claims(t, extractor);
+        List<String> claims; String declined = "";
+        try { claims = Conversations.claims(t, extractor); }
+        catch (Declined d) { claims = List.of(); declined = d.statement(); }   // the draft is shelved and its questions filed already: said, not undone
         List<Shelving.Got> cites = new ArrayList<>();
         if (fetchCitations) for (String u : citations(text)) cites.add(Shelving.fetch(store, u, collection, "cited by the draft \"" + Acquisitions.compress(title, 60) + "\""));
-        store.circulate("draft", who + " :: " + Acquisitions.compress(title, 80) + " — " + claims.size() + " claim(s) to check, " + cites.size() + " citation(s) looked at, " + filed.size() + " question(s) filed");
-        return new Outcome(title, raw == null ? "" : raw.getFileName().toString(), claims, filed, held, cites);
+        store.circulate("draft", who + " :: " + Acquisitions.compress(title, 80) + " — " + (declined.isEmpty() ? claims.size() + " claim(s) to check" : "the model declined to list the claims") + ", " + cites.size() + " citation(s) looked at, " + filed.size() + " question(s) filed");
+        return new Outcome(title, raw == null ? "" : raw.getFileName().toString(), claims, filed, held, cites, declined);
     }
 
     /** The question for the run that checks a draft's claims. */

@@ -27,6 +27,7 @@ import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Arrays;
 /** Wyrdsekai's second batch (2026-09-07): canon-affecting, untrusted text and the network, robustness. */
 class SecondReviewTest {
 
@@ -221,7 +222,7 @@ class SecondReviewTest {
         try (ZipOutputStream z = new ZipOutputStream(bos)) {
             z.putNextEntry(new ZipEntry("word/document.xml"));
             byte[] chunk = new byte[1 << 20];
-            java.util.Arrays.fill(chunk, (byte) ' ');
+            Arrays.fill(chunk, (byte) ' ');
             for (int i = 0; i < 40; i++) z.write(chunk);   // 40 MB of spaces, a few KB on the wire
             z.closeEntry();
         }

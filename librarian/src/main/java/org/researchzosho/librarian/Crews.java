@@ -1,5 +1,9 @@
 package org.researchzosho.librarian;
 
+import static org.researchzosho.librarian.Researcher.forExplorer;
+
+import org.researchzosho.librarian.Researcher.CannotCheck;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -10,6 +14,23 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
+import java.time.Duration;
+import java.time.LocalDate;
+import java.util.function.BooleanSupplier;
+import java.util.function.Function;
+import org.researchzosho.Config;
+import org.researchzosho.drive.ContentJudge;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.aws.Bedrock;
+import org.slf4j.LoggerFactory;
+import org.researchzosho.drive.Declined;
 /**
  * The background crews — what librarians do when the desk is closed. Owned by the daemon
  * (the operator, 2026-09-03: "daemon owns the crews — a lot of the asks may need overnight runs"),
@@ -40,34 +61,32 @@ public final class Crews {
         String research(String question, String writer) throws Exception;
         /** A bundle: one run whose workers take {@code subQuestions} (the head question first); by default the head alone. */
         default String research(String question, List<String> subQuestions, String writer) throws Exception { return research(question, writer); }
+        /** The same as a run of {@code field}, the field whose open questions these are ({@link Fields#ofLine}); "" for ordinary questions. */
+        default String research(String question, List<String> subQuestions, String writer, String field) throws Exception { return research(question, subQuestions, writer); }
     }
 
     /** The real one: the library's own runner on the drive, submitted through the acquisitions gate. */
     public static Researcher driveResearcher(LibraryStore store, String driveUrl, String model, int maxTurns) {
         return new Researcher() {
             @Override public String research(String question, String writer) throws Exception { return research(question, List.of(), writer); }
-            @Override public String research(String question, List<String> subQuestions, String writer) throws Exception {
-                var runner = new org.researchzosho.librarian.Researcher(
-                        org.researchzosho.librarian.Researcher.drive(driveUrl, model),
-                        org.researchzosho.librarian.Researcher.judgeDrive(driveUrl, model),
-                        org.researchzosho.librarian.Researcher.webTools(), line -> log(store, "explorer", line, 0), store);
-                var ask = new org.researchzosho.librarian.Researcher.Ask(question, "broad", maxTurns, subQuestions, "both", List.of(), explorerMinutes());
-                return org.researchzosho.librarian.Researcher.file(store, runner, ask, writer).investigationId();
+            @Override public String research(String question, List<String> subQuestions, String writer) throws Exception { return research(question, subQuestions, writer, ""); }
+            @Override public String research(String question, List<String> subQuestions, String writer, String field) throws Exception {
+                return forExplorer(store, driveUrl, model, question, subQuestions, maxTurns, explorerMinutes(), field, writer, line -> log(store, "explorer", line, 0));
             }
         };
     }
 
     /** Open questions (bundles) researched per night, read when the run starts so a change applies tonight; 0 turns the explorer off. */
-    public static int explorerPerNight() { return org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_PER_NIGHT", 2); }
+    public static int explorerPerNight() { return Config.getInt("RESEARCHZOSHO_EXPLORER_PER_NIGHT", 2); }
     /** A one-night override: {@code explorer.tonight} in the config file, used once and cleared. 0 = none. */
-    public static int explorerTonight() { return org.researchzosho.Config.getInt("explorer.tonight", 0); }
+    public static int explorerTonight() { return Config.getInt("explorer.tonight", 0); }
     /** What the next run will take: the override when set, else the standing number. */
     public static int explorerBudget() { int t = explorerTonight(); return t > 0 ? t : explorerPerNight(); }
-    static void clearTonight() { try { if (explorerTonight() > 0) org.researchzosho.Config.set("explorer.tonight", "0"); } catch (Exception ignored) { } }
+    static void clearTonight() { try { if (explorerTonight() > 0) Config.set("explorer.tonight", "0"); } catch (Exception ignored) { } }
     static final int EXPLORER_PER_NIGHT = explorerPerNight();
-    static final int EXPLORER_TURNS = org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_TURNS", 30);
+    static final int EXPLORER_TURNS = Config.getInt("RESEARCHZOSHO_EXPLORER_TURNS", 30);
     /** A wall-clock ceiling per explorer run in minutes; 0 = none. */
-    public static int explorerMinutes() { return org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_MINUTES", 0); }
+    public static int explorerMinutes() { return Config.getInt("RESEARCHZOSHO_EXPLORER_MINUTES", 0); }
     /** The most questions one bundle carries: the head and up to this many related ones (the runner takes 8 sub-questions). */
     static final int BUNDLE_MAX = 8;
 
@@ -77,23 +96,23 @@ public final class Crews {
     }
 
     /** As above, with {@code stop} read by the long steps: a stopped crews job ends at its next chunk, not its next night. */
-    public static List<Step> runAll(LibraryStore store, String driveUrl, String model, java.util.function.BooleanSupplier stop) {
+    public static List<Step> runAll(LibraryStore store, String driveUrl, String model, BooleanSupplier stop) {
         STOP.set(stop);
         try { return runAll(store, driveUrl, model); } finally { STOP.remove(); }
     }
-    private static final ThreadLocal<java.util.function.BooleanSupplier> STOP = new ThreadLocal<>();
-    static java.util.function.BooleanSupplier stop() { java.util.function.BooleanSupplier s = STOP.get(); return s == null ? () -> false : s; }
+    private static final ThreadLocal<BooleanSupplier> STOP = new ThreadLocal<>();
+    static BooleanSupplier stop() { BooleanSupplier s = STOP.get(); return s == null ? () -> false : s; }
 
     /** Which extra cadences tonight carries: weekly on {@code RESEARCHZOSHO_CREWS_WEEKLY_DAY} (7 = Sunday), monthly on day 1. */
     public record Cadence(boolean weekly, boolean monthly) {
-        public static Cadence tonight(java.time.LocalDate d) {
-            int weeklyDay = org.researchzosho.Config.getInt("RESEARCHZOSHO_CREWS_WEEKLY_DAY", 7);
+        public static Cadence tonight(LocalDate d) {
+            int weeklyDay = Config.getInt("RESEARCHZOSHO_CREWS_WEEKLY_DAY", 7);
             return new Cadence(d.getDayOfWeek().getValue() == weeklyDay, d.getDayOfMonth() == 1);
         }
     }
 
     public static List<Step> runAll(LibraryStore store, String driveUrl, String model, Researcher researcher, int explorePerNight) {
-        return runAll(store, driveUrl, model, researcher, explorePerNight, Cadence.tonight(java.time.LocalDate.now()));
+        return runAll(store, driveUrl, model, researcher, explorePerNight, Cadence.tonight(LocalDate.now()));
     }
 
     public static List<Step> runAll(LibraryStore store, String driveUrl, String model, Researcher researcher, int explorePerNight, Cadence cadence) {
@@ -102,67 +121,58 @@ public final class Crews {
         steps.add(step(store, "collections", () -> Corpus.rescan(store)));
         steps.add(step(store, "serials", () -> { Serials.check(store); return "checked"; }));
         steps.add(step(store, "preprints", () -> {
-            var o = Preprints.check(store, Preprints.live(), Preprints.PER_NIGHT, java.time.LocalDate.now());
+            var o = Preprints.check(store, Preprints.live(), Preprints.PER_NIGHT, LocalDate.now());
             return o.checked() + " checked, " + o.revised() + " revised" + (o.notes().isEmpty() ? "" : " (" + String.join("; ", o.notes()) + ")");
         }));
         steps.add(step(store, "retractions", () -> {
-            var o = Retractions.check(store, Retractions.live(), Retractions.PER_NIGHT, java.time.LocalDate.now());
+            var o = Retractions.check(store, Retractions.live(), Retractions.PER_NIGHT, LocalDate.now());
             return o.checked() + " DOI(s) checked, " + o.retracted() + " retracted, " + o.concerns() + " concern(s)" + (o.notes().isEmpty() ? "" : " (" + String.join("; ", o.notes()) + ")");
         }));
         steps.add(step(store, "migrate-review-hashes", () -> store.migrateReviewHashes() + " carried"));
         if (drive) {
-            steps.add(step(store, "explorer", () -> explore(store, researcher, explorePerNight)));
-            steps.add(step(store, "review", () -> {
-                var idx = new LibrarianIndex(store);
-                var review = new LibrarianReview(store, idx,
-                        LibrarianReview.driveJudge(new org.researchzosho.drive.DriveClient(driveUrl, model)), "librarian:" + model).searcher(LibrarianReview.liveSearcher());
-                int reviewed = 0, accepted = 0, disputed = 0;
-                try (var files = java.nio.file.Files.list(store.investigationsDir())) {
-                    for (var p : files.sorted().toList()) {
-                        if (!p.toString().endsWith(".md")) continue;
-                        Investigation inv = Investigation.parse(java.nio.file.Files.readString(p, StandardCharsets.UTF_8));
-                        if (inv.state() != Finding.State.draft) continue;
-                        var out = review.review(inv);
-                        reviewed++; accepted += out.accepted().size(); disputed += out.disputed().size();
-                    }
-                }
-                return reviewed + " draft investigation(s) reviewed: " + accepted + " finding(s) accepted, " + disputed + " disputed";
+            // the pages the person gave that were saved before a model could check them: checked now, and removed when the check finds them
+            steps.add(step(store, "page-checks", () -> {
+                var o = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(driveUrl, model)), 500);
+                return o.checked() + " saved page(s) checked, " + o.removed().size() + " removed, " + o.waiting() + " still waiting" + (o.sentence().isEmpty() ? "" : ". " + o.sentence());
             }));
+            steps.add(step(store, "explorer", () -> explore(store, researcher, explorePerNight)));
+            steps.add(step(store, "review", () -> reviewDrafts(store, new LibrarianReview(store, new LibrarianIndex(store),
+                    LibrarianReview.driveJudge(new DriveClient(driveUrl, model)), "librarian:" + model).searcher(LibrarianReview.liveSearcher()))));
             steps.add(step(store, "catalog", () -> {
-                var o = Cataloger.run(store, Cataloger.driveJudge(new org.researchzosho.drive.DriveClient(driveUrl, model)), false);
+                var o = Cataloger.run(store, Cataloger.driveJudge(new DriveClient(driveUrl, model)), false);
                 return o.grounded() + " claim(s) filed under subjects, " + o.proposals() + " new subject(s) proposed" + (o.problems().isEmpty() ? "" : "; " + o.problems().size() + " problem(s)");
             }));
             steps.add(step(store, "triples", () -> {
-                var o = Triples.fill(store, Triples.driveExtractor(new org.researchzosho.drive.DriveClient(driveUrl, model)), Triples.PER_NIGHT);
+                var o = Triples.fill(store, Triples.driveExtractor(new DriveClient(driveUrl, model)), Triples.PER_NIGHT);
                 return o.asked() + " asked, " + o.filled() + " filled";
             }));
             steps.add(step(store, "concepts", () -> {
-                var o = Concepts.fill(store, Concepts.driveExtractor(new org.researchzosho.drive.DriveClient(driveUrl, model)), Concepts.PER_NIGHT);
+                var o = Concepts.fill(store, Concepts.driveExtractor(new DriveClient(driveUrl, model)), Concepts.PER_NIGHT);
                 return o.asked() + " asked, " + o.filled() + " filled";
             }));
             steps.add(step(store, "inventory", () -> {
-                var checks = Inventory.run(store, Inventory.driveChecker(new org.researchzosho.drive.DriveClient(driveUrl, model)), Inventory.PER_NIGHT);
+                var checks = Inventory.run(store, Inventory.driveChecker(new DriveClient(driveUrl, model)), Inventory.PER_NIGHT);
                 StringBuilder sb = new StringBuilder(checks.size() + " checked:");
                 for (var c : checks) sb.append(' ').append(c.id()).append('=').append(c.verdict());
                 return sb.toString();
             }));
             steps.add(step(store, "abstracts", () -> {
-                var o = Abstracts.run(store, Abstracts.driveWriter(new org.researchzosho.drive.DriveClient(driveUrl, model)), List.of());
+                var o = Abstracts.run(store, Abstracts.driveWriter(new DriveClient(driveUrl, model)), List.of());
                 return o.written() + " written, " + o.unchanged() + " unchanged" + (o.problems().isEmpty() ? "" : "; problems: " + String.join(" | ", o.problems()));
             }));
             steps.add(step(store, "enrich", () -> {
-                var o = Enrichment.run(store, Enrichment.driveContextualizer(new org.researchzosho.drive.DriveClient(driveUrl, model)), Enrichment.PER_NIGHT, stop());
+                var o = Enrichment.run(store, Enrichment.driveContextualizer(new DriveClient(driveUrl, model)), Enrichment.PER_NIGHT, stop());
                 return o.chunksGenerated() + " context(s) across " + o.files() + " file(s) (up to " + Enrichment.PER_NIGHT + " a night)" + (o.problems().stream().anyMatch(x -> x.startsWith("stopped")) ? "; stopped" : "");
             }));
         } else {
             String why = "skipped — no drive answers at " + (driveUrl == null ? "(unset)" : driveUrl);
-            for (String name : new String[]{"explorer", "review", "catalog", "triples", "inventory", "abstracts", "enrich"}) {
+            for (String name : new String[]{"page-checks", "explorer", "review", "catalog", "triples", "inventory", "abstracts", "enrich"}) {
                 steps.add(new Step(name, why, 0));
                 log(store, name, why, 0);
             }
         }
         steps.add(step(store, "graph", () -> Graph.propose(store)));
-        if (drive) steps.add(step(store, "bridges", () -> Bridges.nightly(store, org.researchzosho.librarian.Researcher.calmJudgeDrive(driveUrl, model), org.researchzosho.librarian.Researcher.webTools())));
+        if (drive) steps.add(step(store, "bridges", () -> Bridges.nightly(store, driveUrl, model)));
         steps.add(step(store, "vault", () -> Vault.refresh(store)));
         steps.add(step(store, "heat", () -> Heat.fold(store, Heat.DAYS) + " entr(ies) with uses in the last " + Heat.DAYS + " days"));
         if (cadence.weekly()) {
@@ -187,7 +197,8 @@ public final class Crews {
      * and mark each explored with what it produced. Today's gap is tomorrow's shelf.
      */
     /** A bundle: the head question and the related open questions that ride along in the same run. */
-    public record Bundle(Frontier.Line head, List<Frontier.Line> more) {
+    public record Bundle(Frontier.Line head, List<Frontier.Line> more, String field) {
+        public Bundle(Frontier.Line head, List<Frontier.Line> more) { this(head, more, ""); }
         public List<Frontier.Line> all() { List<Frontier.Line> l = new ArrayList<>(); l.add(head); l.addAll(more); return l; }
         /** The run's question: the head, without the note a report appended. */
         public String question() { return Frontier.strip(head.text()); }
@@ -199,17 +210,21 @@ public final class Crews {
      * behind it (the same report left them open, or their terms overlap), up to {@link #BUNDLE_MAX} in a run. Bundled
      * questions leave the queue with their head, so one run answers several instead of each getting a thin one.
      */
-    public static List<Bundle> plan(List<Frontier.Line> open, int perNight) {
+    public static List<Bundle> plan(List<Frontier.Line> open, int perNight) { return plan(open, perNight, l -> ""); }
+
+    /** As above; {@code fieldOf} tells each question's field, and a bundle holds the questions of one field only. */
+    public static List<Bundle> plan(List<Frontier.Line> open, int perNight, Function<Frontier.Line, String> fieldOf) {
         List<Bundle> out = new ArrayList<>();
         List<Frontier.Line> left = new ArrayList<>(open);
         while (!left.isEmpty() && out.size() < perNight) {
             Frontier.Line head = left.remove(0);
+            String field = fieldOf.apply(head);
             List<Frontier.Line> more = new ArrayList<>();
             for (var it = left.iterator(); it.hasNext() && more.size() < BUNDLE_MAX - 1; ) {
                 Frontier.Line l = it.next();
-                if (Frontier.related(head, l)) { more.add(l); it.remove(); }
+                if (Frontier.related(head, l) && fieldOf.apply(l).equals(field)) { more.add(l); it.remove(); }
             }
-            out.add(new Bundle(head, more));
+            out.add(new Bundle(head, more, field));
         }
         return out;
     }
@@ -220,14 +235,28 @@ public final class Crews {
             List<Frontier.Line> open = new ArrayList<>();
             for (Frontier.Line l : Frontier.read(store)) if (l.researchable()) open.add(l);
             if (open.isEmpty()) return "nothing open on the frontier";
-            List<Bundle> bundles = plan(open, perNight);
+            var runs = Fields.runs(store);
+            List<Bundle> bundles = plan(open, perNight, l -> Fields.ofLine(l, runs));
             int done = 0, admitted = 0, questions = 0;
             StringBuilder sb = new StringBuilder();
             for (Bundle b : bundles) {
                 String id;
-                try { id = b.more().isEmpty() ? researcher.research(b.question(), "crew:explorer") : researcher.research(b.question(), b.subQuestions(), "crew:explorer"); }
+                // a question a field filed is researched as that field's; an ordinary one that looks like a field's is ordinary, and the log says so
+                if (b.field().isEmpty()) { Fields.Suggestion s = Fields.logged(store, b.question(), "explorer"); if (s != null) log(store, "explorer", "suggestion: " + s.field() + " — " + s.offer() + " The run is ordinary research, because the question was not filed by the " + s.field() + " command.", 0); }
+                String fromSurvey = Surveys.runQuestionOf(store, b.head());   // a survey's direction runs as the survey's own run of it: it reads the surveyed thing
+                String question = fromSurvey == null ? b.question() : fromSurvey;
+                boolean declined = false, notTonight = false;
+                try { id = b.field().isEmpty() && b.more().isEmpty() ? researcher.research(question, "crew:explorer") : researcher.research(question, b.more().isEmpty() ? List.of() : b.subQuestions(), "crew:explorer", b.field()); }
+                catch (Declined d) { id = null; declined = true; sb.append(" [").append(Acquisitions.compress(b.question(), 40)).append(": ").append(d.statement()).append("]"); }
+                catch (ContentOffer.NotStarted n) { id = null; notTonight = true; sb.append(" [a question was not researched: it reads as a person asking about harming themselves, and it is researched only when they ask for it]"); }
+                catch (CannotCheck c) {
+                    // the check cannot run on this server tonight: the question stays open, and so do the rest
+                    sb.append(" [").append(c.getMessage()).append("]");
+                    break;
+                }
                 catch (Exception e) { id = null; sb.append(" [").append(Acquisitions.compress(b.question(), 40)).append(": ").append(e.getMessage()).append("]"); }
-                for (Frontier.Line l : b.all()) Frontier.markExplored(store, l.text(), id == null ? "(refused at intake)" : id);
+                // a question the model declined is marked so, and the explorer does not take it again; so is one that is not researched at night
+                for (Frontier.Line l : b.all()) Frontier.markExplored(store, l.text(), id != null ? id : declined ? "(declined by the model)" : notTonight ? "(not researched at night: it is researched only when the person asks for it)" : "(refused at intake)");
                 done++; questions += b.all().size();
                 if (id != null) { admitted++; sb.append(' ').append(id).append(b.more().isEmpty() ? "" : " (" + b.all().size() + " questions in one run)"); }
             }
@@ -250,6 +279,24 @@ public final class Crews {
         return new Step(name, outcome, ms);
     }
 
+    /** The nightly review of every draft report, what it did in a line. A draft the model declined to review, unchanged since, is left. */
+    static String reviewDrafts(LibraryStore store, LibrarianReview review) throws Exception {
+        int reviewed = 0, accepted = 0, disputed = 0, leftDeclined = 0;
+        try (var files = Files.list(store.investigationsDir())) {
+            for (var p : files.sorted().toList()) {
+                if (!p.toString().endsWith(".md")) continue;
+                Investigation inv = Investigation.parse(Files.readString(p, StandardCharsets.UTF_8));
+                if (inv.state() != Finding.State.draft) continue;
+                // the model declined to review this report before, and the report has not changed: it is not sent again
+                if (Declines.declinedBefore(store, "review", inv.id(), Conversations.hash8(inv.body()))) { leftDeclined++; continue; }
+                var out = review.review(inv);
+                reviewed++; accepted += out.accepted().size(); disputed += out.disputed().size();
+            }
+        }
+        return reviewed + " draft investigation(s) reviewed: " + accepted + " finding(s) accepted, " + disputed + " disputed"
+                + (leftDeclined == 0 ? "" : "; " + leftDeclined + " left as drafts because " + Declines.notAskedAgain("to review them"));
+    }
+
     static void log(LibraryStore store, String name, String outcome, long ms) {
         try {
             var f = store.root().resolve("catalog").resolve("crews.log");
@@ -262,7 +309,7 @@ public final class Crews {
     }
 
     /** The probe's client, one for the process: a client per probe leaked a selector thread every 30 s. */
-    private static final java.net.http.HttpClient PROBE_HTTP = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(3)).build();
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
 
     /** What a probe of a drive found: it answered a completion; it is reachable but still loading; or nothing is there. */
     enum DriveState { ANSWERS, STARTING, DOWN }
@@ -277,28 +324,50 @@ public final class Crews {
      * A connection that succeeds but times out on the body, or a 503, is a server loading its model: STARTING.
      */
     static DriveState driveState(String driveUrl) {
-        return driveState(driveUrl, org.researchzosho.Config.get("RESEARCHZOSHO_MODEL", "local-model"), java.time.Duration.ofSeconds(20));
+        return driveState(driveUrl, Config.get("RESEARCHZOSHO_MODEL", "local-model"), Duration.ofSeconds(20));
     }
 
-    static DriveState driveState(String driveUrl, String model, java.time.Duration timeout) {
+    static DriveState driveState(String driveUrl, String model, Duration timeout) {
         if (driveUrl == null || driveUrl.isBlank()) return DriveState.DOWN;
+        if (Bedrock.is(driveUrl)) return bedrockState(driveUrl, model, timeout);
         try {
             var client = PROBE_HTTP;
-            var body = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+            var body = new ObjectMapper().createObjectNode();
             body.put("model", model == null || model.isBlank() ? "local-model" : model);
             body.putArray("messages").addObject().put("role", "user").put("content", "hi");
             body.put("max_tokens", 1);
-            var req = java.net.http.HttpRequest.newBuilder(java.net.URI.create(driveUrl.replaceAll("/+$", "") + "/v1/chat/completions"))
+            var req = HttpRequest.newBuilder(URI.create(driveUrl.replaceAll("/+$", "") + "/v1/chat/completions"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
-                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(body.toString()))
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                     .build();
-            var res = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());
+            var res = client.send(req, HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() == 200 && res.body().contains("\"choices\"")) return DriveState.ANSWERS;
             return res.statusCode() == 503 ? DriveState.STARTING : DriveState.DOWN;
-        } catch (java.net.http.HttpTimeoutException e) {
-            return e instanceof java.net.http.HttpConnectTimeoutException ? DriveState.DOWN : DriveState.STARTING;
+        } catch (HttpTimeoutException e) {
+            return e instanceof HttpConnectTimeoutException ? DriveState.DOWN : DriveState.STARTING;
         } catch (Exception e) {
+            return DriveState.DOWN;
+        }
+    }
+
+    /** Bedrock is asked for one token, and a yes is remembered for five minutes: each question there is on somebody's AWS bill. */
+    private static volatile long bedrockAnsweredAt = 0;
+    private static volatile String bedrockAnsweredFor = "";
+
+    private static DriveState bedrockState(String driveUrl, String model, Duration timeout) {
+        String key = driveUrl + "\t" + model;
+        if (key.equals(bedrockAnsweredFor) && System.currentTimeMillis() - bedrockAnsweredAt < 300_000) return DriveState.ANSWERS;
+        try {
+            var bedrock = new Bedrock(Bedrock.settings(driveUrl, Config::get, System.getenv()));
+            var body = new ObjectMapper().createObjectNode();
+            body.putArray("messages").addObject().put("role", "user").put("content", "hi");
+            body.put("max_tokens", 1);
+            bedrock.chat(model, body, timeout);
+            bedrockAnsweredFor = key; bedrockAnsweredAt = System.currentTimeMillis();
+            return DriveState.ANSWERS;
+        } catch (RuntimeException e) {
+            LoggerFactory.getLogger(Crews.class).warn("bedrock does not answer: {}", e.getMessage());
             return DriveState.DOWN;
         }
     }
@@ -319,20 +388,20 @@ public final class Crews {
     static long millisUntil(int hour, ZonedDateTime now) {
         ZonedDateTime next = now.withHour(Math.floorMod(hour, 24)).withMinute(0).withSecond(0).withNano(0);   // 24 = midnight, not an exception
         if (!next.isAfter(now)) next = next.plusDays(1);
-        return java.time.Duration.between(now, next).toMillis();
+        return Duration.between(now, next).toMillis();
     }
 
     /** The nightly scheduler thread; daemon, so it never keeps a JVM alive. {@code fire} runs (or enqueues) the crews. */
     public static Thread nightly(LibraryStore store, int hour, Runnable fire) { return nightly(store, hour, fire, () -> true); }
 
     /** As above; {@code idle} says whether no run is active, which is when the auto-update may swap the program. */
-    public static Thread nightly(LibraryStore store, int hour, Runnable fire, java.util.function.BooleanSupplier idle) {
+    public static Thread nightly(LibraryStore store, int hour, Runnable fire, BooleanSupplier idle) {
         Thread t = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
                     Thread.sleep(millisUntil(hour, ZonedDateTime.now()));
                     log(store, "nightly", "begin (" + LocalDateTime.now().withNano(0) + ")", 0);
-                    Service.rotate(org.researchzosho.Config.home().resolve("logs").resolve("librarian-serve.log"), 20L * 1024 * 1024);
+                    Service.rotate(Config.home().resolve("logs").resolve("librarian-serve.log"), 20L * 1024 * 1024);
                     fire.run();
                     // the quiet moment: the housekeeping is done; in auto mode a newer release is swapped in and the service restarts
                     try { Updater.maybeAuto(store, idle.getAsBoolean()); } catch (Throwable e) { log(store, "update", "FAILED: " + e, 0); }

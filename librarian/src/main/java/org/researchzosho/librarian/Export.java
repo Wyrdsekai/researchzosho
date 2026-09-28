@@ -24,6 +24,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import java.util.Arrays;
+import org.apache.fontbox.ttf.OpenTypeFont;
+import org.apache.fontbox.ttf.TTFParser;
+import org.apache.pdfbox.io.RandomAccessReadBufferedFile;
+import org.researchzosho.Config;
 /**
  * An entry, or a reading of it, as a file to keep or send: Markdown as it is, or a PDF laid out here with
  * PDFBox — headings, paragraphs, lists, page numbers — in a system font that can show Japanese and the
@@ -194,10 +199,10 @@ public final class Export {
             }
             if (f == null) f = new Fonts(new PDType1Font(Standard14Fonts.FontName.HELVETICA), new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD),
                     new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE), false);
-            String override = org.researchzosho.Config.get("RESEARCHZOSHO_PDF_FONT", "");
+            String override = Config.get("RESEARCHZOSHO_PDF_FONT", "");
             List<String[]> tries = new ArrayList<>();
             if (!override.isBlank()) tries.add(new String[]{override, null});
-            tries.addAll(java.util.Arrays.asList(CANDIDATES));
+            tries.addAll(Arrays.asList(CANDIDATES));
             for (String[] pair : tries) {
                 try { PDFont w = open(doc, pair[0]); if (w != null) { f.fallback = w; break; } } catch (Exception ignored) { }
             }
@@ -223,11 +228,11 @@ public final class Export {
                 final TrueTypeFont[] pick = {null, null};
                 ttc.processAllFonts(t -> { if (pick[0] == null) pick[0] = t; if (pick[1] == null && t.getName() != null && t.getName().toLowerCase(Locale.ROOT).contains("jp")) pick[1] = t; });
                 TrueTypeFont chosen = pick[1] != null ? pick[1] : pick[0];
-                if (chosen == null || (chosen instanceof org.apache.fontbox.ttf.OpenTypeFont o && o.isPostScript())) return null;   // CFF: cannot be subset
+                if (chosen == null || (chosen instanceof OpenTypeFont o && o.isPostScript())) return null;   // CFF: cannot be subset
                 return PDType0Font.load(doc, chosen, true);
             }
-            TrueTypeFont ttf = new org.apache.fontbox.ttf.TTFParser().parse(new org.apache.pdfbox.io.RandomAccessReadBufferedFile(f));
-            if (ttf instanceof org.apache.fontbox.ttf.OpenTypeFont o && o.isPostScript()) { ttf.close(); return null; }
+            TrueTypeFont ttf = new TTFParser().parse(new RandomAccessReadBufferedFile(f));
+            if (ttf instanceof OpenTypeFont o && o.isPostScript()) { ttf.close(); return null; }
             return PDType0Font.load(doc, ttf, true);
         }
     }

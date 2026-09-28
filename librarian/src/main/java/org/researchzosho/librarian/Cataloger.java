@@ -12,6 +12,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.time.LocalDate;
+import java.util.Collections;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Declined;
 /**
  * The CATALOGING crew — authority control (the architecture notes, §crews): every finding gets
  * subjects from the CONTROLLED VOCABULARY in {@code catalog/subjects.md}, never free-text topics.
@@ -82,10 +88,15 @@ public final class Cataloger {
         List<String> problems = new ArrayList<>();
         for (Finding f : store.scanFindings().findings()) {
             if (!f.subjects().isEmpty() || f.state() == Finding.State.retired) continue;
+            if (Declines.declinedBefore(store, "catalog", f.id(), f.contentHash())) { problems.add(f.id() + ": " + Declines.notAskedAgain("to give this claim its subjects")); continue; }
             Map<String, String> vocab = vocabulary(store);
             JsonNode v;
             try {
                 v = parse(judge.ground(vocabList(vocab), f.title() + "\n\n" + f.body()));
+            } catch (Declined d) {
+                problems.add(f.id() + ": " + d.statement("to give this claim its subjects"));
+                Declines.rememberDeclined(store, "catalog", f.id(), f.contentHash(), d);   // not asked again until the claim changes
+                continue;
             } catch (Exception e) {
                 problems.add(f.id() + ": cataloger call failed — " + e.getMessage());
                 continue;
@@ -120,7 +131,7 @@ public final class Cataloger {
             Finding g = new Finding(f.id(), f.title(), chosen, f.state(), f.claimType(), f.confidence(),
                     f.writer(), f.recordedAt(), f.validAsOf(), f.volatility(), f.reviewBy(), f.sources(),
                     f.supersedes(), f.review(), f.body(), f.triple(), f.notes());   // the 15-arg form erased triple + notes (Wyrdsekai, 2026-09-07)
-            if (inherited) g = g.withNote(new Finding.Note("catalog", "crew:cataloger", java.time.LocalDate.now().toString(),
+            if (inherited) g = g.withNote(new Finding.Note("catalog", "crew:cataloger", LocalDate.now().toString(),
                     "no vocabulary subject matched this claim; placed with the rest of " + origin(f) + ", the run it came out of"));
             store.write(g);
             new LibrarianIndex(store).upsert(g);
@@ -131,12 +142,12 @@ public final class Cataloger {
         return new Outcome(grounded, proposals, problems);
     }
 
-    static final java.util.regex.Pattern FROM_RUN = java.util.regex.Pattern.compile("\\b(I-[A-Za-z0-9_.-]+)");
+    static final Pattern FROM_RUN = Pattern.compile("\\b(I-[A-Za-z0-9_.-]+)");
 
     /** The investigation a claim came out of: its sources carry "cited by I-…". */
     static String origin(Finding f) {
         for (Finding.Source s : f.sources()) {
-            java.util.regex.Matcher m = FROM_RUN.matcher(s.whyItMatters());
+            Matcher m = FROM_RUN.matcher(s.whyItMatters());
             if (m.find()) return m.group(1);
         }
         return "";
@@ -152,7 +163,7 @@ public final class Cataloger {
             for (String s : other.subjects()) count.merge(s, 1, Integer::sum);
         }
         if (count.isEmpty()) return List.of();
-        int best = java.util.Collections.max(count.values());
+        int best = Collections.max(count.values());
         List<String> out = new ArrayList<>();
         for (var e : count.entrySet()) if (e.getValue() == best && out.size() < 2) out.add(e.getKey());
         return out;
@@ -166,7 +177,7 @@ public final class Cataloger {
     }
 
     /** The live seat. The vocabulary is ENUMERATED and slugs are copied; new ones are proposals. */
-    public static Judge driveJudge(org.researchzosho.drive.DriveClient drive) {
+    public static Judge driveJudge(DriveClient drive) {
         return (vocabList, findingText) -> {
             var msgs = M.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
@@ -188,7 +199,7 @@ public final class Cataloger {
             if (args[i].equals("--accept-all")) acceptAll = true;
             else if (args[i].startsWith("http")) drive = args[i];
         }
-        Outcome o = run(store, driveJudge(new org.researchzosho.drive.DriveClient(drive, model)), acceptAll);
+        Outcome o = run(store, driveJudge(new DriveClient(drive, model)), acceptAll);
         System.out.println("cataloged: " + o.grounded() + " finding(s) grounded, " + o.proposals()
                 + " subject proposal(s)" + (acceptAll ? " accepted into the vocabulary" : " → catalog/subjects.proposed.md"));
         for (String p : o.problems()) System.out.println("  note: " + p);

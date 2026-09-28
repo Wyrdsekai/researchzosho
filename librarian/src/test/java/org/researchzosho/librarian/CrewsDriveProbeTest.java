@@ -10,6 +10,10 @@ import java.time.Duration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.ZonedDateTime;
+import java.util.concurrent.atomic.AtomicInteger;
 /**
  * The drive probe names the model. A router such as llama-swap answers 404 to a completion that names no
  * model, and 0.1.7's probe named none — so every router drive read as "does not answer" and research runs
@@ -70,17 +74,17 @@ class CrewsDriveProbeTest {
     void theNightlySchedulerNeverSpins() throws Exception {
         // an hour outside 0-23 threw on every pass, and the catch came straight back: 58 GB of crews.log in half an
         // hour (2026-09-15). The hour is folded into range, and any failure waits before the next try.
-        assertEquals(1, Crews.millisUntil(25, java.time.ZonedDateTime.now()) > 0 ? 1 : 0, "a folded hour is a real time");
+        assertEquals(1, Crews.millisUntil(25, ZonedDateTime.now()) > 0 ? 1 : 0, "a folded hour is a real time");
         assertTrue(Crews.AFTER_FAILURE >= 60_000, "a failure waits at least a minute");
-        java.nio.file.Path home = java.nio.file.Files.createTempDirectory("rz-nightly");
+        Path home = Files.createTempDirectory("rz-nightly");
         LibraryStore store = new LibraryStore(home.resolve("lib")); store.init();
-        java.util.concurrent.atomic.AtomicInteger fired = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger fired = new AtomicInteger();
         Thread t = Crews.nightly(store, 25, fired::incrementAndGet);
         t.start();
         Thread.sleep(1500);
         t.interrupt(); t.join(2000);
-        java.nio.file.Path log = store.root().resolve("catalog").resolve("crews.log");
-        long lines = java.nio.file.Files.exists(log) ? java.nio.file.Files.readAllLines(log).size() : 0;
+        Path log = store.root().resolve("catalog").resolve("crews.log");
+        long lines = Files.exists(log) ? Files.readAllLines(log).size() : 0;
         assertTrue(lines <= 2, "the scheduler wrote " + lines + " lines in 1.5 s: it is spinning");
         assertEquals(0, fired.get(), "an hour 25 folds to 01:00, not to now");
     }

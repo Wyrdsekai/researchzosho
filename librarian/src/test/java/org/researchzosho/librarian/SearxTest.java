@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** SearXNG through Docker: the settings ResearchZosho writes, and the docker command lines it runs, without docker. */
 class SearxTest {
 
@@ -23,11 +24,12 @@ class SearxTest {
         assertTrue(s.contains("- json"), "the search tool needs json in search.formats: " + s);
         assertTrue(s.contains("secret_key: \"") && !s.contains("secret_key: \"\""), "a secret key is generated: " + s);
         assertNotEquals(Searx.settings(), s, "each call makes its own key");
+        assertTrue(s.contains("search:\n  safe_search: 1\n"), "safe search is moderate for the engines that have it: " + s);
     }
 
     @Test
     void withoutDockerStartSaysSoAndStopsThere() {
-        Searx.runner = cmd -> { ran.add(cmd); throw new java.io.IOException("docker: not found"); };
+        Searx.runner = cmd -> { ran.add(cmd); throw new IOException("docker: not found"); };
         String r = Searx.start(8888);
         assertTrue(r.startsWith("!docker is not on this machine"), r);
         assertEquals(1, ran.size(), "only the version probe ran");

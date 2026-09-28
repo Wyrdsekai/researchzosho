@@ -14,6 +14,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import org.researchzosho.Config;
+import org.researchzosho.ModelChoice;
 /** The setup conversation, driven end to end with a scripted person, a fake model server and fake acts. */
 class SetupTest {
 
@@ -30,8 +35,8 @@ class SetupTest {
 
     static final class FakeActs implements Setup.Acts {
         boolean claude = true; int installed = 0; List<String> mcpArgs;
-        java.util.Set<String> hosts = null;                       // null: only claude, as before
-        java.util.Map<String, List<String>> registered = new java.util.LinkedHashMap<>();
+        Set<String> hosts = null;                       // null: only claude, as before
+        Map<String, List<String>> registered = new LinkedHashMap<>();
         boolean docker = false; String searxStarted = "!no docker"; String embedStarted = "!no docker"; int embedStarts = 0; boolean gpu = true;
         @Override public boolean haveDocker() { return docker; }
         @Override public boolean embedGpu() { return gpu; }
@@ -45,13 +50,13 @@ class SetupTest {
         @Override public String launcher() { return "/opt/rz/bin/researchzosho"; }
         String modelOffer = null; String modelServed = "!not on this machine";
         @Override public String modelOffer() { return modelOffer; }
-        @Override public String modelServe(java.io.PrintStream out) { out.println("  (fake) installed"); return modelServed; }
+        @Override public String modelServe(PrintStream out) { out.println("  (fake) installed"); return modelServed; }
     }
 
     private static String run(Path home, String script, Setup.Probe probe, FakeActs acts, boolean yes, boolean service, boolean claude) throws Exception {
         String real = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
-        org.researchzosho.Config.invalidate();
+        Config.invalidate();
         try {
             var out = new ByteArrayOutputStream();
             int rc = new Setup(new BufferedReader(new StringReader(script)), new PrintStream(out, true), probe, acts, yes).run(4649, service, claude);
@@ -59,7 +64,7 @@ class SetupTest {
             return out.toString();
         } finally {
             System.setProperty("user.home", real);
-            org.researchzosho.Config.invalidate();
+            Config.invalidate();
         }
     }
 
@@ -133,18 +138,18 @@ class SetupTest {
 
     @Test
     void codexAndGeminiAreConnectedTooWhenTheyAreInstalled(@TempDir Path home) throws Exception {
-        var acts = new FakeActs(); acts.hosts = java.util.Set.of("claude", "codex", "gemini");
-        String out = run(home, "", new FakeProbe("http://localhost:11434", java.util.List.of("m"), true), acts, true, true, true);
+        var acts = new FakeActs(); acts.hosts = Set.of("claude", "codex", "gemini");
+        String out = run(home, "", new FakeProbe("http://localhost:11434", List.of("m"), true), acts, true, true, true);
         assertTrue(out.contains("Claude Code is connected") && out.contains("Codex is connected") && out.contains("Gemini CLI is connected"), out);
         assertTrue(acts.registered.get("claude").contains("--transport") && acts.registered.get("claude").contains("http"), "the service is on: Claude Code goes over HTTP with a token: " + acts.registered.get("claude"));
-        assertEquals(java.util.List.of("mcp", "add", "librarian", "--", "/opt/rz/bin/researchzosho", "mcp"), acts.registered.get("codex"), "codex over stdio");
+        assertEquals(List.of("mcp", "add", "librarian", "--", "/opt/rz/bin/researchzosho", "mcp"), acts.registered.get("codex"), "codex over stdio");
         assertTrue(acts.registered.get("gemini").contains("-t") && acts.registered.get("gemini").contains("http") && acts.registered.get("gemini").stream().anyMatch(a -> a.startsWith("Authorization: Bearer ")), acts.registered.get("gemini").toString());
         assertTrue(out.contains("Other programs."), "and the lines any other MCP program needs are printed");
     }
 
     @Test
     void webSearchWalksTheLadderBraveThenSearxngThenTheFallback(@TempDir Path home) throws Exception {
-        var probe = new FakeProbe("http://localhost:11434", java.util.List.of("m"), false);
+        var probe = new FakeProbe("http://localhost:11434", List.of("m"), false);
         var acts = new FakeActs();
         String out = run(home, "", probe, acts, true, true, true);                 // no key, no SearXNG, no docker
         assertTrue(out.contains("Paste a Brave API key"), "Brave is asked for first: " + out);
@@ -156,8 +161,8 @@ class SetupTest {
         probe.searx = null; acts.docker = true; acts.searxStarted = "http://127.0.0.1:8888";
         out = run(home, "", probe, acts, true, true, true);
         assertTrue(out.contains("Starting SearXNG… it answers at http://127.0.0.1:8888."), "docker is offered and taken by default: " + out);
-        java.nio.file.Files.createDirectories(home.resolve(".researchzosho"));
-        java.nio.file.Files.writeString(home.resolve(".researchzosho").resolve("config"), "RESEARCHZOSHO_BRAVE_KEY = BSA-test\n");
+        Files.createDirectories(home.resolve(".researchzosho"));
+        Files.writeString(home.resolve(".researchzosho").resolve("config"), "RESEARCHZOSHO_BRAVE_KEY = BSA-test\n");
         probe.braveKey = "BSA-test"; probe.searx = "http://localhost:8888";
         out = run(home, "", probe, acts, true, true, true);
         assertTrue(out.contains("the Brave Search API key you have works") && out.contains("the fallback behind Brave"), out);
@@ -233,7 +238,7 @@ class SetupTest {
 
     /** A server as llama-swap lists it: alphabetical, so the embedding model is first. Only the chat model answers a chat request. */
     static final class TwoModelProbe implements Setup.Probe {
-        final List<String> asked = new java.util.ArrayList<>();
+        final List<String> asked = new ArrayList<>();
         @Override public List<String> models(String base, String key) { return base.equals("http://localhost:8080") ? List.of("embed", "qwen3.8-27b") : null; }
         @Override public String chat(String base, String model, String key) { asked.add(model); return model.equals("qwen3.8-27b") ? "ready" : "!the server answered 404"; }
         @Override public boolean embeds(String base, String key) { return false; }
@@ -264,11 +269,11 @@ class SetupTest {
     @Test
     void anAddressPastedWithItsV1IsTheSameServer() {
         for (String pasted : List.of("https://api.openai.com/v1", "https://api.openai.com/v1/", "https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/embeddings", "https://api.openai.com"))
-            assertEquals("https://api.openai.com", org.researchzosho.Config.driveBase(pasted), pasted);
-        assertEquals("http://localhost:11434", org.researchzosho.Config.driveBase("http://localhost:11434/"));
-        assertEquals("https://host/v1beta", org.researchzosho.Config.driveBase("https://host/v1beta"));
-        assertEquals("none", org.researchzosho.Config.driveBase("none"));
-        assertTrue(org.researchzosho.ModelChoice.looksUnableToChat("Qwen/Qwen3-Embedding-0.6B") && !org.researchzosho.ModelChoice.looksUnableToChat("qwen3.8-27b"));
+            assertEquals("https://api.openai.com", Config.driveBase(pasted), pasted);
+        assertEquals("http://localhost:11434", Config.driveBase("http://localhost:11434/"));
+        assertEquals("https://host/v1beta", Config.driveBase("https://host/v1beta"));
+        assertEquals("none", Config.driveBase("none"));
+        assertTrue(ModelChoice.looksUnableToChat("Qwen/Qwen3-Embedding-0.6B") && !ModelChoice.looksUnableToChat("qwen3.8-27b"));
     }
 
     @Test

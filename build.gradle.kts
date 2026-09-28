@@ -1,13 +1,13 @@
 // Root build — ResearchZosho (研究蔵書). Java 21 floor, Gradle Kotlin DSL, two modules.
 val jacksonVersion = "2.21.1"
 // the root carries the version too: the Central bundle file is named from it
-version = "0.4.6"
+version = "0.5.0"
 
 subprojects {
     apply(plugin = "java")
 
     group = "org.researchzosho"
-    version = "0.4.6"
+    version = "0.5.0"
 
     // 21 is the FLOOR, stated as `options.release` rather than a toolchain pin: a Gradle toolchain is an
     // EXACT match, and a box holding only JDK 25 could not build at all under `languageVersion = 21`
@@ -31,6 +31,12 @@ subprojects {
 
     tasks.withType<Test> {
         useJUnitPlatform()
+        // Every test runs with a scratch home, so no test can read or write the developer's own config, site list or
+        // library: FrontierFiltersTest wrote report.questions into the real ~/.codezaiku/config on every run from
+        // 2026-09-09 until this line. A test that wants a home of its own still sets user.home itself.
+        val scratchHome = layout.buildDirectory.dir("test-home").get().asFile
+        doFirst { scratchHome.mkdirs() }
+        systemProperty("user.home", scratchHome.absolutePath)
     }
 }
 

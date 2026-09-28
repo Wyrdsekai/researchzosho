@@ -21,6 +21,7 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** A report or a claim out of the library for good: the plan, the three choices, what stays, the log, the CLI's protocol and the page. */
 class RemovalTest {
 
@@ -66,8 +67,8 @@ class RemovalTest {
         // a single claim
         Removal.Plan one = Removal.plan(store, "F-0004-d", Removal.What.all);
         assertEquals("finding", one.kind()); assertEquals(List.of("F-0004-d"), one.claimsGo()); assertFalse(one.reportGoes());
-        assertThrows(java.io.IOException.class, () -> Removal.plan(store, "I-9999-none", Removal.What.all));
-        assertThrows(java.io.IOException.class, () -> Removal.plan(store, "../etc/passwd", Removal.What.all), "a name that is not an id");
+        assertThrows(IOException.class, () -> Removal.plan(store, "I-9999-none", Removal.What.all));
+        assertThrows(IOException.class, () -> Removal.plan(store, "../etc/passwd", Removal.What.all), "a name that is not an id");
         // claims only, applied: the claims are gone from disk and the index, the report stays with two ids fewer, the log says removed
         Removal.Done done = Removal.apply(store, claims, "person");
         assertEquals(List.of("F-0001-a", "F-0002-b"), done.removed());

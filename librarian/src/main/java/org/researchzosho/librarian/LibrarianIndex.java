@@ -29,6 +29,22 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.regex.Pattern;
+import org.apache.lucene.document.StoredField;
+import org.apache.lucene.index.MultiTerms;
+import org.apache.lucene.queryparser.classic.ParseException;
+import org.apache.lucene.search.BooleanClause;
+import org.apache.lucene.search.BooleanQuery;
+import org.apache.lucene.store.LockObtainFailedException;
+import org.apache.lucene.util.BytesRef;
+import org.researchzosho.Config;
 /**
  * The library's search index — Lucene BM25 over the corpus, IN from v1 (not an escalation):
  * at the operator's research rate the corpus reaches thousands of findings within months, past where
@@ -85,7 +101,7 @@ public final class LibrarianIndex {
 
     /** Cosine floor for a dense hit to count in plain search. RESEARCHZOSHO_EMBED_MIN overrides (per embedder). */
     static final double MIN_COSINE = Double.parseDouble(
-            org.researchzosho.Config.get("RESEARCHZOSHO_EMBED_MIN", "0.47"));
+            Config.get("RESEARCHZOSHO_EMBED_MIN", "0.47"));
 
     /**
      * The DESK's cosine floor (strict search: ask, established, the prompt push). Measured on the
@@ -98,7 +114,7 @@ public final class LibrarianIndex {
      * whenever the embedder or the chunking changes. RESEARCHZOSHO_EMBED_MIN_STRICT overrides.
      */
     static final double MIN_COSINE_STRICT = Double.parseDouble(
-            org.researchzosho.Config.get("RESEARCHZOSHO_EMBED_MIN_STRICT", "0.58"));
+            Config.get("RESEARCHZOSHO_EMBED_MIN_STRICT", "0.58"));
 
     public LibrarianIndex(LibraryStore store) {
         this(store, Embeddings.configured());
@@ -119,7 +135,7 @@ public final class LibrarianIndex {
         while (true) {
             try {
                 return new IndexWriter(dir, new IndexWriterConfig(analyzer));
-            } catch (org.apache.lucene.store.LockObtainFailedException e) {
+            } catch (LockObtainFailedException e) {
                 if (System.currentTimeMillis() > deadline) throw e;
                 try { Thread.sleep(1000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
             }
@@ -175,7 +191,7 @@ public final class LibrarianIndex {
                     sb.append(String.format("  score %.3f cos %.3f %-11s %-6s %s%n", sd.score, 2 * sd.score - 1, verdict,
                             d.get(F_KIND), "chunk".equals(d.get(F_KIND)) ? d.get(F_PARENT) + " #chunk" : d.get(F_ID)));
                 }
-            } catch (org.apache.lucene.queryparser.classic.ParseException e) {
+            } catch (ParseException e) {
                 return "unparseable query: " + e.getMessage();
             }
         }
@@ -192,23 +208,23 @@ public final class LibrarianIndex {
      * nothing. Default {@code cap:3}: half the terms for short queries, three for long ones.
      * RESEARCHZOSHO_DESK_MSM = half | pct:N | cap:N | N.
      */
-    static final String DESK_MSM = org.researchzosho.Config.get("RESEARCHZOSHO_DESK_MSM", "cap:3");
+    static final String DESK_MSM = Config.get("RESEARCHZOSHO_DESK_MSM", "cap:3");
 
     /** A parsed OR-of-terms query rewritten to require a minimum number of its clauses. */
     static Query atLeastHalf(Query parsed) {
-        if (!(parsed instanceof org.apache.lucene.search.BooleanQuery bq)) return parsed;
-        var b = new org.apache.lucene.search.BooleanQuery.Builder();
+        if (!(parsed instanceof BooleanQuery bq)) return parsed;
+        var b = new BooleanQuery.Builder();
         int should = 0;
         for (var c : bq.clauses()) {
             b.add(c);
-            if (c.occur() == org.apache.lucene.search.BooleanClause.Occur.SHOULD) should++;
+            if (c.occur() == BooleanClause.Occur.SHOULD) should++;
         }
         if (should > 1) b.setMinimumNumberShouldMatch(Math.min(should, minimumMatch(should)));
         return b.build();
     }
 
     static int minimumMatch(int terms) {
-        String rule = DESK_MSM.toLowerCase(java.util.Locale.ROOT).strip();
+        String rule = DESK_MSM.toLowerCase(Locale.ROOT).strip();
         if (rule.equals("half")) return (terms + 1) / 2;
         if (rule.startsWith("pct:")) return Math.max(1, (int) Math.ceil(terms * Integer.parseInt(rule.substring(4)) / 100.0));
         if (rule.startsWith("cap:")) return Math.min(Integer.parseInt(rule.substring(4)), (terms + 1) / 2);   // half, capped
@@ -254,6 +270,18 @@ public final class LibrarianIndex {
         try (Directory dir = FSDirectory.open(store.luceneDir());
              IndexWriter w = openWriter(dir, analyzer)) {
             w.deleteDocuments(new Term(F_ID, id), new Term(F_PARENT, id));
+        }
+    }
+
+    /**
+     * One entry and its chunks out of the index and out of the index's files: the segments that held it are rewritten, so that nothing
+     * of its text stays on disk. For what must not be kept at all; an ordinary removal is {@link #remove}.
+     */
+    public synchronized void purge(String id) throws IOException {
+        try (Directory dir = FSDirectory.open(store.luceneDir());
+             IndexWriter w = openWriter(dir, analyzer)) {
+            w.deleteDocuments(new Term(F_ID, id), new Term(F_PARENT, id));
+            w.forceMergeDeletes(true);
         }
     }
 
@@ -324,13 +352,13 @@ public final class LibrarianIndex {
         docs.add(parent);
         List<String> chunks = chunk(text, CHUNK_TOKENS);
         String host = locator;
-        try { String h = java.net.URI.create(locator).getHost(); if (h != null) host = h; } catch (Exception ignored) { }
+        try { String h = URI.create(locator).getHost(); if (h != null) host = h; } catch (Exception ignored) { }
         // Generated contexts (the extracts crew). RESEARCHZOSHO_ENRICH: off | dense | both. Measured
         // 2026-09-03 on the live shelf: 'both' put the situating sentences into BM25 text too and
         // the top-3 miss rate went 57% → 71% — the extra words make raw chunks crowd the findings.
         // The dense arm ticked UP, so 'dense' feeds the context to the vector only.
-        String mode = org.researchzosho.Config.get("RESEARCHZOSHO_ENRICH", "dense").toLowerCase(java.util.Locale.ROOT);
-        java.util.Map<String, String> generated = "off".equals(mode) ? java.util.Map.of() : Enrichment.load(store, fileName);
+        String mode = Config.get("RESEARCHZOSHO_ENRICH", "dense").toLowerCase(Locale.ROOT);
+        Map<String, String> generated = "off".equals(mode) ? Map.of() : Enrichment.load(store, fileName);
         List<String> prefixes = new ArrayList<>();   // what BM25 sees in front of the chunk
         List<String> texts = new ArrayList<>();      // what the embedder sees
         for (int i = 0; i < chunks.size(); i++) {
@@ -349,7 +377,7 @@ public final class LibrarianIndex {
             c.add(new StringField(F_KIND, "chunk", Field.Store.YES));
             c.add(new StringField(F_STATE, "captured", Field.Store.YES));
             c.add(new StringField(F_TITLE, t + " — " + locator, Field.Store.YES));
-            c.add(new org.apache.lucene.document.StoredField(F_SNIPPET, chunks.get(i)));
+            c.add(new StoredField(F_SNIPPET, chunks.get(i)));
             c.add(new TextField(F_TEXT, ctx + chunks.get(i), Field.Store.NO));
             float[] v = vectors == null ? null : vectors.get(i);
             if (v != null && v.length > 0) c.add(new KnnFloatVectorField(F_VEC, v, VectorSimilarityFunction.COSINE));
@@ -387,7 +415,7 @@ public final class LibrarianIndex {
 
     private static List<String> sentences(String p) {
         List<String> out = new ArrayList<>();
-        var m = java.util.regex.Pattern.compile("[^.!?。！？]+[.!?。！？]+\\s*|[^.!?。！？]+$").matcher(p);
+        var m = Pattern.compile("[^.!?。！？]+[.!?。！？]+\\s*|[^.!?。！？]+$").matcher(p);
         while (m.find()) { String s = m.group().strip(); if (!s.isEmpty()) out.add(s); }
         return out.isEmpty() ? List.of(p) : out;
     }
@@ -411,20 +439,20 @@ public final class LibrarianIndex {
 
     /** The embedder the index on disk was built with ("" when unknown). */
     public String indexedWith() {
-        try { return Files.exists(embedderFile()) ? Files.readString(embedderFile(), java.nio.charset.StandardCharsets.UTF_8).strip() : ""; }
+        try { return Files.exists(embedderFile()) ? Files.readString(embedderFile(), StandardCharsets.UTF_8).strip() : ""; }
         catch (IOException e) { return ""; }
     }
 
     /** When the index was last written from disk, or EPOCH. */
-    public java.time.Instant lastIndexed() {
-        try { return Files.exists(lastIndexedFile()) ? java.time.Instant.parse(Files.readString(lastIndexedFile(), java.nio.charset.StandardCharsets.UTF_8).strip()) : java.time.Instant.EPOCH; }
-        catch (Exception e) { return java.time.Instant.EPOCH; }
+    public Instant lastIndexed() {
+        try { return Files.exists(lastIndexedFile()) ? Instant.parse(Files.readString(lastIndexedFile(), StandardCharsets.UTF_8).strip()) : Instant.EPOCH; }
+        catch (Exception e) { return Instant.EPOCH; }
     }
 
-    private void stamp(java.time.Instant at) throws IOException {
+    private void stamp(Instant at) throws IOException {
         Files.createDirectories(store.luceneDir());
-        Files.writeString(lastIndexedFile(), at.toString(), java.nio.charset.StandardCharsets.UTF_8);
-        Files.writeString(embedderFile(), embedder.modelId(), java.nio.charset.StandardCharsets.UTF_8);
+        Files.writeString(lastIndexedFile(), at.toString(), StandardCharsets.UTF_8);
+        Files.writeString(embedderFile(), embedder.modelId(), StandardCharsets.UTF_8);
     }
 
     /**
@@ -439,8 +467,8 @@ public final class LibrarianIndex {
             if (!DirectoryReader.indexExists(dir)) return rebuild();
         }
         if (!indexedWith().equals(embedder.modelId())) return rebuild();
-        java.time.Instant since = lastIndexed();
-        java.time.Instant now = java.time.Instant.now();
+        Instant since = lastIndexed();
+        Instant now = Instant.now();
         int n = 0;
         for (Finding f : store.scanFindings().findings()) {
             Path p = store.findingsDir().resolve(f.id() + ".md");
@@ -450,7 +478,7 @@ public final class LibrarianIndex {
             try (var files = Files.list(store.investigationsDir())) {
                 for (Path p : files.toList()) {
                     if (!p.toString().endsWith(".md") || !Files.getLastModifiedTime(p).toInstant().isAfter(since)) continue;
-                    try { upsert(Investigation.parse(Files.readString(p, java.nio.charset.StandardCharsets.UTF_8))); n++; } catch (Exception ignored) { }
+                    try { upsert(Investigation.parse(Files.readString(p, StandardCharsets.UTF_8))); n++; } catch (Exception ignored) { }
                 }
             }
         }
@@ -459,7 +487,7 @@ public final class LibrarianIndex {
                 for (Path p : files.toList()) {
                     if (!p.toString().endsWith(".md") || !Files.getLastModifiedTime(p).toInstant().isAfter(since)) continue;
                     var meta = LibraryProtocol.articleMeta(p);
-                    String text = Files.readString(p, java.nio.charset.StandardCharsets.UTF_8);
+                    String text = Files.readString(p, StandardCharsets.UTF_8);
                     int b = text.indexOf("\n---\n", 4);
                     String subject = meta.getOrDefault("subject", p.getFileName().toString().replaceFirst("^A-", "").replace(".md", ""));
                     upsertArticle(subject, meta.getOrDefault("title", subject), b < 0 ? text : text.substring(b + 5));
@@ -495,10 +523,10 @@ public final class LibrarianIndex {
             if (!DirectoryReader.indexExists(dir)) return 0;
             List<String> missing = new ArrayList<>();
             try (DirectoryReader r = DirectoryReader.open(dir)) {
-                var ids = org.apache.lucene.index.MultiTerms.getTerms(r, F_ID);
+                var ids = MultiTerms.getTerms(r, F_ID);
                 if (ids != null) {
                     var te = ids.iterator();
-                    for (org.apache.lucene.util.BytesRef b = te.next(); b != null; b = te.next()) {
+                    for (BytesRef b = te.next(); b != null; b = te.next()) {
                         String id = b.utf8ToString();
                         if (id.contains("#")) continue;   // a chunk: its parent decides
                         if (!fileFor(id)) missing.add(id);
@@ -524,7 +552,7 @@ public final class LibrarianIndex {
     }
 
     public synchronized int rebuild() throws IOException {
-        java.time.Instant started = java.time.Instant.now();
+        Instant started = Instant.now();
         int n = rebuildAll();
         stamp(started);
         return n;
@@ -539,12 +567,12 @@ public final class LibrarianIndex {
                 w.addDocument(toDoc(f));
                 n++;
             }
-            if (java.nio.file.Files.isDirectory(store.investigationsDir())) {
-                try (var files = java.nio.file.Files.list(store.investigationsDir())) {
+            if (Files.isDirectory(store.investigationsDir())) {
+                try (var files = Files.list(store.investigationsDir())) {
                     for (var p : files.toList()) {
                         if (!p.getFileName().toString().endsWith(".md")) continue;
                         try {
-                            Investigation inv = Investigation.parse(java.nio.file.Files.readString(p));
+                            Investigation inv = Investigation.parse(Files.readString(p));
                             Document d = new Document();
                             d.add(new StringField(F_ID, inv.id(), Field.Store.YES));
                             d.add(new StringField(F_KIND, "investigation", Field.Store.YES));
@@ -560,15 +588,15 @@ public final class LibrarianIndex {
                     }
                 }
             }
-            if (java.nio.file.Files.isDirectory(store.articlesDir())) {
-                try (var files = java.nio.file.Files.list(store.articlesDir())) {
+            if (Files.isDirectory(store.articlesDir())) {
+                try (var files = Files.list(store.articlesDir())) {
                     for (var p : files.toList()) {
                         String name = p.getFileName().toString();
                         if (!name.startsWith("A-") || !name.endsWith(".md")) continue;
                         try {
-                            String text = java.nio.file.Files.readString(p);
+                            String text = Files.readString(p);
                             String subject = name.substring(2, name.length() - 3);
-                            var tm = java.util.regex.Pattern.compile("(?m)^title: (.*)$").matcher(text);
+                            var tm = Pattern.compile("(?m)^title: (.*)$").matcher(text);
                             String title = tm.find() ? tm.group(1).strip() : subject;
                             int body = text.indexOf("\n---\n", 4);
                             Document d = new Document();
@@ -586,8 +614,8 @@ public final class LibrarianIndex {
                     }
                 }
             }
-            if (java.nio.file.Files.isDirectory(store.rawDir())) {
-                try (var files = java.nio.file.Files.list(store.rawDir())) {
+            if (Files.isDirectory(store.rawDir())) {
+                try (var files = Files.list(store.rawDir())) {
                     for (var p : files.toList()) {
                         if (!p.getFileName().toString().endsWith(".md")) continue;
                         try {
@@ -669,25 +697,25 @@ public final class LibrarianIndex {
                 if (strict) text = atLeastHalf(text);
                 Query filter = null;
                 {
-                    var fb = new org.apache.lucene.search.BooleanQuery.Builder();
+                    var fb = new BooleanQuery.Builder();
                     int clauses = 0;
                     if (subject != null && !subject.isBlank()) {
-                        fb.add(new org.apache.lucene.search.TermQuery(new Term(F_SUBJECT, subject)), org.apache.lucene.search.BooleanClause.Occur.FILTER); clauses++;
+                        fb.add(new TermQuery(new Term(F_SUBJECT, subject)), BooleanClause.Occur.FILTER); clauses++;
                     }
                     if (kind != null && !kind.isBlank()) {
-                        fb.add(new org.apache.lucene.search.TermQuery(new Term(F_KIND, kind)), org.apache.lucene.search.BooleanClause.Occur.FILTER); clauses++;
+                        fb.add(new TermQuery(new Term(F_KIND, kind)), BooleanClause.Occur.FILTER); clauses++;
                     }
                     if (collection != null && !collection.isBlank()) {
-                        fb.add(new org.apache.lucene.search.TermQuery(new Term(F_COLLECTION, collection)), org.apache.lucene.search.BooleanClause.Occur.FILTER); clauses++;
+                        fb.add(new TermQuery(new Term(F_COLLECTION, collection)), BooleanClause.Occur.FILTER); clauses++;
                     }
                     if (clauses > 0) filter = fb.build();
                 }
                 if (filter != null) {
-                    text = new org.apache.lucene.search.BooleanQuery.Builder()
-                            .add(text, org.apache.lucene.search.BooleanClause.Occur.MUST)
-                            .add(filter, org.apache.lucene.search.BooleanClause.Occur.FILTER).build();
+                    text = new BooleanQuery.Builder()
+                            .add(text, BooleanClause.Occur.MUST)
+                            .add(filter, BooleanClause.Occur.FILTER).build();
                 }
-                java.util.Map<Integer, Double> fused = new java.util.LinkedHashMap<>();
+                Map<Integer, Double> fused = new LinkedHashMap<>();
                 StoredFields stored = searcher.storedFields();
                 ScoreDoc[] sparse = searcher.search(text, want * 3).scoreDocs;
                 for (int i = 0; i < sparse.length; i++) {
@@ -711,7 +739,7 @@ public final class LibrarianIndex {
                     }
                 }
                 // usage heat: what patrons were given lately ranks a little higher (cold entries unchanged)
-                java.util.Map<String, Integer> heat = Heat.load(store);
+                Map<String, Integer> heat = Heat.load(store);
                 if (!heat.isEmpty()) {
                     for (var e : fused.entrySet()) {
                         Document d = stored.document(e.getKey());
@@ -719,11 +747,11 @@ public final class LibrarianIndex {
                         e.setValue(e.getValue() * Heat.boost(heat, hid));
                     }
                 }
-                List<java.util.Map.Entry<Integer, Double>> ranked = new ArrayList<>(fused.entrySet());
+                List<Map.Entry<Integer, Double>> ranked = new ArrayList<>(fused.entrySet());
                 ranked.sort((a, b) -> Double.compare(b.getValue(), a.getValue()));
                 // COLLAPSE chunks onto their parent: one hit per raw document, carrying the best
                 // chunk as its snippet — the desk shows the passage that matched, not the head.
-                java.util.Map<String, Hit> byId = new java.util.LinkedHashMap<>();
+                Map<String, Hit> byId = new LinkedHashMap<>();
                 int pool = want * 3;   // rerank pool: the fused top-3k, collapsed
                 for (var e : ranked) {
                     Document d = stored.document(e.getKey());
@@ -737,7 +765,7 @@ public final class LibrarianIndex {
                 List<Hit> pooled = new ArrayList<>(byId.values());
                 List<Hit> reranked = rerank(query, pooled);
                 return reranked.size() > want ? new ArrayList<>(reranked.subList(0, want)) : reranked;
-            } catch (org.apache.lucene.queryparser.classic.ParseException e) {
+            } catch (ParseException e) {
                 return List.of(); // an unparseable (escaped!) query matches nothing, loudly nothing
             }
         }
@@ -771,12 +799,12 @@ public final class LibrarianIndex {
     }
 
     /** Entries carrying a subject, by count — the facet. */
-    public java.util.Map<String, Integer> subjectCounts() throws IOException {
-        java.util.Map<String, Integer> counts = new java.util.TreeMap<>();
+    public Map<String, Integer> subjectCounts() throws IOException {
+        Map<String, Integer> counts = new TreeMap<>();
         try (Directory dir = FSDirectory.open(store.luceneDir())) {
             if (!DirectoryReader.indexExists(dir)) return counts;
             try (DirectoryReader r = DirectoryReader.open(dir)) {
-                var terms = org.apache.lucene.index.MultiTerms.getTerms(r, F_SUBJECT);
+                var terms = MultiTerms.getTerms(r, F_SUBJECT);
                 if (terms == null) return counts;
                 var it = terms.iterator();
                 while (it.next() != null) counts.put(it.term().utf8ToString(), it.docFreq());

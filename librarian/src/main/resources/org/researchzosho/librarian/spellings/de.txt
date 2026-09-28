@@ -1,0 +1,20 @@
+# German names in Latin letters.
+#
+# German writes ä, ö and ü, and ß. Records written without those letters spell them ae, oe, ue and ss (Mueller, Schroeder, Strauss), and
+# records in other countries often leave the dots off (Muller, Schroder). All three are one name: Müller, Mueller and Muller. Other
+# accents need no rule, because names are compared without accents.
+language: de
+name: German
+marks: ä ö ü ß
+joins: ' ’
+
+# comparison: an umlaut, its e spelling and the bare vowel are one. qu is a letter pair of its own (Quelle), so its u takes no e.
+fold ss: ß
+fold a: ä, ae
+fold o: ö, oe
+fold u: ü
+fold u: ue (not after q)
+
+# searches: a name with umlauts written with e, and written without the dots
+style e: ä=ae ö=oe ü=ue ß=ss
+style plain: ä=a ö=o ü=u ß=ss

@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 
+import java.net.InetAddress;
 /**
  * One daemon per library. The serving process holds {@code catalog/serve.lock}: its pid, its host, and
  * when the lease expires. It renews every four minutes; the lease lasts five, so a daemon that died
@@ -32,7 +33,7 @@ public final class Lease implements AutoCloseable {
     }
 
     static String hostName() {
-        try { return java.net.InetAddress.getLocalHost().getHostName(); } catch (Exception e) { return "localhost"; }
+        try { return InetAddress.getLocalHost().getHostName(); } catch (Exception e) { return "localhost"; }
     }
 
     public static Holder holder(LibraryStore store) throws IOException {

@@ -13,6 +13,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
+import java.nio.file.Files;
 /**
  * The terminal chat's input and output. On a real terminal: line editing, a history the up and down
  * arrows walk through (kept in the library, so it survives the program), Ctrl-R to search it, and
@@ -62,7 +63,7 @@ public interface ChatIo extends AutoCloseable {
 
         Editor(Terminal terminal, Path history) {
             this.terminal = terminal;
-            try { java.nio.file.Files.createDirectories(history.getParent()); } catch (IOException ignored) { }
+            try { Files.createDirectories(history.getParent()); } catch (IOException ignored) { }
             this.reader = LineReaderBuilder.builder().terminal(terminal)
                     .variable(LineReader.HISTORY_FILE, history)
                     .variable(LineReader.HISTORY_SIZE, 2000)

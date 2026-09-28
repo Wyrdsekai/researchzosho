@@ -20,6 +20,42 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
+import java.io.IOException;
+import java.net.http.HttpConnectTimeoutException;
+import java.net.http.HttpTimeoutException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.TreeMap;
+import java.util.TreeSet;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.researchzosho.Config;
+import org.researchzosho.Stopping;
+import org.researchzosho.drive.ContentJudge;
+import org.researchzosho.drive.DeclineJudge;
+import org.researchzosho.drive.Declined;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.records.RecordSource;
+import org.researchzosho.records.RecordSources;
+import org.researchzosho.tools.ContentPolicy;
+import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.RecordSearchTool;
+import org.researchzosho.tools.ScholarSearchTool;
+import org.researchzosho.tools.WebFetchTool;
+import org.researchzosho.tools.WebSearchTool;
 /**
  * The library's own overnight research runner (2026-09-06). ResearchZosho stands alone after the
  * repo split, so an ask filed through {@code library_research} runs HERE, not through codezaiku's
@@ -64,12 +100,21 @@ public final class Researcher {
         /** A deterministic prose completion (temperature 0, thinking off); "" on failure. */
         String classify(ArrayNode messages, int maxTokens);
         int contextWindow();
+        /** A prose completion that is itself the work (the writer's answer when no section was written): a watched seat reads it for a decline. */
+        default String prose(ArrayNode messages, int maxTokens) { return classify(messages, maxTokens); }
+        /** The judge a watched seat reads its model's replies with ({@link Declines}); null for a seat nobody watches. */
+        default DeclineJudge declineJudge() { return null; }
     }
 
     /** A fresh set of research tools for one worker, focused on its sub-question. */
     public interface Tools {
         /** The web tools (search, fetch) for this worker. */
         List<Tool> web(String focus);
+        /**
+         * The same, under the run's content policy: what the run lets in, the check its fetched pages go through, where they are kept. A
+         * set of tools that fetches nothing (a test's) ignores it.
+         */
+        default List<Tool> web(String focus, ContentPolicy policy) { return web(focus); }
         /** The search steerer's stop rule for this worker's tools, or {@code () -> false}. */
         BooleanSupplier exhausted();
     }
@@ -80,16 +125,33 @@ public final class Researcher {
      * "up to 600 turns", "two hours tops". With neither the run goes until the work is done — every planned
      * sub-question, the critic's rounds, every section, every cited sentence checked.
      */
-    public record Ask(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections, int maxMinutes) {
+    /**
+     * {@code fields}: the fields somebody asked this run to be (the research command's {@code --genealogy}, the web page's box, {@code
+     * field} in the tool, a yes in the chat, a field's own command). A field that joins only when asked joins only when named here.
+     */
+    /**
+     * {@code allow}: what the person let in for this question's run only, having been asked or having asked ({@link ContentPolicy#EXPLICIT},
+     * {@link ContentPolicy#HOWTO}; {@link ContentPolicy#SELF_HARM} is their yes to researching it at all). Empty for every other run, and
+     * always for a nightly one.
+     */
+    public record Ask(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections, int maxMinutes, List<String> fields, List<String> allow) {
         public Ask {
             maxTurns = Math.max(0, maxTurns); maxMinutes = Math.max(0, maxMinutes);
             subQuestions = subQuestions == null ? List.of() : List.copyOf(subQuestions);
             mode = mode == null || mode.isBlank() ? "broad" : mode;
             sources = sources == null || sources.isBlank() ? "both" : sources;   // both (shelves first) | shelves | web
             collections = collections == null ? List.of() : List.copyOf(collections);
+            fields = fields == null ? List.of() : fields.stream().filter(f -> f != null && !f.isBlank()).map(f -> f.strip().toLowerCase(Locale.ROOT)).distinct().toList();
+            allow = allow == null ? List.of() : allow.stream().filter(a -> a != null && !a.isBlank()).map(a -> a.strip().toLowerCase(Locale.ROOT)).filter(ContentPolicy.ALLOW_NAMES::contains).distinct().toList();
         }
+        public Ask(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections, int maxMinutes, List<String> fields) { this(question, mode, maxTurns, subQuestions, sources, collections, maxMinutes, fields, List.of()); }
+        public Ask(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections, int maxMinutes) { this(question, mode, maxTurns, subQuestions, sources, collections, maxMinutes, List.of()); }
         public Ask(String question, String mode, int maxTurns, List<String> subQuestions) { this(question, mode, maxTurns, subQuestions, "both", List.of(), 0); }
         public Ask(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections) { this(question, mode, maxTurns, subQuestions, sources, collections, 0); }
+        /** The same ask, as a run of these fields. */
+        public Ask withFields(List<String> f) { return new Ask(question, mode, maxTurns, subQuestions, sources, collections, maxMinutes, f, allow); }
+        /** The same ask, letting in what the person let in for it. */
+        public Ask withAllow(List<String> a) { return new Ask(question, mode, maxTurns, subQuestions, sources, collections, maxMinutes, fields, a); }
         String ceilings() {
             if (maxTurns == 0 && maxMinutes == 0) return "no ceiling (runs to completion)";
             return (maxTurns > 0 ? maxTurns + " turns" : "") + (maxTurns > 0 && maxMinutes > 0 ? ", " : "") + (maxMinutes > 0 ? maxMinutes + " min" : "");
@@ -104,24 +166,61 @@ public final class Researcher {
      * thin. {@code done} is whether the synthesis finished by its own hand (the acquisitions gate asks).
      */
     public record Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions,
-                         int rounds, List<String> log, List<String> openQuestions, ObjectNode stats) {
+                         int rounds, List<String> log, List<String> openQuestions, ObjectNode stats, List<Declined> declines, Declined ended) {
+        public Result {
+            declines = declines == null ? List.of() : List.copyOf(declines);
+        }
         public Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions, int rounds, List<String> log) {
             this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, List.of(), null);
         }
         public Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions, int rounds, List<String> log, List<String> openQuestions) {
             this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, openQuestions, null);
         }
+        public Result(boolean done, String answer, String evidence, int turnsUsed, int subQuestions, int rounds, List<String> log, List<String> openQuestions, ObjectNode stats) {
+            this(done, answer, evidence, turnsUsed, subQuestions, rounds, log, openQuestions, stats, List.of(), null);
+        }
         /** A short account for the job ledger. */
         public String summary() {
             return "turns " + turnsUsed + " · " + subQuestions + " sub-question(s) · " + rounds + " round(s)"
-                    + (done ? "" : " · synthesis cut off at the deadline");
+                    + (ended != null ? " · declined by the model" : done ? "" : " · synthesis cut off at the deadline")
+                    + (ended == null && !declines.isEmpty() ? " · " + declines.size() + " part(s) declined by the model" : "");
+        }
+        /** The statement a person reads for a run the model declined; "" when it did not. */
+        public String declinedStatement() { return ended == null ? "" : ended.statement(WHOLE_RUN); }
+        /** The statement for a run whose model declined parts of it and not the whole; "" when it declined none. */
+        public String partsStatement() {
+            if (declines.isEmpty() || ended != null) return "";
+            List<String> models = declines.stream().map(Declined::model).filter(m -> !m.isEmpty()).distinct().toList();   // the workers' and the judge seat's may differ
+            int n = declines.size();
+            return (models.size() > 1 ? "The models this library uses (" + String.join(", ", models) + ")" : "The model this library uses" + (models.isEmpty() ? "" : " (" + models.get(0) + ")"))
+                    + " declined " + (n == 1 ? "one part" : n + " parts") + " of this research. "
+                    + "ResearchZosho did not try to get around it. The report's Declined section says which, which model declined each, and what it said.";
+        }
+
+        /**
+         * The job's {@code declined} field: {@code run} (the model declined the whole run, and nothing was filed), {@code model}, {@code parts}
+         * (each step it declined, the seat, how it was known, what it said) and {@code statement}, the sentence a person reads. Null when the
+         * model declined nothing.
+         */
+        public ObjectNode declinedView() {
+            if (declines.isEmpty() && ended == null) return null;
+            ObjectNode o = J.createObjectNode();
+            o.put("run", ended != null);
+            o.put("model", (ended != null ? ended : declines.get(0)).model());
+            ArrayNode parts = o.putArray("parts");
+            for (Declined d : declines.isEmpty() ? List.of(ended) : declines) {
+                ObjectNode p = parts.addObject();
+                p.put("step", d.step()); p.put("seat", d.seat()); p.put("model", d.model()); p.put("how", d.how().name().toLowerCase(Locale.ROOT)); p.put("said", d.said());
+            }
+            o.put("statement", ended != null ? declinedStatement() : partsStatement());
+            return o;
         }
     }
 
     private static final ObjectMapper J = new ObjectMapper();
-    static final int WORKERS = org.researchzosho.Config.getInt("RESEARCHZOSHO_RESEARCH_WORKERS", 3);
-    static final int WORKER_TURNS = org.researchzosho.Config.getInt("RESEARCHZOSHO_RESEARCH_WORKER_TURNS", 14);
-    static final int ROUNDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_RESEARCH_ROUNDS", 2);
+    static final int WORKERS = Config.getInt("RESEARCHZOSHO_RESEARCH_WORKERS", 3);
+    static final int WORKER_TURNS = Config.getInt("RESEARCHZOSHO_RESEARCH_WORKER_TURNS", 14);
+    static final int ROUNDS = Config.getInt("RESEARCHZOSHO_RESEARCH_ROUNDS", 2);
     static final int SYNTH_TURNS = 8;
     /** The cite-check's own turns: with none reserved it read zero sentences on a spent budget (measured, J-0007). */
     static final int CHECK_TURNS = 6;
@@ -131,7 +230,7 @@ public final class Researcher {
     /** A second-round worker needs this long to fetch and read, not only search. */
     static final int MIN_ROUND_TWO_MINUTES = 4;
     /** Second-round sub-question → pages the first round named and did not read; the worker starts by fetching them. */
-    private final Map<String, List<String>> seedsOf = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, List<String>> seedsOf = new ConcurrentHashMap<>();
 
     /**
      * Pages the evidence names beside the words of {@code sub}: a first-round worker that could not fetch a source
@@ -139,12 +238,12 @@ public final class Researcher {
      * URLs from the lines that share the most distinctive words with the sub-question.
      */
     static List<String> seedsFor(String sub, String evidence) {
-        Set<String> st = new java.util.HashSet<>();
+        Set<String> st = new HashSet<>();
         for (String w : Frontier.terms(sub)) if (w.length() >= 5) st.add(w);
         Map<String, Integer> score = new LinkedHashMap<>();
-        java.util.regex.Pattern url = java.util.regex.Pattern.compile("https?://[^\\s)\\]>\"']+");
+        Pattern url = Pattern.compile("https?://[^\\s)\\]>\"']+");
         for (String line : evidence.split("\n")) {
-            java.util.regex.Matcher m = url.matcher(line);
+            Matcher m = url.matcher(line);
             if (!m.find()) continue;
             int shared = 0; for (String w : Frontier.terms(line)) if (st.contains(w)) shared++;
             if (shared < 2) continue;
@@ -157,7 +256,10 @@ public final class Researcher {
     }
     /** What a worker's bounces cost beyond its cap (the note bounce is two turns and most workers take it — J-0007). */
     static final int BOUNCE_TURNS = 2;
-    static final boolean PERSPECTIVES = !"off".equalsIgnoreCase(org.researchzosho.Config.get("RESEARCHZOSHO_PERSPECTIVES", "on"));
+    /** record_search: "on" offers it to a run whose field works from records, "always" to every run, "off" to none (RESEARCHZOSHO_RECORDS). */
+    static final String RECORDS_MODE = Config.get("RESEARCHZOSHO_RECORDS", "on");
+    static final boolean RECORDS = !"off".equalsIgnoreCase(RECORDS_MODE);
+    static final boolean PERSPECTIVES = !"off".equalsIgnoreCase(Config.get("RESEARCHZOSHO_PERSPECTIVES", "on"));
     static final int PAGE_CHARS = 3000;   // search, fetch, note, done — less is a summary of snippets
     static final int MAX_SUB = 8;
     static final int OBSERVATION_CAP = 6_000;
@@ -172,22 +274,227 @@ public final class Researcher {
         int lost = observation.length() - OBSERVATION_CAP;
         return observation.substring(0, half) + "\n…[" + lost + " characters cut from the middle]…\n" + observation.substring(observation.length() - half);
     }
-    static final int WORKER_TIMEOUT_MIN = org.researchzosho.Config.getInt("RESEARCHZOSHO_RESEARCH_WORKER_MINUTES", 40);
+    static final int WORKER_TIMEOUT_MIN = Config.getInt("RESEARCHZOSHO_RESEARCH_WORKER_MINUTES", 40);
 
     private final Drive drive;     // the workers' seat: search, fetch, note — local labour
     private final Drive judge;     // the judgment seat: plan, perspectives, critic, synthesis, cite-check — a frontier model when configured
     /** The language lanes of the current run: sub-question → lane, and which lanes were sent round again. */
-    private final Map<String, Lanes.Lane> laneOf = new java.util.concurrent.ConcurrentHashMap<>();
-    private final List<Lanes.Lane> lanes = new java.util.concurrent.CopyOnWriteArrayList<>();
-    private final java.util.Set<String> laneRetried = java.util.concurrent.ConcurrentHashMap.newKeySet();
-    private final java.util.Set<String> laneRan = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Map<String, Lanes.Lane> laneOf = new ConcurrentHashMap<>();
+    private final List<Lanes.Lane> lanes = new CopyOnWriteArrayList<>();
+    /** What record_search found this run, link → how the record is cited; and the searches of a named source that found nothing, as the harness saw them. */
+    private final Map<String, String> recordCitations = new ConcurrentHashMap<>();
+    private final List<String> nothingFound = new CopyOnWriteArrayList<>();
+    /** Every search this run made, as the library saw it go by: the tool, the words, the years, how many results. The research log. */
+    private final List<SearchLog.Entry> searches = new CopyOnWriteArrayList<>();
+    public List<SearchLog.Entry> searches() { return List.copyOf(searches); }
+
+    /**
+     * A search is logged at the tool call: web_search, scholar_search and record_search, with what came back counted from the observation.
+     * Only a call that reached its tool is a search; a collection that did not answer is logged as that, never as a search that found nothing.
+     */
+    void logSearch(String tool, JsonNode args, String observation) {
+        String query = args.path("query").asText("").strip();
+        if (query.isEmpty()) return;
+        String status = SearchLog.outcome(observation);
+        if (status == null) return;
+        String where = switch (tool) { case "record_search" -> args.path("source").asText("records"); case "scholar_search" -> "scholar"; default -> "web"; };
+        int found = status.equals(SearchLog.FAILED) ? 0 : (int) observation.lines().filter(l -> l.matches("\\d+\\. .*")).count();
+        searches.add(new SearchLog.Entry(LocalDate.now().toString(), "", where, query, args.path("from_year").asInt(0), args.path("to_year").asInt(0), found, "", status));
+    }
+
+    /** The kinds of record collection searched this run (newspaper, book, archive…) and how often: "reasonably exhaustive" is a variety of kinds, not many searches of one. */
+    private final Map<String, Integer> kindsSearched = new ConcurrentHashMap<>();
+
+    /** One line for the critic, computed: which kinds of records were searched and which usable kinds were not; "" when record_search was never used and no field asks for records. */
+    String recordKindsLine() {
+        if (kindsSearched.isEmpty() && fields.stream().noneMatch(Profile::wantsRecords)) return "";
+        Set<String> usable = new TreeSet<>();
+        for (var src : RecordSources.forFields(RecordSources.all(), fieldNames())) if (RecordSources.usable(src) && src.holdsTheRecord()) usable.add(src.kind());
+        List<String> done = new ArrayList<>();
+        for (var e : new TreeMap<>(kindsSearched).entrySet()) done.add(e.getKey() + " ×" + e.getValue());
+        usable.removeAll(kindsSearched.keySet());
+        return "record collections searched by kind: " + (done.isEmpty() ? "none" : String.join(", ", done)) + (usable.isEmpty() ? "" : "; kinds not searched at all: " + String.join(", ", usable)) + "\n";
+    }
+
+    void recordSearched(RecordSearchTool.Searched s) {
+        kindsSearched.merge(s.source().kind(), 1, Integer::sum);
+        sourcesSearched.merge(s.source().name(), new int[]{1, s.hits().isEmpty() ? 0 : 1}, (a, b) -> new int[]{a[0] + b[0], a[1] + b[1]});
+        log.accept("records: " + s.source().id() + " ← " + s.query() + " → " + s.hits().size() + " record(s)");
+        for (var h : s.hits()) if (!h.link().isBlank() && !h.where().isBlank()) recordCitations.putIfAbsent(Fetch.canonical(h.link()), h.where());
+        if (!s.hits().isEmpty()) return;
+        String years = s.fromYear() > 0 || s.toYear() > 0 ? ", " + (s.fromYear() > 0 ? s.fromYear() : "…") + "-" + (s.toYear() > 0 ? s.toYear() : "…") : "";
+        String line = s.source().name() + ": " + s.query() + years;
+        if (!nothingFound.contains(line)) nothingFound.add(line);
+    }
+
+    /** The saved pages and the workers' notes: a quotation is backed when either carries it, as the checks section says. A page that
+     *  was read and not saved (a site that blocks saving, a page served from a search) still has the note that quotes it. */
+    static List<String> withNotes(List<String> sourceTexts, String evidence) {
+        List<String> all = new ArrayList<>(sourceTexts);
+        if (evidence != null && !evidence.isBlank()) all.add(evidence);
+        return all;
+    }
+
+    /** How record_search said to cite one of these locators; "" when none of them came from it. */
+    String citedAsRecord(List<String> locators) {
+        for (String l : locators) { String c = l.contains("://") ? recordCitations.get(Fetch.canonical(l)) : null; if (c != null) return c; }
+        return "";
+    }
+
+    /** Every record collection searched this run: how many searches, how many found something. The breadth of the search is part of the answer. */
+    private final Map<String, int[]> sourcesSearched = new ConcurrentHashMap<>();
+
+    /** Whether the answer already says what a note says, in other words: most of the note's distinctive words (names, numbers, long words) stand in it. */
+    static boolean sameSaid(String answer, String note) {
+        Set<String> words = new LinkedHashSet<>();
+        Matcher m = Pattern.compile("[\\p{IsHan}\\p{IsKatakana}]{2,}|\\p{L}{6,}|\\d{3,}").matcher(note);
+        while (m.find()) words.add(m.group().toLowerCase(Locale.ROOT));
+        if (words.size() < 3) return false;
+        String a = answer.toLowerCase(Locale.ROOT);
+        long there = words.stream().filter(a::contains).count();
+        return there * 10 >= words.size() * 7;
+    }
+
+    /** "## Searched and not found": written from what the tool returned, so it is complete whether or not a worker noted it. */
+    String searchedSection() {
+        if (sourcesSearched.isEmpty()) return "";
+        StringBuilder b = new StringBuilder("## Record collections searched\n\nWritten by the library from what the searches returned, not by the model.\n\n");
+        for (var e : new TreeMap<>(sourcesSearched).entrySet()) b.append("- ").append(e.getKey()).append(": ").append(e.getValue()[0]).append(e.getValue()[0] == 1 ? " search, " : " searches, ").append(e.getValue()[1]).append(" found records\n");
+        List<String> never = new ArrayList<>();
+        for (var src : RecordSources.forFields(RecordSources.all(), fieldNames())) if (RecordSources.usable(src) && !sourcesSearched.containsKey(src.name())) never.add(src.name());
+        if (!never.isEmpty()) b.append("\nNot searched in this run: ").append(String.join("; ", never)).append(".\n");
+        if (!nothingFound.isEmpty()) {
+            b.append("\n### Searched and not found\n\nThese searches returned nothing. The words are the ones searched; another spelling, script or year range may still find a record.\n\n");
+            for (String l : nothingFound) b.append("- ").append(l).append('\n');
+        }
+        return b.toString().stripTrailing();
+    }
+
+    /** How much of its words a critic's gap shares with a declined sub-question before it counts as that sub-question asked again. */
+    static final double SAME_WORDS = 0.5;
+
+    /** What a whole declined run is said to have declined. */
+    static final String WHOLE_RUN = "to research this question";
+
+    /**
+     * Every decline of this run, in the order seen, each with the step it was at. ResearchZosho does not decide what may be researched; the
+     * model the person chose does, and a decline is said, never worked around: a declined sub-question is not sent round again in other
+     * words, a declined plan or write-up ends the run, and nothing is handed to another model because of it (decided 2026-09-23).
+     */
+    private final List<Declined> declines = new CopyOnWriteArrayList<>();
+    /** The sub-questions the model declined: never researched again this run, whoever proposes them. */
+    private final Set<String> declinedSubs = ConcurrentHashMap.newKeySet();
+    /** Every sub-question this run sent to a worker, the plan's and the critic's, in order. */
+    private final List<String> subsAsked = new CopyOnWriteArrayList<>();
+
+    /** The sub-questions of the last run that the model did not decline. */
+    List<String> subsNotDeclined() { return subsAsked.stream().filter(s -> !declinedSubs.contains(s)).distinct().toList(); }
+
+    private void declined(Declined d) {
+        declines.add(d);
+        log.accept("declined: " + d.getMessage());
+        ObjectNode o = J.createObjectNode(); o.put("step", d.step()); o.put("seat", d.seat()); o.put("model", d.model()); o.put("how", d.how().name().toLowerCase(Locale.ROOT));
+        event("declined_step", o);
+    }
+
+    /**
+     * "## Left out": the pages this run left out, each as its category and its address, nothing of what they said. "" when it left nothing
+     * out.
+     */
+    String leftOutSection() {
+        List<ContentPolicy.LeftOut> out = runPolicy.leftOut();
+        if (out.isEmpty()) return "";
+        StringBuilder b = new StringBuilder("## Left out\n\nWritten by the library. These pages were left out of this research: they were not saved, not shown to the model and not cited.\n\n");
+        for (ContentPolicy.LeftOut l : out) b.append("- ").append(l.line()).append('\n');
+        return b.toString().stripTrailing();
+    }
+
+    private static final Pattern NOTE_URL = Pattern.compile("https?://[^\\s)\\]>\"']+");
+
+    /** A worker's notes without the notes that rest on a page this run left out: such a page is never cited, even from its search snippet. */
+    String withoutLeftOut(String piece) {
+        if (piece == null || runPolicy.leftOut().isEmpty()) return piece;
+        StringBuilder b = new StringBuilder();
+        for (String line : piece.split("\n", -1)) {
+            if (line.startsWith("- ")) {
+                Matcher m = NOTE_URL.matcher(line);
+                boolean rests = false;
+                while (m.find() && !rests) rests = runPolicy.wasLeftOut(m.group().replaceAll("[.,;:]+$", ""));
+                if (rests) continue;
+            }
+            b.append(b.isEmpty() ? "" : "\n").append(line);
+        }
+        return b.toString();
+    }
+
+    /** "## Declined": written by the library from what the run saw, whenever the model declined part of the work. "" when it declined nothing. */
+    String declinedSection() {
+        if (declines.isEmpty()) return "";
+        StringBuilder b = new StringBuilder("## Declined\n\nWritten by the library, not by the model. The model this library uses declined the parts of this research listed here. "
+                + "ResearchZosho did not try to get around it: it did not ask again in other words, and it did not hand them to another model. What the report says "
+                + "comes from the rest of the work.\n\n");
+        for (Declined d : declines) {
+            b.append("- ").append(d.model().isEmpty() ? "The model" : "The model " + d.model()).append(" declined ").append(d.step().isEmpty() ? "a step of the work" : d.step()).append('.');
+            if (!d.howSaid().isEmpty()) b.append(' ').append(d.howSaid());
+            b.append(d.said().isEmpty() ? " It gave no words with it." : " What it said: \"" + d.quoted() + "\"").append('\n');
+        }
+        return b.toString().stripTrailing();
+    }
+
+    /** The run ends here because the model declined {@code d}: nothing is written or filed, and the statement says so. */
+    private Result declinedRun(Declined d, Budget budget, String evidence, int subQuestions, int rounds, List<String> notes) {
+        if (!declines.contains(d)) declined(d);
+        notes.add("declined: " + d.statement(WHOLE_RUN));
+        runStats.put("declined", "run");
+        runStats.put("declined_parts", declines.size());
+        return new Result(false, "", evidence, budget.used(), subQuestions, rounds, List.copyOf(notes), List.of(), runStats.deepCopy(), List.copyOf(declines), d);
+    }
+
+    /** The profiles whose field the current question belongs to; their rules join the planner, the workers, the critic and the writer. */
+    private volatile List<Profile> fields = List.of();
+    private final Set<String> laneRetried = ConcurrentHashMap.newKeySet();
+    private final Set<String> laneRan = ConcurrentHashMap.newKeySet();
     private final Tools tools;
     private final Consumer<String> log;
-    /** Set by the daemon for a job: true when a person asked for the run to stop; checked before every turn, on every worker. */
-    private volatile java.util.function.BooleanSupplier stopWhen = () -> false;
-    public void stopWhen(java.util.function.BooleanSupplier s) { this.stopWhen = s == null ? () -> false : s; }
-    /** Thrown at a turn boundary when the run was stopped; carries no evidence, the job ledger says who stopped it. */
-    public static final class Stopped extends RuntimeException { public Stopped() { super("stopped by the person"); } }
+    /**
+     * Set by the daemon for a job: true when a person asked for the run to stop. It is checked before every turn, on every worker, and
+     * the whole run works under it ({@link Stopping}): a request to the model, a page fetch or a search in flight ends within a second of
+     * the stop, its connection closed.
+     */
+    private volatile BooleanSupplier stopWhen = () -> false;
+    public void stopWhen(BooleanSupplier s) { this.stopWhen = s == null ? () -> false : s; }
+
+    /**
+     * Asked just before the report is filed: false when a stop came first, and then nothing is filed. The daemon asks its job ledger
+     * ({@link Jobs#beginFiling}), which marks the job as filing its report, so that a stop and the filing never cross; without it, the
+     * run's own stop is enough.
+     */
+    private volatile BooleanSupplier beginFiling = () -> true;
+    public void beginFiling(BooleanSupplier b) { this.beginFiling = b == null ? () -> true : b; }
+
+    /** Whether a person asked for this run to stop. */
+    boolean stopAsked() { return stopWhen.getAsBoolean() || Stopping.requested(); }
+    /** Thrown when the run was stopped, at a turn boundary or in the middle of a call; carries no evidence, the job ledger says who stopped it. */
+    public static class Stopped extends Stopping.Requested {
+        public Stopped() { super("stopped by the person"); }
+        protected Stopped(String statement) { super(statement); }
+    }
+
+    /** A stop seen in the middle of a call, as the run's own: the run ends there. */
+    private Stopped stopped(Stopping.Requested r) {
+        if (r instanceof Stopped s) return s;
+        log.accept("stopped: a person stopped this run; what it was waiting for was given up, and nothing of it is filed");
+        return new Stopped();
+    }
+
+    /**
+     * Thrown at a turn boundary when the page check could not run on the last few pages in a row while the run's model answers
+     * ({@link ContentPolicy#cannotCheck}): every page would be left out and nothing read, so the run stops, and its message is the plain
+     * statement of what happened, why, and what to set.
+     */
+    public static final class CannotCheck extends Stopped {
+        public CannotCheck(String statement) { super(statement); }
+    }
     private final int workers;
     private final LibraryStore store;   // for the cite-check's raw captures and independence clusters; null in a bare unit test
     /** Where the run stands, for the job record: set by the daemon; a client reads it to know when to poll again. */
@@ -211,7 +518,7 @@ public final class Researcher {
     }
     private volatile String phase = "";
     private volatile int round = 0, workersTotal = 0;
-    private final java.util.concurrent.atomic.AtomicInteger workersDone = new java.util.concurrent.atomic.AtomicInteger();
+    private final AtomicInteger workersDone = new AtomicInteger();
     private volatile Budget currentBudgetForProgress = null;
     /** Publish the run's state: the phase, the round, workers finished of this round, turns used of the ceiling. */
     private void progress(String phase) {
@@ -224,15 +531,24 @@ public final class Researcher {
         o.put("round", round); o.put("rounds", ROUNDS);
         o.put("workers_done", workersDone.get()); o.put("workers_total", workersTotal);
         o.put("turns_used", b == null ? 0 : b.used()); o.put("turns_ceiling", b == null ? 0 : b.ceiling());   // 0 = no turn ceiling
-        if (b != null && b.deadlineMs() > 0) o.put("deadline_at", java.time.Instant.ofEpochMilli(b.deadlineMs()).toString());
-        o.put("at", java.time.Instant.now().toString());
+        if (b != null && b.deadlineMs() > 0) o.put("deadline_at", Instant.ofEpochMilli(b.deadlineMs()).toString());
+        o.put("at", Instant.now().toString());
         try { sink.accept(o); } catch (Exception ignored) { }
     }
-    private final List<String> unaffordableFromPlan = java.util.Collections.synchronizedList(new ArrayList<>());
-    private java.util.Set<String> wallsSeenAtStart = null;
-    private final java.util.concurrent.atomic.AtomicInteger readsInRun = new java.util.concurrent.atomic.AtomicInteger();   // shelf pages read this run — sources too
-    private final java.util.Set<String> fetchedInRun = java.util.Collections.synchronizedSet(new java.util.LinkedHashSet<>());   // every source a worker read this run
-    private final java.util.concurrent.atomic.AtomicInteger servedFromRun = new java.util.concurrent.atomic.AtomicInteger();   // fetches answered from a page another reader read this run
+    /** The turns count moves while the workers read, not only when one of them finishes: a first round of eight workers showed "turns 2" for half an hour. */
+    static volatile long PROGRESS_EVERY_MS = 20_000;
+    private volatile long lastProgressAt = 0;
+    private void progressTick() {
+        long now = System.currentTimeMillis();
+        if (now - lastProgressAt < PROGRESS_EVERY_MS) return;
+        lastProgressAt = now;
+        progress(phase);
+    }
+    private final List<String> unaffordableFromPlan = Collections.synchronizedList(new ArrayList<>());
+    private Set<String> wallsSeenAtStart = null;
+    private final AtomicInteger readsInRun = new AtomicInteger();   // shelf pages read this run — sources too
+    private final Set<String> fetchedInRun = Collections.synchronizedSet(new LinkedHashSet<>());   // every source a worker read this run
+    private final AtomicInteger servedFromRun = new AtomicInteger();   // fetches answered from a page another reader read this run
 
     /**
      * A page another reader read this run, served from its capture instead of fetched again: the same text, centred on
@@ -244,17 +560,17 @@ public final class Researcher {
         String url = args.path("url").asText("").strip();
         if (url.isEmpty()) return null;
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
-        String canon = org.researchzosho.tools.Fetch.canonical(url);
+        String canon = Fetch.canonical(url);
         String hit = null;
-        synchronized (fetchedInRun) { for (String f : fetchedInRun) if (org.researchzosho.tools.Fetch.canonical(f).equals(canon)) { hit = f; break; } }
+        synchronized (fetchedInRun) { for (String f : fetchedInRun) if (Fetch.canonical(f).equals(canon)) { hit = f; break; } }
         if (hit == null) return null;
         try {
-            java.nio.file.Path rp = RawCapture.find(store, hit);
+            Path rp = RawCapture.find(store, hit);
             if (rp == null) return null;
             String[] r = RawCapture.read(rp);
             String text = r[2] == null ? "" : r[2];
             String find = args.path("find").asText("").strip();
-            int at = find.isEmpty() ? -1 : text.toLowerCase(java.util.Locale.ROOT).indexOf(find.toLowerCase(java.util.Locale.ROOT));
+            int at = find.isEmpty() ? -1 : text.toLowerCase(Locale.ROOT).indexOf(find.toLowerCase(Locale.ROOT));
             int from = at < 0 ? 0 : Math.max(0, at - PAGE_CHARS / 3);
             String body = text.substring(from, Math.min(text.length(), from + PAGE_CHARS));
             return "source: " + hit + (r[1] == null || r[1].isEmpty() ? "" : " — " + r[1]) + "\n(read earlier this run by another reader; the same page, from the library's copy)\n" + body;
@@ -289,18 +605,71 @@ public final class Researcher {
      * 2026-09-07: "remember we can use frontier".
      */
     public static Drive judgeDrive(String workersDrive, String workersModel) {
-        String jd = org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_DRIVE");
-        if (jd == null || jd.isBlank()) return drive(workersDrive, workersModel);
-        return drive(jd, org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_MODEL", workersModel));
+        String[] seat = judgeSeat(workersDrive, workersModel);
+        return drive(seat[0], seat[1]);
+    }
+
+    /** The judgment seat's drive and model: RESEARCHZOSHO_JUDGE_DRIVE and RESEARCHZOSHO_JUDGE_MODEL when set, else the workers'. */
+    static String[] judgeSeat(String workersDrive, String workersModel) {
+        String jd = Config.get("RESEARCHZOSHO_JUDGE_DRIVE");
+        if (jd == null || jd.isBlank()) return new String[]{workersDrive, workersModel};
+        return new String[]{jd, Config.get("RESEARCHZOSHO_JUDGE_MODEL", workersModel)};
+    }
+
+    /**
+     * A seat's drive, watched for a model that declines ({@link Declines}): the seat's own model reads its suspect replies, and a decline
+     * is said, never worked around. {@code notes} takes the replies the judge was unsure of: a run's trace, or the crews log.
+     */
+    public static Drive watched(String baseUrl, String model, String seat, Declines.Notes notes) {
+        DriveClient c = new DriveClient(baseUrl, model);
+        return Declines.watch(drive(c), seat, model, DeclineJudge.of(c), notes);
+    }
+
+    /** The judgment seat, watched. */
+    public static Drive watchedJudge(String workersDrive, String workersModel, Declines.Notes notes) {
+        String[] seat = judgeSeat(workersDrive, workersModel);
+        return watched(seat[0], seat[1], "judge", notes);
+    }
+
+    /** The conversation's seat (calm, the judgment seat when one is set), watched. */
+    public static Drive watchedChat(String workersDrive, String workersModel) {
+        String[] seat = judgeSeat(workersDrive, workersModel);
+        DriveClient c = new DriveClient(seat[0], seat[1]);
+        return Declines.watch(calmDrive(c), "chat", seat[1], DeclineJudge.of(c), null);
     }
 
     // ---- the run ----
 
-    /** Run one ask. {@code known} is the library's context block for the question ("" when none). */
+    /** The model that checks the pages this runner's runs fetch; null: the library's configured model. The daemon names the run's own. */
+    private volatile ContentJudge contentJudge = null;
+    public void contentJudge(ContentJudge j) { this.contentJudge = j; }
+
+    /** The current run's content policy: what it lets in, the check its pages go through, and what it left out. */
+    private volatile ContentPolicy runPolicy = ContentPolicy.run(List.of(), null, null);
+
+    /** What the last run left out, by address and category. */
+    List<ContentPolicy.LeftOut> leftOut() { return runPolicy.leftOut(); }
+
+    /**
+     * Run one ask. {@code known} is the library's context block for the question ("" when none). The run works under its stop: when a
+     * person asks for it, whatever the run is waiting for ends, and the run ends as {@link Stopped} and returns nothing to file.
+     */
     public Result run(Ask ask, String known) {
+        BooleanSupplier stop = () -> stopWhen.getAsBoolean();
+        Result r;
+        try { r = Stopping.within(stop, () -> running(ask, known)); }
+        catch (Stopping.Requested req) { throw stopped(req); }
+        if (stop.getAsBoolean()) throw stopped(new Stopping.Requested());   // stopped while a step swallowed the stop: nothing of it is filed
+        return r;
+    }
+
+    private Result running(Ask ask, String known) {
         Budget budget = new Budget(ask.maxTurns(), ask.maxMinutes());
         currentBudget = budget;
-        synchronized (org.researchzosho.tools.WebFetchTool.WALLS) { wallsSeenAtStart = new java.util.HashSet<>(org.researchzosho.tools.WebFetchTool.WALLS); }
+        runPolicy = ContentPolicy.run(ask.allow(), contentJudge, store).log(line -> { log.accept(line); ObjectNode o = J.createObjectNode(); o.put("line", line); event("left_out", o); });
+        if (runPolicy.lets(ContentPolicy.EXPLICIT) || runPolicy.lets(ContentPolicy.HOWTO))
+            log.accept("this run lets in what the library leaves out by default, because the person asked for it: " + String.join(", ", runPolicy.allow().stream().filter(a -> !a.equals(ContentPolicy.SELF_HARM)).toList()));
+        synchronized (WebFetchTool.WALLS) { wallsSeenAtStart = new HashSet<>(WebFetchTool.WALLS); }
         List<String> notes = new ArrayList<>();
         String knownBlock = known == null ? "" : known;
 
@@ -308,10 +677,17 @@ public final class Researcher {
         currentBudgetForProgress = budget;
         round = 0; workersTotal = 0; workersDone.set(0);
         progress("planning");
-        askedFormat = formatAsked(ask, budget);
-        if (!askedFormat.isEmpty()) log.accept("format asked for: " + askedFormat);
-        List<String> open = plan(ask, knownBlock, budget);
+        declines.clear(); declinedSubs.clear(); subsAsked.clear();
+        List<String> open;
+        try (var planning = Declines.step("plan research on a question: " + Acquisitions.compress(ask.question(), 300), true)) {   // a decline here ends the run: the higher bar
+            askedFormat = formatAsked(ask, budget);
+            if (!askedFormat.isEmpty()) log.accept("format asked for: " + askedFormat);
+            open = plan(ask, knownBlock, budget);
+        } catch (Declined d) {
+            return declinedRun(d.at("to plan this research"), budget, "", 0, 0, notes);   // the plan is not tried another way
+        }
         int subCount = open.size();
+        subsAsked.addAll(open);
         log.accept("plan: " + open.size() + " sub-question(s), " + workersNow() + " worker(s), " + ask.ceilings());
 
         // 2/3. Rounds of workers, the critic between them
@@ -325,13 +701,15 @@ public final class Researcher {
             // With a deadline and a second round possible, the first round stops at three fifths of the time, so the
             // critic's questions can be READ, not just searched: on a 60-minute run the first round's six workers took
             // 27 minutes and the write-up's reserve then covered the rest, and the four second-round workers got one
-            // search each (dolores, I-0002, 2026-09-11).
+            // search each (a test box, I-0002, 2026-09-11).
             if (round == 1 && ROUNDS > 1 && budget.deadlineMs() > 0) budget.roundDeadline(System.currentTimeMillis() + (budget.deadlineMs() - System.currentTimeMillis()) * 3 / 5);
             else budget.roundDeadline(0);
             this.round = round; workersTotal = open.size(); workersDone.set(0);
             progress("workers");
-            evidence.addAll(investigateAll(ask, open, budget));
+            for (String piece : investigateAll(ask, open, budget)) evidence.add(withoutLeftOut(piece));   // a page left out is never cited
             open.clear();
+            // the model declined every part that ran: nothing to review or write from, and no critic is asked to find other words for it
+            if (evidence.isEmpty() && !declinedSubs.isEmpty()) return declinedRun(declines.get(0), budget, "", subCount, rounds, notes);
             if (round == ROUNDS) break;
             if (budget.workersTimeUp() || (!budget.unbounded() && budget.left() <= budget.reserve())) { runStats.put("rounds_cut", true); log.accept("rounds: no room for the critic and a second round within the ceiling"); break; }
             progress("critic");
@@ -354,6 +732,7 @@ public final class Researcher {
             }
             for (String q : missing) { List<String> seeds = seedsFor(q, String.join("\n", evidence)); if (!seeds.isEmpty()) { seedsOf.put(q, seeds); log.accept("round " + (round + 1) + ": \"" + Acquisitions.compress(q, 50) + "\" starts from " + seeds.size() + " page(s) named in round " + round); } }
             open.addAll(missing);
+            subsAsked.addAll(missing);
             subCount += missing.size();
             log.accept("critic: " + missing.size() + " gap(s) → round " + (round + 1));
         }
@@ -361,13 +740,22 @@ public final class Researcher {
         // 4. Synthesis
         progress("synthesis");
         String evidenceText = String.join("\n\n", evidence);
-        Synthesis syn = synthesize(ask, knownBlock, evidence, budget);
+        Synthesis syn;
+        try { syn = synthesize(ask, knownBlock, evidence, budget); }
+        catch (Declined d) { return declinedRun(d.at("to write the report"), budget, evidenceText, subCount, rounds, notes); }
         notes.add("synthesis: " + (syn.done ? "finished" : "cut off") + ", " + syn.sections.size() + " section(s)");
         log.accept(notes.get(notes.size() - 1));
         // 5. The harness's own sections: references numbered and clustered for independence, the evidence table,
         //    and the cite-check of the model's sentences against the captured sources.
         progress("cite-check");
         String answer = assemble(ask, syn, evidenceText, budget, notes);
+        String declinedPart = declinedSection();
+        if (!declinedPart.isEmpty()) { answer = answer + "\n\n" + declinedPart; notes.add("declined: " + declines.size() + " part(s) of the work"); log.accept(notes.get(notes.size() - 1)); }
+        String leftOutPart = leftOutSection();
+        if (!leftOutPart.isEmpty()) answer = answer + "\n\n" + leftOutPart;
+        runStats.put("left_out", runPolicy.leftOut().size());
+        runStats.put("declined", declines.isEmpty() ? "" : "part");
+        runStats.put("declined_parts", declines.size());
         progress("filing");
         List<String> openAll = new ArrayList<>(unaffordableFromPlan); openAll.addAll(unaffordable);
         runStats.put("ceiling_cut", !syn.done || runStats.path("rounds_cut").asBoolean(false) || runStats.path("citecheck_cut").asBoolean(false));
@@ -377,7 +765,7 @@ public final class Researcher {
         runStats.put("fetches_distinct", fetchedInRun.size());
         runStats.put("fetches_served_from_run", servedFromRun.get());
         runStats.put("shelf_reads", readsInRun.get());
-        return new Result(syn.done, answer, evidenceText, budget.used(), subCount, rounds, List.copyOf(notes), List.copyOf(openAll), runStats.deepCopy());
+        return new Result(syn.done, answer, evidenceText, budget.used(), subCount, rounds, List.copyOf(notes), List.copyOf(openAll), runStats.deepCopy(), List.copyOf(declines), null);
     }
 
     // ---- the shelf ----
@@ -385,6 +773,8 @@ public final class Researcher {
     /** What filing an ask produced: the investigation id when admitted, else the gate's reason. */
     public record Filed(String investigationId, String reason, Result result) {
         public boolean admitted() { return investigationId != null; }
+        /** The model declined the run: nothing was filed, and {@code reason} is the statement that says so. */
+        public boolean declined() { return result != null && result.ended() != null; }
     }
 
     /**
@@ -392,19 +782,86 @@ public final class Researcher {
      * investigation with the answer, so a cut-off synthesis still leaves the work on record; a
      * refused run leaves a frontier gap. {@code writer} is who asked ("patron:…", "crew:explorer").
      */
-    public static Filed file(LibraryStore store, Researcher researcher, Ask ask, String writer) throws java.io.IOException {
+    /** What the library already holds for a question, as a run is shown it: the claims, the searches that found nothing, the search log. */
+    static String known(LibraryStore store, String question) throws IOException { return known(store, question, List.of()); }
+
+    /** The same for a run of these fields: the search log leaves out other fields' runs, and each field adds what it works out. */
+    static String known(LibraryStore store, String question, List<String> fields) throws IOException {
+        return LibraryPush.block(store, question, 6) + Looked.block(store, question, 12, fields) + SearchLog.block(store, question, 40, fields);
+    }
+
+    public static Filed file(LibraryStore store, Researcher researcher, Ask ask, String writer) throws IOException { return file(store, researcher, ask, writer, "", "asked"); }
+
+    /**
+     * The nightly research of one open question, or a bundle of them, on the drive: a run of {@code field} when the question is that
+     * field's ("" for an ordinary one). Returns the report's id, or null when the gate refused it.
+     */
+    static String forExplorer(LibraryStore store, String driveUrl, String model, String question, List<String> subQuestions, int maxTurns, int maxMinutes, String field, String writer, Consumer<String> log) throws IOException {
+        Declines.Notes notes = Declines.toCrewsLog(store, "explorer");   // the nightly run has no trace: what the judge was unsure of goes on the crews log
+        Researcher runner = new Researcher(watched(driveUrl, model, "workers", notes), watchedJudge(driveUrl, model, notes), webTools(), log, store);
+        ContentJudge contentJudge = ContentJudge.of(new DriveClient(driveUrl, model));
+        runner.contentJudge(contentJudge);
+        // nobody is there at night to be shown where to find help, or to say yes: a question that reads as a person asking about harming
+        // themselves is not researched at night
+        if (ContentOffer.harm(question, contentJudge) == ContentOffer.Harm.SURE) throw new ContentOffer.NotStarted(ContentOffer.NOT_STARTED);
+        Ask ask = nightlyAsk(question, subQuestions, maxTurns, maxMinutes, field);
+        Filed filed = file(store, runner, ask, writer, "", "explorer-line");
+        if (filed.declined()) throw filed.result().ended().at(WHOLE_RUN);   // the explorer marks the question as declined, not as refused
+        return filed.investigationId();
+    }
+
+    /**
+     * The ask of a nightly run. It never lets in what the library leaves out by default: nobody was asked, so nobody said yes, and there
+     * is no argument here to say it with.
+     */
+    static Ask nightlyAsk(String question, List<String> subQuestions, int maxTurns, int maxMinutes, String field) {
+        return new Ask(question, "broad", maxTurns, subQuestions, "both", List.of(), maxMinutes, field == null || field.isEmpty() ? List.of() : List.of(field), List.of());
+    }
+
+    /**
+     * As above, for job {@code jobId}. A run of a field somebody asked for is written into the fields ledger ({@link Fields}) before its
+     * report exists, with {@code how} the field was chosen, so the claims the review files from it are the field's work.
+     */
+    public static Filed file(LibraryStore store, Researcher researcher, Ask ask, String writer, String jobId, String how) throws IOException { return file(store, researcher, ask, writer, jobId, how, "asked"); }
+
+    /**
+     * As above; {@code allowHow}: how the person asked to let in what the run lets in ({@link Ask#allow}), for the ledger
+     * {@code catalog/run-content.tsv}, written before the report, and for the sentence under the report's question.
+     */
+    public static Filed file(LibraryStore store, Researcher researcher, Ask ask, String writer, String jobId, String how, String allowHow) throws IOException {
         var snap = Acquisitions.Snapshot.take();
-        Result r = researcher.run(ask, LibraryPush.block(store, ask.question(), 6));
+        Result r = researcher.run(ask, known(store, ask.question(), ask.fields()));
+        // a stop that came after the research and before anything of it is written down: nothing is filed, as the stop says
+        if (researcher.stopAsked()) { researcher.log.accept("stopped: a person stopped this run after its research, before its report was filed; nothing of it is filed"); throw new Stopped(); }
+        // the model declined the run: said as that, never as a refusal at the gate, and never put back on the open questions to run again
+        if (r.ended() != null) { store.circulate("declined", Acquisitions.compress(ask.question(), 120)); return new Filed(null, r.declinedStatement(), r); }
         boolean answered = r.done() || !r.answer().isBlank();
         // sources READ = web fetches this run + shelf documents read page by page (a shelves-only ask fetches nothing)
         var gate = Acquisitions.gate(answered, r.answer(), r.evidence(), snap.fetchesSince() + researcher.readsInRun.get(), snap.degradedSince());
         if (!gate.admitted()) {
-            Acquisitions.refuse(store, ask.question(), gate.reason());
+            if (r.declines().isEmpty()) Acquisitions.refuse(store, ask.question(), gate.reason());
+            // the model declined part of it: what goes back on the open questions is the parts it did not decline, never the question
+            // whole, which would send the declined parts to the model again another night
+            else for (String sub : researcher.subsNotDeclined())
+                Acquisitions.refuse(store, sub, gate.reason() + "; a part of \"" + Acquisitions.compress(ask.question(), 100) + "\", whose other part(s) the model declined and which are not put back");
             return new Filed(null, gate.reason(), r);
         }
         String answer = r.done() ? r.answer()
                 : "(the synthesis was cut off at its deadline — the sections it wrote, then the evidence)\n\n" + r.answer();
-        var inv = Acquisitions.admit(store, new LibrarianIndex(store), ask.question(), answer, writer, r.evidence());
+        List<String> asked = new ArrayList<>();
+        for (String f : ask.fields()) if (Profiles.named(f) != null) asked.add(Profiles.named(f).name());
+        List<String> letIn = ask.allow().stream().filter(a -> a.equals(ContentPolicy.EXPLICIT) || a.equals(ContentPolicy.HOWTO)).toList();
+        // the report is filed now: a stop that came first files nothing; one that comes after leaves the report, and the stop says so
+        if (researcher.stopAsked() || !researcher.beginFiling.getAsBoolean()) { researcher.log.accept("stopped: a person stopped this run before its report was filed; nothing of it is filed"); throw new Stopped(); }
+        var inv = Acquisitions.admit(store, new LibrarianIndex(store), ask.question(), answer, writer, r.evidence(),
+                id -> {
+                    for (String f : asked) Fields.record(store, id, jobId, f, how);
+                    if (!letIn.isEmpty()) ContentOffer.record(store, id, jobId, letIn, allowHow);   // before the report, as the fields ledger is
+                }, ContentOffer.reportSentence(letIn));
+        // the research log: every search this run made, under the question's subject, with the report it belongs to
+        List<SearchLog.Entry> made = new ArrayList<>();
+        for (SearchLog.Entry e : researcher.searches()) made.add(new SearchLog.Entry(e.date(), ask.question(), e.where(), e.query(), e.fromYear(), e.toYear(), e.found(), inv.id(), e.status()));
+        SearchLog.add(store, made);
         if (!r.openQuestions().isEmpty()) {
             store.write(new Investigation(inv.id(), inv.title(), inv.state(), inv.writer(), inv.recordedAt(), inv.findings(), r.openQuestions(), inv.body()));
             Frontier.fromReport(store, inv.id(), r.openQuestions());   // once; parked unless RESEARCHZOSHO_REPORT_QUESTIONS=queued
@@ -417,7 +874,7 @@ public final class Researcher {
     /** locator → the rest of a note line; every source the workers noted, in first-seen order. */
     static List<String> notedSources(String evidence) {
         List<String> out = new ArrayList<>();
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("— source: (\\S+?)(?: \\(|\\s—|\\n|$)").matcher(evidence);
+        Matcher m = Pattern.compile("— source: (\\S+?)(?: \\(|\\s—|\\n|$)").matcher(evidence);
         while (m.find()) { String loc = m.group(1).replaceAll("[),.;]+$", ""); if (!out.contains(loc)) out.add(loc); }
         for (String u : Acquisitions.urls(evidence)) if (!out.contains(u)) out.add(u);
         return out;
@@ -426,7 +883,7 @@ public final class Researcher {
     /** ", 6 days ago" for a page published within a month, so the reader sees how new it is; no verdict — for news, new is the point. */
     static String ageNote(String published) {
         try {
-            long days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.parse(published), java.time.LocalDate.now());
+            long days = ChronoUnit.DAYS.between(LocalDate.parse(published), LocalDate.now());
             return days >= 0 && days <= 30 ? ", " + days + " day" + (days == 1 ? "" : "s") + " ago" : "";
         } catch (Exception e) { return ""; }
     }
@@ -437,6 +894,7 @@ public final class Researcher {
         if (read.isEmpty() && lanes.isEmpty()) return "";
         StringBuilder sb = new StringBuilder("## Languages of the sources\n\n").append(Lanes.describe(read)).append(" (notes per language).");
         for (Lanes.Lane lane : lanes) {
+            if (declinedSubs.stream().anyMatch(s -> laneOf.get(s) == lane)) { sb.append(" The model declined the ").append(lane.name()).append("-language lane (see Declined)."); continue; }
             if (read.getOrDefault(lane.code(), 0) > 0) sb.append(" ").append(lane.name()).append("-language sources were searched on their own lane.");
             else if (!laneRan.contains(lane.code())) sb.append(" The ").append(lane.name()).append("-language lane did not run within this ask's limits; what ").append(lane.name()).append(" sources say is an open question.");
             else sb.append(" No ").append(lane.name()).append("-language source was found").append(laneRetried.contains(lane.code()) ? " in two tries" : "").append("; what ").append(lane.name()).append(" sources say is an open question.");
@@ -445,22 +903,22 @@ public final class Researcher {
     }
 
     /** The search counters when the run started; the differences are this run's. */
-    final int unreachableAtStart = org.researchzosho.tools.WebSearchTool.UNREACHABLE.get(),
-            fallbackAtStart = org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get(),
-            braveAtStart = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get(),
-            searxAtStart = org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get();
+    final int unreachableAtStart = WebSearchTool.UNREACHABLE.get(),
+            fallbackAtStart = WebSearchTool.FALLBACK_USED.get(),
+            braveAtStart = WebSearchTool.BRAVE_USED.get(),
+            searxAtStart = WebSearchTool.SEARXNG_USED.get();
 
     /** "## Web search": which backend the run searched through, when that is worth knowing: the fallback, or none at all. */
     String webSearchSection(Ask ask) {
         if (!ask.web()) return "";
-        int none = org.researchzosho.tools.WebSearchTool.UNREACHABLE.get() - unreachableAtStart;
-        int fb = org.researchzosho.tools.WebSearchTool.FALLBACK_USED.get() - fallbackAtStart;
-        int brave = org.researchzosho.tools.WebSearchTool.BRAVE_USED.get() - braveAtStart;
-        int searx = org.researchzosho.tools.WebSearchTool.SEARXNG_USED.get() - searxAtStart;
+        int none = WebSearchTool.UNREACHABLE.get() - unreachableAtStart;
+        int fb = WebSearchTool.FALLBACK_USED.get() - fallbackAtStart;
+        int brave = WebSearchTool.BRAVE_USED.get() - braveAtStart;
+        int searx = WebSearchTool.SEARXNG_USED.get() - searxAtStart;
         if (fb > 0) return "## Web search\n\n" + fb + (fb == 1 ? " search" : " searches") + " went through the built-in fallback (Wikipedia, Crossref and OpenAlex: reference pages and papers, no web engine)"
                 + (brave + searx > 0 ? ", " + (brave + searx) + " through " + (brave > 0 ? "Brave" : "SearXNG") : "")
                 + ". A Brave Search API key or a SearXNG (`researchzosho search start`) searches the whole web.";
-        if (none > 0 && brave + searx == 0) return "## Web search\n\nNo search backend answered at " + org.researchzosho.tools.WebSearchTool.endpoint() + " (" + none
+        if (none > 0 && brave + searx == 0) return "## Web search\n\nNo search backend answered at " + WebSearchTool.endpoint() + " (" + none
                 + (none == 1 ? " search" : " searches") + " failed). This run read only the documents on the shelves. "
                 + "`researchzosho setup` adds a Brave Search API key or starts SearXNG.";
         return "";
@@ -512,11 +970,11 @@ public final class Researcher {
         // a shelved file noted by its bare name ("source: guardrails.md") is the file:// capture of that name, not a
         // second reference (measured, J-0009: eleven references for five files, and the cite-check mapped the bare one)
         Map<String, String> bareToFile = new HashMap<>();
-        for (String loc : locators) if (loc.startsWith("file://")) bareToFile.put(loc.substring(loc.lastIndexOf('/') + 1).toLowerCase(java.util.Locale.ROOT), loc);
+        for (String loc : locators) if (loc.startsWith("file://")) bareToFile.put(loc.substring(loc.lastIndexOf('/') + 1).toLowerCase(Locale.ROOT), loc);
         for (String loc : locators) {
             boolean bare = !loc.contains("://") && !loc.startsWith("cite:") && !loc.startsWith("raw/") && loc.matches("[^/\\s]+\\.[A-Za-z0-9]{1,5}");
-            String file = bare ? bareToFile.get(loc.toLowerCase(java.util.Locale.ROOT)) : null;
-            String canon = loc.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(loc) : file != null ? file : loc;
+            String file = bare ? bareToFile.get(loc.toLowerCase(Locale.ROOT)) : null;
+            String canon = loc.startsWith("http") ? Fetch.canonical(loc) : file != null ? file : loc;
             String ident = Citations.identifyCaptured(store, loc);
             List<String> group = byWork.computeIfAbsent(ident == null ? canon : ident, k -> new ArrayList<>());
             if (file != null && !group.contains(file)) group.add(0, file);   // the capture leads the group; the bare name follows
@@ -525,10 +983,10 @@ public final class Researcher {
         // a capture that turned out to be a wall is not a reference
         byWork.values().removeIf(group -> {
             try {
-                java.nio.file.Path rp = RawCapture.find(store, group.get(0));
+                Path rp = RawCapture.find(store, group.get(0));
                 if (rp == null) return false;
                 String[] r = RawCapture.read(rp);
-                return org.researchzosho.tools.Fetch.wall(r[1], r[2]) != null;
+                return Fetch.wall(r[1], r[2]) != null;
             } catch (Exception e) { return false; }
         });
         return byWork;
@@ -554,7 +1012,7 @@ public final class Researcher {
             n++;
             String loc = primaryOf(group);
             String title = "";
-            try { java.nio.file.Path rp = RawCapture.find(store, loc); if (rp != null) title = Pages.unentity(RawCapture.read(rp)[1]); } catch (Exception ignored) { }
+            try { Path rp = RawCapture.find(store, loc); if (rp != null) title = Pages.unentity(RawCapture.read(rp)[1]); } catch (Exception ignored) { }
             String edition = "";
             for (String l : group) if (l.startsWith("cite:")) { edition = l.substring(5); break; }
             b.append('[').append(n).append("] ").append(!edition.isEmpty() ? edition + " — " : !title.isEmpty() ? Acquisitions.compress(title, 90) + " — " : "").append(loc).append('\n');
@@ -568,12 +1026,14 @@ public final class Researcher {
         String web = webSearchSection(ask);
         if (!web.isEmpty()) { languages = languages.isEmpty() ? web : web + "\n\n" + languages; notes.add("web search: no backend answered"); log.accept(notes.get(notes.size() - 1)); }
         if (!languages.isEmpty()) { notes.add("languages: " + Lanes.describe(Lanes.languagesRead(evidence))); log.accept(notes.get(notes.size() - 1)); }
+        String searched = searchedSection();
+        if (!searched.isEmpty()) { languages = languages.isEmpty() ? searched : searched + "\n\n" + languages; notes.add("record searches with no result: " + nothingFound.size()); log.accept(notes.get(notes.size() - 1)); }
         if (store == null) return languages.isEmpty() ? text : text + "\n\n" + languages;
         Map<String, List<String>> byWork = works(evidence, text);
-        if (byWork.isEmpty()) return text;
+        if (byWork.isEmpty()) return searched.isEmpty() ? text : text + "\n\n" + searched;   // nothing read at all: what was searched is then the whole record of the work
         List<String> primary = new ArrayList<>();
         for (List<String> group : byWork.values()) primary.add(primaryOf(group));
-        java.util.Set<String> noted = new java.util.HashSet<>(notedSources(evidence));
+        Set<String> noted = new HashSet<>(notedSources(evidence));
         Map<String, Integer> clusters = Independence.clusters(store, primary);
         Map<String, String> derivatives = Independence.derivatives(store, primary);
         int independent = Independence.independent(store, primary);
@@ -590,15 +1050,19 @@ public final class Researcher {
             Citations.Meta meta = Citations.resolve(store, loc, Citations.LIVE);
             String edition = meta == null ? "" : meta.edition();
             String title = "";
-            try { java.nio.file.Path rp = RawCapture.find(store, loc); if (rp != null) title = Pages.unentity(RawCapture.read(rp)[1]); } catch (Exception ignored) { }
+            try { Path rp = RawCapture.find(store, loc); if (rp != null) title = Pages.unentity(RawCapture.read(rp)[1]); } catch (Exception ignored) { }
             for (String l : group) { numberOfLocator.put(l, n); if (edition.isEmpty() && l.startsWith("cite:")) edition = l.substring(5); }
+            // a page record_search found is cited as the record it is: the paper, the date, the page, the holder
+            if (edition.isEmpty()) edition = citedAsRecord(group);
             refs.add(new CiteCheck.Ref(n, loc, edition, title));
             int c = clusters.getOrDefault(loc, n);
-            String same = firstOfCluster.containsKey(c) ? "  (same text as [" + firstOfCluster.get(c) + "])" : "";
+            // two places in one file of a cloned repository are one source too, and are said to be the same file
+            String first = firstOfCluster.containsKey(c) ? primary.get(firstOfCluster.get(c) - 1) : null, file = CodeTool.fileOf(loc);
+            String same = first == null ? "" : "  (" + (file != null && file.equals(CodeTool.fileOf(first)) ? "the same file as [" : "same text as [") + firstOfCluster.get(c) + "])";
             firstOfCluster.putIfAbsent(c, n);
             if (same.isEmpty() && derivatives.containsKey(loc)) { int to = primary.indexOf(derivatives.get(loc)) + 1; if (to > 0 && to != n) same = "  (cites [" + to + "]; not an independent voice for what it says)"; }
             String published = "";
-            try { java.nio.file.Path rp = RawCapture.find(store, loc); if (rp != null) published = RawCapture.published(rp); } catch (Exception ignored) { }
+            try { Path rp = RawCapture.find(store, loc); if (rp != null) published = RawCapture.published(rp); } catch (Exception ignored) { }
             if (published.isEmpty()) published = Citations.arxivPosted(loc);   // the id says when it was posted; no page date needed
             if (!published.isEmpty()) { dated.add(published); }
             SourceRules.Rule rule = rules.ruleFor(loc);
@@ -613,41 +1077,52 @@ public final class Researcher {
         }
         references.append("\n").append(byWork.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once, and a source that cites another adds nothing to it).");
         if (!dated.isEmpty()) {
-            java.util.Collections.sort(dated);
+            Collections.sort(dated);
             references.append(" Dated sources run from ").append(dated.get(0)).append(" to ").append(dated.get(dated.size() - 1)).append(dated.size() < byWork.size() ? "; " + (byWork.size() - dated.size()) + " give no date" : "").append('.');
         }
         references.append('\n');
         // the evidence table: every note, mechanically, claim | source | quote
         StringBuilder table = new StringBuilder("## Evidence\n\n| claim | source | quote |\n|---|---|---|\n");
         int rows = 0;
-        java.util.regex.Matcher nm = java.util.regex.Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", java.util.regex.Pattern.MULTILINE).matcher(evidence);
+        // what a worker noted, with its source, and the answer never brought in: the writer chooses what to say, and a choice it made
+        // without saying so is a finding the person never sees. These are listed after the answer, by the library.
+        List<String> leftOut = new ArrayList<>();
+        Matcher nm = Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", Pattern.MULTILINE).matcher(evidence);
         while (nm.find() && rows < 120) {
             String loc = nm.group(2).replaceAll("[),.;]+$", "");
             int ref = 0;
-            java.util.regex.Matcher um = java.util.regex.Pattern.compile("(?:https?|file)://\\S+").matcher(loc);
+            Matcher um = Pattern.compile("(?:https?|file)://\\S+").matcher(loc);
             String url = um.find() ? um.group().replaceAll("[),.;]+$", "") : null;
             if (url != null && numberOfLocator.containsKey(url)) ref = numberOfLocator.get(url);
             if (ref == 0 && numberOfLocator.containsKey(loc)) ref = numberOfLocator.get(loc);   // a bare file name, folded into its capture's group
             String noteId = Citations.identifyCaptured(store, url != null ? url : loc);
-            if (ref == 0 && url != null && numberOfLocator.containsKey(org.researchzosho.tools.Fetch.canonical(url))) ref = numberOfLocator.get(org.researchzosho.tools.Fetch.canonical(url));
+            if (ref == 0 && url != null && numberOfLocator.containsKey(Fetch.canonical(url))) ref = numberOfLocator.get(Fetch.canonical(url));
             if (ref == 0 && noteId != null) for (String l : numberOfLocator.keySet()) if (noteId.equals(Citations.identify(l))) { ref = numberOfLocator.get(l); break; }
             if (ref == 0) for (CiteCheck.Ref r : refs) if (loc.startsWith(r.locator())) { ref = r.n(); break; }
             table.append("| ").append(cell(nm.group(1))).append(" | ").append(ref > 0 ? "[" + ref + "]" : cell(loc)).append(" | ").append(nm.group(3) == null ? "" : cell(nm.group(3))).append(" |\n");
+            if (ref > 0 && !text.contains("[" + ref + "]") && !sameSaid(text, nm.group(1))) leftOut.add(nm.group(1).strip() + " [" + ref + "]");
             rows++;
         }
         // the cite-check: the model's cited sentences against the captured sources, on the judge
-        List<String> pieces = new ArrayList<>(java.util.Arrays.asList(evidence.split("(?m)^(?=SUB-QUESTION: )")));
+        List<String> pieces = new ArrayList<>(Arrays.asList(evidence.split("(?m)^(?=SUB-QUESTION: )")));
         pieces.removeIf(String::isBlank);
         List<String> coverageFlags = coverageCheck(text, pieces);
         for (String f : coverageFlags) { notes.add("coverage: " + f); log.accept(notes.get(notes.size() - 1)); }
-        java.util.Set<String> readCanon = new java.util.HashSet<>();
-        for (String l : notedSources(evidence)) readCanon.add(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l);
-        synchronized (fetchedInRun) { for (String l : fetchedInRun) readCanon.add(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l); }
-        java.util.Set<Integer> unread = new java.util.HashSet<>();
-        { int k = 0; for (List<String> group : byWork.values()) { k++; boolean read = false; for (String l : group) if (readCanon.contains(l.startsWith("http") ? org.researchzosho.tools.Fetch.canonical(l) : l) || l.startsWith("cite:") || l.startsWith("file://")) { read = true; break; } if (!read) unread.add(k); } }
+        Set<String> readCanon = new HashSet<>();
+        for (String l : notedSources(evidence)) readCanon.add(l.startsWith("http") ? Fetch.canonical(l) : l);
+        synchronized (fetchedInRun) { for (String l : fetchedInRun) readCanon.add(l.startsWith("http") ? Fetch.canonical(l) : l); }
+        Set<Integer> unread = new HashSet<>();
+        { int k = 0; for (List<String> group : byWork.values()) { k++; boolean read = false; for (String l : group) if (readCanon.contains(l.startsWith("http") ? Fetch.canonical(l) : l) || l.startsWith("cite:") || l.startsWith("file://")) { read = true; break; } if (!read) unread.add(k); } }
         // the check reads a finished write-up: whatever goes wrong inside it, the write-up is kept and the report says the check did not run
         CiteCheck.Outcome cc;
-        try { cc = CiteCheck.run(store, text, refs, judge, budget, unread); }
+        try {
+            cc = CiteCheck.run(store, text, refs, judge, budget, unread);
+            if (cc.declined() != null) declined(cc.declined().at("to check the citation of a sentence of the report"));   // the marks placed before it stand
+        } catch (Declined d) {
+            declined(d.at("to check the report's citations"));
+            cc = new CiteCheck.Outcome(text, 0, 0, 0, 0, List.of("the model declined to check the citations (see Declined); they are unchecked"), 0, 0, 0);
+        }
+        catch (Stopping.Requested stop) { throw stopped(stop); }
         catch (RuntimeException e) { cc = new CiteCheck.Outcome(text, 0, 0, 0, 0, List.of("the citation check could not run on this report (" + e + "); its citations are unchecked"), 0, 0, 0); }
         runStats.put("cite_checked", cc.checked()); runStats.put("cite_supported", cc.supported()); runStats.put("cite_unsupported", cc.unsupported());
         runStats.put("cite_unmapped", cc.unmapped()); runStats.put("references", byWork.size()); runStats.put("coverage_flags", coverageFlags.size());
@@ -656,9 +1131,9 @@ public final class Researcher {
         // quotations that appear in no source; and a cited paper Crossref lists as retracted
         List<String> sourceTexts = new ArrayList<>();
         Map<Integer, String> textByRef = new HashMap<>();
-        for (CiteCheck.Ref r : refs) { try { java.nio.file.Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
+        for (CiteCheck.Ref r : refs) { try { Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
         List<String> checks = new ArrayList<>();
-        List<String> numbersOff = WriteupChecks.numbersUnbacked(text, evidence, refs, textByRef), namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, sourceTexts);
+        List<String> numbersOff = WriteupChecks.numbersUnbacked(text, evidence, refs, textByRef), namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, evidence));
         for (String l : numbersOff) checks.add("number " + l);
         for (String l : namesOff) checks.add("name " + l);
         for (String l : quotesOff) checks.add("quotation " + l);
@@ -686,12 +1161,18 @@ public final class Researcher {
             out.append("\n\n## Coverage check\n\nThe answer claims an absence that the sub-investigations do not support:\n\n");
             for (String f : coverageFlags) out.append("- ").append(f).append('\n');
         }
+        if (!leftOut.isEmpty()) {
+            out.append("\n\n## Found and not in the answer above\n\nWritten by the library, not by the model. Each of these was noted during the research, with its source, "
+                    + "and the answer neither cites that source nor says the same thing. Read them with the answer: what was left out may matter to you.\n\n");
+            for (String l : leftOut.stream().distinct().limit(40).toList()) out.append("- ").append(l).append('\n');
+        }
+        runStats.put("noted_left_out", leftOut.size());
         if (rows > 0) out.append("\n\n").append(table);
         references.append(checked).append(".\n");
         out.append("\n\n").append(references);
         if (!languages.isEmpty()) out.append("\n\n").append(languages);
         List<String> walls = new ArrayList<>();
-        synchronized (org.researchzosho.tools.WebFetchTool.WALLS) { for (String w : org.researchzosho.tools.WebFetchTool.WALLS) if (wallsSeenAtStart == null || !wallsSeenAtStart.contains(w)) walls.add(w); }
+        synchronized (WebFetchTool.WALLS) { for (String w : WebFetchTool.WALLS) if (wallsSeenAtStart == null || !wallsSeenAtStart.contains(w)) walls.add(w); }
         runStats.put("walls", walls.size());
         if (!walls.isEmpty()) {
             out.append("\n\n## Source requests\n\nThese answered with a wall instead of the page. If you hold the document or the access, "
@@ -706,8 +1187,11 @@ public final class Researcher {
     // ---- 1. plan ----
 
     List<String> plan(Ask ask, String known, Budget budget) {
+        fields = Fields.forRun(store, ask);
+        if (!fields.isEmpty()) log.accept("field: " + String.join(", ", fields.stream().map(Profile::name).toList()) + " — its rules join this run");
         List<String> open = planCore(ask, known, budget);
         laneOf.clear(); lanes.clear(); laneRetried.clear(); laneRan.clear();
+        recordCitations.clear(); nothingFound.clear(); kindsSearched.clear(); sourcesSearched.clear();
         if (!ask.web()) return open;   // a shelves-only ask has no web to search in another language
         List<Lanes.Lane> found = Lanes.detect(ask.question(), null);   // the table decides; the judge only writes seeds, one turn, when there is a lane
         if (!found.isEmpty() && budget.take()) found = Lanes.detect(ask.question(), judge);
@@ -727,7 +1211,9 @@ public final class Researcher {
         for (String s : ask.subQuestions()) if (s != null && !s.isBlank() && open.size() < MAX_SUB) open.add(s.strip());
         if (!open.isEmpty()) return open;
         // STORM's move first: who studies this, and what would each of them insist on asking
-        if (PERSPECTIVES && budget.take()) {
+        String planRules = fieldRules(Profile::planRules);
+        // a field with its own way of splitting the work is split that way; "who studies this" is for a question with no such field
+        if (PERSPECTIVES && planRules.isEmpty() && budget.take()) {
             List<Perspectives.Perspective> ps = Perspectives.discover(ask.question(), judge, tools, 5);
             if (!ps.isEmpty()) {
                 open.addAll(Perspectives.questions(ps, MAX_SUB));
@@ -745,14 +1231,19 @@ public final class Researcher {
                         + "the question asks the same facts about many items, group items into a few sub-questions "
                         + "rather than one each. When the question names languages, regions or a non-English "
                         + "literature, include sub-questions whose searches should be written in that language, and "
-                        + "say so in the sub-question. Skip anything the library block above already settles. "
+                        + "say so in the sub-question. Skip anything the library block above already settles. " + planRules + recordsForThePlan() + codeForThePlan(ask)
                         + "Answer with a JSON array of strings and nothing else.\n\nQUESTION:\n" + ask.question());
-                String raw = judge.classify(msgs, 1200);
+                String raw;
+                try (var step = Declines.step("break a research question into sub-questions, as a JSON list: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 1200); }
                 int a = raw.indexOf('['), b = raw.lastIndexOf(']');
                 if (a >= 0 && b > a) {
                     for (JsonNode q : J.readTree(raw.substring(a, b + 1)))
                         if (q.isTextual() && !q.asText().isBlank() && open.size() < MAX_SUB) open.add(q.asText().strip());
                 }
+            } catch (Declined d) {
+                throw d;   // the model declined to plan: the question is not sent on as its own sub-question
+            } catch (Stopping.Requested stop) {
+                throw stopped(stop);
             } catch (Exception e) {
                 log.accept("plan: decompose unparseable (" + e.getMessage() + ") — the question is its own sub-question");
             }
@@ -782,7 +1273,8 @@ public final class Researcher {
         List<String> out = new ArrayList<>();
         budget.expectWorkers(open.size());
         try {
-            for (String sub : open) futures.add(pool.submit(() -> { workersActive.incrementAndGet(); try { return investigate(ask, sub, budget); } finally { workersActive.decrementAndGet(); } }));
+            // each worker's thread works under the run's stop, as the run's own thread does
+            for (String sub : open) futures.add(pool.submit(Stopping.carried(() -> { workersActive.incrementAndGet(); try { return investigate(ask, sub, budget); } finally { workersActive.decrementAndGet(); } })));
             pool.shutdown();
             for (int i = 0; i < futures.size(); i++) {
                 try {
@@ -796,10 +1288,17 @@ public final class Researcher {
                     }
                     workersDone.incrementAndGet(); progress("workers");
                 } catch (Exception e) {
-                    if (e.getCause() instanceof Stopped s) throw s;
+                    if (e.getCause() instanceof Stopping.Requested s) throw stopped(s);
+                    if (e.getCause() instanceof Declined d) {
+                        // this sub-question only: the others go on, and it is never sent round again in other words
+                        declinedSubs.add(open.get(i));
+                        declined(d.at("to research the sub-question \"" + Acquisitions.compress(open.get(i), 160) + "\""));
+                        workersDone.incrementAndGet(); progress("workers");
+                        continue;
+                    }
                     workersDone.incrementAndGet(); progress("workers");
                     out.add("SUB-QUESTION: " + open.get(i) + "\nSUMMARY: unavailable (worker "
-                            + (e instanceof java.util.concurrent.TimeoutException ? "timed out" : "failed: " + e.getMessage()) + ")");
+                            + (e instanceof TimeoutException ? "timed out" : "failed: " + e.getMessage()) + ")");
                     log.accept("worker: " + Acquisitions.compress(open.get(i), 60) + " — " + e.getClass().getSimpleName());
                 }
             }
@@ -821,9 +1320,23 @@ public final class Researcher {
                 + "stayed unknown. Everything you noted is already kept — do not repeat it.");
         Map<String, Tool> byName = new LinkedHashMap<>();
         if (store != null && ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); }
-        if (ask.web()) for (Tool t : tools.web(sub)) byName.put(t.name(), t);
+        // record_search joins a run whose field works from records (or every run, RESEARCHZOSHO_RECORDS=always): its description of a
+        // dozen collections is a cost and a distraction on a question about a compiler or a protein
+        boolean records = "always".equalsIgnoreCase(RECORDS_MODE) || fields.stream().anyMatch(Profile::wantsRecords);
+        if (ask.web()) for (Tool t : tools.web(sub, runPolicy)) {
+            if (t instanceof RecordSearchTool r) {
+                if (!records) continue;
+                r = "always".equalsIgnoreCase(RECORDS_MODE) && fields.stream().noneMatch(Profile::wantsRecords) ? r : r.forFields(fieldNames());
+                r = r.forYears(RecordSources.lived(sub, fields));   // the years are read by the run's own fields, and only when it is given the tool
+                if (!r.any()) continue;
+                t = r.listen(this::recordSearched);
+            }
+            byName.put(t.name(), t);
+        }
         if (databases && Databases.any()) { byName.put("db_schema", new DbSchemaTool()); byName.put("db_query", new DbQueryTool(store)); }
         if (store != null) byName.put("read_pages", new PagesTool(store));
+        List<String> repos = store == null ? List.of() : codeSettles(ask, CodeTool.reposIn(store, ask.question()));
+        if (!repos.isEmpty()) byName.put("read_code", new CodeTool(store, repos));
         byName.put(notebook.name(), notebook);
         byName.put(done.name(), done);
         BooleanSupplier exhausted = ask.web() ? tools.exhausted() : () -> false;
@@ -831,13 +1344,13 @@ public final class Researcher {
         Lanes.Lane lane = laneOf.get(sub);
         if (lane != null) laneRan.add(lane.code());
         ArrayNode history = J.createArrayNode();
-        history.addObject().put("role", "system").put("content", (lane == null ? "" : lane.register()) + workerRegister(ask));
+        history.addObject().put("role", "system").put("content", (lane == null ? "" : lane.register()) + workerRegister(ask, byName.containsKey("record_search")) + codeRule(repos) + fieldRules(Profile::register));
         List<String> seeds = seedsOf.getOrDefault(sub, List.of());
         String seedBlock = seeds.isEmpty() ? "" : "\n\nPAGES NAMED IN THE FIRST ROUND AND NOT YET READ — start with web_fetch on these, and search only for what they do not settle:\n- " + String.join("\n- ", seeds);
         history.addObject().put("role", "user").put("content",
                 "RESEARCH QUESTION (the whole ask, for context):\n" + ask.question()
                 + "\n\nYOUR SUB-QUESTION — research THIS, and only this:\n" + sub + seedBlock
-                + "\n\n" + (seeds.isEmpty() ? "Start with " : "Then, if needed, ") + (ask.shelves() && store != null ? "shelf_search" + (ask.web() ? ", then web_search" : "") : "web_search") + ". Note every fact the moment a fetched source shows it.");
+                + "\n\n" + startWith(ask, sub, seeds.isEmpty(), byName.containsKey("record_search")) + " Note every fact the moment a fetched source shows it.");
         ArrayNode all = toolsArray(byName.values());
         ArrayNode onlyDone = toolsArray(List.of(done));
         ArrayNode noteAndDone = toolsArray(List.of(notebook, done));
@@ -852,6 +1365,7 @@ public final class Researcher {
         for (int turn = 1; turn <= cap && !finished; turn++) {
             boolean lastByCap = turn == cap;
             boolean lastByBudget = !budget.takeWorker();
+            progressTick();
             boolean early = turn >= 3 && exhausted.getAsBoolean();
             boolean deadline = lastByCap || lastByBudget || early;
             if (lastByBudget) {
@@ -875,9 +1389,13 @@ public final class Researcher {
             ObjectNode assistant;
             try {
                 turnsRun++;
-                assistant = chat(history, deadline ? (closingNote ? noteAndDone : onlyDone) : all, outBudget(history, nctx));
+                try (var step = Declines.step("research this sub-question with the tools, note what the sources show, and finish with a summary: " + Acquisitions.compress(sub, 300), true)) {
+                    assistant = chat(history, deadline ? (closingNote ? noteAndDone : onlyDone) : all, outBudget(history, nctx));
+                }
             } catch (Stopped e) {
                 throw e;   // a person stopped the run: out of the worker, out of the round, out of the run
+            } catch (Declined e) {
+                throw e;   // the model declined this sub-question: said, not nudged and not asked again
             } catch (Exception e) {
                 log.accept("worker: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                 break;
@@ -894,6 +1412,7 @@ public final class Researcher {
                 String id = call.path("id").asText("call_" + turn);
                 JsonNode args = parseArgs(call.path("function").path("arguments"));
                 String observation;
+                boolean ran = false;   // the tool itself was called: a bounced call is no search
                 Tool t = byName.get(name);
                 if (deadline && !done.name().equals(name) && !(closingNote && notebook.name().equals(name))) {
                     observation = "Only `done` is available on this turn.";
@@ -904,15 +1423,20 @@ public final class Researcher {
                             + "another query, another source, or note what you have and move on.";
                 } else {
                     calls.merge(name, 1, Integer::sum);
+                    ran = true;
                     String served = "web_fetch".equals(name) ? servedFromRun(args) : null;
                     if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
                     else try {
                         observation = t.execute(args);
+                    } catch (Stopping.Requested e) {
+                        throw stopped(e);   // a person stopped the run while the tool waited: the run ends here
                     } catch (Exception e) {
                         observation = "ERROR: " + name + " failed — " + e.getMessage();
                     }
+                    if (stopWhen.getAsBoolean()) throw stopped(new Stopping.Requested());   // a tool that caught the stop itself
                 }
                 if (observation == null) observation = "";
+                if (ran && (name.equals("web_search") || name.equals("scholar_search") || name.equals("record_search"))) logSearch(name, args, observation);
                 observation = cut(observation);
                 if (lane != null && "web_search".equals(name) && !observation.startsWith("ERROR") && !lane.inLanguage(args.path("query").asText(""))) {
                     observation += lane.wrongLanguageNote();   // evidence, not a gate: the results stand, and the worker is told what they are
@@ -933,7 +1457,7 @@ public final class Researcher {
                     } else {
                         finished = true;
                     }
-                } else if ("read_pages".equals(name) && !observation.startsWith("ERROR")) {
+                } else if (("read_pages".equals(name) || "read_code".equals(name) && "read".equals(args.path("op").asText(""))) && !observation.startsWith("ERROR")) {
                     fetchedHere++;   // a shelf document read is a source read: the note discipline and the gate count it
                     readsInRun.incrementAndGet();
                 } else if ("web_fetch".equals(name) && !observation.startsWith("ERROR")) {
@@ -958,7 +1482,65 @@ public final class Researcher {
         return sb.toString();
     }
 
-    private String workerRegister(Ask ask) {
+    /** The worker's first move. A sub-question that names record collections starts there, the name alone first: told only "web_search", five workers of eight never opened the records. */
+    String startWith(Ask ask, String sub, boolean noSeeds, boolean records) {
+        String usual = (store != null && ask.shelves() ? "shelf_search" + (ask.web() ? ", then web_search" : "") : "web_search");
+        List<RecordSource> named = records ? RecordSources.named(sub, RecordSources.all()) : List.of();
+        if (named.isEmpty()) return (noSeeds ? "Start with " : "Then, if needed, ") + usual + ".";
+        return (noSeeds ? "Start with " : "Then ") + "record_search in " + String.join(", ", named.stream().map(RecordSource::id).toList())
+                + ": the person's name alone first, as those records would write it. Then " + usual + " for what the records do not settle.";
+    }
+
+    /** For a run that works from records: the collections, so the plan can give each sub-question the ones to search. "" for any other run. */
+    private String recordsForThePlan() {
+        if (!RECORDS || fields.stream().noneMatch(Profile::wantsRecords)) return "";
+        String brief = RecordSources.brief(fieldNames());
+        if (brief.isBlank()) return "";
+        return "THE COLLECTIONS a worker can search by name (record_search), each by its id:\n" + brief
+                + "End each sub-question with the collections to search for it, by id, like: (search: loc-newspapers, internet-archive). A collection goes "
+                + "with a sub-question only when its country, its kind of record and its years fit the people in it: French newspapers have nothing on a "
+                + "family in Japan and New York, a Rust package index nothing on a Python question. Every collection that does fit is given to at least one sub-question.\n\n";
+    }
+
+    /** For a run about a repository the library holds: what the worker is told about read_code; "" for any other run. */
+    static String codeRule(List<String> repos) {
+        if (repos.isEmpty()) return "";
+        return "\n\nTHE CODE: read_code reads the files of " + String.join(", ", repos) + " as they are on disk. A README, a design document or an issue says what "
+                + "is planned as often as what is built, so settle what the software does from the code: grep for the feature, read the file, and note the claim with "
+                + "the file and line numbers read_code showed as its source, written raw/repos/<repository>/<path>:<line>. A claim you found only in a document is "
+                + "noted as what that document says.\n\n";
+    }
+
+    /**
+     * The repositories this run reads the code of (read_code) and settles its answers from: the one a survey's run is about ("About the
+     * repository NAME ("), the ones the ask's collections name, or every repository the question names when a field of the run reads code.
+     * A question that only uses a repository's name as a word ("how do plants react to light" beside a clone of react) is not offered it.
+     */
+    List<String> codeSettles(Ask ask, List<String> repos) {
+        if (repos.isEmpty() || fields.stream().anyMatch(Profile::readsCode)) return repos;
+        String q = ask.question().toLowerCase(Locale.ROOT);
+        List<String> out = new ArrayList<>();
+        for (String n : repos) if (q.startsWith("about the repository " + n.toLowerCase(Locale.ROOT) + " (") || ask.collections().stream().anyMatch(c -> c.equalsIgnoreCase(n))) out.add(n);
+        return out;
+    }
+
+    /** The planner's side of the same rule. */
+    private String codeForThePlan(Ask ask) {
+        if (store == null || codeSettles(ask, CodeTool.reposIn(store, ask.question())).isEmpty()) return "";
+        return "The repository's own files can be read (read_code). Write each sub-question about what the software does so that its answer is settled from the code "
+                + "and cites the file and line.\n\n";
+    }
+
+    private List<String> fieldNames() { return fields.stream().filter(Profile::wantsRecords).map(Profile::name).toList(); }
+
+    /** One kind of rule from every profile this question belongs to, as a block the prompt can take as it is; "" when there is none. */
+    private String fieldRules(Function<Profile, String> kind) {
+        StringBuilder b = new StringBuilder();
+        for (Profile p : fields) { String r = kind.apply(p); if (r != null && !r.isBlank()) b.append("\n\n").append(p.name().toUpperCase(Locale.ROOT)).append(": ").append(r.strip()); }
+        return b.isEmpty() ? "" : b.append("\n\n").toString();
+    }
+
+    private String workerRegister(Ask ask, boolean records) {
         boolean broad = !"depth".equalsIgnoreCase(ask.mode());
         boolean web = ask.web();
         boolean shelves = ask.shelves() && store != null;
@@ -971,8 +1553,9 @@ public final class Researcher {
                 + "shelf_search finds them; read_pages reads one in full. " + (web ? "Search the shelves BEFORE the web: what the person shelved outranks what a search engine ranks. " : "The web is closed for this ask: the shelves are the whole corpus. ")
                 + "Cite a shelved document by its title and its file:// or raw/ locator.\n\n";
         StringBuilder sb = new StringBuilder();
-        sb.append("You are a researcher working for a library. Read-only: you have ").append(shelves ? "shelf_search, " : "").append(web ? "web_search, scholar_search, web_fetch, " : "").append("read_pages, note and done.\n\n").append(shelvesText);
+        sb.append("You are a researcher working for a library. Read-only: you have ").append(shelves ? "shelf_search, " : "").append(web ? "web_search, scholar_search, " + (records ? "record_search, " : "") + "web_fetch, " : "").append("read_pages, note and done.\n\n").append(shelvesText);
         if (web) sb.append("scholar_search finds papers, books and chapters by DOI in Crossref and OpenAlex: the primary literature a web engine ranks low. Use it as well as web_search whenever the question touches a literature (medicine, science, history, law, the humanities), then web_fetch the DOI or landing page to read.\n\n");
+        if (web && records) sb.append("record_search searches collections of records one at a time — newspapers, patents, scanned directories and local histories, archive catalogues — by the ids its description lists. What a person, a family or a firm did is in these, and a web engine cannot see inside them. A search there that finds nothing is a result: note it.\n\n");
         sb.append(broad
                 ? "SURVEY: run several DIFFERENT " + search + " queries covering the facets and phrasings of your sub-question, then " + fetch
                   + " the most promising sources. Map the landscape — the positions, where sources agree and where they disagree."
@@ -1017,7 +1600,7 @@ public final class Researcher {
 
     /** What the person asked for beyond the question — a table, a language, a length, an order — carried to the writer; "" when nothing. */
     private volatile String askedFormat = "";
-    static final java.util.regex.Pattern FORMAT_HINT = java.util.regex.Pattern.compile("(?i)\\b(table|tabular|bullet|list|timeline|by year|per year|chronolog|in (japanese|english|german|french|spanish|chinese|korean|italian|portuguese)|under \\d+ words|at most \\d+ words|one page|two pages|short|brief|summary|compare|comparison|side by side|ranked|rank)\\b");
+    static final Pattern FORMAT_HINT = Pattern.compile("(?i)\\b(table|tabular|bullet|list|timeline|by year|per year|chronolog|in (japanese|english|german|french|spanish|chinese|korean|italian|portuguese)|under \\d+ words|at most \\d+ words|one page|two pages|short|brief|summary|compare|comparison|side by side|ranked|rank)\\b");
     String formatAsked(Ask ask, Budget budget) {
         if (!FORMAT_HINT.matcher(ask.question()).find() || !budget.take()) return "";
         try {
@@ -1026,12 +1609,14 @@ public final class Researcher {
                     "Split this research request into the TASK (what to find out) and the FORMAT the person asked the answer to take "
                     + "(a table, a list, a language, a length, an order, a comparison). Copy the format words as written; say none when the request names none.\n\nREQUEST:\n"
                     + ask.question() + "\n\nAnswer with JSON only: {\"task\": \"…\", \"format\": \"…|none\"}");
-            String raw = judge.classify(msgs, 300);
+            String raw;
+            try (var step = Declines.step("say what format a research request asks its answer to take, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 300); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return "";
             String f = J.readTree(raw.substring(a, b + 1)).path("format").asText("").strip();
             return f.equalsIgnoreCase("none") || f.length() > 300 ? "" : f;
-        } catch (Exception e) { return ""; }
+        } catch (Declined d) { throw d; }   // part of the plan: a decline here ends the run as declined
+        catch (Exception e) { return ""; }
     }
 
     // ---- 3. critic ----
@@ -1041,6 +1626,7 @@ public final class Researcher {
         // the lanes first, mechanically: a lane whose language no note came from goes round again, once
         Map<String, Integer> read = Lanes.languagesRead(String.join("\n", evidence));
         for (Lanes.Lane lane : lanes) {
+            if (declinedSubs.stream().anyMatch(s -> laneOf.get(s) == lane)) continue;   // the model declined the lane: it is not sent round again
             if (read.getOrDefault(lane.code(), 0) > 0 || !laneRetried.add(lane.code())) continue;
             String again = lane.subQuestion(ask.question()) + " The first round read no " + lane.name() + "-language source at all; use the seed queries as they are, and read the " + lane.name() + " pages.";
             missing.add(again); laneOf.put(again, lane);
@@ -1060,15 +1646,17 @@ public final class Researcher {
             ArrayNode msgs = J.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
                     "You are reviewing research COVERAGE for a library, not writing the answer.\n\nTHE ASK:\n"
-                    + ask.question() + "\n\nCOVERAGE NUMBERS (computed from the notes, not an impression):\n" + cn.lines()
+                    + ask.question() + "\n\nCOVERAGE NUMBERS (computed from the notes, not an impression):\n" + cn.lines() + recordKindsLine()
+                    + declinedForThePrompt("SUB-QUESTIONS THE MODEL DECLINED (they stay as they are; name gaps only among the others)")
                     + "\nEVIDENCE SO FAR:\n" + fitted("critic", evidence)
                     + "\n\nIs this enough to answer the ask COMPLETELY, with sources, within its stated scope, from every "
                     + "perspective the sub-questions name? The default is sufficient: name a gap only when it is specific, critical to "
                     + "the ask, and easy to state as one further search; never a gap that leads away from the ask, never a sub-question "
-                    + "already on the list above. Answer with JSON only: {\"sufficient\": true} or {\"sufficient\": false, "
+                    + "already on the list above. " + fieldRules(Profile::criticRules) + "Answer with JSON only: {\"sufficient\": true} or {\"sufficient\": false, "
                     + "\"missing\": [{\"question\": \"<self-contained sub-question>\", \"type\": \"critical|contextual|detail|extension\", "
                     + "\"central\": true|false}, ...]} (at most 4; only gaps a further search could fill).");
-            String raw = judge.classify(msgs, 900);
+            String raw;
+            try (var step = Declines.step("check whether the research so far covers the question, and name the gaps, as JSON: " + Acquisitions.compress(ask.question(), 300))) { raw = judge.classify(msgs, 900); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return missing;
             JsonNode v = J.readTree(raw.substring(a, b + 1));
@@ -1076,22 +1664,56 @@ public final class Researcher {
                 // ranked: critical and central first (enterprise-deep-research's gap matrix); a four-minute second round spends on the top one
                 List<JsonNode> gaps = new ArrayList<>();
                 for (JsonNode q : v.path("missing")) if (q.isObject() ? !q.path("question").asText("").isBlank() : q.isTextual() && !q.asText().isBlank()) gaps.add(q);
-                gaps.sort(java.util.Comparator.comparingInt(Researcher::gapPriority));
+                gaps.sort(Comparator.comparingInt(Researcher::gapPriority));
                 for (JsonNode q : gaps) {
                     String text = (q.isObject() ? q.path("question").asText() : q.asText()).strip();
+                    if (declinedSubs.stream().anyMatch(d -> d.equalsIgnoreCase(text) || Frontier.jaccard(Frontier.terms(d), Frontier.terms(text)) >= SAME_WORDS)) {
+                        log.accept("critic: \"" + Acquisitions.compress(text, 60) + "\" asks what the model declined — not sent round");
+                        continue;   // a declined sub-question is not proposed back, in its own words or mostly the same ones
+                    }
+                    String same = sameAsDeclined(text);
+                    if (same != null) {
+                        log.accept("critic: \"" + Acquisitions.compress(text, 60) + "\" asks for the same thing as the declined \"" + Acquisitions.compress(same, 60) + "\" — not sent round");
+                        continue;   // in other words altogether: the typed judge was sure it asks the same thing
+                    }
                     if (missing.size() < 5 && missing.stream().noneMatch(m -> m.equalsIgnoreCase(text))) missing.add(text);
                 }
             }
+        } catch (Declined d) {
+            declined(d.at("to check whether the research covers the question"));
+            log.accept("critic: declined by the model — stopping rounds");
+        } catch (Stopping.Requested stop) {
+            throw stopped(stop);
         } catch (Exception e) {
             log.accept("critic: unparseable — stopping rounds");
         }
         return missing;
     }
 
+    /**
+     * The declined sub-question that {@code gap} asks for the same thing as, in other words, by the typed judge of the judge seat (or the
+     * workers'); null when none, or when no typed judge can run. Asked only when the run has declined sub-questions.
+     */
+    private String sameAsDeclined(String gap) {
+        if (declinedSubs.isEmpty()) return null;
+        DeclineJudge dj = judge.declineJudge() != null ? judge.declineJudge() : drive.declineJudge();
+        if (dj == null) return null;
+        for (String d : declinedSubs) if (dj.sameAsk(d, gap)) return d;
+        return null;
+    }
+
+    /** The declined sub-questions as a block for a prompt, under {@code heading}; "" when none was declined. */
+    private String declinedForThePrompt(String heading) {
+        if (declinedSubs.isEmpty()) return "";
+        StringBuilder b = new StringBuilder(heading).append(":\n");
+        for (String s : declinedSubs) b.append("- ").append(Acquisitions.compress(s, 200)).append('\n');
+        return b.append('\n').toString();
+    }
+
     /** 1 = critical and central … 4 = an extension off to the side; a bare string is 2. */
     static int gapPriority(JsonNode q) {
         if (!q.isObject()) return 2;
-        String type = q.path("type").asText("contextual").toLowerCase(java.util.Locale.ROOT);
+        String type = q.path("type").asText("contextual").toLowerCase(Locale.ROOT);
         boolean central = q.path("central").asBoolean(true);
         int base = switch (type) { case "critical" -> 1; case "contextual" -> 2; case "detail" -> 3; default -> 4; };
         return central ? base : Math.min(4, base + 1);
@@ -1102,14 +1724,14 @@ public final class Researcher {
 
     static CoverageNumbers coverageNumbers(List<String> evidence) {
         StringBuilder b = new StringBuilder();
-        java.util.Set<String> allSources = new java.util.LinkedHashSet<>(), hosts = new java.util.LinkedHashSet<>();
+        Set<String> allSources = new LinkedHashSet<>(), hosts = new LinkedHashSet<>();
         List<String> empty = new ArrayList<>();
         int notes = 0, i = 0;
         for (String piece : evidence) {
             i++;
             String head = piece.startsWith("SUB-QUESTION: ") ? piece.substring(14, piece.indexOf('\n') < 0 ? piece.length() : piece.indexOf('\n')).strip() : "(unnamed)";
-            java.util.Set<String> srcs = new java.util.LinkedHashSet<>();
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("— source: (\\S+)").matcher(piece);
+            Set<String> srcs = new LinkedHashSet<>();
+            Matcher m = Pattern.compile("— source: (\\S+)").matcher(piece);
             int n = 0;
             while (m.find()) { n++; String src = m.group(1).replaceAll("[)\\].,;]+$", ""); srcs.add(src); String h = CiteCheck.hostOf(src); if (h != null) hosts.add(h); }
             notes += n; allSources.addAll(srcs);
@@ -1133,7 +1755,7 @@ public final class Researcher {
                 "Finish the investigation. Pass CAVEATS: what stayed uncertain or conflicting, in a sentence or two. "
                 + "The sections you wrote are the answer; do not repeat them here.");
         Map<String, Tool> byName = new LinkedHashMap<>();
-        if (ask.web()) for (Tool t : tools.web(ask.question())) if ("web_fetch".equals(t.name())) byName.put(t.name(), t);
+        if (ask.web()) for (Tool t : tools.web(ask.question(), runPolicy)) if ("web_fetch".equals(t.name())) byName.put(t.name(), t);
         if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); } }
         byName.put(sections.name(), sections);
         byName.put(done.name(), done);
@@ -1153,9 +1775,11 @@ public final class Researcher {
                 + "the clause it supports (several as [3][7]; a source not on the list: its URL in parentheses), then 'Conflicts and uncertainty' "
                 + "when sources disagree, then 'Sources' — every URL or citation you relied on, one per line, with "
                 + "edition or translation where it was noted. Keep each section under 1500 characters; use more "
-                + "sections rather than longer ones. Then call done.");
+                + "sections rather than longer ones. Then call done." + fieldRules(Profile::writerRules));
         history.addObject().put("role", "user").put("content",
-                "THE ASK:\n" + ask.question() + "\n\n" + known + (sourceList.isEmpty() ? "" : "SOURCES (cite by number, [n]):\n" + sourceList + "\n") + "EVIDENCE:\n" + notes
+                "THE ASK:\n" + ask.question() + "\n\n" + known + (sourceList.isEmpty() ? "" : "SOURCES (cite by number, [n]):\n" + sourceList + "\n")
+                + declinedForThePrompt("SUB-QUESTIONS NOT RESEARCHED (the model declined them, and the library says so in its own section of the report; write from the rest)")
+                + "EVIDENCE:\n" + notes
                 + "\n\nWrite the 'Answer' section first.");
         ArrayNode all = toolsArray(byName.values());
         ArrayNode onlyDone = toolsArray(List.of(done));
@@ -1174,9 +1798,13 @@ public final class Researcher {
             int nctx = drive.contextWindow();
             trimHistory(history, nctx);
             try {
-                assistant = chat(history, deadline ? onlyDone : all, outBudget(history, nctx));
+                try (var step = Declines.writeUp("write the sections of a research report from the research notes, answering: " + Acquisitions.compress(ask.question(), 300))) {
+                    assistant = chat(history, deadline ? onlyDone : all, outBudget(history, nctx));
+                }
             } catch (Stopped e) {
                 throw e;
+            } catch (Declined e) {
+                throw e;   // the model declined to write: the run ends as declined, and nobody writes in its place
             } catch (Exception e) {
                 log.accept("synthesis: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                 break;
@@ -1201,7 +1829,7 @@ public final class Researcher {
                 if (deadline && !done.name().equals(name)) observation = "Only `done` is available on this turn.";
                 else if (t == null) observation = "ERROR: no tool named " + name;
                 else {
-                    try { observation = t.execute(args); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                    try { observation = t.execute(args); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                 }
                 observation = cut(observation);
                 ObjectNode toolMsg = history.addObject();
@@ -1217,8 +1845,11 @@ public final class Researcher {
                 msgs.addObject().put("role", "user").put("content",
                         "Answer the ask from the evidence, directly, then the supporting detail with sources in "
                         + "parentheses, then a SOURCES list.\n\nTHE ASK:\n" + ask.question() + "\n\nEVIDENCE:\n" + notes);
-                String prose = judge.classify(msgs, 2500);
+                String prose;
+                try (var step = Declines.step("write the answer to a research question from the research notes: " + Acquisitions.compress(ask.question(), 300), true)) { prose = judge.prose(msgs, 2500); }
                 if (!prose.isBlank()) sections.sections.add(prose.strip());
+            } catch (Declined d) {
+                throw d;   // the judge seat's model declined to write it: said, not replaced
             } catch (Exception ignored) {
                 // the evidence is still on the record
             }
@@ -1310,7 +1941,7 @@ public final class Researcher {
         @Override public String execute(JsonNode args) throws Exception {
             String url = args.path("url").asText("").strip();
             int page = Math.max(1, args.path("page").asInt(1));
-            java.nio.file.Path p = RawCapture.find(store, url);
+            Path p = RawCapture.find(store, url);
             if (p == null) return "ERROR: nothing captured for " + url + " — web_fetch it first.";
             String text = RawCapture.read(p)[2];
             if (RawCapture.looksBinary(text)) return "ERROR: the saved copy of " + url + " is not readable text (it was saved from a binary file). It cannot be read page by page. If it is a list the person owns, such as a book database, use the holdings tool instead.";
@@ -1353,11 +1984,12 @@ public final class Researcher {
                 if (n++ >= 10) break;
                 String locator = h.id();
                 if ("raw".equals(h.kind()) || "chunk".equals(h.kind())) {
-                    try { java.nio.file.Path rp = LibraryStore.under(store.rawDir(), h.id()); if (rp != null && java.nio.file.Files.exists(rp)) locator = RawCapture.read(rp)[0]; } catch (Exception ignored) { }
+                    try { Path rp = LibraryStore.under(store.rawDir(), h.id()); if (rp != null && Files.exists(rp)) locator = RawCapture.read(rp)[0]; } catch (Exception ignored) { }
                 }
                 sb.append(n).append(". ").append(h.title()).append("  [").append(h.kind()).append(h.state().isEmpty() ? "" : ", " + h.state()).append("]\n   ").append(locator).append('\n');
                 if (!h.snippet().isBlank()) sb.append("   ").append(Acquisitions.compress(h.snippet(), 240)).append('\n');
             }
+            if (n == 0) return "the shelves hold nothing for: " + q;
             sb.append(Fence.close("SHELF RESULTS")).append('\n').append(Fence.rule("SHELF RESULTS")).append('\n');
             return sb.toString();
         }
@@ -1380,7 +2012,7 @@ public final class Researcher {
             if (name.isEmpty()) { StringBuilder sb = new StringBuilder("databases:\n"); for (Databases.Db d : Databases.list()) sb.append("- ").append(d.name()).append(" (").append(DbDrivers.kind(d.kind()).label()).append(")\n"); return sb.toString(); }
             Databases.Db db = Databases.get(name);
             if (db == null) return "ERROR: no database is named " + name + ". Call db_schema with no name to list them.";
-            try { return Fence.wrap("DATABASE SCHEMA", Databases.schema(db)) + "\n" + Fence.rule("DATABASE SCHEMA"); } catch (java.io.IOException e) { return "ERROR: " + e.getMessage(); }
+            try { return Fence.wrap("DATABASE SCHEMA", Databases.schema(db)) + "\n" + Fence.rule("DATABASE SCHEMA"); } catch (IOException e) { return "ERROR: " + e.getMessage(); }
         }
     }
 
@@ -1409,7 +2041,7 @@ public final class Researcher {
                         ? Databases.queryMongo(store, db, args.path("collection").asText(""), args.path("filter").asText(""), args.path("pipeline").asText(""), args.path("limit").asInt(0))
                         : Databases.query(store, db, args.path("sql").asText(""), args.path("limit").asInt(0));
                 return (r.saved().isEmpty() ? "" : "saved as " + r.saved() + " (cite this locator)\n") + Fence.wrap("QUERY RESULT", r.text()) + "\n" + Fence.rule("QUERY RESULT");
-            } catch (java.io.IOException e) { return "ERROR: " + e.getMessage(); }
+            } catch (IOException e) { return "ERROR: " + e.getMessage(); }
         }
     }
 
@@ -1528,10 +2160,17 @@ public final class Researcher {
      * One turn, with ONE retry on a transport failure. Measured live (J-0008): a worker's send threw a
      * second after the request went out while the drive kept answering the other two workers — a stale
      * keep-alive, not the model — and the worker died at turn 5 with one note. An HTTP status error is
-     * not retried: it is the drive's answer, not the wire's.
+     * not retried: it is the drive's answer, not the wire's. Nor is a call that ran out of its time limit
+     * ({@link #askAgain}): asked again with the same limit, it runs out again.
      */
     private ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens) {
+        try { return chatTurn(history, tools, maxTokens); }
+        catch (Stopping.Requested stop) { throw stopped(stop); }   // stopped while the model was asked: the call was given up
+    }
+
+    private ObjectNode chatTurn(ArrayNode history, ArrayNode tools, int maxTokens) {
         if (stopWhen.getAsBoolean()) { log.accept("stopped: a person stopped this run; ending at this turn"); throw new Stopped(); }
+        if (runPolicy.cannotCheck()) { String why = runPolicy.cannotCheckStatement(); log.accept("stopped: " + why); throw new CannotCheck(why); }
         ResearchSettings.awaitUnpaused(log);
         try { throttle.enter(workersNow()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("interrupted"); }
         long t0 = System.currentTimeMillis();
@@ -1555,19 +2194,57 @@ public final class Researcher {
     }
 
     private volatile Budget currentBudget = new Budget(0);
-    private final java.util.concurrent.atomic.AtomicInteger workersActive = new java.util.concurrent.atomic.AtomicInteger();
+    private final AtomicInteger workersActive = new AtomicInteger();
 
     private ObjectNode chatOnce(ArrayNode history, ArrayNode tools, int maxTokens) {
+        // the tool descriptions travel with every request and count against the window like the conversation does: on a 131k window
+        // that is nothing, on a 16k one it put a write-up 19 tokens over and the server refused it, every time
+        int nctx = Math.max(drive.contextWindow(), 8000);
+        maxTokens = fitReply(history, tools, maxTokens, nctx);
         try {
-            return drive.chat(history, tools, maxTokens, "required");
+            int raw = rawEstimate(history, tools);
+            DriveClient.forgetUsage();   // what the server says of THIS request, or nothing: never an earlier call's on this thread
+            ObjectNode reply = drive.chat(history, tools, maxTokens, "required");
+            long[] used = DriveClient.lastUsage();
+            if (used != null) calibrate(raw, used[0]);
+            return reply;
+        } catch (Declined d) {
+            throw d;   // the model's answer: never retried, whatever words it quoted
         } catch (RuntimeException e) {
             String m = String.valueOf(e.getMessage());
-            boolean transport = m.startsWith("chat() failed") || e.getCause() instanceof java.io.IOException;
+            if (tooLong(m)) {
+                Matcher real = Pattern.compile("(?:n_prompt_tokens\\D{1,4}|request \\()(\\d{3,})").matcher(m);
+                if (real.find()) calibrate(rawEstimate(history, tools), Long.parseLong(real.group(1)));
+                // the estimate was short (a script that packs fewer characters into a token, a server that counts its template): clear
+                // older observations down to two fifths of the window, leave the reply what is left, and try once more
+                int cleared = trimHistory(history, nctx, 0.40);
+                int cuts = cutLongest(history, tools, nctx);
+                int reply = Math.max(256, fitReply(history, tools, maxTokens, nctx) * 3 / 4);
+                log.accept("drive: the request was over the model's window of " + nctx + " tokens; " + cleared + " older observation(s) cleared, " + cuts + " long message(s) cut in the middle, reply " + reply + " tokens — trying once more");
+                return drive.chat(history, tools, reply, "required");
+            }
+            boolean transport = m.startsWith("chat() failed") || e.getCause() instanceof IOException;
             if (!transport) throw e;
+            if (!askAgain(e)) {
+                log.accept("drive: " + (e.getCause() == null ? m : e.getCause().getMessage()) + "; a call that ran out of its time limit is not asked again with the same limit");
+                throw e;
+            }
             log.accept("drive: transport failure (" + (e.getCause() == null ? m : e.getCause().getMessage()) + ") — retrying once");
-            try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
+            try { Stopping.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); throw e; }
             return drive.chat(history, tools, maxTokens, "required");
         }
+    }
+
+    /**
+     * Whether a call that failed on the way is asked once more: yes for a request that never got through (a connection refused, reset or
+     * not made in time), no for one that ran out of its time limit while the server held it, which would only run out again.
+     */
+    static boolean askAgain(RuntimeException e) {
+        for (Throwable c = e.getCause(); c != null; c = c.getCause()) {
+            if (c instanceof HttpConnectTimeoutException) return true;
+            if (c instanceof HttpTimeoutException) return false;
+        }
+        return true;
     }
 
     /**
@@ -1582,10 +2259,25 @@ public final class Researcher {
         return Math.max(512, Math.min(ctx / 2, ctx - in - 256));
     }
 
+    /** Whether a drive's refusal says the request was longer than its window (llama.cpp's exceed_context_size_error, and the hosted APIs' wording). */
+    static boolean tooLong(String message) {
+        String m = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return m.contains("exceed_context") || m.contains("exceeds the available context") || m.contains("context_length_exceeded") || m.contains("maximum context length") || m.contains("prompt is too long");
+    }
+
+    /** The reply budget that really fits: the window less the conversation, the tool descriptions and a margin. Never below 256. */
+    static int fitReply(ArrayNode history, ArrayNode tools, int wanted, int nctx) {
+        int in = estTokens(tools == null ? "" : tools.toString());
+        for (JsonNode m : history) in += estTokens(m.path("content").asText("")) + estTokens(m.path("tool_calls").toString()) + 8;
+        return Math.max(256, Math.min(wanted, nctx - in - 256));
+    }
+
     /** Keep the history inside ~55% of the window by blanking the OLDEST tool observations first. */
-    static int trimHistory(ArrayNode history, int nctx) {
+    static int trimHistory(ArrayNode history, int nctx) { return trimHistory(history, nctx, 0.55); }
+
+    static int trimHistory(ArrayNode history, int nctx, double share) {
         int ctx = Math.max(nctx, 8000);
-        int limit = (int) (ctx * 0.55);
+        int limit = (int) (ctx * share);
         int trimmed = 0;
         for (int i = 0; i < history.size(); i++) {
             int total = 0;
@@ -1628,7 +2320,27 @@ public final class Researcher {
     }
 
     /** Rough token count by script: CJK ≈ 1 token per char, everything else ≈ 4 chars per token. */
-    static int estTokens(String s) {
+    /**
+     * How far the character count underestimates this model's tokens, measured from what the server says a request really was. A text of
+     * addresses, numbers and citations packs far fewer characters into a token than prose does: the estimate put a write-up inside a 16k
+     * window that the server counted 40 tokens over, twice. It only ever corrects upward within a run of requests, and eases back slowly.
+     */
+    static volatile double tokenScale = 1.0;
+
+    static void calibrate(int estimatedAtScaleOne, long realPromptTokens) {
+        if (estimatedAtScaleOne < 500 || realPromptTokens <= 0) return;
+        double measured = Math.min(2.5, Math.max(0.8, realPromptTokens * 1.03 / estimatedAtScaleOne));
+        tokenScale = Math.max(measured, tokenScale * 0.97);
+    }
+
+    /** The estimate before any correction: what the correction is measured against. Pure, because workers run side by side. */
+    private static int rawEstimate(ArrayNode history, ArrayNode tools) {
+        double n = rawTokens(tools == null ? "" : tools.toString());
+        for (JsonNode m : history) n += rawTokens(m.path("content").asText("")) + rawTokens(m.path("tool_calls").toString()) + 8;
+        return (int) n;
+    }
+
+    private static double rawTokens(String s) {
         if (s == null) return 0;
         int cjk = 0, other = 0;
         for (int i = 0; i < s.length(); i++) {
@@ -1636,8 +2348,28 @@ public final class Researcher {
             if ((c >= 0x3040 && c <= 0x30ff) || (c >= 0x4e00 && c <= 0x9fff) || (c >= 0xac00 && c <= 0xd7af)) cjk++;
             else other++;
         }
-        return cjk + other / 4;
+        return cjk + other / 4.0;
     }
+
+    /** When clearing old observations is not enough (a write-up has none): the longest message loses its middle until the request fits three fifths of the window. */
+    static int cutLongest(ArrayNode history, ArrayNode tools, int nctx) {
+        int cuts = 0;
+        for (int guard = 0; guard < 6; guard++) {
+            int total = estTokens(tools == null ? "" : tools.toString());
+            for (JsonNode m : history) total += estTokens(m.path("content").asText("")) + estTokens(m.path("tool_calls").toString()) + 8;
+            if (total <= nctx * 0.6) break;
+            ObjectNode longest = null;
+            for (JsonNode m : history) if (m.isObject() && m.path("content").isTextual() && (longest == null || m.path("content").asText().length() > longest.path("content").asText().length())) longest = (ObjectNode) m;
+            if (longest == null || longest.path("content").asText().length() < 2_000) break;
+            String c = longest.path("content").asText();
+            int keep = (int) (c.length() * 0.75), head = keep * 3 / 5, tail = keep - head;
+            longest.put("content", c.substring(0, head) + "\n\n[… " + (c.length() - keep) + " characters cut from the middle to fit the model's window …]\n\n" + c.substring(c.length() - tail));
+            cuts++;
+        }
+        return cuts;
+    }
+
+    static int estTokens(String s) { return (int) Math.ceil(rawTokens(s) * tokenScale); }
 
     static String trimTokens(String s, int maxTokens) {
         if (estTokens(s) <= maxTokens) return s;
@@ -1655,7 +2387,7 @@ public final class Researcher {
      * the sub-question and the summary — and the pieces share the room, a short one giving its surplus to the long
      * ones. Before this the whole evidence was one piece cut from the tail, so on a five-lane run through a 32k slot the
      * fourth and fifth reports never reached the writer, and the answer called those lanes untested while their
-     * reports held 17 sources (dolores, I-0002, 2026-09-11).
+     * reports held 17 sources (a test box, I-0002, 2026-09-11).
      */
     static String fitNotes(List<String> pieces, int ctxTokens) {
         int total = Math.max(2000, (int) (Math.max(ctxTokens, 8000) * 0.28));
@@ -1665,7 +2397,7 @@ public final class Researcher {
         // water-filling: the smallest first, each taking what it needs up to an even share of what is left
         Integer[] order = new Integer[n];
         for (int i = 0; i < n; i++) order[i] = i;
-        java.util.Arrays.sort(order, (a, b) -> Integer.compare(size[a], size[b]));
+        Arrays.sort(order, (a, b) -> Integer.compare(size[a], size[b]));
         int left = total, remaining = n;
         for (int k : order) { int share = left / remaining; give[k] = Math.min(size[k], share); left -= give[k]; remaining--; }
         StringBuilder sb = new StringBuilder();
@@ -1681,7 +2413,7 @@ public final class Researcher {
      * One report, trimmed to {@code maxTokens}. A report is the SUB-QUESTION line, a SUMMARY (a paragraph, often a
      * numbered list over several lines), then the NOTES — the lines with "— source:" that carry the evidence. The notes
      * come first in the room (up to three quarters), the summary takes what is left (a quarter at most), the
-     * sub-question always. Measured on the dolores record: a summary-first cut kept 2 of 57 sources.
+     * sub-question always. Measured on the test box's record: a summary-first cut kept 2 of 57 sources.
      */
     static String fitPiece(String piece, int maxTokens) {
         if (estTokens(piece) <= maxTokens) return piece;
@@ -1718,12 +2450,12 @@ public final class Researcher {
     }
 
     static int sourcesNoted(String piece) {
-        int c = 0; java.util.regex.Matcher m = java.util.regex.Pattern.compile("— source: ").matcher(piece);
+        int c = 0; Matcher m = Pattern.compile("— source: ").matcher(piece);
         while (m.find()) c++;
         return c;
     }
 
-    static final java.util.regex.Pattern SAYS_EMPTY = java.util.regex.Pattern.compile("(?i)[^.\\n]*\\b(no (direct |published |empirical )?evidence|found nothing|nothing (was )?found|no sources?|did not (find|surface|locate)|could not (find|locate)|remains? untested|not (been )?(tested|studied|examined))\\b[^.\\n]*");
+    static final Pattern SAYS_EMPTY = Pattern.compile("(?i)[^.\\n]*\\b(no (direct |published |empirical )?evidence|found nothing|nothing (was )?found|no sources?|did not (find|surface|locate)|could not (find|locate)|remains? untested|not (been )?(tested|studied|examined))\\b[^.\\n]*");
 
     /**
      * After synthesis: every sentence in which the answer says a thing was not found, matched by its words against the
@@ -1735,7 +2467,7 @@ public final class Researcher {
         if (answer == null || pieces.isEmpty()) return out;
         // the words that tell one sub-question from another: not the ones most heads share, and not the words of absence
         List<Set<String>> heads = new ArrayList<>();
-        java.util.Map<String, Integer> df = new java.util.HashMap<>();
+        Map<String, Integer> df = new HashMap<>();
         for (String p : pieces) {
             String head = p.startsWith("SUB-QUESTION: ") ? p.substring(0, p.indexOf('\n') < 0 ? p.length() : p.indexOf('\n')) : p;
             Set<String> ht = Frontier.terms(head); heads.add(ht);
@@ -1744,10 +2476,10 @@ public final class Researcher {
         Set<String> generic = Set.of("evidence", "found", "find", "sources", "source", "direct", "specific", "specifically", "question", "questions", "research",
                 "gathered", "whether", "remains", "remain", "untested", "surveyed", "literature", "studies", "study", "exact", "exactly", "any", "the", "and",
                 "how", "what", "which", "does", "did", "not", "nor", "was", "were", "been", "that", "this", "these", "those", "from", "with", "about", "into", "there");
-        java.util.regex.Matcher m = SAYS_EMPTY.matcher(answer);
+        Matcher m = SAYS_EMPTY.matcher(answer);
         while (m.find()) {
             String sentence = m.group().strip();
-            Set<String> st = new java.util.HashSet<>(Frontier.terms(sentence));
+            Set<String> st = new HashSet<>(Frontier.terms(sentence));
             st.removeIf(w -> generic.contains(w) || df.getOrDefault(w, 0) > Math.max(1, pieces.size() / 2));
             List<String> hits = new ArrayList<>();
             for (int i = 0; i < pieces.size(); i++) {
@@ -1764,8 +2496,9 @@ public final class Researcher {
 
     /** The daemon's drive: the OpenAI-compatible chat client. */
     /** The conversation's seat: thinking off and temperature 0, so the words come out instead of the thinking (the Librarian, 2026-09-13). */
-    public static Drive calmDrive(String baseUrl, String model) {
-        org.researchzosho.drive.DriveClient c = new org.researchzosho.drive.DriveClient(baseUrl, model);
+    public static Drive calmDrive(String baseUrl, String model) { return calmDrive(new DriveClient(baseUrl, model)); }
+
+    static Drive calmDrive(DriveClient c) {
         return new Drive() {
             @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { return c.chatOps(messages, tools, maxTokens, toolChoice); }
             @Override public String classify(ArrayNode messages, int maxTokens) { return c.classify(messages, maxTokens); }
@@ -1775,13 +2508,13 @@ public final class Researcher {
 
     /** The judge seat when one is set, else the workers' drive — calm, for a conversation. */
     public static Drive calmJudgeDrive(String workersDrive, String workersModel) {
-        String jd = org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_DRIVE");
-        if (jd == null || jd.isBlank()) return calmDrive(workersDrive, workersModel);
-        return calmDrive(jd, org.researchzosho.Config.get("RESEARCHZOSHO_JUDGE_MODEL", workersModel));
+        String[] seat = judgeSeat(workersDrive, workersModel);
+        return calmDrive(seat[0], seat[1]);
     }
 
-    public static Drive drive(String baseUrl, String model) {
-        org.researchzosho.drive.DriveClient c = new org.researchzosho.drive.DriveClient(baseUrl, model);
+    public static Drive drive(String baseUrl, String model) { return drive(new DriveClient(baseUrl, model)); }
+
+    static Drive drive(DriveClient c) {
         return new Drive() {
             @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) {
                 return c.chat(messages, tools, maxTokens, toolChoice);
@@ -1791,15 +2524,26 @@ public final class Researcher {
         };
     }
 
-    /** The live web tools: search (with its steerer) and fetch (which captures raw text to the library). */
+    /**
+     * The live web tools: search (with its steerer) and fetch (which checks each page and captures its raw text to the library). Under a
+     * run's content policy, every one of them applies the run's lists and the fetch checks each page for what the run leaves out.
+     */
     public static Tools webTools() {
         return new Tools() {
-            private final ThreadLocal<org.researchzosho.tools.WebSearchTool> last = new ThreadLocal<>();
-            @Override public List<Tool> web(String focus) {
-                var search = new org.researchzosho.tools.WebSearchTool().focus(focus);
-                var fetch = new org.researchzosho.tools.WebFetchTool().focus(focus);
+            private final ThreadLocal<WebSearchTool> last = new ThreadLocal<>();
+            @Override public List<Tool> web(String focus) { return web(focus, ContentPolicy.defaults()); }
+            @Override public List<Tool> web(String focus, ContentPolicy policy) {
+                ContentPolicy p = policy == null ? ContentPolicy.defaults() : policy;
+                var search = new WebSearchTool().focus(focus).policy(p.fetchPolicy());
+                var fetch = new WebFetchTool().focus(focus).policy(p);
                 last.set(search);
-                return List.of(search, new org.researchzosho.tools.ScholarSearchTool(), fetch);
+                List<Tool> out = new ArrayList<>(List.of(search, new ScholarSearchTool().policy(p.fetchPolicy()), fetch));
+                // the record sources, the ones in the languages this sub-question is about first
+                List<String> languages = new ArrayList<>(List.of(Lanes.ownLanguage(focus == null ? "" : focus)));
+                for (Lanes.Lane lane : Lanes.detect(focus, null)) languages.add(lane.code());
+                var records = new RecordSearchTool(languages, focus).policy(p.fetchPolicy());
+                if (RECORDS && records.any()) out.add(records);
+                return out;
             }
             @Override public BooleanSupplier exhausted() {
                 var s = last.get();

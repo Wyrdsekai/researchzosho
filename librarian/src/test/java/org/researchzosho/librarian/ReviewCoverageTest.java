@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Files;
 /**
  * Two ways a run's knowledge used to be lost between the write-up and the shelves: the reviewer took its claims from
  * the first sections only, and a claim the cataloguer could not place kept no subject at all — and a claim with no
@@ -74,7 +75,7 @@ class ReviewCoverageTest {
     @Test
     void aClaimTheCataloguerCannotPlaceGoesWhereItsRunWent(@TempDir Path home) throws Exception {
         LibraryStore store = new LibraryStore(home.resolve("lib")); store.init();
-        java.nio.file.Files.writeString(store.subjectsFile(), "# Subjects\n\n- cycling--frames — bicycle frames\n");
+        Files.writeString(store.subjectsFile(), "# Subjects\n\n- cycling--frames — bicycle frames\n");
         store.write(BridgesTest.claim("cycling--frames", "Trail sets the stable speed", "Trail sets the speed at which a frame is stable.", "trail", "sets", "stable speed")
                 .withNote(new Finding.Note("x", "y", "2026-09-15", "z")));
         // two claims from the same run: one grounded, one the cataloguer will not place

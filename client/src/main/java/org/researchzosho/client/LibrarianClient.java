@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * A client for The Librarian over HTTP — the library protocol, contract 1.0
  * ({@code docs/LIBRARY_PROTOCOL.md}). Transport and types only; every call returns the daemon's
@@ -57,7 +58,7 @@ public final class LibrarianClient {
         }
     }
 
-    private static final java.util.concurrent.atomic.AtomicBoolean WARNED = new java.util.concurrent.atomic.AtomicBoolean();
+    private static final AtomicBoolean WARNED = new AtomicBoolean();
 
     // ---- the nine calls ----
 
@@ -128,16 +129,25 @@ public final class LibrarianClient {
         return research(question, mode, maxTurns, null);
     }
     /** As above, with the plan: {@code subQuestions} (at most 8) become the run's sub-investigations instead of a decompose step. */
-    public JsonNode research(String question, String mode, int maxTurns, java.util.List<String> subQuestions) {
+    public JsonNode research(String question, String mode, int maxTurns, List<String> subQuestions) {
         return research(question, mode, maxTurns, subQuestions, "both", null);
     }
     /** {@code sources}: both (shelves first) | shelves (the person's corpus only) | web; {@code collections} scope the shelves. */
-    public JsonNode research(String question, String mode, int maxTurns, java.util.List<String> subQuestions, String sources, java.util.List<String> collections) {
+    public JsonNode research(String question, String mode, int maxTurns, List<String> subQuestions, String sources, List<String> collections) {
         return research(question, mode, maxTurns, 0, subQuestions, sources, collections);
     }
     /** {@code maxTurns} and {@code maxMinutes} are ceilings, 0 = none: the run goes until the work is done. */
-    public JsonNode research(String question, String mode, int maxTurns, int maxMinutes, java.util.List<String> subQuestions, String sources, java.util.List<String> collections) {
+    public JsonNode research(String question, String mode, int maxTurns, int maxMinutes, List<String> subQuestions, String sources, List<String> collections) {
+        return research(question, mode, maxTurns, maxMinutes, subQuestions, sources, collections, null);
+    }
+    /**
+     * {@code field}: the field the run is to be, one of the library's fields by name, or null. A field that acts only when asked for (family
+     * history, say) joins the run only this way; without it, a question that looks like one of its questions comes back with
+     * {@code suggestion} {field, why, how} in the result, and is researched as ordinary research.
+     */
+    public JsonNode research(String question, String mode, int maxTurns, int maxMinutes, List<String> subQuestions, String sources, List<String> collections, String field) {
         ObjectNode body = obj().put("question", question).put("mode", mode).put("sources", sources == null ? "both" : sources);
+        if (field != null && !field.isBlank()) body.put("field", field.strip());
         if (maxTurns > 0) body.put("max_turns", maxTurns);
         if (maxMinutes > 0) body.put("max_minutes", maxMinutes);
         if (collections != null && !collections.isEmpty()) { var cs = body.putArray("collections"); for (String c : collections) cs.add(c); }
@@ -158,7 +168,7 @@ public final class LibrarianClient {
         while (true) {
             JsonNode j = job(jobId);
             String st = j.get("state").asText();
-            if (!"running".equals(st) && !"queued".equals(st)) return j;
+            if (!"running".equals(st) && !"queued".equals(st) && !"offered".equals(st)) return j;   // offered: it waits for the person's answer to the chat's question
             if (timeout != null && System.currentTimeMillis() - t0 > timeout.toMillis()) {
                 throw new LibraryException("unavailable", 0, "Job " + jobId + " is still running after " + timeout);
             }

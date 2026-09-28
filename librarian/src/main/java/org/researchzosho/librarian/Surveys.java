@@ -13,12 +13,19 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.Set;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.Config;
+import org.researchzosho.tools.DocText;
+import org.researchzosho.tools.ContentPolicy;
+import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.PageCheck;
+import org.researchzosho.drive.Declined;
 /**
  * A thing the person already has, read as a starting point for research: a code repository, a paper, a
  * website or product page, an issue tracker. The library reads it, writes one draft claim saying what
@@ -33,7 +40,7 @@ public final class Surveys {
     private static final ObjectMapper M = new ObjectMapper();
 
     /** Directions offered per survey; characters of a document shown to the model. */
-    static final int MAX_OPTIONS = org.researchzosho.Config.getInt("RESEARCHZOSHO_SURVEY_OPTIONS", 8);
+    static final int MAX_OPTIONS = Config.getInt("RESEARCHZOSHO_SURVEY_OPTIONS", 8);
     static final int TEXT_CHARS = 30000;
     static final int TAIL_CHARS = 8000;
     static final int ISSUES_PER_PAGE = 100;
@@ -64,6 +71,26 @@ public final class Surveys {
     static final Pattern DOC_FILE = Pattern.compile("(?i)\\.(pdf|docx|pptx|odt|epub|md|txt|rst|tex|html?)$");
 
     /** The kind from the thing itself: a folder or a git locator is a repo; a GitHub issues page is issues; a DOI, an arXiv page, a PDF or a document file is a paper; any other url is a site. */
+    /**
+     * The repositories a report names, in the order the answer names them: a software run's answer is a table ordered by fit and
+     * activity, so the first ones are the ones to read. Addresses of a repository's own pages (issues, a file, a release) count for the
+     * repository. The evidence and references after the answer are not read: they name whatever a search returned.
+     */
+    public static List<String> reposIn(Investigation inv) {
+        String body = inv == null || inv.body() == null ? "" : inv.body();
+        int cut = body.length();
+        for (String h : List.of("\n## Evidence", "\n## References", "\n## Sources cited", "\n## Worker findings")) { int i = body.indexOf(h); if (i >= 0 && i < cut) cut = i; }
+        List<String> out = new ArrayList<>();
+        Matcher m = Pattern.compile("https?://(?:www\\.)?github\\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)").matcher(body.substring(0, cut));
+        while (m.find()) {
+            String owner = m.group(1), repo = m.group(2).replaceAll("\\.git$", "");
+            if (Set.of("topics", "search", "orgs", "sponsors", "features", "marketplace", "settings", "login", "about", "site", "explore", "trending", "collections", "apps").contains(owner.toLowerCase(Locale.ROOT))) continue;
+            String url = "https://github.com/" + owner + "/" + repo;
+            if (!out.contains(url)) out.add(url);
+        }
+        return out;
+    }
+
     public static Kind detect(String spec) {
         String s = spec.strip();
         if (s.startsWith("db:")) return Kind.db;
@@ -85,17 +112,25 @@ public final class Surveys {
         return switch (kind) {
             case repo -> { Repos.Repo repo = Repos.obtain(store, spec); Repos.Survey s = Repos.survey(repo);
                 yield new Read(Kind.repo, repo.name(), repo.origin(), repo.name(), Repos.render(s), Map.of("files", String.valueOf(s.files()), "languages", s.languages(), "cloned", String.valueOf(repo.cloned()), "dir", repo.dir().toString())); }
-            case paper -> paper(spec);
-            case site -> site(spec);
-            case issues -> issues(spec);
+            case paper -> paper(store, spec);
+            case site -> site(store, spec);
+            case issues -> issues(store, spec);
             case db -> database(spec);
         };
     }
 
-    static byte[] fetch(String url) throws IOException {
+    /**
+     * The person's own address, fetched under their policy: no list stands in its way, and of the page check only the always-dropped
+     * question is asked, because the text is saved. A page no model could check is read all the same, and checked when a model answers
+     * ({@link UncheckedPages}).
+     */
+    static byte[] fetch(LibraryStore store, String url) throws IOException {
         try {
-            var resp = org.researchzosho.tools.Fetch.get(url, FETCH);
+            PageCheck.Page page = PageCheck.fetch(url, FETCH, ContentPolicy.person(null), "");
+            var resp = page.fetched();
             if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
+            page.orThrow();
+            UncheckedPages.after(store, page, url, null, null);
             return resp.body();
         } catch (IOException e) { throw e; } catch (Exception e) { throw new IOException("could not read " + url + ": " + e.getMessage()); }
     }
@@ -108,15 +143,15 @@ public final class Surveys {
     }
 
     /** A paper or a document: a file on this machine (PDF, Word, EPUB, text…) or a url (a DOI, an arXiv page, a PDF). */
-    static Read paper(String spec) throws IOException {
+    static Read paper(LibraryStore store, String spec) throws IOException {
         byte[] bytes; String origin, hint;
-        if (spec.startsWith("http://") || spec.startsWith("https://")) { String u = paperUrl(spec); bytes = fetch(u); origin = spec; hint = u; }
+        if (spec.startsWith("http://") || spec.startsWith("https://")) { String u = paperUrl(spec); bytes = fetch(store, u); origin = spec; hint = u; }
         else {
             Path f = Path.of(spec).toAbsolutePath().normalize();
             if (!Files.isRegularFile(f)) throw new IOException(f + " is not a file");
             bytes = Files.readAllBytes(f); origin = f.toString(); hint = f.getFileName().toString();
         }
-        org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(bytes, hint);
+        DocText.Doc doc = DocText.convert(bytes, hint);
         if (doc.text() == null || doc.text().isBlank()) throw new IOException("no text could be read from " + origin);
         String title = doc.title() == null || doc.title().isBlank() ? firstLine(doc.text(), stem(hint)) : doc.title().strip();
         String name = Repos.nameOf(spec.startsWith("http") ? title : stem(hint));
@@ -126,10 +161,10 @@ public final class Surveys {
     }
 
     /** A website or a product page: one url, read as a person would read the page. */
-    static Read site(String spec) throws IOException {
+    static Read site(LibraryStore store, String spec) throws IOException {
         if (!(spec.startsWith("http://") || spec.startsWith("https://"))) throw new IOException("a site is a url: " + spec);
-        byte[] bytes = fetch(spec);
-        org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(bytes, spec);
+        byte[] bytes = fetch(store, spec);
+        DocText.Doc doc = DocText.convert(bytes, spec);
         if (doc.text() == null || doc.text().isBlank()) throw new IOException("no text could be read from " + spec);
         String title = doc.title() == null || doc.title().isBlank() ? spec : doc.title().strip();
         String host = spec.replaceFirst("^https?://(www\\.)?", "").replaceAll("[/?#].*$", "");
@@ -140,12 +175,12 @@ public final class Surveys {
     }
 
     /** An issue tracker: a GitHub issues page (read through the API, the newest hundred), or an export file (a JSON list of issues, or plain text). */
-    static Read issues(String spec) throws IOException {
+    static Read issues(LibraryStore store, String spec) throws IOException {
         Matcher gh = GITHUB_ISSUES.matcher(spec.strip());
         if (gh.matches()) {
             String owner = gh.group(1), repo = gh.group(2);
             String api = "https://api.github.com/repos/" + owner + "/" + repo + "/issues?state=all&per_page=" + ISSUES_PER_PAGE + "&sort=updated";
-            JsonNode list = M.readTree(fetch(api));
+            JsonNode list = M.readTree(fetch(store, api));
             if (!list.isArray()) throw new IOException("GitHub did not answer with a list of issues for " + owner + "/" + repo + (list.has("message") ? ": " + list.path("message").asText() : ""));
             return issuesFrom(list, owner + "/" + repo, spec.strip(), Repos.nameOf(owner + "-" + repo + "-issues"));
         }
@@ -248,9 +283,12 @@ public final class Surveys {
                 ArrayNode messages = M.createArrayNode();
                 messages.addObject().put("role", "system").put("content", instructions(r.kind()));
                 messages.addObject().put("role", "user").put("content", Fence.open("TEXT") + "\n" + Acquisitions.compress(r.text(), TEXT_CHARS + TAIL_CHARS) + "\n" + Fence.close("TEXT"));
-                String reply = drive.classify(messages, 1600);
+                String reply;
+                try (var step = Declines.step("describe " + Acquisitions.compress(r.name(), 120) + " from its text: what it is, the claims it makes, what it rests on and what it leaves open")) { reply = drive.prose(messages, 1600); }   // the reading is the work: a watched seat reads it for a decline
                 Description d = parse(reply);
                 if (d != null) return d;
+            } catch (Declined declined) {
+                throw declined.at("to describe " + r.name());   // said, never replaced by the library's own mechanical reading
             } catch (Exception ignored) { }
         }
         return mechanical(r);
@@ -416,5 +454,21 @@ public final class Surveys {
     /** The question a run gets for a direction: the thing named, so the shelved text and the claim are found, then the question. */
     public static String runQuestion(Kind kind, String name, String origin, String question) {
         return "About the " + noun(kind) + " " + name + " (" + origin + "), whose text and description are on the shelves: " + question.strip();
+    }
+
+    static final Pattern FROM_SURVEY = Pattern.compile("\\(from a survey of (.+?), (?:option \\d+|own)\\)");
+
+    /**
+     * The question for a run of an open question a survey filed, whoever takes it (the nightly research as well as a pick): the survey's
+     * own run question ({@link #runQuestion}), so the run reads the surveyed thing, a repository's code included. Null when the line is
+     * not a survey's direction, or no survey of that name is left.
+     */
+    public static String runQuestionOf(LibraryStore store, Frontier.Line line) throws IOException {
+        Matcher m = FROM_SURVEY.matcher(line.kind());
+        if (!m.find()) return null;
+        String name = m.group(1).strip();
+        Finding claim = claimFor(store, name);
+        if (claim == null) return null;
+        return runQuestion(kindOf(claim), name, claim.sources().isEmpty() ? name : claim.sources().get(0).locator(), Frontier.strip(line.text()));
     }
 }

@@ -21,3 +21,12 @@ you supply and license separately.
 
 The site's wordmark is set in CMU Serif (SIL Open Font License), vendored under
 site/fonts/ with its license.
+
+--------------------------------------------------------------------------------
+The program bundles a small list of pornography, shock and gore sites, used only
+until the OISD nsfw list has been downloaded, and whenever that download is
+missing: Sinfonietta/hostfiles pornography-hosts (MIT, Copyright (c) 2016
+Sinfonietta) and ShadowWhisperer/BlockLists Lists/Shock (Unlicense). The full
+licence texts ship beside the list, in site-list-NOTICE.txt. The OISD nsfw list
+itself (GPL-3.0) is not bundled: the program downloads it from nsfw.oisd.nl
+while it runs.

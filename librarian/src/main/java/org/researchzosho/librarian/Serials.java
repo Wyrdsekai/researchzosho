@@ -12,6 +12,11 @@ import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Arrays;
+import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
+import org.researchzosho.tools.WebSearchTool;
 /**
  * The SERIALS crew — living shelves (the architecture notes, §crews; the living-systematic-review
  * shape, and ktundwal/librarian's watchlists as UX): a shelf the person SUBSCRIBES gets a watcher
@@ -47,9 +52,9 @@ public final class Serials {
             boolean parked = false;
             for (int i = 2; i < p.length; i++) {
                 if (p[i].strip().equalsIgnoreCase("parked")) parked = true;
-                var m = java.util.regex.Pattern.compile("every\\s+(\\d+)").matcher(p[i]);
+                var m = Pattern.compile("every\\s+(\\d+)").matcher(p[i]);
                 if (m.find()) every = Integer.parseInt(m.group(1));
-                var d = java.util.regex.Pattern.compile("last\\s+(\\S+)").matcher(p[i]);
+                var d = Pattern.compile("last\\s+(\\S+)").matcher(p[i]);
                 if (d.find()) last = d.group(1);
             }
             return new Shelf(p[0].strip(), p[1].strip(), every, last, parked);
@@ -72,7 +77,7 @@ public final class Serials {
     }
 
     /** Read, change, write the shelves file under the cross-process lock. */
-    static void updateShelves(LibraryStore store, java.util.function.UnaryOperator<List<Shelf>> change) throws IOException {
+    static void updateShelves(LibraryStore store, UnaryOperator<List<Shelf>> change) throws IOException {
         store.locked("shelves", () -> { writeShelves(store, change.apply(new ArrayList<>(shelves(store)))); return null; });
     }
 
@@ -229,7 +234,7 @@ public final class Serials {
                 int every = 7;
                 int end = args.length;
                 if (args[end - 1].matches("\\d+")) { every = Integer.parseInt(args[end - 1]); end--; }
-                String query = String.join(" ", java.util.Arrays.copyOfRange(args, 4, end));
+                String query = String.join(" ", Arrays.copyOfRange(args, 4, end));
                 add(store, args[3], query, every);
                 System.out.println("living shelf '" + args[3] + "': \"" + query + "\" every " + every + " days — `researchzosho serials` checks it");
                 return 0;
@@ -258,8 +263,8 @@ public final class Serials {
     }
 
     static void check(LibraryStore store) throws IOException {
-        var tool = new org.researchzosho.tools.WebSearchTool();
-        var json = new com.fasterxml.jackson.databind.ObjectMapper();
+        var tool = new WebSearchTool();
+        var json = new ObjectMapper();
         Function<String, List<String[]>> search = q -> {
             List<String[]> hits = new ArrayList<>();
             try {

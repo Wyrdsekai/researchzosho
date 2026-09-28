@@ -1,0 +1,64 @@
+0 HEAD
+1 SOUR invented
+1 GEDC
+2 VERS 5.5.1
+2 FORM LINEAGE-LINKED
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME 健二 /遠藤/
+2 TYPE birth
+2 ROMN Kenji /Endo/
+3 TYPE romaji
+1 NAME 健二 /森田/
+2 TYPE 婿養子
+2 _NAMEKIND mukoyoshi
+2 _NAMEDATE FROM 1932
+1 SEX M
+1 BIRT
+2 DATE 1905
+1 ADOP
+2 DATE 1932
+2 FAMC @F2@
+3 ADOP HUSB
+1 FAMC @F1@
+1 FAMC @F2@
+2 PEDI adopted
+1 FAMS @F3@
+0 @I5@ INDI
+1 NAME 正一 /遠藤/
+2 ROMN Shoichi /Endo/
+3 TYPE romaji
+1 SEX M
+1 BIRT
+2 DATE 1875
+1 FAMS @F1@
+0 @I2@ INDI
+1 NAME 勇 /森田/
+2 ROMN Isamu /Morita/
+3 TYPE romaji
+1 SEX M
+1 BIRT
+2 DATE 1870
+1 FAMS @F2@
+0 @I3@ INDI
+1 NAME ハル /森田/
+2 ROMN Haru /Morita/
+3 TYPE romaji
+1 SEX F
+1 BIRT
+2 DATE 1908
+1 FAMC @F2@
+1 FAMS @F3@
+0 @F1@ FAM
+1 HUSB @I5@
+1 CHIL @I1@
+0 @F2@ FAM
+1 HUSB @I2@
+1 CHIL @I3@
+1 CHIL @I1@
+0 @F3@ FAM
+1 HUSB @I1@
+1 WIFE @I3@
+1 MARR
+2 DATE 1932
+0 TRLR

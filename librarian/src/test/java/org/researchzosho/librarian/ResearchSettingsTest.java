@@ -11,6 +11,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.attribute.FileTime;
+import org.researchzosho.Config;
 /** Sharing is a live setting, never a cap: the window, the throttle, and a config edit seen without a restart. */
 class ResearchSettingsTest {
 
@@ -65,22 +67,22 @@ class ResearchSettingsTest {
         String real = System.getProperty("user.home");
         System.setProperty("user.home", tmp.toString());
         try {
-            org.researchzosho.Config.invalidate();
+            Config.invalidate();
             Path cfg = tmp.resolve(".researchzosho").resolve("config");
             Files.createDirectories(cfg.getParent());
             assertEquals(3, ResearchSettings.workers(), "the default");
             assertFalse(ResearchSettings.paused());
             Files.writeString(cfg, "research.workers = 1\nresearch.pause = on\nresearch.window = 22:00-07:00\n");
-            Files.setLastModifiedTime(cfg, java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() + 2_000));   // a same-second edit still counts
+            Files.setLastModifiedTime(cfg, FileTime.fromMillis(System.currentTimeMillis() + 2_000));   // a same-second edit still counts
             assertEquals(1, ResearchSettings.workers(), "read live from the changed file");
             assertTrue(ResearchSettings.paused());
             assertEquals("22:00-07:00", ResearchSettings.window());
-            org.researchzosho.Config.set(ResearchSettings.PAUSE, "off");
+            Config.set(ResearchSettings.PAUSE, "off");
             assertFalse(ResearchSettings.paused(), "the CLI's write is seen at once");
             assertTrue(ResearchSettings.describe().contains("workers 1"), ResearchSettings.describe());
         } finally {
             System.setProperty("user.home", real);
-            org.researchzosho.Config.invalidate();
+            Config.invalidate();
         }
     }
 }

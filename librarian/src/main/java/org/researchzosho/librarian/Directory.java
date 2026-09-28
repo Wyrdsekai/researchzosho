@@ -18,6 +18,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import java.net.ConnectException;
+import java.nio.file.StandardOpenOption;
 /**
  * A directory is a library whose findings are listings: "library X at Y holds these subjects and takes
  * access requests". Nothing new on the wire. Listing yourself is a submit to the directory (so you need a
@@ -74,7 +76,7 @@ public final class Directory {
         if (id.isEmpty()) throw new IOException("the directory did not return a listing id: " + j);
         Files.createDirectories(file(store).getParent());
         Files.writeString(file(store), "- " + dir + " — " + id + " — " + LocalDate.now() + "\n", StandardCharsets.UTF_8,
-                java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         store.circulate("directory-publish", dir + " → " + id);
         return id;
     }
@@ -116,7 +118,7 @@ public final class Directory {
             JsonNode j = M.readTree(r.body());
             if (r.statusCode() / 100 != 2) throw new IOException(j.path("error").path("code").asText("status " + r.statusCode()) + ": " + j.path("error").path("message").asText(""));
             return j;
-        } catch (java.net.ConnectException e) { throw new IOException("nothing is answering at " + url);
+        } catch (ConnectException e) { throw new IOException("nothing is answering at " + url);
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("interrupted"); }
     }
 }

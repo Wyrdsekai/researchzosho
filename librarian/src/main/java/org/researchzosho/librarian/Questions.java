@@ -6,12 +6,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import org.researchzosho.Config;
 /** A list of questions — a syllabus, an exam, the things a person needs answered — straight onto the frontier, in order. */
 public final class Questions {
 
-    static final int MAX = org.researchzosho.Config.getInt("RESEARCHZOSHO_QUESTIONS_MAX", 200);
+    static final int MAX = Config.getInt("RESEARCHZOSHO_QUESTIONS_MAX", 200);
     /** Runs one call may file when the person asks for runs; the rest are filed as open questions. */
-    static final int MAX_RUNS = org.researchzosho.Config.getInt("RESEARCHZOSHO_QUESTIONS_RUNS", 10);
+    static final int MAX_RUNS = Config.getInt("RESEARCHZOSHO_QUESTIONS_RUNS", 10);
 
     private Questions() { }
 

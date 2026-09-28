@@ -6,6 +6,7 @@ import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.researchzosho.Config;
 /**
  * What the housekeeping will do at its next run, before it runs: which kept searches are due, which open questions
  * the explorer will take and in what bundles, how many accepted claims get re-read, and which weekly or monthly extras
@@ -17,7 +18,7 @@ public final class Tonight {
     private Tonight() { }
 
     /** The housekeeping hour: the service's --crew-hour, 3 unless RESEARCHZOSHO_CREW_HOUR says otherwise. */
-    public static int hour() { return org.researchzosho.Config.getInt("RESEARCHZOSHO_CREW_HOUR", 3); }
+    public static int hour() { return Config.getInt("RESEARCHZOSHO_CREW_HOUR", 3); }
 
     public record Plan(LocalDate date, int hour, List<Serials.Shelf> due, List<Serials.Shelf> later,
                        List<Crews.Bundle> bundles, int queued, int parked, int budget, int standing, int override,
@@ -43,7 +44,8 @@ public final class Tonight {
         for (Frontier.Line l : Frontier.read(store)) { if (l.researchable()) open.add(l); else if (l.open() && l.parked()) parked++; }
         int budget = Crews.explorerBudget();
         Crews.Cadence c = Crews.Cadence.tonight(date);
-        return new Plan(date, hour(), due, later, Crews.plan(open, budget), open.size(), parked, budget, Crews.explorerPerNight(), Crews.explorerTonight(),
+        var runs = Fields.runs(store);   // a run holds the questions of one field, as the explorer bundles them
+        return new Plan(date, hour(), due, later, Crews.plan(open, budget, l -> Fields.ofLine(l, runs)), open.size(), parked, budget, Crews.explorerPerNight(), Crews.explorerTonight(),
                 Inventory.PER_NIGHT, c.weekly(), c.monthly());
     }
 

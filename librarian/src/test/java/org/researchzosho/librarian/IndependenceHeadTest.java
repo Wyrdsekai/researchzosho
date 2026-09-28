@@ -4,6 +4,10 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
+import org.junit.jupiter.api.io.TempDir;
 /** Two outlets, one wire story: the same opening paragraphs under different headlines are one source. */
 class IndependenceHeadTest {
     @Test
@@ -20,7 +24,7 @@ class IndependenceHeadTest {
 }
 
 class IndependenceCitingTest {
-    @org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp;
+    @TempDir Path tmp;
 
     @Test
     void citingIsNotACopyAndDoesNotChain() throws Exception {
@@ -30,9 +34,9 @@ class IndependenceCitingTest {
         RawCapture.capture(store, paperA, "Paper A studies gears." + filler + "gears " + filler, "Paper A", "test", "");
         RawCapture.capture(store, paperB, "Paper B studies levers." + filler.replace("Lorem", "Quorem") + "levers " + filler.replace("ipsum", "opsum"), "Paper B", "test", "");
         RawCapture.capture(store, survey, "A survey of both: see https://arxiv.org/abs/2601.11111 and https://arxiv.org/abs/2602.22222 for the details. " + filler.replace("dolor", "color"), "A survey", "test", "");
-        var locs = java.util.List.of(paperA, paperB, survey);
+        var locs = List.of(paperA, paperB, survey);
         var clusters = Independence.clusters(store, locs);
-        assertEquals(3, new java.util.HashSet<>(clusters.values()).size(), "three distinct texts: " + clusters);
+        assertEquals(3, new HashSet<>(clusters.values()).size(), "three distinct texts: " + clusters);
         var deriv = Independence.derivatives(store, locs);
         assertEquals(paperA, deriv.get(survey), "the survey cites paper A");
         assertNull(deriv.get(paperA)); assertNull(deriv.get(paperB));
@@ -41,7 +45,7 @@ class IndependenceCitingTest {
 }
 
 class IndependenceSiteChromeTest {
-    @org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp;
+    @TempDir Path tmp;
 
     @Test
     void sharedSiteChromeOverDifferentBodiesIsNotOneText() throws Exception {
@@ -55,8 +59,8 @@ class IndependenceSiteChromeTest {
         String a = ba.toString(), b = bb.toString();
         RawCapture.capture(store, "https://github.example/nicremo/notebooklm-citation", a, "GitHub - nicremo/notebookLM-citation", "test", "");
         RawCapture.capture(store, "https://github.example/onyx-dot-app/onyx", b, "GitHub - onyx-dot-app/onyx", "test", "");
-        var c = Independence.clusters(store, java.util.List.of("https://github.example/nicremo/notebooklm-citation", "https://github.example/onyx-dot-app/onyx"));
-        assertEquals(2, new java.util.HashSet<>(c.values()).size(), "two GitHub pages are two texts: " + c);
+        var c = Independence.clusters(store, List.of("https://github.example/nicremo/notebooklm-citation", "https://github.example/onyx-dot-app/onyx"));
+        assertEquals(2, new HashSet<>(c.values()).size(), "two GitHub pages are two texts: " + c);
         assertFalse(Independence.bodiesAfterHeadOverlap(a, b));
     }
 }

@@ -15,6 +15,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Comparator;
+import java.util.Set;
+import org.researchzosho.mcp.McpServer;
 /**
  * Reading material in from the chat: a folder kept (text copied) or linked (read in place, nothing copied),
  * a dry pass that counts first, a url fetched and kept, and who may hand the library a path.
@@ -89,10 +92,10 @@ class LibraryAddTest {
         assertFalse(idx.searchIn("gears cut by hand triangular", 5, null, "papers").isEmpty());
         // the rescan of a registered linked folder that is not mounted says so
         Corpus.register(store, "papers", docs, true);
-        assertEquals(java.util.Set.of("papers"), Corpus.linked(store));
+        assertEquals(Set.of("papers"), Corpus.linked(store));
         assertEquals(docs.toAbsolutePath().normalize(), Corpus.registered(store).get("papers"));
         Path parent = docs;
-        Files.walk(parent).sorted(java.util.Comparator.reverseOrder()).forEach(p -> { try { Files.delete(p); } catch (Exception e) { throw new RuntimeException(e); } });
+        Files.walk(parent).sorted(Comparator.reverseOrder()).forEach(p -> { try { Files.delete(p); } catch (Exception e) { throw new RuntimeException(e); } });
         assertTrue(Corpus.rescan(store).contains("papers: folder not reachable now"), Corpus.rescan(store));
     }
 
@@ -141,7 +144,7 @@ class LibraryAddTest {
         assertEquals(2, kept.path("added").asInt()); assertTrue(kept.path("registered").asBoolean());
         assertTrue(kept.path("next").asText().contains("collections: [\"papers\"]"), kept.path("next").asText());
         assertTrue(Files.readString(RawCapture.find(store, "file://" + docs.resolve("gears.md").toAbsolutePath().normalize())).contains("triangular"), "kept = the text is on the shelves");
-        assertEquals(java.util.Set.of(), Corpus.linked(store));
+        assertEquals(Set.of(), Corpus.linked(store));
     }
 
     @Test
@@ -209,7 +212,7 @@ class LibraryAddTest {
         for (var t : Librarian.tools()) if ("library_add".equals(t.path("function").path("name").asText())) { listed = true; assertTrue(t.path("function").path("description").asText().contains("survey")); }
         assertTrue(listed, "the chat offers it");
         boolean served = false;
-        for (var t : org.researchzosho.mcp.McpServer.allTools()) if ("library_add".equals(t.path("name").asText())) served = true;
+        for (var t : McpServer.allTools()) if ("library_add".equals(t.path("name").asText())) served = true;
         assertTrue(served, "the MCP server offers it");
     }
 }

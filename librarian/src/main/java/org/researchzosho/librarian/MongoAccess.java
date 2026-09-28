@@ -11,6 +11,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
+import java.lang.reflect.InvocationTargetException;
+import java.util.Collections;
+import java.util.Set;
+import java.util.TreeSet;
 /**
  * MongoDB, read-only. The Mongo driver is fetched on demand and loaded from its own class loader, so it
  * is called through reflection: a client, a database, its collections, a count, and find or aggregate
@@ -43,7 +47,7 @@ final class MongoAccess implements AutoCloseable {
     }
 
     List<String> collections() throws IOException {
-        try { List<String> out = new ArrayList<>(); for (Object n : (Iterable<?>) call(database, "listCollectionNames", new Class<?>[0])) out.add(String.valueOf(n)); java.util.Collections.sort(out); return out; }
+        try { List<String> out = new ArrayList<>(); for (Object n : (Iterable<?>) call(database, "listCollectionNames", new Class<?>[0])) out.add(String.valueOf(n)); Collections.sort(out); return out; }
         catch (Exception e) { throw new IOException("Could not list the collections: " + cause(e)); }
     }
 
@@ -83,10 +87,10 @@ final class MongoAccess implements AutoCloseable {
 
     /** The fields seen in a sample of a collection, with the types seen for each. */
     Map<String, String> fields(String collection, int sample) throws IOException {
-        Map<String, java.util.Set<String>> seen = new TreeMap<>();
+        Map<String, Set<String>> seen = new TreeMap<>();
         for (JsonNode d : read(collection, "{}", null, sample)) {
             var it = d.fields();
-            while (it.hasNext()) { var e = it.next(); seen.computeIfAbsent(e.getKey(), k -> new java.util.TreeSet<>()).add(typeOf(e.getValue())); }
+            while (it.hasNext()) { var e = it.next(); seen.computeIfAbsent(e.getKey(), k -> new TreeSet<>()).add(typeOf(e.getValue())); }
         }
         Map<String, String> out = new LinkedHashMap<>();
         seen.forEach((k, v) -> out.put(k, String.join(" | ", v)));
@@ -115,7 +119,7 @@ final class MongoAccess implements AutoCloseable {
         return out;
     }
 
-    static String cause(Throwable e) { Throwable t = e; while (t.getCause() != null && (t instanceof java.lang.reflect.InvocationTargetException || t.getMessage() == null)) t = t.getCause(); return String.valueOf(t.getMessage() == null ? t : t.getMessage()); }
+    static String cause(Throwable e) { Throwable t = e; while (t.getCause() != null && (t instanceof InvocationTargetException || t.getMessage() == null)) t = t.getCause(); return String.valueOf(t.getMessage() == null ? t : t.getMessage()); }
 
     @Override public void close() { try { client.getClass().getMethod("close").invoke(client); } catch (Exception ignored) { } }
 }

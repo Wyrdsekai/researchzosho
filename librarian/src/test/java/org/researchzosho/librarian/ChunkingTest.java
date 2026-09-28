@@ -8,16 +8,19 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Instant;
+import java.util.Collections;
+import java.util.regex.Pattern;
 class ChunkingTest {
 
     @Test
     void paragraphsAccumulateUnderTheBudgetAndNeverOverlap() {
         String para = "word ".repeat(40).strip();             // 200 chars ≈ 50 tokens
-        String text = String.join("\n\n", java.util.Collections.nCopies(30, para));  // ≈1500 tokens
+        String text = String.join("\n\n", Collections.nCopies(30, para));  // ≈1500 tokens
         List<String> chunks = LibrarianIndex.chunk(text, 600);
         assertTrue(chunks.size() >= 3 && chunks.size() <= 4, "≈1500 tokens at 600 per chunk: " + chunks.size());
         for (String c : chunks) assertTrue(LibrarianIndex.estTokens(c) <= 600, "within budget");
-        int total = chunks.stream().mapToInt(c -> { var m = java.util.regex.Pattern.compile("word").matcher(c); int n = 0; while (m.find()) n++; return n; }).sum();
+        int total = chunks.stream().mapToInt(c -> { var m = Pattern.compile("word").matcher(c); int n = 0; while (m.find()) n++; return n; }).sum();
         assertEquals(30 * 40, total, "no overlap, nothing dropped");
     }
 
@@ -52,7 +55,7 @@ class ChunkingTest {
         LibrarianIndex idx = new LibrarianIndex(store, Embeddings.none());
         idx.upsertRaw("2026-09-03-raw.md", "Raw page about keigo register", "https://example.org/r", "keigo register keigo register keigo register.");
         Finding f = new Finding("F-0001-keigo", "Keigo register finding", List.of(), Finding.State.accepted, Finding.ClaimType.extraction,
-                Finding.Confidence.high, "person", java.time.Instant.now().toString(), "2026-09-03", Finding.Volatility.stable, "",
+                Finding.Confidence.high, "person", Instant.now().toString(), "2026-09-03", Finding.Volatility.stable, "",
                 List.of(new Finding.Source("https://a.org", "n/a", "s")), List.of(), null, "keigo register.\n");
         idx.upsert(f);
         assertEquals("F-0001-keigo", idx.search("keigo register", 5).get(0).id(), "the reviewed atomic unit first");

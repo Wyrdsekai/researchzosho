@@ -12,6 +12,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 /** The demand loop: holds_nothing files demand, the explorer researches it once, the ledger survives restarts. */
 class DemandLoopTest {
 
@@ -215,12 +220,12 @@ class DemandLoopTest {
     @Test
     void twoWorkersRunTwoJobsAtOnceEachOnItsOwnDrive(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
-        var both = new java.util.concurrent.CountDownLatch(2);
-        var drivesUsed = java.util.concurrent.ConcurrentHashMap.<String>newKeySet();
+        var both = new CountDownLatch(2);
+        var drivesUsed = ConcurrentHashMap.<String>newKeySet();
         Jobs.Runner runner = (j, drive) -> {
             drivesUsed.add(drive);
             both.countDown();
-            assertTrue(both.await(5, java.util.concurrent.TimeUnit.SECONDS), "the other job must be running at the same time");
+            assertTrue(both.await(5, TimeUnit.SECONDS), "the other job must be running at the same time");
             return "done on " + drive;
         };
         // empty-string drives skip the liveness probe (no model in a unit test)
@@ -235,8 +240,8 @@ class DemandLoopTest {
         assertEquals(2, jobs.workers());
         jobs.stop();
         // and a single worker never overlaps: the latch would time out, so the second job fails
-        var one = new java.util.concurrent.CountDownLatch(2);
-        Jobs single = new Jobs(store, (j, d) -> { one.countDown(); if (!one.await(300, java.util.concurrent.TimeUnit.MILLISECONDS)) return "alone"; return "together"; }, List.of(""), 1);
+        var one = new CountDownLatch(2);
+        Jobs single = new Jobs(store, (j, d) -> { one.countDown(); if (!one.await(300, TimeUnit.MILLISECONDS)) return "alone"; return "together"; }, List.of(""), 1);
         String c = single.submit("research", "person", (ObjectNode) M.createObjectNode().put("question", "c").put("max_turns", 1));
         String e = single.submit("research", "person", (ObjectNode) M.createObjectNode().put("question", "e").put("max_turns", 1));
         single.start();
@@ -267,8 +272,8 @@ class DemandLoopTest {
     @Test
     void twoQueuedCrewsRunsNeverOverlapEvenWithTwoWorkers(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
-        var inside = new java.util.concurrent.atomic.AtomicInteger();
-        var overlap = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var inside = new AtomicInteger();
+        var overlap = new AtomicBoolean(false);
         Jobs.Runner runner = (j, d) -> {
             if (inside.incrementAndGet() > 1) overlap.set(true);
             Thread.sleep(400);

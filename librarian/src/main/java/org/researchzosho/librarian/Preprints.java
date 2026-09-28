@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.Config;
 /**
  * Preprint versions, tracked by the serials crew: a finding that cites arXiv:2504.00327 (or v1) is
  * checked against the arXiv record; when a newer version exists, the finding gets a {@code revised}
@@ -25,8 +26,8 @@ import java.util.regex.Pattern;
  */
 public final class Preprints {
 
-    static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_PREPRINTS_PER_NIGHT", 20);
-    static final int DAYS = org.researchzosho.Config.getInt("RESEARCHZOSHO_PREPRINTS_DAYS", 14);
+    static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_PREPRINTS_PER_NIGHT", 20);
+    static final int DAYS = Config.getInt("RESEARCHZOSHO_PREPRINTS_DAYS", 14);
 
     private Preprints() { }
 

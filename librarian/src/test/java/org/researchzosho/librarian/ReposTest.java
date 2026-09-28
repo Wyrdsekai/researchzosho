@@ -14,6 +14,8 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import org.junit.jupiter.api.Assumptions;
 /** A code repository as a starting point: read, one draft claim, directions offered; pick and do file the runs. */
 class ReposTest {
 
@@ -147,8 +149,22 @@ class ReposTest {
     }
 
     @Test
+    void aRepositoryNeverReadIsReadFirstWhenARunIsAskedAboutIt(@TempDir Path home) throws Exception {
+        Path r = repo(home);
+        LibraryStore store = new LibraryStore(home.resolve("lib")); store.init();
+        new LibrarianIndex(store, Embeddings.none()).rebuild();
+        LibraryProtocol p = new LibraryProtocol(store);
+        ObjectNode own = M.createObjectNode().put("op", "do").put("path", r.toString()).put("question", "How does it rank tide tables?");
+        own.putObject("patron").put("did", "person").put("name", "keeper").put("runtime", "cli");
+        ObjectNode dr = p.repo(own);
+        assertTrue(dr.path("surveyed_first").asText().startsWith("Read the repository tidebook"), dr.toString());
+        assertNotNull(Surveys.claimFor(store, "tidebook"), "the survey's claim is on the shelves");
+        assertEquals(1, dr.path("runs").size(), "and the run was filed");
+    }
+
+    @Test
     void aGitUrlIsClonedIntoTheLibraryAndAMissingGitIsSaidPlainly(@TempDir Path home) throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeTrue(Repos.gitInstalled(), "git on this machine");
+        Assumptions.assumeTrue(Repos.gitInstalled(), "git on this machine");
         Path r = repo(home);
         run(r, "git", "init", "-q"); run(r, "git", "add", "."); run(r, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "seed");
         Path bare = home.resolve("tidebook.git");
@@ -161,7 +177,7 @@ class ReposTest {
         assertTrue(Files.exists(repo.dir().resolve("README.md")));
         Repos.Repo twice = Repos.obtain(store, bare.toString());
         assertEquals(repo.dir(), twice.dir(), "a second survey pulls into the same clone");
-        assertThrows(java.io.IOException.class, () -> Repos.obtain(store, home.resolve("nowhere").toString()), "a path that is not a folder");
+        assertThrows(IOException.class, () -> Repos.obtain(store, home.resolve("nowhere").toString()), "a path that is not a folder");
     }
 
     static void run(Path dir, String... cmd) throws Exception {

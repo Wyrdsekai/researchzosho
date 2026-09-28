@@ -6,6 +6,11 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.regex.Pattern;
 /**
  * The library's own retrieval instrument — the "measured miss rate" the architecture gates
  * every retrieval investment on (embeddings, chunking, rerankers), and what I-0005 (the
@@ -74,7 +79,7 @@ public final class RetrievalBench {
             boolean hit = top.stream().anyMatch(h -> c.gold().contains(h.id()));
             if (hit) { hits++; continue; }
             boolean viaArticle = top.stream().anyMatch(h -> "article".equals(h.kind())
-                    && cites.getOrDefault(h.id(), java.util.Set.of()).stream().anyMatch(c.gold()::contains));
+                    && cites.getOrDefault(h.id(), Set.of()).stream().anyMatch(c.gold()::contains));
             if (viaArticle) via++;
             // say what FILLED the top-k, so a miss explains itself
             StringBuilder filled = new StringBuilder();
@@ -86,15 +91,15 @@ public final class RetrievalBench {
     }
 
     /** article id → the finding ids its body cites. */
-    static java.util.Map<String, java.util.Set<String>> articleCitations(LibraryStore store) throws IOException {
-        var out = new java.util.HashMap<String, java.util.Set<String>>();
+    static Map<String, Set<String>> articleCitations(LibraryStore store) throws IOException {
+        var out = new HashMap<String, Set<String>>();
         if (!Files.isDirectory(store.articlesDir())) return out;
-        var id = java.util.regex.Pattern.compile("F-\\d+-[a-z0-9-]+");
+        var id = Pattern.compile("F-\\d+-[a-z0-9-]+");
         try (var files = Files.list(store.articlesDir())) {
             for (var p : files.toList()) {
                 String name = p.getFileName().toString();
                 if (!name.endsWith(".md")) continue;
-                var set = new java.util.HashSet<String>();
+                var set = new HashSet<String>();
                 var m = id.matcher(Files.readString(p, StandardCharsets.UTF_8));
                 while (m.find()) set.add(m.group());
                 out.put(name.substring(0, name.length() - 3), set);

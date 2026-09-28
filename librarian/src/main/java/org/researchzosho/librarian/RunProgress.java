@@ -4,6 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 /**
  * A research run's progress in plain words: the stage it is at, how long it has been going, and about
  * how far along it is. The percent is the larger of two honest numbers. One comes from the stage: reading
@@ -14,8 +19,9 @@ import java.time.Instant;
 public final class RunProgress {
 
     /** One run, ready to show. */
-    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report) {
-        public boolean active() { return state.equals("queued") || state.equals("running"); }
+    /** {@code declined}: the sentence that says the model declined the run or parts of it; "" when it declined nothing. */
+    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined) {
+        public boolean active() { return state.equals("queued") || state.equals("running") || state.equals(Jobs.OFFERED); }
     }
 
     private RunProgress() { }
@@ -36,15 +42,16 @@ public final class RunProgress {
         JsonNode p = job.path("progress");
         long started = millis(job.path("started_at").asText("")), ended = millis(job.path("ended_at").asText(""));
         long elapsed = started <= 0 ? 0 : Math.max(0, ((ended > 0 ? ended : nowMs) - started) / 1000);
-        int percent = state.equals("done") ? 100 : state.equals("queued") ? 0 : percent(p, started, nowMs, typicalSeconds);
+        int percent = state.equals("done") ? 100 : state.equals("queued") || state.equals(Jobs.OFFERED) ? 0 : percent(p, started, nowMs, typicalSeconds);
         String stage = switch (state) {
             case "queued" -> "Waiting to start";
-            case "done" -> "Done";
+            case Jobs.OFFERED -> "Waiting for your answer";
+            case "done" -> job.path("declined").path("run").asBoolean(false) ? "Declined by the model" : "Done";
             case "failed" -> "Failed";
             case "stopped" -> "Stopped";
             default -> stage(p);
         };
-        return new View(job.path("job_id").asText(""), state, stage, elapsed, percent, job.path("question").asText(""), job.path("investigation").asText(""));
+        return new View(job.path("job_id").asText(""), state, stage, elapsed, percent, job.path("question").asText(""), job.path("investigation").asText(""), job.path("declined").path("statement").asText(""));
     }
 
     /** The stage in plain words. */
@@ -92,16 +99,16 @@ public final class RunProgress {
         long now = System.currentTimeMillis();
         if (now - typicalAt < 300_000) return typicalValue;
         try {
-            com.fasterxml.jackson.databind.node.ObjectNode a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode().put("limit", 30);
+            ObjectNode a = new ObjectMapper().createObjectNode().put("limit", 30);
             if (patron != null) a.set("patron", patron.deepCopy());
-            java.util.List<Long> took = new java.util.ArrayList<>();
+            List<Long> took = new ArrayList<>();
             for (JsonNode j : protocol.job(a).path("finished")) {
                 if (!"research".equals(j.path("kind").asText()) || !"done".equals(j.path("state").asText())) continue;
                 long st = millis(j.path("started_at").asText("")), en = millis(j.path("ended_at").asText(""));
                 long sec = j.path("elapsed_s").asLong(st > 0 && en > st ? (en - st) / 1000 : 0);
                 if (sec >= 60) took.add(sec);
             }
-            java.util.Collections.sort(took);
+            Collections.sort(took);
             typicalValue = took.size() < 3 ? 0 : took.get(took.size() / 2);
         } catch (Exception e) { typicalValue = 0; }
         typicalAt = now;

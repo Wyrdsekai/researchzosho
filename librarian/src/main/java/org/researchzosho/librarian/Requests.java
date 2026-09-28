@@ -9,6 +9,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 /**
  * Source requests: what the runner could not read — a paywall, a cookie wall, a bot wall, a login —
  * and asks the person for. A wall is not a source, and it is not the end either: the person may hold
@@ -43,7 +45,7 @@ public final class Requests {
         if (!Files.exists(file(store))) return out;
         for (String line : Files.readAllLines(file(store), StandardCharsets.UTF_8)) {
             if (!line.startsWith("- ")) continue;
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("^- (\\S+) \\[(\\w+)\\] (\\S+) — (.*?)(?: — for: (.*))?$").matcher(line);
+            Matcher m = Pattern.compile("^- (\\S+) \\[(\\w+)\\] (\\S+) — (.*?)(?: — for: (.*))?$").matcher(line);
             if (m.matches()) out.add(new Request(m.group(1), m.group(2), m.group(3), m.group(4), m.group(5) == null ? "" : m.group(5)));
         }
         return out;

@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.net.URI;
 /**
  * The person's own word on sources: {@code catalog/source-rules.md}, one line each — {@code - trust <host> — why} or
  * {@code - refuse <host> — why}. A trusted host is read as a primary source and may carry a claim into canon; a refused
@@ -97,7 +98,7 @@ public final class SourceRules {
         if (s == null || s.isBlank()) return null;
         String t = s.strip().toLowerCase(Locale.ROOT);
         if (t.contains("://")) {
-            try { String h = java.net.URI.create(t).getHost(); t = h == null ? "" : h; } catch (Exception e) { return null; }
+            try { String h = URI.create(t).getHost(); t = h == null ? "" : h; } catch (Exception e) { return null; }
         } else {
             int slash = t.indexOf('/'); if (slash >= 0) t = t.substring(0, slash);
         }

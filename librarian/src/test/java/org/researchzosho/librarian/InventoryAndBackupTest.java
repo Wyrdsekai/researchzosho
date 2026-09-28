@@ -12,6 +12,7 @@ import java.util.zip.ZipFile;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.HashMap;
 /** Shelf reading marks what the source no longer supports; the backup is a dated zip, pruned. */
 class InventoryAndBackupTest {
 
@@ -37,7 +38,7 @@ class InventoryAndBackupTest {
                 : "{\"verdict\":\"supported\",\"reason\":\"stated verbatim\"}";
         var checks = Inventory.run(store, stub, 3);
         assertEquals(3, checks.size());
-        var byId = new java.util.HashMap<String, Inventory.Check>();
+        var byId = new HashMap<String, Inventory.Check>();
         for (var c : checks) byId.put(c.id(), c);
         assertEquals("supported", byId.get("F-0001-ok").verdict());
         assertEquals("unsupported", byId.get("F-0002-bad").verdict());

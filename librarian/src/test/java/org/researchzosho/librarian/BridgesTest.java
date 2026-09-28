@@ -14,6 +14,9 @@ import java.util.Random;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import java.io.IOException;
+import java.util.function.Supplier;
 /**
  * The seeded measurement from the design note: Swanson's bridge planted in a small library. Fish oil and Raynaud's
  * never appear in one source; both areas' claims speak of blood viscosity and platelet aggregation; two distractor
@@ -22,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class BridgesTest {
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static java.util.function.Supplier<Researcher.Drive> drives;
+    private static Supplier<Researcher.Drive> drives;
     @BeforeAll static void noModel() { drives = Explain.DRIVES; Explain.DRIVES = () -> null; }
     @AfterAll static void restore() { Explain.DRIVES = drives; }
 
@@ -281,7 +284,7 @@ class BridgesTest {
         ObjectNode far = Bridges.distance(store, "nutrition--fish-oil", "genealogy--census");
         assertEquals(-1, far.path("hops_on_map").asInt());
         assertTrue(far.path("summary").asText().contains("not connected on the map"), far.path("summary").asText());
-        assertThrows(java.io.IOException.class, () -> Bridges.distance(store, "nutrition--fish-oil", "no-such-area"));
+        assertThrows(IOException.class, () -> Bridges.distance(store, "nutrition--fish-oil", "no-such-area"));
         LibraryProtocol p = new LibraryProtocol(store);
         ObjectNode r = p.bridges(M.createObjectNode().put("op", "distance").put("area", "fish oil").put("other", "raynauds"));
         assertEquals("vascular--raynauds", r.path("c").asText(), "areas by label or slug tail");
@@ -292,12 +295,12 @@ class BridgesTest {
         LibraryStore store = seeded(home);
         List<Bridges.Pair> pairs = Bridges.candidates(store, Bridges.Settings.defaults().with("reach", "high"), "nutrition--fish-oil", new Random(1), null);
         Researcher.Drive asks = new ResearcherTest.ScriptedDrive() {
-            @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode messages, int maxTokens) { return "\"Does the platelet effect of fish oil bear on Raynaud's disease, as blood viscosity links them?\""; }
+            @Override public String classify(ArrayNode messages, int maxTokens) { return "\"Does the platelet effect of fish oil bear on Raynaud's disease, as blood viscosity links them?\""; }
         };
         assertEquals("Does the platelet effect of fish oil bear on Raynaud's disease, as blood viscosity links them?", Bridges.question(asks, pairs.get(0)));
         // a claim instead of a question, or a refusal, becomes the plain question: the person decides, never the model
         for (String reply : new String[]{"Fish oil cures Raynaud's disease.", "NONE", "NONE — the terms are incidental."}) {
-            Researcher.Drive d = new ResearcherTest.ScriptedDrive() { @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode m, int n) { return reply; } };
+            Researcher.Drive d = new ResearcherTest.ScriptedDrive() { @Override public String classify(ArrayNode m, int n) { return reply; } };
             String q = Bridges.question(d, pairs.get(0));
             assertTrue(q.startsWith("Does what the library holds on fish oil bear on Raynaud's disease?"), reply + " → " + q);
         }

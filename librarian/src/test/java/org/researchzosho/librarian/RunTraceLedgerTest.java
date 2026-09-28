@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.attribute.FileTime;
 /** The instrument: every model call on the trace with its exact request, and one ledger row per run that `stats` reads. */
 class RunTraceLedgerTest {
     @TempDir Path tmp;
@@ -61,7 +62,7 @@ class RunTraceLedgerTest {
     @Test
     void pruneKeepsTheNewestTraces() throws Exception {
         Path dir = tmp.resolve("traces"); Files.createDirectories(dir);
-        for (int i = 0; i < 5; i++) { Files.writeString(dir.resolve("J-000" + i + ".jsonl"), "{}\n"); Files.setLastModifiedTime(dir.resolve("J-000" + i + ".jsonl"), java.nio.file.attribute.FileTime.fromMillis(1_000_000L * (i + 1))); }
+        for (int i = 0; i < 5; i++) { Files.writeString(dir.resolve("J-000" + i + ".jsonl"), "{}\n"); Files.setLastModifiedTime(dir.resolve("J-000" + i + ".jsonl"), FileTime.fromMillis(1_000_000L * (i + 1))); }
         RunTrace.prune(dir, 2);
         try (var s = Files.list(dir)) { assertEquals(List.of("J-0003.jsonl", "J-0004.jsonl"), s.map(p -> p.getFileName().toString()).sorted().toList()); }
     }

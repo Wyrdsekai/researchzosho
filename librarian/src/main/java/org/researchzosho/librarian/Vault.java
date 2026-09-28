@@ -14,6 +14,8 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.net.URI;
+import org.researchzosho.Config;
 /**
  * The library as a vault an editor can open: Obsidian, SoloMD, SilverBullet, anything that reads a
  * folder of markdown with YAML frontmatter and {@code [[wikilinks]]}. The records under the library
@@ -22,7 +24,7 @@ import java.util.regex.Pattern;
  *
  * <p>One way, on purpose. Editing a note in the vault changes nothing in the library: accepting,
  * disputing and retiring are done at the inbox, or through the editor's agent panel over MCP, which
- * is the same door. The vault says so in its Home note. Private graph nodes are not written.
+ * is the same door. The vault says so in its Home note.
  *
  * <p>Every string is quoted in the frontmatter, so a title with a colon or a quote never breaks the
  * editor's YAML parser. Files are rewritten only when their content changed, so an editor watching the
@@ -39,7 +41,7 @@ public final class Vault {
 
     /** Where the vault goes: {@code RESEARCHZOSHO_VAULT}, else a sibling of the library. */
     public static Path dir(LibraryStore store) {
-        String v = org.researchzosho.Config.get("RESEARCHZOSHO_VAULT");
+        String v = Config.get("RESEARCHZOSHO_VAULT");
         if (v != null && !v.isBlank()) return Path.of(v);
         Path root = store.root().toAbsolutePath().normalize();
         return root.resolveSibling(root.getFileName() + "-vault");
@@ -179,13 +181,12 @@ public final class Vault {
             notes.put("Subjects/" + fileSafe(e.getKey()) + ".md", sb.toString());
         }
 
-        // things: the graph's nodes, private ones never
+        // things: the graph's nodes
         try {
             Graph g = Graph.build(store);
             Map<String, List<Graph.Edge>> touching = new LinkedHashMap<>();
             for (Graph.Edge ed : g.edges()) { touching.computeIfAbsent(ed.from(), k -> new ArrayList<>()).add(ed); touching.computeIfAbsent(ed.to(), k -> new ArrayList<>()).add(ed); }
             for (Graph.Node n : g.nodes()) {
-                if (n.privateNode()) continue;
                 StringBuilder sb = new StringBuilder("---\n");
                 kv(sb, "type", n.kind() == null || n.kind().isBlank() ? "thing" : n.kind()); kv(sb, "id", n.id()); kv(sb, "title", n.label());
                 if (n.aliases() != null && !n.aliases().isEmpty()) kv(sb, "aliases", n.aliases());
@@ -276,7 +277,7 @@ public final class Vault {
     }
 
     static String shortTitle(Finding.Source s) {
-        try { String h = java.net.URI.create(s.locator()).getHost(); return h == null ? s.locator() : h; } catch (Exception e) { return s.locator(); }
+        try { String h = URI.create(s.locator()).getHost(); return h == null ? s.locator() : h; } catch (Exception e) { return s.locator(); }
     }
 
     /** Bare ids in prose become links to their notes. */

@@ -6,6 +6,11 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.io.TempDir;
 /** The cite-check's mechanical pass: numbers and word runs that sit in the source settle a clause before any judge. */
 class CiteCheckMechanicalTest {
     @Test
@@ -53,7 +58,7 @@ class CiteCheckMappingTest {
 }
 
 class CiteCheckSecondOpinionTest {
-    @org.junit.jupiter.api.io.TempDir java.nio.file.Path tmp;
+    @TempDir Path tmp;
 
     @Test
     void aParaphraseTheFirstReadMissedIsRescuedByAQuoteTheSourceHolds() throws Exception {
@@ -62,10 +67,10 @@ class CiteCheckSecondOpinionTest {
         String page = "Muse Code beta. Parallel sessions can now pass messages to each other, and transport is a Unix socket on the local machine, so nothing crosses the network. " + "filler text ".repeat(40);
         RawCapture.capture(store, url, page, "What is Muse Code", "test", "");
         var refs = List.of(new CiteCheck.Ref(1, url, "", "What is Muse Code"));
-        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        AtomicInteger calls = new AtomicInteger();
         Researcher.Drive judge = new Researcher.Drive() {
-            @Override public com.fasterxml.jackson.databind.node.ObjectNode chat(com.fasterxml.jackson.databind.node.ArrayNode m, com.fasterxml.jackson.databind.node.ArrayNode t, int x, String c) { throw new UnsupportedOperationException(); }
-            @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode messages, int maxTokens) {
+            @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int x, String c) { throw new UnsupportedOperationException(); }
+            @Override public String classify(ArrayNode messages, int maxTokens) {
                 calls.incrementAndGet();
                 String prompt = messages.get(0).path("content").asText();
                 if (prompt.contains("\"quote\"")) return "{\"quote\": \"Parallel sessions can now pass messages to each other, and transport is a Unix socket\"}";
@@ -82,8 +87,8 @@ class CiteCheckSecondOpinionTest {
 
         // a second opinion that quotes words the source does not hold changes nothing
         Researcher.Drive liar = new Researcher.Drive() {
-            @Override public com.fasterxml.jackson.databind.node.ObjectNode chat(com.fasterxml.jackson.databind.node.ArrayNode m, com.fasterxml.jackson.databind.node.ArrayNode t, int x, String c) { throw new UnsupportedOperationException(); }
-            @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode messages, int maxTokens) {
+            @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int x, String c) { throw new UnsupportedOperationException(); }
+            @Override public String classify(ArrayNode messages, int maxTokens) {
                 return messages.get(0).path("content").asText().contains("\"quote\"") ? "{\"quote\": \"sessions share memory over the network by default\"}" : "{\"verdict\": \"unsupported\"}";
             }
             @Override public int contextWindow() { return 16384; }

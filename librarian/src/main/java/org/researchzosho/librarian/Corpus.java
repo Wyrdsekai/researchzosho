@@ -14,6 +14,17 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Stream;
 
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import org.researchzosho.tools.ContentPolicy;
+import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.PageCheck;
+import org.researchzosho.tools.WebFetchTool;
 /**
  * A person's own documents as a corpus: a folder of PDFs, office files, EPUBs, markdown and text,
  * shelved as raw captures under a named COLLECTION so a question can be put to them first — or to
@@ -28,7 +39,25 @@ import java.util.stream.Stream;
  */
 public final class Corpus {
 
-    static final java.util.Set<String> EXTENSIONS = java.util.Set.of("pdf", "docx", "pptx", "odt", "epub", "md", "txt", "html", "htm", "rst", "tex");
+    static final Set<String> EXTENSIONS = Set.of("pdf", "docx", "pptx", "odt", "epub", "md", "txt", "html", "htm", "rst", "tex");
+    /**
+     * Pictures, which the model reads when it reads pictures. One picture added by name is a document. A FOLDER takes its pictures only
+     * when asked ({@link #withPictures}): a folder of papers has figures beside them, and a nightly rescan of a registered folder must not
+     * start sending two hundred plots to the model because this build learned to read a photographed page.
+     */
+    static final Set<String> PICTURES = Set.of("jpg", "jpeg", "png", "gif", "bmp", "tif", "tiff");
+    private static final ThreadLocal<Boolean> WITH_PICTURES = ThreadLocal.withInitial(() -> false);
+
+    /** Run one folder add with its pictures taken as documents (a folder of scanned pages). */
+    public static <T> T withPictures(Callable<T> work) throws Exception {
+        WITH_PICTURES.set(true);
+        try { return work.call(); } finally { WITH_PICTURES.set(false); }
+    }
+
+    /** How many pictures a folder holds that a plain add leaves alone; the command says so. */
+    public static long picturesIn(Path dir) {
+        try (Stream<Path> s = Files.walk(dir)) { return s.filter(Files::isRegularFile).filter(p -> PICTURES.contains(ext(p))).count(); } catch (IOException e) { return 0; }
+    }
 
     /** {@code changed}: linked files whose bytes differ from the last scan (re-indexed; the claims resting on them are marked for review). */
     public record Outcome(int seen, int added, int unchanged, int skipped, int changed, List<String> problems) {
@@ -68,7 +97,8 @@ public final class Corpus {
     static List<Path> documents(Path dir, boolean recursive) throws IOException {
         if (!Files.isDirectory(dir)) throw new IOException(dir + " is not a directory");
         try (Stream<Path> s = recursive ? Files.walk(dir) : Files.list(dir)) {
-            return s.filter(Files::isRegularFile).filter(p -> EXTENSIONS.contains(ext(p))).sorted().toList();
+            boolean pictures = WITH_PICTURES.get();
+            return s.filter(Files::isRegularFile).filter(p -> EXTENSIONS.contains(ext(p)) || (pictures && PICTURES.contains(ext(p)))).sorted().toList();
         }
     }
 
@@ -82,8 +112,8 @@ public final class Corpus {
      */
     public static Survey survey(LibraryStore store, Path dir, boolean recursive) throws IOException {
         List<Path> files = documents(dir, recursive);
-        Map<String, Integer> byType = new java.util.TreeMap<>();
-        Map<String, long[]> sampled = new java.util.HashMap<>();   // ext → [bytes, text bytes, files sampled]
+        Map<String, Integer> byType = new TreeMap<>();
+        Map<String, long[]> sampled = new HashMap<>();   // ext → [bytes, text bytes, files sampled]
         long bytes = 0;
         int unreadable = 0;
         for (Path f : files) {
@@ -204,10 +234,15 @@ public final class Corpus {
         return n;
     }
 
+    /** Why the last file this thread added gave no text, when the reader could say (a picture and a model that does not read pictures); "" otherwise. */
+    public static String whyNoText() { String w = WHY_NO_TEXT.get(); return w == null || w.isBlank() ? "" : " " + Character.toUpperCase(w.charAt(0)) + w.substring(1) + "."; }
+    private static final ThreadLocal<String> WHY_NO_TEXT = new ThreadLocal<>();
+
     /** One file, kept or linked, into a collection ("" for none). Returns the raw/ path, or null when it has no text. */
     public static Path addFile(LibraryStore store, Path file, String collection, boolean link) throws IOException {
         Path f = file.toAbsolutePath().normalize();
         DocText.Doc doc = DocText.convert(Files.readAllBytes(f), f.getFileName().toString());
+        WHY_NO_TEXT.set(doc.text().isBlank() && doc.kind().contains(": ") ? doc.kind().substring(doc.kind().indexOf(": ") + 2) : "");
         if (doc.text().isBlank()) return null;
         String title = doc.title().isBlank() ? f.getFileName().toString().replaceAll("\\.[A-Za-z0-9]+$", "").replace('_', ' ') : doc.title();
         String by = collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection;
@@ -215,11 +250,20 @@ public final class Corpus {
                 : RawCapture.capture(store, "file://" + f, doc.text(), title, by, collection);
     }
 
-    /** A page or document at a URL, fetched and kept (a URL cannot be linked: the web rots). Returns [raw path, title, kind]. */
-    public static Object[] addUrl(LibraryStore store, String url, String collection) throws Exception {
-        org.researchzosho.tools.Fetch.Result resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
+    /**
+     * A page or document at a URL the person gave, fetched and kept (a URL cannot be linked: the web rots). Returns [raw path, title,
+     * kind]. The person's own address is their own act: neither the site list nor their refused list stands in its way, and of the
+     * page check only the always-dropped question is asked ({@link ContentPolicy#person}). A page that is not kept throws
+     * {@link PageCheck.NotKept}, with the sentence for the person.
+     */
+    public static Object[] addUrl(LibraryStore store, String url, String collection) throws Exception { return addUrl(store, url, collection, ContentPolicy.person(null)); }
+
+    /** The same for an address the person did not give (a page a search found): {@code policy} says what it is checked against. */
+    public static Object[] addUrl(LibraryStore store, String url, String collection, ContentPolicy policy) throws Exception {
+        PageCheck.Page page = PageCheck.fetch(url, Duration.ofSeconds(60), policy, "");
+        Fetch.Result resp = page.fetched();
         if (resp.status() >= 400) throw new IOException("HTTP " + resp.status() + " for " + url);
-        DocText.Doc doc = DocText.convert(resp.body(), url);
+        DocText.Doc doc = page.orThrow().doc();
         if (doc.text().isBlank()) throw new IOException("no text could be extracted from " + url + " (" + doc.kind() + ")");
         String title = doc.title();
         try {
@@ -227,10 +271,13 @@ public final class Corpus {
             if (meta != null && !meta.title().isEmpty()) title = meta.title();
         } catch (Exception ignored) { }
         String published = "";
-        try { published = org.researchzosho.tools.WebFetchTool.publishedDate(new String(resp.body(), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
+        try { published = WebFetchTool.publishedDate(new String(resp.body(), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
         String by = collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection;
         Path p = RawCapture.capture(store, resp.url(), doc.text(), title, by, collection, published);
-        return new Object[]{p, title, doc.kind()};
+        // the person's own address: saved even when no model could check it, and checked when one answers; a checked one means a model
+        // answers now, so the pages still waiting are checked
+        if (policy.person() && p != null) UncheckedPages.after(store, page, resp.url(), p, policy.judge());
+        return new Object[]{p, title, doc.kind(), page.unchecked()};
     }
 
     static String ext(Path p) {
@@ -264,8 +311,8 @@ public final class Corpus {
     }
 
     /** The registered folders that are read in place rather than kept. */
-    public static java.util.Set<String> linked(LibraryStore store) throws IOException {
-        java.util.Set<String> out = new java.util.LinkedHashSet<>();
+    public static Set<String> linked(LibraryStore store) throws IOException {
+        Set<String> out = new LinkedHashSet<>();
         Path f = registry(store);
         if (!Files.exists(f)) return out;
         for (String line : Files.readAllLines(f, StandardCharsets.UTF_8)) {
@@ -285,7 +332,7 @@ public final class Corpus {
 
     public static void register(LibraryStore store, String name, Path dir, boolean link) throws IOException {
         Map<String, Path> all = registered(store);
-        java.util.Set<String> linked = linked(store);
+        Set<String> linked = linked(store);
         all.put(name, dir.toString().startsWith(URLS) ? dir : dir.toAbsolutePath().normalize());
         if (link) linked.add(name); else linked.remove(name);
         Files.createDirectories(registry(store).getParent());
@@ -303,37 +350,40 @@ public final class Corpus {
 
     /** Re-read every url in a shelved list; a page whose text changed gets a new dated capture. */
     static String reread(LibraryStore store, String name, String rawListFile) {
-        int same = 0, changed = 0, failed = 0, n = 0;
+        int same = 0, changed = 0, failed = 0, n = 0, leftOut = 0;
         try {
             Path list = LibraryStore.under(store.rawDir(), rawListFile);
             if (list == null || !Files.exists(list)) return name + ": the list " + rawListFile + " is gone";
             String body = RawCapture.read(list)[2];
-            java.util.regex.Matcher m = Drafts.URL.matcher(body);
-            java.util.Set<String> urls = new java.util.LinkedHashSet<>();
+            Matcher m = Drafts.URL.matcher(body);
+            Set<String> urls = new LinkedHashSet<>();
             while (m.find()) urls.add(m.group());
             for (String u : urls) {
                 if (++n > Bookmarks.MAX) break;
                 Path before = RawCapture.find(store, u);
                 String was = before == null ? null : RawCapture.read(before)[2];
                 try {
-                    var resp = org.researchzosho.tools.Fetch.get(u, java.time.Duration.ofSeconds(60));
+                    PageCheck.Page page = PageCheck.fetch(u, Duration.ofSeconds(60), ContentPolicy.person(null), "");   // a list the person shelved: their own addresses
+                    var resp = page.fetched();
                     if (resp.status() >= 400) { failed++; continue; }
-                    DocText.Doc doc = DocText.convert(resp.body(), u);
-                    if (doc.text().isBlank() || org.researchzosho.tools.Fetch.wall(doc.title(), doc.text()) != null) { failed++; continue; }
+                    if (!page.kept()) { leftOut++; continue; }
+                    DocText.Doc doc = page.doc();
+                    if (doc.text().isBlank() || Fetch.wall(doc.title(), doc.text()) != null) { failed++; continue; }
                     if (was != null && was.strip().equals(doc.text().strip())) { same++; continue; }
                     Path p = RawCapture.capture(store, resp.url(), doc.text(), doc.title(), "researchzosho-" + name, name);
+                    if (p != null && page.unchecked()) UncheckedPages.note(store, resp.url(), p);   // saved, and checked when a model answers
                     if (p != null && !p.equals(before)) { changed++; store.circulate("reread", name + ": " + u + " changed → " + p.getFileName()); } else same++;
                 } catch (Exception e) { failed++; }
             }
         } catch (Exception e) { return name + ": " + e.getMessage(); }
-        return name + ": " + n + " url(s) re-read, " + changed + " changed, " + same + " unchanged, " + failed + " not readable";
+        return name + ": " + n + " url(s) re-read, " + changed + " changed, " + same + " unchanged, " + failed + " not readable" + (leftOut == 0 ? "" : ", " + leftOut + " left out by the page check and not saved");
     }
 
     /** Rescan every registered folder and re-read every registered url list; the crews' step. */
     public static String rescan(LibraryStore store) throws IOException {
         Map<String, Path> all = registered(store);
         if (all.isEmpty()) return "no collections registered";
-        java.util.Set<String> linked = linked(store);
+        Set<String> linked = linked(store);
         StringBuilder sb = new StringBuilder();
         for (Map.Entry<String, Path> e : all.entrySet()) {
             if (e.getValue().toString().startsWith(URLS)) { sb.append(reread(store, e.getKey(), e.getValue().toString().substring(URLS.length()))).append("; "); continue; }

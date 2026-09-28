@@ -1,0 +1,11 @@
+{"focus": {"id": "profile-1", "name": "森田健二", "first_name": "健二", "last_name": "森田", "maiden_name": "遠藤", "gender": "male", "is_alive": false,
+           "names": {"ja": {"first_name": "健二", "last_name": "森田", "maiden_name": "遠藤"}, "en-US": {"first_name": "Kenji", "last_name": "Morita", "maiden_name": "Endo"}},
+           "birth": {"date": {"year": 1905, "formatted_date": "1905"}}},
+ "nodes": {
+   "profile-1": {"id": "profile-1"},
+   "profile-2": {"id": "profile-2", "first_name": "正一", "last_name": "遠藤", "gender": "male", "is_alive": false},
+   "profile-3": {"id": "profile-3", "first_name": "勇", "last_name": "森田", "gender": "male", "is_alive": false},
+   "profile-4": {"id": "profile-4", "first_name": "ハル", "last_name": "森田", "gender": "female", "is_alive": false},
+   "union-1": {"edges": {"profile-2": {"rel": "partner"}, "profile-1": {"rel": "child"}}},
+   "union-2": {"edges": {"profile-3": {"rel": "partner"}, "profile-4": {"rel": "child"}, "profile-1": {"rel": "adopted_child"}}},
+   "union-3": {"status": "spouse", "edges": {"profile-1": {"rel": "partner"}, "profile-4": {"rel": "partner"}}}}}

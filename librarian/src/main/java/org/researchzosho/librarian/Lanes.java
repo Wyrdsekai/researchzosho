@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.net.URI;
+import org.researchzosho.drive.Declined;
 /**
  * Language lanes. A question about a place is answered by the sources of that place, and a model left to
  * itself searches in the language it was mostly trained on (measured, I-0017: a question about a shoot in
@@ -110,7 +112,8 @@ public final class Lanes {
                     "Write 6 web search queries IN " + name + " (not in English) that a native speaker would type to find " + name
                     + "-language press, interviews and records answering this question. Short, concrete, the names as they are written in "
                     + name + ". Answer with a JSON array of strings and nothing else.\n\nQUESTION:\n" + question);
-            String raw = judge.classify(msgs, 400);
+            String raw;
+            try (var step = Declines.step("write web search queries in " + name + " for a research question, as a JSON list: " + Acquisitions.compress(question, 300))) { raw = judge.classify(msgs, 400); }
             int a = raw.indexOf('['), b = raw.lastIndexOf(']');
             if (a >= 0 && b > a) for (JsonNode q : M.readTree(raw.substring(a, b + 1))) {
                 String s = q.asText("").strip();
@@ -118,6 +121,8 @@ public final class Lanes {
                 if (!script.equals("latin") && !script(s).equals(script)) continue;   // a seed in the wrong script is no seed
                 out.add(s);
             }
+        } catch (Declined d) {
+            throw d;   // part of the plan: the run says the model declined it
         } catch (Exception ignored) { }
         return out;
     }
@@ -171,7 +176,7 @@ public final class Lanes {
                 case "hebrew" -> "he"; case "devanagari" -> "hi"; case "thai" -> "th"; default -> "en"; };
         }
         String host = null;
-        try { host = locator == null || !locator.contains("://") ? null : java.net.URI.create(locator.strip()).getHost(); } catch (Exception ignored) { }
+        try { host = locator == null || !locator.contains("://") ? null : URI.create(locator.strip()).getHost(); } catch (Exception ignored) { }
         if (host != null) {
             String h = host.toLowerCase(Locale.ROOT);
             if (h.contains("/en/") || h.endsWith("/en")) return "en";

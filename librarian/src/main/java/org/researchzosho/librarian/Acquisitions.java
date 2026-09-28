@@ -11,6 +11,9 @@ import java.util.regex.Pattern;
 import org.researchzosho.tools.WebFetchTool;
 import org.researchzosho.tools.WebSearchTool;
 
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
 /**
  * The acquisitions desk — where research runs SUBMIT and the mechanical gates decide what may
  * even reach review (the operator: "we don't want garbage to occur"). Model judgment never runs here;
@@ -120,9 +123,26 @@ public final class Acquisitions {
      */
     public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
                                       String summary, String writer, String workerNotes) throws IOException {
+        return admit(store, index, question, summary, writer, workerNotes, id -> { });
+    }
+
+    /** What must be written about a report before the report itself: the fields its run was asked for. */
+    public interface First { void write(String investigationId) throws IOException; }
+
+    /** As above; {@code first} is written with the new report's id before the report is. */
+    public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
+                                      String summary, String writer, String workerNotes, First first) throws IOException {
+        return admit(store, index, question, summary, writer, workerNotes, first, "");
+    }
+
+    /** As above; {@code questionNote}, when not blank, is a sentence under the question: what the run let in because the person asked. */
+    public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
+                                      String summary, String writer, String workerNotes, First first, String questionNote) throws IOException {
         String id = store.nextInvestigationId(question);
+        first.write(id);
         StringBuilder body = new StringBuilder();
         body.append("## Question\n\n").append(question.strip()).append("\n\n");
+        if (questionNote != null && !questionNote.isBlank()) body.append(questionNote.strip()).append("\n\n");
         boolean thin = summary == null || summary.strip().length() < MIN_SUMMARY_CHARS;
         body.append("## Answer (as submitted by the run — draft until reviewed)\n\n")
             .append(thin ? "(the synthesis step did not produce an answer — the worker findings below "
@@ -157,7 +177,8 @@ public final class Acquisitions {
     public static List<String> urls(String text) {
         List<String> out = new ArrayList<>();
         if (text == null) return out;
-        Matcher m = Pattern.compile("(?:https?|file)://\\S+|\\braw/\\d{4}-\\d{2}-\\d{2}-[0-9a-f]{12}\\.md").matcher(text);   // the shelves' locators count as sources too
+        // the shelves' locators count as sources too, and a file of a repository the library holds, with its lines, as read_code cites it
+        Matcher m = Pattern.compile("(?:https?|file)://\\S+|\\braw/\\d{4}-\\d{2}-\\d{2}-[0-9a-f]{12}\\.md|\\braw/repos/[A-Za-z0-9._-]+/[^\\s)\\]>,;\"'`|]+").matcher(text);
         while (m.find()) {
             String u = m.group().replaceAll("[)\\]>,.;\"']+$", "");
             if (!out.contains(u)) out.add(u);
@@ -206,15 +227,15 @@ public final class Acquisitions {
     }
 
     /** Author/name tokens and years of a citation-shaped string — what two citations must share. */
-    static java.util.Set<String> citationKeys(String s) {
-        java.util.Set<String> keys = new java.util.HashSet<>();
+    static Set<String> citationKeys(String s) {
+        Set<String> keys = new HashSet<>();
         if (s == null) return keys;
         Matcher y = Pattern.compile("\\b(1[5-9]\\d\\d|20\\d\\d)\\b").matcher(s);
         while (y.find()) keys.add("y:" + y.group(1));
         for (String w : s.split("[^\\p{L}]+")) {
             boolean cjk = w.codePoints().anyMatch(ch -> ch >= 0x3040 && ch <= 0x9fff);
             if ((cjk && w.length() >= 2) || (!cjk && w.length() >= 4 && Character.isUpperCase(w.charAt(0)))) {
-                keys.add("n:" + w.toLowerCase(java.util.Locale.ROOT));
+                keys.add("n:" + w.toLowerCase(Locale.ROOT));
             }
         }
         return keys;

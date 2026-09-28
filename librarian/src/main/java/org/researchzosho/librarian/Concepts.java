@@ -7,6 +7,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.LocalDate;
+import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Declined;
 /**
  * The second kind of edge on the map. A triple says what a claim asserts (subject, predicate, a measured value);
  * it seldom names the concepts the claim rests on — temperature, viscosity, friction, a method. Those are where
@@ -15,7 +20,7 @@ import java.util.Set;
  */
 public final class Concepts {
 
-    static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_CONCEPTS_PER_NIGHT", 40);
+    static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_CONCEPTS_PER_NIGHT", 40);
     static final int MAX_PER_CLAIM = 8;
     public static final String NOTE = "concepts";
 
@@ -24,9 +29,9 @@ public final class Concepts {
 
     private Concepts() { }
 
-    public static Extractor driveExtractor(org.researchzosho.drive.DriveClient drive) {
+    public static Extractor driveExtractor(DriveClient drive) {
         return claim -> {
-            var msgs = new com.fasterxml.jackson.databind.ObjectMapper().createArrayNode();
+            var msgs = new ObjectMapper().createArrayNode();
             msgs.addObject().put("role", "user").put("content",
                     "List the general concepts this claim rests on: the mechanisms, quantities, materials, methods and phenomena "
                     + "it involves, as they would be named in any field. Short noun phrases, one per line, lowercase, no numbers, "
@@ -44,9 +49,12 @@ public final class Concepts {
         return List.of();
     }
 
+    /** How a note begins when the model declined to name a claim's concepts: it holds no concept. */
+    static final String DECLINED = "declined";
+
     static List<String> parse(String text) {
         List<String> out = new ArrayList<>();
-        if (text == null || text.isBlank() || text.strip().equalsIgnoreCase("none")) return out;
+        if (text == null || text.isBlank() || text.strip().equalsIgnoreCase("none") || text.startsWith(DECLINED + " by the model")) return out;
         for (String c : text.split(";")) { String x = c.strip(); if (!x.isEmpty() && !out.contains(x)) out.add(x); }
         return out;
     }
@@ -78,8 +86,11 @@ public final class Concepts {
             if (f.notes().stream().anyMatch(n -> NOTE.equals(n.kind()))) continue;
             asked++;
             List<String> cs = List.of();
-            try { cs = clean(extractor.extract(f.title() + "\n\n" + f.body().strip()), f); } catch (Exception e) { /* asked and no answer; the note stops the re-ask */ }
-            store.write(f.withNote(new Finding.Note(NOTE, "crew:concepts", java.time.LocalDate.now().toString(), cs.isEmpty() ? "NONE" : String.join("; ", cs))));
+            String declined = null;
+            try { cs = clean(extractor.extract(f.title() + "\n\n" + f.body().strip()), f); }
+            catch (Declined d) { declined = DECLINED + " by the model " + d.model(); }   // said as that, never a concept, and the re-ask stops
+            catch (Exception e) { /* asked and no answer; the note stops the re-ask */ }
+            store.write(f.withNote(new Finding.Note(NOTE, "crew:concepts", LocalDate.now().toString(), declined != null ? declined : cs.isEmpty() ? "NONE" : String.join("; ", cs))));
             if (!cs.isEmpty()) filled++;
         }
         store.circulate("concepts", asked + " asked, " + filled + " filled");

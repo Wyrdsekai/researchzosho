@@ -2,7 +2,9 @@ package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.researchzosho.Stopping;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -10,6 +12,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.ArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 /**
  * The review pipeline with a STUB judge — the model's answers are inputs here, so what these
  * tests pin is the MACHINE's half of the division of labor: the source-evidence gate, the
@@ -23,8 +27,11 @@ class LibrarianReviewTest {
     private LibraryStore store;
     private LibrarianIndex index;
 
-    private Investigation admitted(String question, String body) throws Exception {
-        store = new LibraryStore(tmp.resolve("lib"));
+    private Investigation admitted(String question, String body) throws Exception { return admitted("lib", question, body); }
+
+    /** A report admitted into a library of its own, in the folder {@code dir}. */
+    private Investigation admitted(String dir, String question, String body) throws Exception {
+        store = new LibraryStore(tmp.resolve(dir));
         store.init();
         index = new LibrarianIndex(store);
         return Acquisitions.admit(store, index, question, body, "model:test");
@@ -97,6 +104,29 @@ class LibrarianReviewTest {
     }
 
     @Test
+    void aFamilyRunsDroppedCandidateLeavesNobodyInTheListOfPeople_aFiledOneMakesAPersonFromItsClaim() throws Exception {
+        store = new LibraryStore(tmp.resolve("lib")); store.init();
+        new LibrarianIndex(store, Embeddings.none()).rebuild();
+        FamilyAccount.file(store, new FamilyAccount.Read(List.of(), List.of(
+                new FamilyAccount.Fact("Tom Hale", "born-in", "Leeds", "1851", "Tom Hale was born in Leeds in 1851.")), List.of()), "file:///family/notes.txt", "an aunt");
+        index = new LibrarianIndex(store);
+        // a run somebody asked genealogy for: its claims are genealogy's own work
+        Investigation inv = Acquisitions.admit(store, index, "Tom Hale", "Tom Hale lived in Leeds. https://example.org/leeds-record", "model:test", "", id -> Fields.record(store, id, "J-0001", "genealogy", "genealogy-command"));
+        String extract = """
+            [{"title": "Jane Doe child of Tom Hale", "claim": "Jane Doe was a child of Tom Hale.", "claim_type": "extraction", "confidence": "high", "volatility": "stable",
+              "sources": ["https://example.org/not-in-this-record"], "triple": {"subject": "Jane Doe", "predicate": "child-of", "object": "Tom Hale"}},
+             {"title": "Mary Hale child of Tom Hale", "claim": "Mary Hale was a child of Tom Hale.", "claim_type": "extraction", "confidence": "high", "volatility": "stable",
+              "sources": ["https://example.org/leeds-record"], "triple": {"subject": "Mary Hale", "predicate": "child-of", "object": "Tom Hale"}}]""";
+        var out = new LibrarianReview(store, index, judge(extract, "{\"verdict\":\"independent\"}"), "librarian:test").review(inv);
+        assertTrue(out.problems().stream().anyMatch(x -> x.contains("cites no source present in the investigation")), out.problems().toString());
+        String nodes = Files.readString(Graph.nodesFile(store));
+        assertFalse(nodes.contains("jane doe"), "a candidate the evidence gate dropped leaves no line: " + nodes);
+        Graph g = Graph.build(store);
+        assertNull(g.node(g.nodeIdOf("Jane Doe")));
+        assertEquals("person", g.node(g.nodeIdOf("Mary Hale")).kind(), "the filed claim makes her a person when the graph is read");
+    }
+
+    @Test
     void contradictionMarksBothDisputedAndFeedsFrontier() throws Exception {
         // seed canon: an accepted finding the new claim will contradict
         store = new LibraryStore(tmp.resolve("lib"));
@@ -157,7 +187,7 @@ class LibrarianReviewTest {
                   "claim_type": "extraction", "confidence": "medium", "volatility": "slow",
                   "sources": ["https://example.org/c"],
                   "triple": {"subject": "Keigo", "predicate": "has direct English equivalent ", "object": "the yes-marker"}}]""";
-        var seen = new java.util.concurrent.atomic.AtomicReference<String>("");
+        var seen = new AtomicReference<String>("");
         var judge = new LibrarianReview.Judge() {
             @Override public String extract(String b) { return extract; }
             @Override public String compare(String c, String n) { seen.set(n); return "{\"verdict\": \"contradicts\", \"id\": \"F-0001-keigo-equivalent\"}"; }
@@ -253,7 +283,7 @@ class LibrarianReviewTest {
 
     @Test
     void enumeratedSourceLabelsResolveAndThePromptListsThem() {
-        var inv = java.util.List.of("https://arxiv.org/abs/2608.01913", "cite:保坂 敏子, Keio, 2016");
+        var inv = List.of("https://arxiv.org/abs/2608.01913", "cite:保坂 敏子, Keio, 2016");
         assertEquals(inv.get(0), LibrarianReview.resolveCited(inv, "S1"));
         assertEquals(inv.get(1), LibrarianReview.resolveCited(inv, "[S2]"));
         assertNull(LibrarianReview.resolveCited(inv, "S9"), "a label off the list cannot anchor");
@@ -265,7 +295,7 @@ class LibrarianReviewTest {
 
     @Test
     void citedUrlVariantsAnchorButMintedSourcesStillCannot() {
-        var inv = java.util.List.of("https://github.com/m-bain/whisperX/blob/main/whisperx/alignment.py",
+        var inv = List.of("https://github.com/m-bain/whisperX/blob/main/whisperx/alignment.py",
                 "https://example.org/paper/");
         // prefix of a recorded URL (the live WhisperX case) — anchors, and records the RECORD's url
         assertEquals(inv.get(0),
@@ -273,12 +303,12 @@ class LibrarianReviewTest {
         // http/https and trailing-slash variants anchor
         assertEquals(inv.get(1), LibrarianReview.resolveCited(inv, "http://example.org/paper"));
         // identifier anchoring: a bare arXiv id or a versioned variant anchors to the record's locator
-        var inv2 = java.util.List.of("https://arxiv.org/abs/2608.01913", "https://example.org/x");
+        var inv2 = List.of("https://arxiv.org/abs/2608.01913", "https://example.org/x");
         assertEquals(inv2.get(0), LibrarianReview.resolveCited(inv2, "arXiv 2608.01913"));
         assertEquals(inv2.get(0), LibrarianReview.resolveCited(inv2, "https://arxiv.org/html/2608.01913v1"));
         assertNull(LibrarianReview.resolveCited(inv2, "arXiv 2511.99999"), "an id the record never carried cannot anchor");
         // edition anchoring: author + year shared with a cite: locator; a different year cannot anchor
-        var inv3 = java.util.List.of("cite:保坂 敏子 (Hosaka, Toshiko), 字幕翻訳で失われる要素, Keio, 2016",
+        var inv3 = List.of("cite:保坂 敏子 (Hosaka, Toshiko), 字幕翻訳で失われる要素, Keio, 2016",
                 "cite:Gilgamesh, tablet XI, trans. Andrew George (Penguin Classics, 2003)");
         assertEquals(inv3.get(0), LibrarianReview.resolveCited(inv3, "Hosaka 2016, p. 47"));
         assertEquals(inv3.get(0), LibrarianReview.resolveCited(inv3, "保坂 2016"));
@@ -315,7 +345,7 @@ class LibrarianReviewTest {
                  {"title": "Gears were filed", "claim": "The gears were finished with files.",
                   "claim_type": "extraction", "confidence": "medium", "volatility": "stable",
                   "sources": ["https://newsite.example/story"]}]""";
-        java.util.List<String> searched = new java.util.ArrayList<>();
+        List<String> searched = new ArrayList<>();
         var out = new LibrarianReview(store, index, judge(extract, "{}"), "librarian:test")
                 .searcher(q -> { searched.add(q); return "results:\n1. Newsite — about us\n   https://newsite.example/about  [web]\n2. Newsite on a directory\n   https://dir.example/newsite  [web]\n"; })
                 .review(inv);
@@ -327,6 +357,41 @@ class LibrarianReviewTest {
         Finding filed = store.scanFindings().findings().stream().filter(f -> f.title().equals("Gears were filed")).findFirst().orElseThrow();
         assertTrue(filed.notes().stream().anyMatch(n -> n.kind().equals("source-check") && n.text().contains("first time this library cites newsite.example") && n.text().contains("Newsite — about us")), filed.notes().toString());
         assertEquals(1, searched.size(), "one search, for the one first-seen web host (arxiv is scholarly and needs none): " + searched);
+    }
+
+    private static final String ONE_NEW_HOST = """
+            [{"title": "Gears were filed", "claim": "The gears were finished with files.",
+              "claim_type": "extraction", "confidence": "medium", "volatility": "stable",
+              "sources": ["https://newsite.example/story"]}]""";
+
+    @Test
+    void aSearchThatFailedIsNeverWrittenDownAsHavingFoundNothing() throws Exception {
+        for (LibrarianReview.Searcher failing : List.<LibrarianReview.Searcher>of(
+                q -> "ERROR: search backend unreachable at http://localhost:8888 (connection refused). Is the SearXNG container running (docker start searxng)?",
+                q -> "SEARCH BACKEND DEGRADED: no results came back because the upstream engines are currently rate-limited or blocked (brave).",
+                q -> { throw new IOException("connection reset"); })) {
+            Investigation inv = admitted("lib-" + System.nanoTime(), "who filed the gears?", "Filed by hand. https://newsite.example/story");
+            new LibrarianReview(store, index, judge(ONE_NEW_HOST, "{}"), "librarian:test").searcher(failing).review(inv);
+            Finding filed = store.scanFindings().findings().stream().filter(f -> f.title().equals("Gears were filed")).findFirst().orElseThrow();
+            List<String> said = filed.notes().stream().filter(n -> n.kind().equals("source-check")).map(Finding.Note::text).toList();
+            assertEquals(1, said.size(), said.toString());
+            assertFalse(said.get(0).contains("found nothing") || said.get(0).contains("nothing else on the web"), "a failed search is no search that found nothing: " + said);
+            assertTrue(said.get(0).contains("could not be made"), said.toString());
+        }
+        // a search that answered with no result is one that found nothing
+        Investigation inv = admitted("lib-answered", "who filed the gears?", "Filed by hand. https://newsite.example/story");
+        new LibrarianReview(store, index, judge(ONE_NEW_HOST, "{}"), "librarian:test").searcher(q -> "no results for: " + q).review(inv);
+        Finding filed = store.scanFindings().findings().stream().filter(f -> f.title().equals("Gears were filed")).findFirst().orElseThrow();
+        assertTrue(filed.notes().stream().anyMatch(n -> n.kind().equals("source-check") && n.text().contains("nothing else on the web refers to it yet")), filed.notes().toString());
+    }
+
+    @Test
+    void aStopDuringTheSourceCheckEndsTheReviewAndWritesNothingAsFound() throws Exception {
+        Investigation inv = admitted("who filed the gears?", "Filed by hand. https://newsite.example/story");
+        assertThrows(Stopping.Requested.class, () -> new LibrarianReview(store, index, judge(ONE_NEW_HOST, "{}"), "librarian:test")
+                .searcher(q -> { throw new Stopping.Requested(); }).review(inv));
+        assertTrue(store.scanFindings().findings().stream().flatMap(f -> f.notes().stream()).noneMatch(n -> n.text().contains("nothing else on the web")), "no note says the search found nothing");
+        assertEquals(Finding.State.draft, store.investigation(inv.id()).state(), "the stopped review did not promote the report");
     }
 
     @Test
@@ -346,7 +411,7 @@ class LibrarianReviewTest {
         var out = new LibrarianReview(store, index, judge(cut, "{\"verdict\":\"independent\"}"), "librarian:t").review(inv);
         assertEquals(2, out.keptDraft().size(), out.toString());
         assertTrue(out.problems().get(0).startsWith("extraction was cut off; 2 whole"), out.problems().toString());
-        String log = java.nio.file.Files.readString(store.root().resolve("catalog").resolve("crews.log"));
+        String log = Files.readString(store.root().resolve("catalog").resolve("crews.log"));
         assertTrue(log.contains("review") && log.contains("extraction was cut off"), log);
         // nothing parseable at all: logged with the reply's head, nothing written
         var none = new LibrarianReview(store, index, judge("Sorry, here are the claims in prose: the model aligns words.", "{}"), "librarian:t").review(admitted("q2", "body https://x.example/1"));
@@ -363,5 +428,36 @@ class LibrarianReviewTest {
         String big = LibrarianReview.forExtraction(dense, 131_072);
         assertEquals(dense.length(), big.length(), "a large window keeps the whole record");
         assertTrue(LibrarianReview.forExtraction(dense, 2_048).length() >= 4_000, "never below the floor, even for a tiny window");
+    }
+
+    @Test
+    void whatASearchDidNotFindIsKeptWithItsDateAsAPlaceSomebodyLooked_neverAsAClaim() throws Exception {
+        Investigation inv = admitted("髙橋源三郎 (also written Takahashi Genzaburo; born 1872): what do public sources say of this person's work?",
+                "He ran a railway office. https://archive.example/railway and https://patents.example/search\n\n### Searched and not found\n\n"
+                + "These searches returned nothing.\n\n- National Library, full text: 髙橋源三郎\n- Patent office: Takahashi Genzaburo\n\n## Languages of the sources\n\nJapanese 2\n");
+        String extract = """
+                [{"title": "Railway office", "claim": "Takahashi Genzaburo ran a railway office.", "claim_type": "extraction", "confidence": "high", "volatility": "stable",
+                  "sources": ["https://archive.example/railway"], "triple": {"subject": "Takahashi Genzaburo", "predicate": "ran", "object": "a railway office"}, "found": true},
+                 {"title": "Absence of Patents", "claim": "No patents by Takahashi Genzaburo were found in the patent office's search.", "claim_type": "synthesis", "confidence": "high", "volatility": "stable",
+                  "sources": ["https://patents.example/search"], "triple": {"subject": "Takahashi Genzaburo (1872-1945)", "predicate": "holds patents", "object": "none found"}, "found": false}]""";
+        var out = new LibrarianReview(store, index, judge(extract, "{}"), "librarian:test").review(inv);
+        assertEquals(1, store.scanFindings().findings().size(), "what was not found is no claim: " + out.problems());
+        assertEquals("Takahashi Genzaburo: Railway office", store.scanFindings().findings().get(0).title(), "and a title says whom it is about");
+
+        List<Looked.Entry> all = Looked.all(store);
+        assertEquals(3, all.size(), "the two searches the library counted as empty, and the one the write-up told of: " + all);
+        Looked.Entry told = all.stream().filter(e -> e.what().startsWith("No patents")).findFirst().orElseThrow();
+        assertEquals(Looked.today(), told.date());
+        assertEquals(List.of("patents.example"), told.where());
+        assertEquals(inv.id(), told.report());
+        new LibrarianReview(store, index, judge(extract, "{}"), "librarian:test").review(store.investigation(inv.id()));
+        assertEquals(3, Looked.all(store).size(), "reviewed twice, written once");
+
+        // a later search about the same person is shown it, as a place somebody looked, whatever way it writes the name
+        String shown = Looked.block(store, "髙橋源三郎 (also written Takahashi Genzaburo; born 1872): who were the parents?", 12);
+        assertTrue(shown.contains("LOOKED FOR BEFORE, AND NOT FOUND THEN") && shown.contains("on " + Looked.today() + " a search found nothing about Takahashi Genzaburo (1872-1945): No patents"), shown);
+        assertTrue(shown.contains("Looked in: patents.example") && shown.contains("Looked in: National Library, full text") && shown.contains("it does not tell you what exists"), shown);
+        assertTrue(Looked.block(store, "髙橋源三郎: and his brothers?", 12).contains("No patents"), "the romanised subject is found through how the earlier question began");
+        assertEquals("", Looked.block(store, "Endo Haru (born 1880): what do public sources say?", 12), "and somebody else's question is shown nothing");
     }
 }

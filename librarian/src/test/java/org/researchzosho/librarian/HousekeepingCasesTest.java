@@ -9,6 +9,9 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Files;
+import java.time.LocalDate;
+import org.researchzosho.Version;
 /** Setting and unsetting what the housekeeping runs on its own: kept searches and open questions, over the protocol and the files. */
 class HousekeepingCasesTest {
 
@@ -27,7 +30,7 @@ class HousekeepingCasesTest {
         assertEquals(1, list.get("searches").size());
         assertEquals("lead paint regulation news", list.get("searches").get(0).get("query").asText());
         assertTrue(list.get("searches").get(0).get("due").asBoolean(), "never run: due");
-        assertTrue(java.nio.file.Files.readString(Serials.shelvesFile(store)).contains("- lead-paint | lead paint regulation news | every 14 days | last -"), "the file is the plain line the guide documents");
+        assertTrue(Files.readString(Serials.shelvesFile(store)).contains("- lead-paint | lead paint regulation news | every 14 days | last -"), "the file is the plain line the guide documents");
         var removed = p.serials(args("{\"op\":\"remove\",\"name\":\"lead-paint\",\"patron\":{\"did\":\"did:key:zA\"}}"));
         assertTrue(removed.get("removed").asBoolean());
         assertEquals(0, p.serials(args("{\"op\":\"list\"}")).get("searches").size());
@@ -44,10 +47,10 @@ class HousekeepingCasesTest {
         var dropped = p.frontier(args("{\"op\":\"drop\",\"question\":\"when was lead paint banned in Japan\",\"patron\":{\"did\":\"did:key:zA\"}}"));
         assertTrue(dropped.get("dropped").asBoolean());
         assertEquals(0, p.frontier(args("{\"op\":\"list\"}")).get("questions").size(), "no longer open");
-        String file = java.nio.file.Files.readString(store.frontierFile());
+        String file = Files.readString(store.frontierFile());
         assertTrue(file.contains("when was lead paint banned in Japan ⇒ explored") && file.contains("dropped by patron:did:key:zA"), "kept on record, marked dropped: " + file);
         assertThrows(ProtocolError.class, () -> p.frontier(args("{\"op\":\"drop\",\"question\":\"when was lead paint banned in Japan\",\"patron\":{\"did\":\"did:key:zA\"}}")), "dropping twice is not found");
-        assertFalse(Tonight.plan(store, java.time.LocalDate.now()).picks().stream().anyMatch(l -> l.text().contains("Japan")), "the explorer will not take a dropped question");
+        assertFalse(Tonight.plan(store, LocalDate.now()).picks().stream().anyMatch(l -> l.text().contains("Japan")), "the explorer will not take a dropped question");
     }
 
     @Test
@@ -66,7 +69,7 @@ class HousekeepingCasesTest {
         var p = new LibraryProtocol(store);
         p.serials(args("{\"op\":\"add\",\"name\":\"lead\",\"query\":\"lead paint news\",\"every_days\":7,\"patron\":{\"did\":\"did:key:zA\"}}"));
         Path shelves = store.root().resolve("catalog").resolve("shelves.md");
-        java.nio.file.Files.writeString(shelves, java.nio.file.Files.readString(shelves).replace("| last -", "| last 2026-09-01"));
+        Files.writeString(shelves, Files.readString(shelves).replace("| last -", "| last 2026-09-01"));
         var r = p.serials(args("{\"op\":\"every\",\"name\":\"lead\",\"every_days\":30,\"patron\":{\"did\":\"did:key:zA\"}}"));
         assertEquals(30, r.get("every_days").asInt());
         var s = Serials.shelves(store).get(0);
@@ -77,9 +80,9 @@ class HousekeepingCasesTest {
 
     @Test
     void versionsCompareNumerically() {
-        assertTrue(org.researchzosho.Version.compare("0.1.2", "0.1.1") > 0);
-        assertTrue(org.researchzosho.Version.compare("0.10.0", "0.9.9") > 0);
-        assertEquals(0, org.researchzosho.Version.compare("1.0.0", "1.0"));
-        assertTrue(org.researchzosho.Version.compare("0.1.1", "0.1.2") < 0);
+        assertTrue(Version.compare("0.1.2", "0.1.1") > 0);
+        assertTrue(Version.compare("0.10.0", "0.9.9") > 0);
+        assertEquals(0, Version.compare("1.0.0", "1.0"));
+        assertTrue(Version.compare("0.1.1", "0.1.2") < 0);
     }
 }

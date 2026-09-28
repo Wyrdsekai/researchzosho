@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -13,7 +16,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** The graph: findings with triples are edges; identity is the person's act; the map walks it; private stays private. */
+import com.fasterxml.jackson.databind.node.ObjectNode;
+/** The graph: findings with triples are edges; identity is the person's act; the map walks it and shows every reader the same. */
 class GraphTest {
 
     private static final ObjectMapper M = new ObjectMapper();
@@ -28,10 +32,126 @@ class GraphTest {
     }
 
     @Test
+    void aPassiveWordingKeepsItsDirectionAndANounOrAPrepositionIsStillRead(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Graph core = Graph.build(store);   // science and software are on by default: cites, measured, patented, fork-of, written-in …
+        // a passive names the relation the other way round: "the paper was cited" is not "the paper cites"
+        for (String passive : List.of("was cited", "is cited", "was cited by", "was found", "was observed", "were observed", "was invented", "was invented by", "has been cited", "is reported"))
+            assertEquals(passive, core.predicateOf(passive), passive + " is kept as written, not read as the active relation");
+        // the active wordings, and the noun and preposition forms, are read as before
+        assertEquals("cites", core.predicateOf("cited"));
+        assertEquals("measured", core.predicateOf("found"));
+        assertEquals("patented", core.predicateOf("invented"));
+        assertEquals("fork-of", core.predicateOf("is a fork of"));
+        assertEquals("written-in", core.predicateOf("was written in"));
+        assertEquals("written-in", core.predicateOf("is written in"));
+        assertEquals("licensed-under", core.predicateOf("was licensed under"));
+        // a passive onto a relation worded with is or was is that relation in another tense
+        assertEquals("maintained-by", core.predicateOf("was maintained by"));
+        assertEquals("maintained-by", core.predicateOf("was developed by"));
+        // genealogy's own view reads its relations the same way
+        Graph family = FamilyPeople.view(store);
+        assertEquals("born-in", family.predicateOf("was born"));
+        assertEquals("married-to", family.predicateOf("was married"));
+        assertEquals("adopted-by", family.predicateOf("was adopted by"));
+        assertEquals("child-of", family.predicateOf("is the daughter of"));
+        assertEquals("life-event", family.predicateOf("was awarded"), "what happened to a person: the passive names that person");
+        assertEquals("was cited", family.predicateOf("was cited"));
+    }
+
+    @Test
     void theDaemonCarriesItsOwnFaviconAndTheMapPageLinksIt() {
         byte[] icon = LibrarianDaemon.favicon();
         assertTrue(icon.length > 100 && icon[1] == 'P' && icon[2] == 'N' && icon[3] == 'G', "the bundled kura is a PNG");
         assertTrue(MapPage.body("").contains("id=\"c\"></canvas>"), "the map body carries its canvas; the frame carries the icon");
+    }
+
+    @Test
+    void theOwnersHeadingAndTheWordsBesideAKindSurviveEveryWriteOfTheNodesFile(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        Files.createDirectories(Graph.dir(store));
+        Files.writeString(Graph.nodesFile(store), "# My nodes\n\nThese are my own notes: CERN is a lab, and so is the one in Hamburg.\n\n- cern — organisation, lab: CERN\n- tom-hale — person, private: Tom Hale\n");
+        f(store, "CERN", "is based in", "Meyrin", Finding.State.accepted);
+        f(store, "DESY", "is based in", "Hamburg", Finding.State.accepted);
+        Graph.merge(store, "DESY", "Deutsches Elektronen-Synchrotron", "person", "the same lab");
+        Graph.setKind(store, "Meyrin", "place");
+        Graph.alias(store, "CERN", List.of("European Organization for Nuclear Research"));
+        String nodes = Files.readString(Graph.nodesFile(store));
+        assertTrue(nodes.startsWith("# My nodes\n\nThese are my own notes: CERN is a lab, and so is the one in Hamburg.\n"), nodes);
+        assertTrue(nodes.contains("- cern — organisation, lab: CERN | also: European Organization for Nuclear Research"), nodes);
+        assertTrue(nodes.contains("- tom-hale — person: Tom Hale"), "only the old privacy word goes: " + nodes);
+        assertEquals("organisation, lab", Graph.build(store).node("cern").kind(), "the kind is read as the owner wrote it");
+        assertEquals("person", Graph.kindOf("person, private: Tom Hale"), "without the old privacy word only");
+        assertEquals("private collection", Graph.kindOf("private collection: the Hale papers"));
+    }
+
+    @Test
+    void aKindIsKeptAndReadAsWrittenAndGraphKindSaysWhatItKept(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        f(store, "Kure", "is a port on", "the Seto Inland Sea", Finding.State.accepted);
+        f(store, "The Hale papers", "are held in", "Leeds", Finding.State.accepted);
+        assertEquals("place, city", Graph.setKind(store, "Kure", "place, city"));
+        assertEquals("place, city", Graph.build(store).node("kure").kind());
+        assertEquals("private collection", Graph.setKind(store, "The Hale papers", "private collection"), "a kind that only begins with an old word is a kind");
+        assertEquals("private collection", Graph.build(store).node("the hale papers").kind());
+        assertEquals("place", Graph.setKind(store, "Kure", "place, private"), "the old privacy words are not kept");
+        assertTrue(Files.readString(Graph.nodesFile(store)).contains("- kure — place: Kure"), Files.readString(Graph.nodesFile(store)));
+        String real = System.getProperty("user.home");
+        PrintStream was = System.out;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        LibraryStore home = new LibraryStore(tmp.resolve("home").resolve("researchzosho-library")); home.init();
+        f(home, "Kure", "is a port on", "the Seto Inland Sea", Finding.State.accepted);
+        System.setProperty("user.home", tmp.resolve("home").toString());   // the command opens ~/researchzosho-library
+        System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
+        try { assertEquals(0, LibrarianCli.run(new String[]{"researchzosho", "graph", "kind", "Kure", "place, private"}, "http://127.0.0.1:1", "m")); }
+        finally { System.setOut(was); System.setProperty("user.home", real); }
+        assertTrue(out.toString(StandardCharsets.UTF_8).contains("The library now files Kure under the kind \"place\"."), out.toString(StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void takingRelationsOutOfPredicatesKeepsTheOwnersNotesBetweenThem(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        Files.createDirectories(Graph.dir(store));
+        Files.writeString(Graph.predicatesFile(store), "# My relations\n\n- funded-by — is funded by | also: sponsored by\n"
+                + "<!-- the family ones came from turning genealogy on -->\n- parent-of — is a parent of | also: father of\n\nMine again from here:\n- cites — cites\n", StandardCharsets.UTF_8);
+        assertEquals(1, Graph.forgetPredicates(store, Set.of("parent-of", "married-to")));
+        assertEquals("# My relations\n\n- funded-by — is funded by | also: sponsored by\n<!-- the family ones came from turning genealogy on -->\n\nMine again from here:\n- cites — cites\n",
+                Files.readString(Graph.predicatesFile(store)));
+    }
+
+    @Test
+    void aMergeIntoANodeAndItsUnmergeKeepTheWordsBesideItsKind(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        Files.createDirectories(Graph.dir(store));
+        Files.writeString(Graph.nodesFile(store), "# My nodes\n\n- cern — organisation, lab: CERN\n");
+        f(store, "CERN", "is based in", "Meyrin", Finding.State.accepted);
+        f(store, "CERN lab", "runs", "the LHC", Finding.State.accepted);
+        Graph.merge(store, "CERN lab", "CERN", "person", "the same lab");
+        assertTrue(Files.readString(Graph.nodesFile(store)).contains("- cern — organisation, lab: CERN | also: CERN lab"), Files.readString(Graph.nodesFile(store)));
+        Graph.unmerge(store, "CERN lab", null, "person", "two names after all");
+        assertTrue(Files.readString(Graph.nodesFile(store)).contains("- cern — organisation, lab: CERN\n"), Files.readString(Graph.nodesFile(store)));
+    }
+
+    /** The heading 0.4.6 wrote at the top of nodes.md. */
+    static final String HEADING_046 = "# Graph nodes — the things the findings are about\n\n"
+            + "One per line: `- <id> — <kind>: <label> | also: other names | wikidata: Qn`. Curated here; every other\n"
+            + "node is computed from the findings' triples. `private` in the kind marks a node the desk never shows\n"
+            + "to another patron (a living person, say). Merges are the person's act: `researchzosho graph merge`.\n\n";
+
+    @Test
+    void theOldHeadingGoesAndTheOwnersNotesBesideItStay(@TempDir Path tmp) throws Exception {
+        String note = "My own note: the two Hamburg labs are one institution.";
+        for (boolean above : new boolean[]{false, true}) {
+            LibraryStore store = new LibraryStore(tmp.resolve(above ? "above" : "below")); store.init();
+            Files.createDirectories(Graph.dir(store));
+            Files.writeString(Graph.nodesFile(store), (above ? note + "\n\n" + HEADING_046 : HEADING_046 + note + "\n\n") + "- cern — organisation, lab: CERN\n- tom-hale — person, private: Tom Hale\n");
+            Graph.alias(store, "CERN", List.of("European Organization for Nuclear Research"));
+            String nodes = Files.readString(Graph.nodesFile(store));
+            assertTrue(nodes.contains(note), "the owner's note stays: " + nodes);
+            assertFalse(nodes.contains("`private`"), "the old heading goes: " + nodes);
+            assertTrue(nodes.contains("# Graph nodes — the things the findings are about"), "and today's is in its place: " + nodes);
+            assertTrue(nodes.contains("- tom-hale — person: Tom Hale"), nodes);
+        }
     }
 
     @Test
@@ -45,18 +165,18 @@ class GraphTest {
         Graph g = Graph.build(store);
         assertEquals(4, g.edges().size(), "a retired finding is no edge");
         assertNotNull(g.node("arthur ellis"));
-        Graph.Neighbourhood one = g.around("arthur ellis", 1, 25, true);
+        Graph.Neighbourhood one = g.around("arthur ellis", 1, 25);
         assertEquals("arthur ellis", one.focus().id());
         assertEquals(4, one.nodes().size(), "arthur + lyttelton + the patent + rose");
         assertEquals(3, one.edges().size());
-        Graph.Neighbourhood two = g.around("Arthur  ELLIS.", 2, 25, true);
+        Graph.Neighbourhood two = g.around("Arthur  ELLIS.", 2, 25);
         assertTrue(two.nodes().stream().anyMatch(n -> n.id().equals("shortest-path algorithm")), "two hops: the family shelf meets the algorithm shelf");
         assertTrue(Graph.render(two).contains("—patented→"));
         // k caps the neighbourhood, nearest first
-        assertEquals(2, g.around("arthur ellis", 2, 2, true).nodes().size());
+        assertEquals(2, g.around("arthur ellis", 2, 2).nodes().size());
         // an entry id focuses on its triple's subject
-        assertEquals("arthur ellis", g.around(retired.id().replace(retired.id(), one.edges().get(0).findingId()), 1, 5, true).focus().id());
-        assertNull(g.around("nobody here", 1, 5, true).focus());
+        assertEquals("arthur ellis", g.around(retired.id().replace(retired.id(), one.edges().get(0).findingId()), 1, 5).focus().id());
+        assertNull(g.around("nobody here", 1, 5).focus());
     }
 
     @Test
@@ -97,17 +217,35 @@ class GraphTest {
     }
 
     @Test
+    void twoPlacesAreProposedAsOneOnlyWhenThePlaceAndWhatItLiesInAgree(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        String[] places = {"York, England", "New York, England", "Springfield, Illinois, USA", "Springfield, Sangamon, Illinois, USA", "Springfield, Ohio, USA",
+                "廣島縣安芸郡府中町", "広島県安芸郡府中町", "広島県安芸郡海田町"};
+        for (String p : places) { f(store, "Tom Hale", "lived-in", p, Finding.State.draft); Graph.setKind(store, p, "place"); }
+        Graph.propose(store);
+        String text = Files.readString(Graph.dir(store).resolve("proposals.md"), StandardCharsets.UTF_8);
+        assertFalse(text.contains("(York, England / New York, England)") || text.contains("(New York, England / York, England)"), "York is not New York: " + text);
+        assertTrue(text.contains("Springfield, Illinois, USA / Springfield, Sangamon, Illinois, USA") || text.contains("Springfield, Sangamon, Illinois, USA / Springfield, Illinois, USA"), "a county between them does not part them: " + text);
+        assertFalse(text.contains("Ohio, USA / Springfield, Illinois") || text.contains("Illinois, USA / Springfield, Ohio"), text);
+        assertTrue(text.contains("廣島縣安芸郡府中町 / 広島県安芸郡府中町") || text.contains("広島県安芸郡府中町 / 廣島縣安芸郡府中町"), "the old forms of the characters are the same address: " + text);
+        assertFalse(text.contains("海田町"), "two towns of one district are two places: " + text);
+        assertEquals(List.of("四日市市", "三重県"), Graph.placeParts("三重県四日市市"), "the city of 四日市 is one part");
+        assertEquals(List.of("京都市", "京都府"), Graph.placeParts("京都府京都市"));
+        assertFalse(Graph.samePlace("Springfield", "Springfield, Illinois"), "a place alone says nothing of where it lies");
+    }
+
+    @Test
     void aSubmissionWithATripleIsAnEdgeAndTheCrewFillsTheOthers(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         Patrons.setDefault(store, Patrons.Level.write);
         LibraryProtocol p = new LibraryProtocol(store);
-        var r = p.submit((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"claim\":\"Arthur Ellis holds NZ patent 000001 on a route-mapping method.\",\"sources\":[\"https://patents.example/NZ000001\"],\"triple\":{\"subject\":\"Arthur Ellis\",\"predicate\":\"patented\",\"object\":\"route-mapping method\"}}"));
+        var r = p.submit((ObjectNode) M.readTree("{\"claim\":\"Arthur Ellis holds NZ patent 000001 on a route-mapping method.\",\"sources\":[\"https://patents.example/NZ000001\"],\"triple\":{\"subject\":\"Arthur Ellis\",\"predicate\":\"patented\",\"object\":\"route-mapping method\"}}"));
         assertEquals("route-mapping method", store.finding(r.get("id").asText()).triple().object());
         assertEquals(1, Graph.build(store).edges().size());
-        ProtocolError bad = assertThrows(ProtocolError.class, () -> p.submit((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"claim\":\"A claim long enough to be a claim about something.\",\"sources\":[\"https://x.example/1\"],\"triple\":{\"subject\":\"A\"}}")));
+        ProtocolError bad = assertThrows(ProtocolError.class, () -> p.submit((ObjectNode) M.readTree("{\"claim\":\"A claim long enough to be a claim about something.\",\"sources\":[\"https://x.example/1\"],\"triple\":{\"subject\":\"A\"}}")));
         assertEquals("invalid_args", bad.code);
-        var plain = p.submit((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"claim\":\"Rose Morgan taught at Otago Girls High School from 1960.\",\"sources\":[\"https://x.example/2\"]}"));
+        var plain = p.submit((ObjectNode) M.readTree("{\"claim\":\"Rose Morgan taught at Otago Girls High School from 1960.\",\"sources\":[\"https://x.example/2\"]}"));
         assertNull(store.finding(plain.get("id").asText()).triple());
         Triples.Outcome o = Triples.fill(store, claim -> claim.contains("Rose") ? "{\"subject\":\"Rose Morgan\",\"predicate\":\"taught at\",\"object\":\"Otago Girls High School\"}" : "{\"triple\": null}", 40);
         assertEquals(1, o.asked()); assertEquals(1, o.filled());
@@ -127,27 +265,31 @@ class GraphTest {
     }
 
     @Test
-    void privateNodesAreShownOnlyToThePerson(@TempDir Path tmp) throws Exception {
+    void theMapShowsEveryReaderWhatItShowsThePerson(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         f(store, "Mara Ellis", "child of", "Simon Ellis", Finding.State.accepted);
-        Graph.setKind(store, "Mara Ellis", "person", true);
-        Graph.setKind(store, "Simon Ellis", "person", false);
+        f(store, "Simon Ellis", "worked as", "joiner", Finding.State.accepted);
+        Graph.setKind(store, "Mara Ellis", "person");
+        Graph.setKind(store, "Simon Ellis", "person");
         LibraryProtocol p = new LibraryProtocol(store);
-        var empty = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"\"}"));
+        var empty = p.map((ObjectNode) M.readTree("{\"focus\":\"\"}"));
         assertTrue(empty.path("suggestions").size() > 0, "an empty focus lists the names the map knows best: " + empty);
         assertTrue(empty.path("node").isNull());
-        var partial = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"" + empty.path("suggestions").get(0).path("label").asText().split(" ")[0].toLowerCase() + "\"}"));
+        var partial = p.map((ObjectNode) M.readTree("{\"focus\":\"" + empty.path("suggestions").get(0).path("label").asText().split(" ")[0].toLowerCase() + "\"}"));
         assertFalse(partial.path("holds_nothing").asBoolean(), "a word of a name finds the nearest name: " + partial);
         assertTrue(partial.hasNonNull("resolved_from") || partial.path("node").path("label").asText().equalsIgnoreCase(empty.path("suggestions").get(0).path("label").asText()), partial.toString());
-        var none = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"nobody-by-that-name\"}"));
+        var none = p.map((ObjectNode) M.readTree("{\"focus\":\"nobody-by-that-name\"}"));
         assertTrue(none.path("holds_nothing").asBoolean() && none.path("suggestions").size() > 0, "and so does a name that finds nothing");
-        var person = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"Simon Ellis\",\"patron\":{\"did\":\"person\"}}"));
-        assertEquals(2, person.get("nodes").size(), "the person sees the living child");
-        var patron = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"Simon Ellis\"}"));
-        assertEquals(1, patron.get("nodes").size(), "another patron sees no private node");
-        var hidden = p.map((com.fasterxml.jackson.databind.node.ObjectNode) M.readTree("{\"focus\":\"Mara Ellis\"}"));
-        assertTrue(hidden.get("holds_nothing").asBoolean(), "a private focus holds nothing for a patron");
+        var person = p.map((ObjectNode) M.readTree("{\"focus\":\"Simon Ellis\",\"patron\":{\"did\":\"person\"}}"));
+        assertTrue(person.get("nodes").toString().contains("Mara Ellis"), "the person sees the living child");
+        Patrons.setDefault(store, Patrons.Level.read);   // a reader
+        var patron = p.map((ObjectNode) M.readTree("{\"focus\":\"Simon Ellis\"}"));
+        assertTrue(patron.get("nodes").toString().contains("Mara Ellis"), "a reader sees the living child too: " + patron);
+        assertEquals(person.get("nodes").size(), patron.get("nodes").size(), patron.toString());
+        var mara = p.map((ObjectNode) M.readTree("{\"focus\":\"Mara Ellis\"}"));
+        assertFalse(mara.get("holds_nothing").asBoolean(), mara.toString());
+        assertFalse(mara.get("node").has("private"), "a node carries no private mark: " + mara);
         assertEquals("person", person.get("node").get("kind").asText());
         assertEquals(LibraryProtocol.CONTRACT, person.get("contract").asText());
     }
@@ -167,12 +309,12 @@ class GraphTest {
         assertTrue(g.edges().stream().anyMatch(e -> e.predicate().equals("is filed under") && e.to().equals("subject:film--tokyo") && e.findingId().equals(x.id())));
         // asked by its label or its slug, the subject is the focus and its names are around it
         for (String ask : new String[]{"filming in Tokyo", "film--tokyo"}) {
-            Graph.Neighbourhood nb = g.around(ask, 1, 25, true);
+            Graph.Neighbourhood nb = g.around(ask, 1, 25);
             assertNotNull(nb.focus(), ask); assertEquals("subject:film--tokyo", nb.focus().id());
             assertEquals(3, nb.nodes().size(), "the subject and its two names: " + nb.nodes());
         }
         // and a name still leads to its subject
-        Graph.Neighbourhood nb = g.around("Akasaka", 1, 25, true);
+        Graph.Neighbourhood nb = g.around("Akasaka", 1, 25);
         assertTrue(nb.nodes().stream().anyMatch(n -> n.kind().equals("subject")));
     }
 }

@@ -18,6 +18,7 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** A paper, a website and an issue tracker as starting points: read, described, filed, and the kind told from the thing. */
 class SurveysTest {
 
@@ -114,7 +115,7 @@ class SurveysTest {
             assertTrue(site.text().contains("cuts survey time by 40%"), site.text());
             Surveys.Description d = Surveys.describe(site, null);
             assertTrue(d.options().get(0).startsWith("Are the claims made at " + base + "/product backed"), d.options().get(0));
-            assertThrows(java.io.IOException.class, () -> Surveys.read(null, Surveys.Kind.site, base + "/missing"), "HTTP 404 is said, not swallowed");
+            assertThrows(IOException.class, () -> Surveys.read(null, Surveys.Kind.site, base + "/missing"), "HTTP 404 is said, not swallowed");
         } finally { setLoopback(false); srv.stop(0); }
         // an issues export: a JSON list in GitHub's shape; pull requests are left out; the newest hundred read
         Path export = home.resolve("tidebook-issues.json");
@@ -136,5 +137,12 @@ class SurveysTest {
         Files.writeString(txt, "From: a\nSubject: gain\n\nThe gain is wrong.\n");
         Surveys.Read t = Surveys.read(null, Surveys.Kind.issues, txt.toString());
         assertEquals("thread", t.name()); assertTrue(t.text().contains("The gain is wrong."));
+    }
+
+    @Test
+    void theRepositoriesAReportNamesInItsAnswerInOrderAndNotThoseInItsEvidence() {
+        String body = "## Answer\n\n| Project | Link |\n|---|---|\n| Tree | https://github.com/ellis/tree-app |\n| Gedcom | https://github.com/hale/gedcom-reader/issues/4 |\n\nAlso https://github.com/topics/genealogy and https://github.com/ellis/tree-app/releases.\n\n## Evidence\n\nhttps://github.com/nobody/noise\n";
+        Investigation inv = new Investigation("I-0001-x", "which projects?", Finding.State.draft, "w", "2026-09-22T00:00:00Z", List.of(), List.of(), body);
+        assertEquals(List.of("https://github.com/ellis/tree-app", "https://github.com/hale/gedcom-reader"), Surveys.reposIn(inv));
     }
 }

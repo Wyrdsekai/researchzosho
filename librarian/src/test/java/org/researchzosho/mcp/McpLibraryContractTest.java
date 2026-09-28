@@ -14,6 +14,10 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.reflect.Field;
+import java.util.function.Predicate;
+import org.researchzosho.librarian.LibraryProtocol;
+import org.researchzosho.librarian.Patrons;
 /** The MCP surface of the library protocol: the nine tools, resources, structured results, error codes. */
 class McpLibraryContractTest {
 
@@ -51,7 +55,7 @@ class McpLibraryContractTest {
         JsonNode r = call("library_status", "{\"patron\":{\"did\":\"did:key:z1\",\"runtime\":\"wyrdsekai\"}}");
         assertFalse(r.get("isError").asBoolean());
         JsonNode s = r.get("structuredContent");
-        assertEquals(org.researchzosho.librarian.LibraryProtocol.CONTRACT, s.get("contract").asText());
+        assertEquals(LibraryProtocol.CONTRACT, s.get("contract").asText());
         assertTrue(s.get("library_id").asText().startsWith("lib_"));
         assertEquals(s.get("library_id").asText(), M.readTree(r.get("content").get(0).get("text").asText()).get("library_id").asText());
         JsonNode init = McpServer.handle("initialize", M.createObjectNode());
@@ -62,7 +66,7 @@ class McpLibraryContractTest {
         String json = M.writeValueAsString(McpServer.handle("tools/list", M.createObjectNode()));
         assertNotNull(json);
         // a sourceless submission from a writing patron → JSON-RPC error with data.code = no_sources
-        org.researchzosho.librarian.Patrons.set(LibraryStore.open(), "did:key:zW", "W", org.researchzosho.librarian.Patrons.Level.write);
+        Patrons.set(LibraryStore.open(), "did:key:zW", "W", Patrons.Level.write);
         Exception e = assertThrows(Exception.class, () -> call("library_submit",
                 "{\"claim\":\"A claim long enough to be a claim about something.\",\"sources\":[],\"patron\":{\"did\":\"did:key:zW\"}}"));
         assertEquals("RpcError", e.getClass().getSimpleName());
@@ -75,16 +79,16 @@ class McpLibraryContractTest {
 
     @Test void theLibrarianVerbServesOnlyLibraryTools() throws Exception {
         try {
-            java.lang.reflect.Field f = McpServer.class.getDeclaredField("toolFilter");
+            Field f = McpServer.class.getDeclaredField("toolFilter");
             f.setAccessible(true);
-            f.set(null, (java.util.function.Predicate<String>) n -> n.startsWith("library_"));
+            f.set(null, (Predicate<String>) n -> n.startsWith("library_"));
             JsonNode tools = McpServer.handle("tools/list", M.createObjectNode()).get("tools");
             for (JsonNode t : tools) assertTrue(t.get("name").asText().startsWith("library_"), t.get("name").asText());
             assertTrue(tools.size() >= 10);
             Exception e = assertThrows(Exception.class, () -> call("code", "{\"project\":\"/x\",\"goal\":\"y\"}"));
             assertTrue(e.getMessage().contains("unknown tool"));
         } finally {
-            java.lang.reflect.Field f = McpServer.class.getDeclaredField("toolFilter");
+            Field f = McpServer.class.getDeclaredField("toolFilter");
             f.setAccessible(true);
             f.set(null, null);
         }

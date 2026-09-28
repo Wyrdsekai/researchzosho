@@ -14,11 +14,14 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import java.util.function.Supplier;
+import org.researchzosho.mcp.McpServer;
 /** A conversation with another assistant, absorbed: shelved as it is, the person's questions filed, the assistant's claims listed to check. */
 class ConversationsTest {
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static java.util.function.Supplier<Researcher.Drive> drives;
+    private static Supplier<Researcher.Drive> drives;
 
     @BeforeAll static void noModel() { drives = Explain.DRIVES; Explain.DRIVES = () -> null; }
     @AfterAll static void restore() { Explain.DRIVES = drives; }
@@ -95,7 +98,7 @@ class ConversationsTest {
         assertFalse(claims.stream().anyMatch(c -> c.endsWith("?")));
         // the model's reading, when there is one, is a list of lines
         var extractor = Conversations.modelExtractor(new ResearcherTest.ScriptedDrive() {
-            @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode messages, int maxTokens) { return "- The gears were cut from bronze sheet 2 mm thick.\n2. The largest gear has 223 teeth.\nNONE"; }
+            @Override public String classify(ArrayNode messages, int maxTokens) { return "- The gears were cut from bronze sheet 2 mm thick.\n2. The largest gear has 223 teeth.\nNONE"; }
         });
         assertEquals(List.of("The gears were cut from bronze sheet 2 mm thick.", "The largest gear has 223 teeth."), extractor.apply("anything"));
     }
@@ -172,7 +175,7 @@ class ConversationsTest {
         assertThrows(ProtocolError.class, () -> p.absorb(M.createObjectNode().put("path", f.toString()).put("text", "x")), "one input, not two");
         // the chat and the MCP server offer it
         assertTrue(Librarian.TOOLS.contains("library_absorb"));
-        boolean served = false; for (var t : org.researchzosho.mcp.McpServer.allTools()) if (t.path("name").asText().equals("library_absorb")) served = true;
+        boolean served = false; for (var t : McpServer.allTools()) if (t.path("name").asText().equals("library_absorb")) served = true;
         assertTrue(served);
     }
 }

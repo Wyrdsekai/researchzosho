@@ -21,6 +21,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import java.net.ConnectException;
+import org.researchzosho.Config;
 /**
  * Other libraries this one may ask. A peer is a name, an address and a reader token that library
  * gave you, kept in {@code catalog/peers.md}, and it may belong to groups ("family", "the lab"). An
@@ -35,7 +37,7 @@ import java.util.concurrent.TimeUnit;
 public final class Peers {
 
     private static final ObjectMapper M = new ObjectMapper();
-    static final int TIMEOUT_S = org.researchzosho.Config.getInt("RESEARCHZOSHO_PEER_TIMEOUT", 12);
+    static final int TIMEOUT_S = Config.getInt("RESEARCHZOSHO_PEER_TIMEOUT", 12);
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     private static final ExecutorService POOL = Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "peers"); t.setDaemon(true); return t; });
 
@@ -94,7 +96,7 @@ public final class Peers {
 
     /** The group asked by default when this library holds nothing, or "" for none. */
     public static String defaultGroup() {
-        String g = org.researchzosho.Config.get("RESEARCHZOSHO_PEERS_DEFAULT", "");
+        String g = Config.get("RESEARCHZOSHO_PEERS_DEFAULT", "");
         return g == null ? "" : g.strip();
     }
 
@@ -137,7 +139,7 @@ public final class Peers {
             one.set("entries", j.path("entries").isArray() ? j.path("entries") : M.createArrayNode());
             one.put("rendered", j.path("rendered").asText(""));
         } catch (Exception e) {
-            one.put("error", e instanceof java.net.ConnectException ? "nothing is answering at " + p.url() : e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()));
+            one.put("error", e instanceof ConnectException ? "nothing is answering at " + p.url() : e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()));
         }
         return one;
     }

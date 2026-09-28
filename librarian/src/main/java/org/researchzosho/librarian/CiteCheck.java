@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Entities;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -13,6 +15,14 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.net.URI;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.TreeSet;
+import org.researchzosho.Config;
+import org.researchzosho.drive.Declined;
 /**
  * The cite-check at synthesis time: every sentence the report supports with a citation is read
  * against the SOURCE it cites — the captured text, not the model's memory — before the report is
@@ -28,7 +38,7 @@ public final class CiteCheck {
 
     private static final ObjectMapper M = new ObjectMapper();
     /** How many cited sentences to read at most; 0 (the default) = every one. A turn ceiling on the ask bounds it anyway. */
-    static final int MAX_CHECKS = org.researchzosho.Config.getInt("RESEARCHZOSHO_CITECHECK_MAX", 0);
+    static final int MAX_CHECKS = Config.getInt("RESEARCHZOSHO_CITECHECK_MAX", 0);
     /** Abbreviations whose period ends no sentence. */
     private static final java.util.Set<String> ABBREV = java.util.Set.of("al", "e.g", "i.e", "cf", "vs", "etc", "no", "pp", "fig", "vol", "ca", "approx");
 
@@ -67,7 +77,7 @@ public final class CiteCheck {
         List<Marker> out = new ArrayList<>();
         Matcher p = PAREN.matcher(sentence); while (p.find()) out.add(new Marker(p.start(), p.end(), p.group(1)));
         Matcher b = BRACKET.matcher(sentence); while (b.find()) out.add(new Marker(b.start(), b.end(), b.group(1)));
-        out.sort(java.util.Comparator.comparingInt(Marker::start));
+        out.sort(Comparator.comparingInt(Marker::start));
         return out;
     }
     /** The references a sentence cites, in order, mapped; empty when none maps. */
@@ -83,10 +93,14 @@ public final class CiteCheck {
      * {@code overruled}: the judge said unsupported but the source holds the clause's numbers and a long run of its words,
      * so the judge's verdict was set aside and counted as a false negative (judges under-reward correct citations —
      * arXiv 2607.08700 — and ours did on a true sentence, 2026-09-12); {@code unretrieved}: citations of a source no
-     * worker read this run, marked and not judged.
+     * worker read this run, marked and not judged. {@code declined}: the model declined to check a sentence, which stopped the check
+     * there; the marks placed before it stand, and that sentence and the ones after it are unchecked. Null when it declined nothing.
      */
-    public record Outcome(String text, int checked, int supported, int unsupported, int unmapped, List<String> problems, int mechanical, int overruled, int unretrieved) {
+    public record Outcome(String text, int checked, int supported, int unsupported, int unmapped, List<String> problems, int mechanical, int overruled, int unretrieved, Declined declined) {
         public Outcome(String text, int checked, int supported, int unsupported, int unmapped, List<String> problems) { this(text, checked, supported, unsupported, unmapped, problems, 0, 0, 0); }
+        public Outcome(String text, int checked, int supported, int unsupported, int unmapped, List<String> problems, int mechanical, int overruled, int unretrieved) {
+            this(text, checked, supported, unsupported, unmapped, problems, mechanical, overruled, unretrieved, null);
+        }
     }
 
     /** The numbers a clause states: two or more digits, with any decimal part; a year counts. */
@@ -112,12 +126,13 @@ public final class CiteCheck {
         if (w.length < words) return false;
         String src = norm(source);
         for (int i = 0; i + words <= w.length; i++) {
-            if (src.contains(String.join(" ", java.util.Arrays.copyOfRange(w, i, i + words)))) return true;
+            if (src.contains(String.join(" ", Arrays.copyOfRange(w, i, i + words)))) return true;
         }
         return false;
     }
 
-    static String norm(String s) { return s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").strip(); }
+    /** Letters and digits only, in lower case; character references decoded first, so a page saved as "project&#x27;s" matches "project's". */
+    static String norm(String s) { return Entities.decode(s).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").strip(); }
 
     /** The mechanical verdict for a clause against its source, before any judge: supported when its numbers all sit in the source, or an eight-word run does. */
     static String mechanical(String clause, String source) {
@@ -132,10 +147,10 @@ public final class CiteCheck {
         public Ref(int n, String locator, String edition) { this(n, locator, edition, ""); }
         Set tokens() {
             String s = (edition + " " + title + " " + locator).toLowerCase(Locale.ROOT);
-            java.util.Set<String> t = new java.util.HashSet<>();
+            java.util.Set<String> t = new HashSet<>();
             Matcher m = Pattern.compile("[\\p{L}]{4,}|\\b(1[5-9]\\d\\d|20\\d\\d)\\b").matcher(s);
             while (m.find()) t.add(m.group());
-            try { String h = java.net.URI.create(locator).getHost(); if (h != null) for (String p : h.split("\\.")) if (p.length() > 3 && !p.equals("www")) t.add(p); } catch (Exception ignored) { }
+            try { String h = URI.create(locator).getHost(); if (h != null) for (String p : h.split("\\.")) if (p.length() > 3 && !p.equals("www")) t.add(p); } catch (Exception ignored) { }
             return new Set(t);
         }
         record Set(java.util.Set<String> words) { }
@@ -184,12 +199,12 @@ public final class CiteCheck {
             }
             if (hits == 1) return only;   // several references on one host: the words below must decide
         }
-        java.util.Set<String> words = new java.util.HashSet<>();
+        java.util.Set<String> words = new HashSet<>();
         Matcher w = Pattern.compile("[\\p{L}]{4,}|\\b(1[5-9]\\d\\d|20\\d\\d)\\b").matcher(cite.toLowerCase(Locale.ROOT));
         while (w.find()) words.add(w.group());
         words.removeAll(java.util.Set.of("et al", "and", "the", "with"));
         // a token that most references share ("radiocarbon" across a radiocarbon question) identifies nothing
-        Map<String, Integer> df = new java.util.HashMap<>();
+        Map<String, Integer> df = new HashMap<>();
         for (Ref r : refs) for (String t : r.tokens().words()) df.merge(t, 1, Integer::sum);
         Ref best = null; int bestScore = 0; boolean tie = false;
         for (Ref r : refs) {
@@ -210,7 +225,7 @@ public final class CiteCheck {
     }
 
     static String hostOf(String locator) {
-        try { if (locator == null || !locator.contains("://")) return null; String h = java.net.URI.create(locator.strip()).getHost(); return h == null ? null : h.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", ""); }
+        try { if (locator == null || !locator.contains("://")) return null; String h = URI.create(locator.strip()).getHost(); return h == null ? null : h.toLowerCase(Locale.ROOT).replaceFirst("^www\\.", ""); }
         catch (Exception e) { return null; }
     }
 
@@ -220,7 +235,7 @@ public final class CiteCheck {
      * <p>The unit read is the CLAUSE a citation closes — from the sentence's start, or the previous citation, up to the
      * parenthetical — not the whole sentence. A sentence that runs "(a) … (Read AI, 159,870 meetings); (b) no evidence
      * was found …; (c) …" cites one source for its first clause only; read whole against that source it was marked
-     * unsupported for claims it never attributed to it (dolores, I-0002, 2026-09-11). A clause found unsupported is
+     * unsupported for claims it never attributed to it (a test box, I-0002, 2026-09-11). A clause found unsupported is
      * marked right after its citation.
      */
     public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget) { return run(store, text, refs, judge, budget, java.util.Set.of()); }
@@ -231,6 +246,7 @@ public final class CiteCheck {
         int checked = 0, supported = 0, unsupported = 0, unmapped = 0, mechanical = 0, overruled = 0, unretrieved = 0;
         Map<String, String> marked = new LinkedHashMap<>();   // sentence → the sentence with its markers
         boolean stopped = false;
+        Declined declined = null;
         boolean inSources = false;
         for (String raw : sentences(text)) {
             if (stopped || (MAX_CHECKS > 0 && checked >= MAX_CHECKS)) break;
@@ -263,7 +279,8 @@ public final class CiteCheck {
                 String source;
                 try {
                     Path p = RawCapture.find(store, ref.locator());
-                    if (p == null) {
+                    String code = p == null ? CodeTool.textOf(store, ref.locator()) : null;   // a repository's file, as read_code read it
+                    if (p == null && code == null) {
                         // no capture: a source a worker noted from a search result but never fetched cannot be checked — unmapped, unmarked
                         // (five of six "not read" marks fell on sources with quoted evidence rows, 2026-09-12). Only the writer's own URL,
                         // one no worker noted or read, is marked (jmlon's verify.py drops these before any model call).
@@ -275,14 +292,16 @@ public final class CiteCheck {
                         copied = at;
                         continue;
                     }
-                    source = RawCapture.read(p)[2];
+                    source = code != null ? code : RawCapture.read(p)[2];
                 } catch (Exception e) { unmapped++; continue; }
                 // the mechanical pass first: numbers that sit in the source, or an eight-word run of the clause, settle it at no cost
                 String mech = mechanical(clause, source);
                 if (mech.equals("supported")) { checked++; supported++; mechanical++; continue; }
                 if (!budget.take()) { problems.add("cite-check stopped after " + checked + " check(s): the ask's budget is spent; " + (unmapped) + " unmapped so far"); stopped = true; break; }
                 checked++;
-                String verdict = judge(judge, clause, excerpt(source, clause));
+                String verdict;
+                try { verdict = judge(judge, clause, excerpt(source, clause)); }
+                catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // the marks so far stand; this sentence is unchecked
                 if (verdict.equals("unsupported") && !numbers(clause).isEmpty() && numbersInSource(clause, source) && overlapInSource(clause, source, 5)) {
                     // the judge's no against the source's own words: set aside, counted as a false negative, not marked
                     overruled++; verdict = "supported";
@@ -290,7 +309,9 @@ public final class CiteCheck {
                 } else if (verdict.equals("unsupported") && budget.take()) {
                     // a second opinion that must QUOTE: a paraphrase the first read missed is found by asking for the passage, and the
                     // passage is checked verbatim against the source — 8 of 20 marks were wrong, 4 on text on the page (2026-09-12)
-                    String quote = supportingQuote(judge, clause, excerpt(source, clause));
+                    String quote;
+                    try { quote = supportingQuote(judge, clause, excerpt(source, clause)); }
+                    catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // unchecked, not marked on the first read alone
                     if (!quote.isEmpty() && overlapInSource(quote, source, Math.min(5, Math.max(3, norm(quote).split(" ").length)))) {
                         overruled++; verdict = "supported";
                         problems.add("judge overruled on a second read (the source says: \"" + Acquisitions.compress(quote, 100) + "\"): " + Acquisitions.compress(clause, 80));
@@ -313,7 +334,12 @@ public final class CiteCheck {
         }
         String out = text;
         for (Map.Entry<String, String> e : marked.entrySet()) out = out.replace(e.getKey(), e.getValue());
-        return new Outcome(out, checked, supported, unsupported, unmapped, problems, mechanical, overruled, unretrieved);
+        return new Outcome(out, checked, supported, unsupported, unmapped, problems, mechanical, overruled, unretrieved, declined);
+    }
+
+    /** What the check says where the model declined to check a sentence. */
+    private static String declinedHere(String clause) {
+        return "the model declined to check the citation of this sentence (see Declined); it and the sentences after it are unchecked: " + Acquisitions.compress(clause, 100);
     }
 
     /** The passage of the source that supports the sentence, verbatim, or "" when the judge finds none. Checked against the source by the caller. */
@@ -325,12 +351,14 @@ public final class CiteCheck {
                     + "that shows it, exactly as written. If nothing in the source does, answer none.\n\nSENTENCE:\n" + sentence
                     + "\n\nSOURCE (excerpt):\n" + Fence.wrap("SOURCE TEXT", source) + "\n" + Fence.rule("SOURCE TEXT")
                     + "\n\nAnswer with JSON only: {\"quote\": \"<the passage, or none>\"}");
-            String raw = judge.classify(msgs, 160);
+            String raw;
+            try (var step = Declines.step("copy the passage of a source that supports a sentence of a report, as JSON")) { raw = judge.classify(msgs, 160); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return "";
             String q = M.readTree(raw.substring(a, b + 1)).path("quote").asText("").strip();
             return q.equalsIgnoreCase("none") || q.length() < 12 ? "" : q;
-        } catch (Exception e) { return ""; }
+        } catch (Declined d) { throw d; }   // the model declined to check: said in the report, never read as "no passage"
+        catch (Exception e) { return ""; }
     }
 
     static String judge(Researcher.Drive judge, String sentence, String source) {
@@ -342,12 +370,15 @@ public final class CiteCheck {
                     + "\n\nAnswer with JSON only: {\"verdict\": \"supported|unsupported|cannot-tell\"}. supported = the source states or "
                     + "clearly implies it; unsupported = the source contradicts it or says something materially different; "
                     + "cannot-tell = the excerpt does not cover it.");
-            String raw = judge.classify(msgs, 60);
+            String raw;
+            try (var step = Declines.step("say whether a source supports a sentence of a report, as JSON")) { raw = judge.classify(msgs, 60); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
             if (a < 0 || b <= a) return "cannot-tell";
             JsonNode j = M.readTree(raw.substring(a, b + 1));
             String v = j.path("verdict").asText("cannot-tell").toLowerCase(Locale.ROOT).strip();
             return v.equals("supported") || v.equals("unsupported") ? v : "cannot-tell";
+        } catch (Declined d) {
+            throw d;   // the model declined to check: said in the report, never read as cannot-tell
         } catch (Exception e) {
             return "cannot-tell";
         }
@@ -356,12 +387,12 @@ public final class CiteCheck {
     /** The part of a long source most likely to bear on the sentence: windows around its rarest words, capped. */
     static String excerpt(String source, String sentence) {
         if (source.length() <= 6000) return source;
-        java.util.List<String> words = new ArrayList<>();
+        List<String> words = new ArrayList<>();
         Matcher w = Pattern.compile("[\\p{L}\\p{N}]{5,}").matcher(sentence.toLowerCase(Locale.ROOT));
         while (w.find()) words.add(w.group());
         String lower = source.toLowerCase(Locale.ROOT);
         StringBuilder sb = new StringBuilder(source.substring(0, 800)).append("\n…\n");
-        java.util.Set<Integer> starts = new java.util.TreeSet<>();
+        java.util.Set<Integer> starts = new TreeSet<>();
         for (String word : words) {
             int i = lower.indexOf(word);
             int hits = 0;

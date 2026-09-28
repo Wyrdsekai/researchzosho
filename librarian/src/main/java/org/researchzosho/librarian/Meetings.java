@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.researchzosho.drive.Declined;
 
 /**
  * A meeting transcript as a starting point: speakers instead of a person and an assistant. The questions
@@ -23,7 +24,10 @@ public final class Meetings {
     public record Transcript(String title, List<Turn> turns) {
         public List<String> speakers() { Set<String> s = new LinkedHashSet<>(); for (Turn t : turns) s.add(t.speaker()); return new ArrayList<>(s); }
     }
-    public record Outcome(String title, String raw, List<String> speakers, List<String> questionsFiled, List<String> questionsHeld, List<String> claims, List<String> decisions) { }
+    /** {@code declined}: the library's statement when the model declined to list the claims, "" when it did not; the rest was shelved and filed. */
+    public record Outcome(String title, String raw, List<String> speakers, List<String> questionsFiled, List<String> questionsHeld, List<String> claims, List<String> decisions, String declined) {
+        public Outcome(String title, String raw, List<String> speakers, List<String> questionsFiled, List<String> questionsHeld, List<String> claims, List<String> decisions) { this(title, raw, speakers, questionsFiled, questionsHeld, claims, decisions, ""); }
+    }
 
     static final Pattern TIMESTAMP = Pattern.compile("^\\s*(?:\\[?\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?\\]?\\s*(?:-->\\s*\\d{1,2}:\\d{2}(?::\\d{2})?(?:[.,]\\d{1,3})?)?)\\s*");
     static final Pattern SPEAKER = Pattern.compile("^\\s*(?:<v\\s+([^>]{1,60})>|([A-Z][\\w.'’-]{0,40}(?:\\s+[A-Z][\\w.'’-]{0,40}){0,3})\\s*[:：]\\s+)");
@@ -112,9 +116,11 @@ public final class Meetings {
         List<String> filed = new ArrayList<>(), held = new ArrayList<>();
         List<Frontier.Line> open = Frontier.read(store);
         for (String q : questions(t)) { if (Items.file(store, open, q, who, "meeting: " + t.title())) filed.add(q); else held.add(q); }
-        List<String> claims = claims(t, extractor);
-        store.circulate("meeting", who + " :: " + Acquisitions.compress(t.title(), 80) + " — " + t.speakers().size() + " speaker(s), " + filed.size() + " question(s) filed, " + claims.size() + " claim(s) to check, " + decisions.size() + " decision(s)");
-        return new Outcome(t.title(), raw == null ? "" : raw.getFileName().toString(), t.speakers(), filed, held, claims, decisions);
+        List<String> claims; String declined = "";
+        try { claims = claims(t, extractor); }
+        catch (Declined d) { claims = List.of(); declined = d.statement(); }   // the transcript is shelved and its questions filed already: said, not undone
+        store.circulate("meeting", who + " :: " + Acquisitions.compress(t.title(), 80) + " — " + t.speakers().size() + " speaker(s), " + filed.size() + " question(s) filed, " + (declined.isEmpty() ? claims.size() + " claim(s) to check" : "the model declined to list the claims") + ", " + decisions.size() + " decision(s)");
+        return new Outcome(t.title(), raw == null ? "" : raw.getFileName().toString(), t.speakers(), filed, held, claims, decisions, declined);
     }
 
     public static String verifyQuestion(String title, List<String> claims) {

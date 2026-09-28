@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import org.researchzosho.drive.Declined;
 
 /**
  * "Sharpen this" — a rough question in, a better one out, before anything runs. The library looks at what it already
@@ -47,14 +48,22 @@ public final class Sharpen {
         }
     }
 
+    /** For the person who keeps the library, at the command line: everything on the shelves. */
     public static Sharpened run(LibraryStore store, Researcher.Drive judge, Researcher.Tools tools, String question) throws IOException {
+        return run(store, Patrons.Patron.PERSON, judge, tools, question);
+    }
+
+    /** For {@code patron}: what the shelves hold is looked up for this caller, with the read access the library gives them. */
+    public static Sharpened run(LibraryStore store, Patrons.Patron patron, Researcher.Drive judge, Researcher.Tools tools, String question) throws IOException {
         String original = question.strip();
         if (original.length() < 8) throw ProtocolError.invalidArgs("The question is too short to sharpen.");
         if (judge == null) throw ProtocolError.unavailable("No model drive answers; sharpening a question needs one.");
         // 1. what the shelves hold on it, so the new question starts past that
         List<Held> held = new ArrayList<>();
         if (store != null) {
+            // an ask like any other: a question the shelves hold nothing on is filed as demand for the nightly research
             ObjectNode a = M.createObjectNode(); a.put("question", original); a.put("k", 5); a.put("peers", "none");
+            a.set("patron", LibrarianDaemon.patronNode(patron));
             try {
                 for (JsonNode e : new LibraryProtocol(store).ask(a).path("entries")) {
                     if (held.size() >= 5) break;
@@ -63,7 +72,9 @@ public final class Sharpen {
             } catch (Exception ignored) { }
         }
         // 2. who studies this, and what would each ask
-        List<Perspectives.Perspective> ps = tools == null ? List.of() : Perspectives.discover(original, judge, tools, 5);
+        List<Perspectives.Perspective> ps;
+        try { ps = tools == null ? List.of() : Perspectives.discover(original, judge, tools, 5); }
+        catch (Declined d) { throw d.at("to sharpen this question"); }   // said as that; the question is not sharpened another way
         List<String> seeded = Perspectives.questions(ps, 8);
         // 3. one judge call: the question rewritten, its assumptions owned up to, the brief, the questions back
         StringBuilder p = new StringBuilder();
@@ -84,7 +95,9 @@ public final class Sharpen {
                 + "\"the network\") — a name from your own memory can be wrong, and the research will find the real ones.");
         ArrayNode msgs = M.createArrayNode();
         msgs.addObject().put("role", "user").put("content", p.toString());
-        String raw = judge.classify(msgs, 1_400);
+        String raw;
+        try (var step = Declines.step("rewrite a rough research question into a sharper one, with a brief, as JSON: " + Acquisitions.compress(original, 300))) { raw = judge.classify(msgs, 1_400); }
+        catch (Declined d) { throw d.at("to sharpen this question"); }   // said as that, never as an answer that could not be read
         ResearchBrief brief = new ResearchBrief(original);
         List<String> assumptions = new ArrayList<>(), back = new ArrayList<>();
         String mode = "broad", size = "full";

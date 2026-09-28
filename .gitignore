@@ -12,6 +12,9 @@ build/
 
 # Python
 __pycache__/
+*.egg-info/
+sdk/python/build/
+sdk/python/dist/
 *.pyc
 .pytest_cache/
 

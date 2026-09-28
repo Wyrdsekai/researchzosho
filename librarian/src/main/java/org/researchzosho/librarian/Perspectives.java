@@ -7,6 +7,7 @@ import org.researchzosho.tools.Tool;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.researchzosho.drive.Declined;
 
 /**
  * Perspective discovery, STORM's pre-writing move: before decomposing a question, look at what is
@@ -49,7 +50,8 @@ public final class Perspectives {
                     + "on. Perspectives must differ in what they would look for, not in wording.\n\nQUESTION:\n" + question
                     + (seen.isEmpty() ? "" : "\n\nWHAT A FIRST SEARCH SHOWS:\n" + Fence.wrap("SEARCH RESULTS", seen.toString()) + "\n" + Fence.rule("SEARCH RESULTS"))
                     + "\n\nAnswer with JSON only: [{\"perspective\": \"…\", \"why\": \"…\", \"questions\": [\"…\"]}] — at most " + max + ".");
-            String raw = judge.classify(msgs, 1500);
+            String raw;
+            try (var step = Declines.step("name the perspectives from which a research question is studied, with the sub-questions each would ask, as JSON: " + Acquisitions.compress(question, 300))) { raw = judge.classify(msgs, 1500); }
             int a = raw.indexOf('['), b = raw.lastIndexOf(']');
             if (a < 0 || b <= a) return out;
             for (JsonNode p : M.readTree(raw.substring(a, b + 1))) {
@@ -58,6 +60,8 @@ public final class Perspectives {
                 String name = p.path("perspective").asText("").strip();
                 if (!name.isEmpty() && !qs.isEmpty() && out.size() < max) out.add(new Perspective(name, p.path("why").asText("").strip(), qs));
             }
+        } catch (Declined d) {
+            throw d;   // the model declined to plan: said by the caller, not planned another way
         } catch (Exception e) {
             return out;
         }

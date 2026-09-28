@@ -13,16 +13,19 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 /** A crew's write waits for a rebuild's lock instead of dying on it; and the nightly clock. */
 class IndexLockTest {
 
     @Test
     void nightlyFiresAtTheNextOccurrenceOfTheHour() {
-        var now = java.time.ZonedDateTime.of(2026, 9, 3, 17, 30, 0, 0, java.time.ZoneId.of("UTC"));
-        assertEquals(java.time.Duration.ofHours(9).plusMinutes(30).toMillis(), Crews.millisUntil(3, now), "03:00 tomorrow");
-        assertEquals(java.time.Duration.ofMinutes(30).toMillis(), Crews.millisUntil(18, now), "18:00 today");
+        var now = ZonedDateTime.of(2026, 9, 3, 17, 30, 0, 0, ZoneId.of("UTC"));
+        assertEquals(Duration.ofHours(9).plusMinutes(30).toMillis(), Crews.millisUntil(3, now), "03:00 tomorrow");
+        assertEquals(Duration.ofMinutes(30).toMillis(), Crews.millisUntil(18, now), "18:00 today");
         var atThree = now.withHour(3).withMinute(0);
-        assertEquals(java.time.Duration.ofHours(24).toMillis(), Crews.millisUntil(3, atThree), "exactly on the hour → tomorrow, never 0");
+        assertEquals(Duration.ofHours(24).toMillis(), Crews.millisUntil(3, atThree), "exactly on the hour → tomorrow, never 0");
     }
 
     @Test

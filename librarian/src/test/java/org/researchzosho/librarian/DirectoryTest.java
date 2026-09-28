@@ -8,6 +8,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.nio.file.Files;
 /** A directory is just a library: a listing is a submit there, finding a library is an ask there. */
 class DirectoryTest {
 
@@ -23,7 +25,7 @@ class DirectoryTest {
             String dirUrl = "http://127.0.0.1:" + d.port();
             // our library, with a couple of subjects in its vocabulary
             LibraryStore ours = new LibraryStore(tmp.resolve("ours")); ours.init();
-            java.nio.file.Files.writeString(ours.root().resolve("catalog").resolve("subjects.md"),
+            Files.writeString(ours.root().resolve("catalog").resolve("subjects.md"),
                     "# Subjects\n\n- osaka-genealogy — family records of Osaka\n- edo-trade — merchant houses of the Edo period\n");
             var listing = Directory.listing(ours, "https://library.example.org/");
             String claim = listing.get("claim").asText();
@@ -48,9 +50,9 @@ class DirectoryTest {
         LibrarianDaemon d = LibrarianDaemon.start(dir, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
         try {
             LibraryStore ours = new LibraryStore(tmp.resolve("ours")); ours.init();
-            var e = assertThrows(java.io.IOException.class, () -> Directory.publish(ours, "http://127.0.0.1:" + d.port(), "", "https://x.example"));
+            var e = assertThrows(IOException.class, () -> Directory.publish(ours, "http://127.0.0.1:" + d.port(), "", "https://x.example"));
             assertTrue(e.getMessage().contains("forbidden"), e.getMessage());
-            assertThrows(java.io.IOException.class, () -> Directory.publish(ours, "http://169.254.169.254", "t", "https://x.example"));
+            assertThrows(IOException.class, () -> Directory.publish(ours, "http://169.254.169.254", "t", "https://x.example"));
         } finally { d.stop(); }
     }
 }

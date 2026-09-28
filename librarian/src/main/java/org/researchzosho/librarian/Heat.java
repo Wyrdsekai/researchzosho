@@ -11,6 +11,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.researchzosho.Config;
 /**
  * Usage heat — "promote hot items" (kiroku-memory's take, 2026-09-05). Every entry the desk
  * returns or pushes is appended to {@code catalog/heat.log}; the nightly crew folds the last
@@ -22,8 +23,8 @@ public final class Heat {
 
     private Heat() { }
 
-    static final double BOOST = org.researchzosho.Config.getDouble("RESEARCHZOSHO_HEAT_BOOST", 0.1);
-    static final int DAYS = org.researchzosho.Config.getInt("RESEARCHZOSHO_HEAT_DAYS", 30);
+    static final double BOOST = Config.getDouble("RESEARCHZOSHO_HEAT_BOOST", 0.1);
+    static final int DAYS = Config.getInt("RESEARCHZOSHO_HEAT_DAYS", 30);
 
     public static Path log(LibraryStore store) { return store.root().resolve("catalog").resolve("heat.log"); }
     public static Path table(LibraryStore store) { return store.root().resolve("catalog").resolve("heat.tsv"); }

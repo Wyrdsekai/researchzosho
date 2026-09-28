@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
+import org.researchzosho.drive.Declined;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
@@ -84,5 +85,20 @@ class RelatedAndAbstractsTest {
         // and the article is findable at the desk
         var hits = new LibrarianIndex(store, Embeddings.none()).search("keigo dissolves register", 5);
         assertTrue(hits.stream().anyMatch(h -> "article".equals(h.kind()) && h.id().equals("A-japanese--keigo")), hits.toString());
+    }
+
+    @Test
+    void aSubjectTheModelDeclinedIsNotAskedAgainUntilItsShelfChanges() throws Exception {
+        // M5: the article the model declined is not asked for again every night; a shelf that changed is asked about
+        seed();
+        int[] calls = {0};
+        Abstracts.Writer declining = (subject, desc, enumerated) -> { calls[0]++; throw new Declined("placeholder-model", "I am not able to help with that request.", Declined.How.WORDS); };
+        Abstracts.run(store, declining, List.of("japanese--keigo"));
+        var again = Abstracts.run(store, declining, List.of("japanese--keigo"));
+        assertEquals(1, calls[0], "the same shelf was not sent again");
+        assertTrue(again.problems().get(0).contains("not asked again"), again.problems().toString());
+        new Council(store).accept("F-0002-retain");
+        Abstracts.run(store, declining, List.of("japanese--keigo"));
+        assertEquals(2, calls[0], "a shelf that changed is asked about");
     }
 }

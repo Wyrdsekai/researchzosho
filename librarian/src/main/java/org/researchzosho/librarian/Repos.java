@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.tools.Fetch;
+
 /**
  * A code repository, read for {@link Surveys}: its README and docs, its build and dependency files, the
  * shape of its tree, the top of a sample of its source files. The description, the claim, the directions
@@ -60,6 +62,17 @@ public final class Repos {
 
     public static boolean isUrl(String spec) { return spec.startsWith("http://") || spec.startsWith("https://") || spec.startsWith("git@") || spec.endsWith(".git"); }
 
+    /** A clone address as a web address, for the lists: {@code git@host:owner/repo.git} is {@code https://host/owner/repo.git}. */
+    static String asWebAddress(String spec) {
+        String s = spec.strip();
+        Matcher scp = SCP.matcher(s);
+        if (scp.matches()) return "https://" + scp.group(1) + "/" + scp.group(2);
+        if (s.startsWith("ssh://") || s.startsWith("git://")) return "https://" + s.substring(s.indexOf("://") + 3).replaceFirst("^[^@/]*@", "");
+        return s;
+    }
+
+    private static final Pattern SCP = Pattern.compile("^[^@/\\s]+@([^:/\\s]+):(.*)$");
+
     /** The repo's short name: the last path segment, without .git. */
     public static String nameOf(String spec) {
         String s = spec.strip().replaceAll("[/\\\\]+$", "");
@@ -79,7 +92,11 @@ public final class Repos {
         } catch (Exception e) { return false; }
     }
 
-    /** A path in place, or a url cloned under raw/repos/. Throws with a plain message when git is missing or the clone fails. */
+    /**
+     * A path in place, or a url cloned under raw/repos/. Throws with a plain message when git is missing, the clone fails, or the host is
+     * on the person's refused sources or on the list of pornography, shock and gore sites (a site the person trusts is not stopped by
+     * that list): the clone is checked against both lists, as a fetch is.
+     */
     public static Repo obtain(LibraryStore store, String spec) throws IOException {
         String s = spec.strip();
         if (!isUrl(s)) {
@@ -87,6 +104,8 @@ public final class Repos {
             if (!Files.isDirectory(dir)) throw new IOException(dir + " is not a folder");
             return new Repo(dir, nameOf(dir.toString()), dir.toString(), false);
         }
+        String leftOut = Fetch.Policy.DEFAULT.leftOut(asWebAddress(s));
+        if (leftOut != null) throw new IOException("The library did not clone " + s + ", because " + leftOut + ".");
         if (!gitInstalled()) throw new IOException("git is not installed on this machine, so the library cannot clone " + s + ". Install git, or clone it yourself (git clone " + s + ") and give the folder's path instead.");
         Path dir = store.rawDir().resolve("repos").resolve(nameOf(s));
         Files.createDirectories(dir.getParent());

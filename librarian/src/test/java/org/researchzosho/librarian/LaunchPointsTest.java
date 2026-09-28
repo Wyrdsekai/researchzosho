@@ -19,15 +19,19 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.lang.reflect.Field;
+import java.util.HashMap;
+import java.util.function.Supplier;
+import org.researchzosho.mcp.McpServer;
 /** The launching points: a draft to check, a reading list, a list of questions, a bookmarks export, a meeting transcript. */
 class LaunchPointsTest {
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static java.util.function.Supplier<Researcher.Drive> drives;
+    private static Supplier<Researcher.Drive> drives;
     private static HttpServer web;
     private static String base;
     private static final Map<String, String> PAGES = new ConcurrentHashMap<>();
-    private static java.lang.reflect.Field loopback;
+    private static Field loopback;
 
     @BeforeAll static void up() throws Exception {
         drives = Explain.DRIVES; Explain.DRIVES = () -> null;
@@ -66,7 +70,7 @@ class LaunchPointsTest {
         assertTrue(r.path("claims_to_check").toString().contains("five seconds"));
         assertEquals(List.of("Was the prize ever formally awarded?"), List.of(r.path("questions_filed").get(0).asText()));
         assertEquals(3, r.path("citations").size(), r.path("citations").toString());
-        var byLoc = new java.util.HashMap<String, String>();
+        var byLoc = new HashMap<String, String>();
         for (var c : r.path("citations")) byLoc.put(c.path("locator").asText(), c.path("state").asText());
         assertEquals("shelved", byLoc.get(base + "/harrison"));
         assertEquals("requested", byLoc.get(base + "/missing"), "a 404 becomes a source request");
@@ -212,7 +216,7 @@ class LaunchPointsTest {
         // the chat and the MCP server offer all five
         for (String t5 : List.of("library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting")) {
             assertTrue(Librarian.TOOLS.contains(t5), t5);
-            boolean served = false; for (var tool : org.researchzosho.mcp.McpServer.allTools()) if (tool.path("name").asText().equals(t5)) served = true;
+            boolean served = false; for (var tool : McpServer.allTools()) if (tool.path("name").asText().equals(t5)) served = true;
             assertTrue(served, t5);
         }
     }

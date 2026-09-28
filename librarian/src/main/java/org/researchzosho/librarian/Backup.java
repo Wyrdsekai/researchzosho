@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
+import java.nio.file.StandardCopyOption;
+import org.researchzosho.Config;
 /**
  * The nightly copy. The library is markdown and small logs; a zip of everything but the
  * rebuildable index, kept for a week, is the whole backup story. Target directory:
@@ -19,10 +21,10 @@ public final class Backup {
 
     private Backup() { }
 
-    static final int KEEP = org.researchzosho.Config.getInt("RESEARCHZOSHO_BACKUP_KEEP", 7);
+    static final int KEEP = Config.getInt("RESEARCHZOSHO_BACKUP_KEEP", 7);
 
     public static Path dir(LibraryStore store) {
-        String o = org.researchzosho.Config.get("RESEARCHZOSHO_LIBRARY_BACKUP");
+        String o = Config.get("RESEARCHZOSHO_LIBRARY_BACKUP");
         if (o != null && !o.isBlank()) return Path.of(o);
         Path root = store.root().toAbsolutePath();
         String name = root.getFileName() == null ? "library" : root.getFileName().toString();
@@ -48,7 +50,7 @@ public final class Backup {
                 }
             }
         }
-        Files.move(tmp, zip, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        Files.move(tmp, zip, StandardCopyOption.REPLACE_EXISTING);
         prune(target, name, keep);
         return zip;
     }

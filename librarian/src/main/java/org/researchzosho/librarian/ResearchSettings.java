@@ -1,12 +1,16 @@
 package org.researchzosho.librarian;
 
 import org.researchzosho.Config;
+import org.researchzosho.Stopping;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
+import java.util.ArrayDeque;
+import java.util.Arrays;
+import java.util.Collections;
 /**
  * How research SHARES the model: settings a person changes while asks run, never caps baked into code.
  * Read live from the user config file (a value set in the environment is fixed for the process — put
@@ -61,7 +65,8 @@ public final class ResearchSettings {
         boolean said = false;
         while (paused()) {
             if (!said) { log.accept("paused: research.pause is on — holding at this turn until it is off"); said = true; }
-            try { Thread.sleep(5_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+            // a run stopped while it is paused ends now, not when the pause is lifted
+            try { Stopping.sleep(5_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
         }
         if (said) log.accept("resumed");
     }
@@ -82,7 +87,7 @@ public final class ResearchSettings {
         static final double SLOW = 2.0, RECOVERED = 1.3;
         private final Consumer<String> log;
         private final List<Long> first = new ArrayList<>();     // per-token costs (µs per weighted token) of the first turns
-        private final java.util.ArrayDeque<Long> wall = new java.util.ArrayDeque<>();   // the last turns' wall times, for the wrap-up estimate
+        private final ArrayDeque<Long> wall = new ArrayDeque<>();   // the last turns' wall times, for the wrap-up estimate
         private final double[] recent = new double[3];
         private int seen = 0;
         private double baseline = 0;
@@ -106,7 +111,7 @@ public final class ResearchSettings {
             if (first.size() < BASELINE_TURNS) { first.add(cost); if (first.size() == BASELINE_TURNS) baseline = median(first); return; }
             recent[seen % 3] = cost;
             if (seen < BASELINE_TURNS + 3 || baseline <= 0) return;
-            double[] r = recent.clone(); java.util.Arrays.sort(r);
+            double[] r = recent.clone(); Arrays.sort(r);
             double med = r[1];
             if (!slow && med > baseline * SLOW) { slow = true; log.accept(String.format("drive slowed: %.1f× this run's own cost per token (%d s this turn) — one lane until it recovers", med / baseline, ms / 1000)); notifyAll(); }
             else if (slow && med < baseline * RECOVERED) { slow = false; log.accept(String.format("drive recovered: %.1f× — lanes restored", med / baseline)); notifyAll(); }
@@ -124,10 +129,10 @@ public final class ResearchSettings {
         /** A long turn now, ms: the 80th percentile of the last forty — closing summaries and sections run several times the median (J-0011). */
         public synchronized long longTurnMs() {
             if (wall.isEmpty()) return 0;
-            List<Long> c = new ArrayList<>(wall); java.util.Collections.sort(c);
+            List<Long> c = new ArrayList<>(wall); Collections.sort(c);
             return c.get(Math.min(c.size() - 1, (int) Math.floor(c.size() * 0.8)));
         }
 
-        private static double median(List<Long> xs) { List<Long> c = new ArrayList<>(xs); java.util.Collections.sort(c); return c.get(c.size() / 2); }
+        private static double median(List<Long> xs) { List<Long> c = new ArrayList<>(xs); Collections.sort(c); return c.get(c.size() / 2); }
     }
 }

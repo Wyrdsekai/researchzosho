@@ -12,6 +12,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
+import org.researchzosho.Config;
 /**
  * The weekly reports — what kiroku-memory's weekly job DOES to its memory (compress similar,
  * delete orphans), The Librarian only PROPOSES to the person: canon is not merged by a crew and
@@ -21,8 +22,8 @@ public final class Reports {
 
     private Reports() { }
 
-    static final double DUP_JACCARD = org.researchzosho.Config.getDouble("RESEARCHZOSHO_DUP_JACCARD", 0.6);
-    static final int ORPHAN_DAYS = org.researchzosho.Config.getInt("RESEARCHZOSHO_ORPHAN_DAYS", 30);
+    static final double DUP_JACCARD = Config.getDouble("RESEARCHZOSHO_DUP_JACCARD", 0.6);
+    static final int ORPHAN_DAYS = Config.getInt("RESEARCHZOSHO_ORPHAN_DAYS", 30);
 
     public static Path duplicatesFile(LibraryStore store) { return store.root().resolve("catalog").resolve("duplicates.md"); }
     public static Path orphansFile(LibraryStore store) { return store.root().resolve("catalog").resolve("orphans.md"); }

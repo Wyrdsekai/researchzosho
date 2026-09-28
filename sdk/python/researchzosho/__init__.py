@@ -18,7 +18,7 @@ __all__ = ["Librarian", "LibraryError", "CONTRACT"]
 
 
 class LibraryError(Exception):
-    """A protocol error: .code is stable (not_found, forbidden, no_sources, invalid_args, unavailable)."""
+    """A protocol error: .code is stable (not_found, forbidden, no_sources, invalid_args, unavailable, declined, confirm)."""
 
     def __init__(self, code: str, message: str, status: int = 0):
         super().__init__(message)
@@ -121,12 +121,18 @@ class Librarian:
 
     def research(self, question: str, mode: str = "broad", max_turns: Optional[int] = None,
                  sub_questions: Optional[List[str]] = None, sources: str = "both",
-                 collections: Optional[List[str]] = None, max_minutes: Optional[int] = None) -> Dict[str, Any]:
+                 collections: Optional[List[str]] = None, max_minutes: Optional[int] = None,
+                 field: Optional[str] = None) -> Dict[str, Any]:
         """File an overnight ask. max_turns and max_minutes are ceilings, either, both or neither: the most
         model turns the whole run may spend, the most minutes it may take. With neither the run goes until
         the work is done. sub_questions (≤8) is the plan when you already have one.
-        sources: both (shelves first) | shelves (the person's corpus only) | web; collections scope the shelves."""
+        sources: both (shelves first) | shelves (the person's corpus only) | web; collections scope the shelves.
+        field: the field the run is to be, one of the library's fields by name. A field that acts only when asked
+        for (family history, say) joins the run only this way; without it, a question that looks like one of its
+        questions comes back with suggestion {field, why, how} in the result and is researched as ordinary research."""
         body: Dict[str, Any] = {"question": question, "mode": mode, "sources": sources}
+        if field:
+            body["field"] = field.strip()
         if max_turns:
             body["max_turns"] = int(max_turns)
         if max_minutes:
@@ -152,7 +158,7 @@ class Librarian:
         t0 = time.time()
         while True:
             j = self.job(job_id)
-            if j["state"] not in ("running", "queued"):
+            if j["state"] not in ("running", "queued", "offered"):   # offered: it waits for the person's answer to the chat's question
                 return j
             if timeout_s is not None and time.time() - t0 > timeout_s:
                 raise TimeoutError(f"job {job_id} still running after {timeout_s}s")

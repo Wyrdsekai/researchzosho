@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
 import org.researchzosho.tools.Tool;
 import org.junit.jupiter.api.Test;
+import org.researchzosho.drive.DriveClient;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.net.InetSocketAddress;
@@ -25,6 +26,9 @@ import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.util.Set;
+import java.util.TreeSet;
 /**
  * The library's own overnight runner, scripted end to end without a model or a network: the plan
  * comes from the brief, workers note evidence with locators, the critic owns the second round, the
@@ -338,6 +342,12 @@ class ResearcherTest {
 
     @Test
     void theReplyBudgetFollowsTheWindowAndOldObservationsAreTrimmed() {
+        double scaleWas = Researcher.tokenScale;
+        Researcher.tokenScale = 1.0;   // the estimate before any server has corrected it, whatever ran before this test
+        try { replyBudget(); } finally { Researcher.tokenScale = scaleWas; }
+    }
+
+    private static void replyBudget() {
         ArrayNode h = J.createArrayNode();
         h.addObject().put("role", "system").put("content", "x".repeat(400));
         assertEquals(16_384, Researcher.outBudget(h, 32_768), "half the window when the input is small");
@@ -351,11 +361,35 @@ class ResearcherTest {
     }
 
     @Test
+    void aDriveThatReportsNoUsageIsNotMeasuredByAnEarlierCallsUsage() throws Exception {
+        // an earlier call on this thread, to a server that said how many tokens the request was
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", x -> {
+            byte[] b = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}],\"usage\":{\"prompt_tokens\":900000,\"completion_tokens\":1}}".getBytes(StandardCharsets.UTF_8);
+            x.getResponseHeaders().set("Content-Type", "application/json");
+            x.sendResponseHeaders(200, b.length);
+            try (var os = x.getResponseBody()) { os.write(b); }
+        });
+        server.start();
+        double scaleWas = Researcher.tokenScale;
+        try {
+            ArrayNode hi = J.createArrayNode(); hi.addObject().put("role", "user").put("content", "hi");
+            new DriveClient("http://127.0.0.1:" + server.getAddress().getPort(), "m").chat(hi, null, 8, "auto");
+            assertNotNull(DriveClient.lastUsage(), "the earlier call left its usage on this thread");
+            Researcher.tokenScale = 1.0;
+            ScriptedDrive drive = new ScriptedDrive();
+            drive.criticWantsMore = false;
+            new Researcher(drive, new FakeTools(), null, 1).run(new Researcher.Ask("How were the Antikythera gears cut?", "broad", 40, List.of("how?")), "");
+            assertEquals(1.0, Researcher.tokenScale, "a drive that says nothing of its usage leaves the estimate as it was");
+        } finally { server.stop(0); Researcher.tokenScale = scaleWas; }
+    }
+
+    @Test
     void aTransportFailureIsRetriedOnce() {
         AtomicInteger calls = new AtomicInteger();
         ScriptedDrive drive = new ScriptedDrive() {
             @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {
-                if (calls.incrementAndGet() == 2) throw new RuntimeException("chat() failed against http://x", new java.io.IOException("EOF"));
+                if (calls.incrementAndGet() == 2) throw new RuntimeException("chat() failed against http://x", new IOException("EOF"));
                 return super.chat(history, tools, maxTokens, toolChoice);
             }
         };
@@ -462,7 +496,7 @@ class ResearcherTest {
 
     @Test
     void theWriterSeesEveryLane_fairFitKeepsEachReportsHeadAndTheCoverageCheckNamesAClaimOfAbsence() {
-        // five reports the size of the dolores run's, through a 32k slot: before, the whole evidence was one piece cut from the tail
+        // five reports the size of the test box's run's, through a 32k slot: before, the whole evidence was one piece cut from the tail
         String big = "- a fact — source: https://x.example/p — quote: \"…\"\n".repeat(400);   // ~20k chars each
         List<String> pieces = new ArrayList<>();
         for (int i = 1; i <= 5; i++) pieces.add("SUB-QUESTION: lane " + i + " " + (i == 4 ? "cohesion and asynchronous or delegated participation" : "topic " + i) + "\nSUMMARY: what lane " + i + " established\n" + big);
@@ -480,7 +514,7 @@ class ResearcherTest {
         // the coverage block names every lane with its source count
         String cov = Researcher.coverage(pieces);
         assertTrue(cov.contains("#4 lane 4 cohesion") && cov.contains("400 source(s) noted"), cov);
-        // the check: the sentence the dolores answer wrote, against the lane that had the evidence
+        // the check: the sentence the test box's answer wrote, against the lane that had the evidence
         List<String> flags = Researcher.coverageCheck("On the specific design concerns: … No evidence was found that async or delegated participation erodes team cohesion, nor that labels reduce trust. Other text.", pieces);
         assertEquals(1, flags.size(), flags.toString());
         assertTrue(flags.get(0).contains("#4") && flags.get(0).contains("400 sources"), flags.get(0));
@@ -490,7 +524,7 @@ class ResearcherTest {
 
     @Test
     void roundTwoStartsFromThePagesRoundOneNamedAndIsRefusedWhenOnlyMinutesAreLeft() throws Exception {
-        // the first round's summaries, as the dolores run wrote them: the sources it could not read, named
+        // the first round's summaries, as the test box's run wrote them: the sources it could not read, named
         String evidence = String.join("\n",
                 "SUB-QUESTION: Australia, New Zealand, Canada: How do the Australian Defence Force and others run lessons processes",
                 "SUMMARY: The ANAO 2011-12 audit report on Defence exercises (https://www.anao.gov.au/sites/default/files/201112%20Audit%20Report%20No%201.pdf) could not be fetched; it tracks lessons to closure.",
@@ -530,5 +564,70 @@ class ResearcherTest {
         assertEquals(lastWorkers.get("workers_total").asInt(), lastWorkers.get("workers_done").asInt(), "the round's workers all finished");
         assertEquals(60, seen.get(seen.size() - 1).get("turns_ceiling").asInt());
         assertTrue(seen.get(seen.size() - 1).get("turns_used").asInt() > 10);
+    }
+
+    @Test
+    void aRequestOverASmallWindowIsTrimmedAndTriedOnceMoreAndTheToolDescriptionsCount() {
+        ArrayNode history = J.createArrayNode();
+        history.addObject().put("role", "system").put("content", "s".repeat(2_000));
+        history.addObject().put("role", "user").put("content", "u".repeat(30_000));
+        ArrayNode tools = J.createArrayNode(); tools.addObject().put("description", "d".repeat(12_000));
+        int with = Researcher.fitReply(history, tools, 8000, 16_384), without = Researcher.fitReply(history, J.createArrayNode(), 8000, 16_384);
+        assertTrue(with < without, "the tool descriptions take room from the reply: " + with + " vs " + without);
+        assertTrue(Researcher.tooLong("drive HTTP 400: {\"error\":{\"message\":\"request (16403 tokens) exceeds the available context size (16384 tokens)\",\"type\":\"exceed_context_size_error\"}}"));
+        assertTrue(Researcher.tooLong("This model's maximum context length is 128000 tokens"));
+        assertFalse(Researcher.tooLong("chat() failed: connection reset"));
+
+        // a write-up has no old observations to clear: the longest message loses its middle instead, and the estimate learns from the server's count
+        double scaleWas = Researcher.tokenScale;
+        try {
+            Researcher.tokenScale = 1.0;
+            ArrayNode writeUp = J.createArrayNode();
+            writeUp.addObject().put("role", "user").put("content", "EVIDENCE:\n" + "https://example.org/a/very/long/address?id=12345 [17] 0.0002 ".repeat(1_400));
+            assertEquals(0, Researcher.trimHistory(writeUp.deepCopy(), 16_384, 0.40), "nothing to clear in a write-up");
+            Researcher.calibrate(16_000, 24_000);   // the server counted half as many again as the estimate
+            assertTrue(Researcher.tokenScale > 1.5, "the estimate now runs long, not short: " + Researcher.tokenScale);
+            assertTrue(Researcher.cutLongest(writeUp, J.createArrayNode(), 16_384) >= 1);
+            assertTrue(writeUp.get(0).path("content").asText().contains("characters cut from the middle") && writeUp.get(0).path("content").asText().startsWith("EVIDENCE:"));
+            assertTrue(Researcher.estTokens(writeUp.get(0).path("content").asText()) <= 16_384 * 0.6 + 8);
+        } finally { Researcher.tokenScale = scaleWas; }
+
+        int[] calls = {0};
+        ScriptedDrive drive = new ScriptedDrive() {
+            @Override public ObjectNode chat(ArrayNode h, ArrayNode t, int maxTokens, String toolChoice) {
+                if (names(t).contains("write_section") && calls[0]++ == 0) throw new RuntimeException("drive HTTP 400: request (16403 tokens) exceeds the available context size (16384 tokens) exceed_context_size_error");
+                return super.chat(h, t, maxTokens, toolChoice);
+            }
+            @Override public int contextWindow() { return 16_384; }
+        };
+        List<String> log = new CopyOnWriteArrayList<>();
+        var r = new Researcher(drive, new FakeTools(), log::add, 2).run(new Researcher.Ask("How were the Antikythera gears cut?", "depth", 60, List.of("how?")), "");
+        assertTrue(log.stream().anyMatch(l -> l.contains("over the model's window of 16384 tokens") && l.contains("trying once more")), log.toString());
+        assertTrue(r.answer().contains("The gears were cut by hand"), "the write-up was finished, not cut off: " + r.answer().substring(0, Math.min(200, r.answer().length())));
+    }
+
+    @Test
+    void theTurnsCountMovesWhileTheWorkersRead() {
+        long real = Researcher.PROGRESS_EVERY_MS;
+        Researcher.PROGRESS_EVERY_MS = 0;
+        try {
+            List<ObjectNode> seen = new CopyOnWriteArrayList<>();
+            var researcher = new Researcher(new ScriptedDrive(), new FakeTools(), null, 2);
+            researcher.onProgress(seen::add);
+            researcher.run(new Researcher.Ask("How were the Antikythera gears cut, and by whom?", "broad", 60, List.of("how were the gears cut?", "who cut them?")), "");
+            // before any worker of the first round has finished, the published turns have already gone up
+            Set<Integer> turnsWhileNobodyIsDone = new TreeSet<>();
+            for (ObjectNode p : seen) if (p.get("phase").asText().equals("workers") && p.get("round").asInt() == 1 && p.get("workers_done").asInt() == 0) turnsWhileNobodyIsDone.add(p.get("turns_used").asInt());
+            assertTrue(turnsWhileNobodyIsDone.size() >= 3, "the job record showed one number for the whole round: " + turnsWhileNobodyIsDone);
+        } finally { Researcher.PROGRESS_EVERY_MS = real; }
+    }
+
+    @Test
+    void aNoteTheAnswerAlreadySaysInOtherWordsIsNotListedAsLeftOut() {
+        String answer = "He was appointed Minister of the Household in June 1920 and resigned on 19 February 1921 after the engagement crisis. 森田勇は1920年に宮内大臣となった。";
+        assertTrue(Researcher.sameSaid(answer, "Appointed Minister of the Household in 1920, resigned February 1921 over the engagement crisis"));
+        assertTrue(Researcher.sameSaid(answer, "森田勇は1920年、宮内大臣に任命された"));
+        assertFalse(Researcher.sameSaid(answer, "He was formally reprimanded in 1910 while director of the steel works"), "a finding the answer does not have");
+        assertFalse(Researcher.sameSaid(answer, "born 1852"), "too little in the note to tell");
     }
 }

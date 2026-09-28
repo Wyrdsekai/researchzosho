@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.io.IOException;
 /**
  * BibTeX from the shelves: every source a finding or an investigation cites, one entry each, with the
  * record's metadata where {@link Citations} resolved it and the locator alone where it did not. Keys
@@ -69,7 +70,7 @@ public final class Bibliography {
     }
 
     /** The sources of the entries named (finding or investigation ids), in order, for the bib verb. */
-    public static List<Finding.Source> sourcesOf(LibraryStore store, List<String> ids) throws java.io.IOException {
+    public static List<Finding.Source> sourcesOf(LibraryStore store, List<String> ids) throws IOException {
         List<Finding.Source> out = new ArrayList<>();
         for (String id : ids) {
             Finding f = store.finding(id);

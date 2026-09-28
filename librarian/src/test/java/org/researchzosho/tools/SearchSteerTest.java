@@ -6,11 +6,13 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Arrays;
+import org.junit.jupiter.api.Assertions;
 /** The steerer is arithmetic over the run's own queries and hosts, so every rule is pinnable. */
 class SearchSteerTest {
 
     private static List<String> urls(String... hosts) {
-        return java.util.Arrays.stream(hosts).map(h -> "https://" + h + "/page").toList();
+        return Arrays.stream(hosts).map(h -> "https://" + h + "/page").toList();
     }
 
     @Test
@@ -81,12 +83,12 @@ class SearchSteerTest {
         assertEquals("example.org", SearchSteer.host("https://www.example.org/x?y"));
     }
 
-    @org.junit.jupiter.api.Test
+    @Test
     void aQueryInANonLatinScriptNamesItsLanguageToTheEngine() {
-        org.junit.jupiter.api.Assertions.assertEquals("ja", WebSearchTool.languageOf("東京ヴァイス 撮影 現場"));
-        org.junit.jupiter.api.Assertions.assertEquals("zh", WebSearchTool.languageOf("东京 拍摄 现场"));
-        org.junit.jupiter.api.Assertions.assertEquals("ko", WebSearchTool.languageOf("도쿄 촬영 현장"));
-        org.junit.jupiter.api.Assertions.assertEquals("ru", WebSearchTool.languageOf("съёмки в Токио"));
-        org.junit.jupiter.api.Assertions.assertNull(WebSearchTool.languageOf("Tokyo Vice filming"), "Latin script tells nothing");
+        Assertions.assertEquals("ja", WebSearchTool.languageOf("東京ヴァイス 撮影 現場"));
+        Assertions.assertEquals("zh", WebSearchTool.languageOf("东京 拍摄 现场"));
+        Assertions.assertEquals("ko", WebSearchTool.languageOf("도쿄 촬영 현장"));
+        Assertions.assertEquals("ru", WebSearchTool.languageOf("съёмки в Токио"));
+        Assertions.assertNull(WebSearchTool.languageOf("Tokyo Vice filming"), "Latin script tells nothing");
     }
 }

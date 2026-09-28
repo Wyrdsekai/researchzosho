@@ -4,12 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "researchzosho"
-version = "0.1.0"
-description = "ResearchZosho client — The Librarian's library protocol (contract 1.0). The Research Harness For The Rest Of Us."
+version = "0.5.0"
+description = "Python client for ResearchZosho, an open-source deep research assistant with citations and memory. It searches your library, starts research runs and reads their results over HTTP, with no dependencies."
+keywords = ["deep-research", "research-assistant", "citations", "literature-review", "mcp", "local-llm"]
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
 dependencies = []
+
+[project.urls]
+Homepage = "https://researchzosho.org"
+Source = "https://github.com/Wyrdsekai/researchzosho"
+Documentation = "https://github.com/Wyrdsekai/researchzosho/blob/main/docs/LIBRARIAN_HOWTOUSE.md"
+Changelog = "https://github.com/Wyrdsekai/researchzosho/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["researchzosho*"]

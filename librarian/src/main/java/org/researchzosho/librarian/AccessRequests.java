@@ -8,6 +8,8 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.security.SecureRandom;
+import java.util.Base64;
 /**
  * Asking to be let in. A stranger who found this library (through a directory, or a friend) asks for
  * access with a did, a name and a note; the owner reads the request and approves or denies it; the
@@ -71,8 +73,8 @@ public final class AccessRequests {
         for (Request r : all) { try { n = Math.max(n, Integer.parseInt(r.id().substring(2))); } catch (Exception ignored) { } }
         String id = String.format("R-%04d", n + 1);
         byte[] b = new byte[24];
-        new java.security.SecureRandom().nextBytes(b);
-        String claim = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+        new SecureRandom().nextBytes(b);
+        String claim = Base64.getUrlEncoder().withoutPadding().encodeToString(b);
         all.add(new Request(id, LocalDate.now().toString(), "pending", did, name == null ? "" : name, note == null ? "" : note, Patrons.sha256(claim), "", "", ""));
         write(store, all);
         store.circulate("access-request", id + " from " + did + (name == null || name.isBlank() ? "" : " (" + name + ")"));

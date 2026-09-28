@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** The science affordances (2026-09-07): citation records, preprint versions, captions and rows, dataset sources, BibTeX. */
 class ScienceAffordancesTest {
 
@@ -21,7 +22,7 @@ class ScienceAffordancesTest {
         if (url.contains("/works/10.1038/nature05357")) return "{\"message\":{\"title\":[\"Decoding the ancient Greek astronomical calculator known as the Antikythera Mechanism\"],\"author\":[{\"family\":\"Freeth\",\"given\":\"Tony\"},{\"family\":\"Bitsakis\",\"given\":\"Yanis\"},{\"family\":\"Moussas\",\"given\":\"Xenophon\"}],\"container-title\":[\"Nature\"],\"issued\":{\"date-parts\":[[2006,11,30]]},\"volume\":\"444\",\"page\":\"587-591\"}}";
         if (url.contains("id_list=2504.00327")) return "<feed><title>ArXiv Query</title><entry><id>http://arxiv.org/abs/2504.00327v2</id><updated>2025-06-01T00:00:00Z</updated><published>2025-04-01T00:00:00Z</published><title>The Impact of Triangular-Toothed Gears on the Functionality of the Antikythera Mechanism</title><author><name>Esteban Guillermo Szigety</name></author><author><name>Gustavo Arenas</name></author></entry></feed>";
         if (url.contains("esummary") && url.contains("id=12345678")) return "{\"result\":{\"12345678\":{\"title\":\"A pubmed paper.\",\"authors\":[{\"name\":\"Doe J\"},{\"name\":\"Roe R\"}],\"source\":\"J Test\",\"pubdate\":\"2021 Mar\",\"volume\":\"12\",\"pages\":\"1-9\",\"articleids\":[{\"idtype\":\"doi\",\"value\":\"10.1000/xyz\"}]}}}";
-        throw new java.io.IOException("no canned record for " + url);
+        throw new IOException("no canned record for " + url);
     };
 
     @Test

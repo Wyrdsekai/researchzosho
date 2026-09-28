@@ -8,6 +8,9 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.HashMap;
+import java.util.Map;
+import org.researchzosho.Config;
 /**
  * A reading list as a starting point: BibTeX, RIS (Zotero, EndNote), a CSV export, or plain lines of
  * DOIs, urls and titles. Every entry with a locator is fetched and shelved into a collection; an entry
@@ -19,7 +22,7 @@ public final class Reading {
         public boolean located() { return !locator.isEmpty(); }
     }
 
-    static final int MAX_ENTRIES = org.researchzosho.Config.getInt("RESEARCHZOSHO_READING_MAX", 200);
+    static final int MAX_ENTRIES = Config.getInt("RESEARCHZOSHO_READING_MAX", 200);
     static final Pattern BIB_FIELD = Pattern.compile("(\\w+)\\s*=\\s*(?:\\{((?:[^{}]|\\{[^{}]*\\})*)\\}|\"([^\"]*)\"|(\\S+?))\\s*(?:,|$)", Pattern.MULTILINE);
     static final Pattern BARE_DOI = Pattern.compile("\\b(10\\.\\d{4,9}/[^\\s\"'<>)\\]]+)");
 
@@ -52,7 +55,7 @@ public final class Reading {
             String inner = text.substring(open + 1, Math.max(open + 1, j - 1));
             int comma = inner.indexOf(',');
             String key = comma < 0 ? inner.strip() : inner.substring(0, comma).strip();
-            java.util.Map<String, String> f = new java.util.HashMap<>();
+            Map<String, String> f = new HashMap<>();
             Matcher fm = BIB_FIELD.matcher(comma < 0 ? "" : inner.substring(comma + 1));
             while (fm.find()) { String v = fm.group(2) != null ? fm.group(2) : fm.group(3) != null ? fm.group(3) : fm.group(4); f.put(fm.group(1).toLowerCase(Locale.ROOT), clean(v)); }
             String title = f.getOrDefault("title", key);

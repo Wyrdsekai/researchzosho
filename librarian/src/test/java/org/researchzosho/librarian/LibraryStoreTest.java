@@ -112,16 +112,16 @@ class LibraryStoreTest {
     }
 
     @Test
-    void aDeletedEntryNeverFreesItsId(@TempDir java.nio.file.Path tmp) throws Exception {
+    void aDeletedEntryNeverFreesItsId(@TempDir Path tmp) throws Exception {
         LibraryStore s = new LibraryStore(tmp); s.init();
         String first = s.nextFindingId("smoke");
         assertTrue(first.startsWith("F-0001-"));
         // nothing was written under that id, yet the number is spent
         assertTrue(s.nextFindingId("next").startsWith("F-0002-"), "the ledger, not the directory, is the authority");
         // a file written and then removed does not free its number either
-        java.nio.file.Files.writeString(s.findingsDir().resolve("F-0007-x.md"), "x");
+        Files.writeString(s.findingsDir().resolve("F-0007-x.md"), "x");
         assertTrue(s.nextFindingId("after").startsWith("F-0008-"));
-        java.nio.file.Files.delete(s.findingsDir().resolve("F-0007-x.md"));
+        Files.delete(s.findingsDir().resolve("F-0007-x.md"));
         assertTrue(s.nextFindingId("again").startsWith("F-0009-"));
         assertTrue(s.nextInvestigationId("inv").startsWith("I-0001-"));
     }

@@ -14,6 +14,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.StandardOpenOption;
 /** Usage heat ranks what patrons were given; the desk routes by intent before it searches. */
 class HeatAndRoutingTest {
 
@@ -56,7 +57,7 @@ class HeatAndRoutingTest {
         var hot = new LibrarianIndex(store, Embeddings.none()).search("keigo subtitles", 5);
         assertEquals("F-0002-keigo-b", hot.get(0).id(), "the hot one leads a tie");
         // a stale line outside the window is not counted
-        Files.writeString(Heat.log(store), "2020-01-01T00:00:00Z\tF-0003-timing\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+        Files.writeString(Heat.log(store), "2020-01-01T00:00:00Z\tF-0003-timing\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
         Heat.fold(store, 30);
         assertNull(Heat.load(store).get("F-0003-timing"));
     }

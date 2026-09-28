@@ -1,7 +1,11 @@
 package org.researchzosho;
 
 import org.researchzosho.librarian.LibrarianCli;
+import org.researchzosho.librarian.Webhooks;
 
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * ResearchZosho — 研究蔵書, the research holdings. "The Research Harness For The Rest Of Us."
  * The Librarian is its voice. This is the {@code researchzosho} command ({@code zosho} for
@@ -13,22 +17,32 @@ public final class Main {
     private Main() { }
 
     /** Lucene's startup note about the JDK's vector module is noise on every command; held strongly so the JDK keeps the setting. */
-    private static final java.util.logging.Logger QUIET = java.util.logging.Logger.getLogger("org.apache.lucene.internal.vectorization");
+    private static final Logger QUIET = Logger.getLogger("org.apache.lucene.internal.vectorization");
     static {
-        QUIET.setLevel(java.util.logging.Level.SEVERE);
+        QUIET.setLevel(Level.SEVERE);
     }
 
     /** On a person's terminal the search steerer's notes are noise; in the service's log they are the audit trail. */
     static void quietForTerminal(String verb) {
         if ("serve".equals(verb) || "mcp".equals(verb)) return;
         try {
-            var l = org.slf4j.LoggerFactory.getLogger("org.researchzosho.tools.SearchSteer");
+            var l = LoggerFactory.getLogger("org.researchzosho.tools.SearchSteer");
             if (l instanceof ch.qos.logback.classic.Logger lb) lb.setLevel(ch.qos.logback.classic.Level.WARN);
         } catch (Throwable ignored) { }
     }
 
     public static void main(String[] args) {
-        System.exit(run(args));
+        System.exit(runToExit(args));
+    }
+
+    /**
+     * {@link #run}, then what must happen before the process ends: the webhook posts for the changes the verb made go out first,
+     * because {@code System.exit} ends their threads where they stand.
+     */
+    public static int runToExit(String[] args) {
+        int code = run(args);
+        if (Webhooks.Sent.any()) Webhooks.flush(Webhooks.FLUSH_MS);   // a command that changed nothing has nothing to wait for
+        return code;
     }
 
     /** {@code researchzosho <verb> …} → the librarian's verbs; returns the exit code. */

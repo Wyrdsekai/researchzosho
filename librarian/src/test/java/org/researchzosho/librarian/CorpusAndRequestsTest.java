@@ -13,6 +13,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
+import org.researchzosho.tools.Tool;
 /** A person's own documents as a corpus the runner searches first or only; a wall becomes a request the person can answer. */
 class CorpusAndRequestsTest {
 
@@ -57,10 +60,10 @@ class CorpusAndRequestsTest {
             Path docs = home.resolve("corpus"); Files.createDirectories(docs);
             Files.writeString(docs.resolve("gears.md"), "# On gears\n\nThe Antikythera gears were cut by hand with files; the teeth are triangular.\n");
             Corpus.addFolder(store, docs, "corpus", false);
-            java.util.concurrent.atomic.AtomicInteger webCalls = new java.util.concurrent.atomic.AtomicInteger();
+            AtomicInteger webCalls = new AtomicInteger();
             Researcher.Tools tools = new Researcher.Tools() {
-                @Override public List<org.researchzosho.tools.Tool> web(String focus) { webCalls.incrementAndGet(); return new ResearcherTest.FakeTools().web(focus); }
-                @Override public java.util.function.BooleanSupplier exhausted() { return () -> false; }
+                @Override public List<Tool> web(String focus) { webCalls.incrementAndGet(); return new ResearcherTest.FakeTools().web(focus); }
+                @Override public BooleanSupplier exhausted() { return () -> false; }
             };
             ResearcherTest.ScriptedDrive drive = new ResearcherTest.ScriptedDrive() {
                 @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {

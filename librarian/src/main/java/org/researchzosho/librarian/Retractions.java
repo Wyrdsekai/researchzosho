@@ -20,6 +20,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.net.URLEncoder;
+import org.researchzosho.Config;
+import org.researchzosho.Version;
 /**
  * Retractions. A claim can be perfectly supported by a paper that has since been retracted. Retraction Watch's list is
  * in the Crossref API, free, updated every working day: for a DOI, {@code works/<doi>} carries an {@code update-to}
@@ -32,7 +35,7 @@ public final class Retractions {
 
     private static final ObjectMapper M = new ObjectMapper();
     static final int DAYS = 30;
-    public static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_RETRACTIONS_PER_NIGHT", 60);
+    public static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_RETRACTIONS_PER_NIGHT", 60);
 
     /** What Crossref says about a DOI: the update type ("retraction", "expression_of_concern", …), its date, its DOI; null = nothing. */
     public record Notice(String type, String date, String noticeDoi) { }
@@ -51,8 +54,8 @@ public final class Retractions {
             // the retraction is on the NOTICE's record, which says what it updates — not on the retracted paper's record
             // (checked live on 10.1016/S0140-6736(97)11096-0: works/<doi> carries no update-to; works?filter=updates:<doi> lists the notice)
             HttpRequest req = HttpRequest.newBuilder(URI.create("https://api.crossref.org/works?rows=20&select=DOI,type,update-to&filter=updates:"
-                            + java.net.URLEncoder.encode(doi, StandardCharsets.UTF_8)))
-                    .timeout(Duration.ofSeconds(20)).header("User-Agent", "ResearchZosho/" + org.researchzosho.Version.string() + " (mailto:hello@researchzosho.org)").GET().build();
+                            + URLEncoder.encode(doi, StandardCharsets.UTF_8)))
+                    .timeout(Duration.ofSeconds(20)).header("User-Agent", "ResearchZosho/" + Version.string() + " (mailto:hello@researchzosho.org)").GET().build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() == 404) return null;
             if (resp.statusCode() != 200) throw new IOException("Crossref answered " + resp.statusCode());

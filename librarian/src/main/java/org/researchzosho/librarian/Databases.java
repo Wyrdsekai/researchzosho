@@ -25,6 +25,10 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
 
+import java.net.URLDecoder;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.sql.DriverManager;
+import org.researchzosho.Config;
 /**
  * Databases the library owner has given the library access to. A connection is added from the command
  * line by the owner and kept in {@code ~/.researchzosho/databases.json}, outside the library folder, so
@@ -40,9 +44,9 @@ public final class Databases {
 
     private static final ObjectMapper M = new ObjectMapper();
 
-    public static final int DEFAULT_ROWS = org.researchzosho.Config.getInt("RESEARCHZOSHO_DB_ROWS", 100);
-    public static final int MAX_ROWS = org.researchzosho.Config.getInt("RESEARCHZOSHO_DB_MAX_ROWS", 500);
-    static final int TIMEOUT_SECONDS = org.researchzosho.Config.getInt("RESEARCHZOSHO_DB_TIMEOUT_SECONDS", 30);
+    public static final int DEFAULT_ROWS = Config.getInt("RESEARCHZOSHO_DB_ROWS", 100);
+    public static final int MAX_ROWS = Config.getInt("RESEARCHZOSHO_DB_MAX_ROWS", 500);
+    static final int TIMEOUT_SECONDS = Config.getInt("RESEARCHZOSHO_DB_TIMEOUT_SECONDS", 30);
     static final int SCHEMA_TABLES = 60, SAMPLE_ROWS = 3, CELL_CHARS = 200;
 
     /** One connection as the owner added it. {@code hide}: column names, or table.column, whose values are never shown. */
@@ -67,7 +71,7 @@ public final class Databases {
     static volatile Path fileOverride = null;
 
     /** Beside the config file, wherever that is: an install that moves its config (RESEARCHZOSHO_CONFIG) moves this with it. */
-    public static Path file() { return fileOverride != null ? fileOverride : org.researchzosho.Config.userConfigPath().toAbsolutePath().resolveSibling("databases.json"); }
+    public static Path file() { return fileOverride != null ? fileOverride : Config.userConfigPath().toAbsolutePath().resolveSibling("databases.json"); }
 
     public static List<Db> list() throws IOException {
         List<Db> out = new ArrayList<>();
@@ -120,7 +124,7 @@ public final class Databases {
     private static void write(ObjectNode root) throws IOException {
         Files.createDirectories(file().getParent());
         Files.writeString(file(), M.writerWithDefaultPrettyPrinter().writeValueAsString(root), StandardCharsets.UTF_8);
-        try { Files.setPosixFilePermissions(file(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")); } catch (Exception ignored) { }   // it holds passwords
+        try { Files.setPosixFilePermissions(file(), PosixFilePermissions.fromString("rw-------")); } catch (Exception ignored) { }   // it holds passwords
     }
 
     /** The kind an address names, or null. A path to an existing file is SQLite, or DuckDB for .duckdb, .csv, .parquet and folders of those. */
@@ -170,8 +174,8 @@ public final class Databases {
         try { uri = URI.create(u); } catch (Exception e) { throw new IOException("The address of " + db.name() + " is not a valid url."); }
         if (uri.getUserInfo() != null) {
             String[] up = uri.getUserInfo().split(":", 2);
-            props.setProperty("user", java.net.URLDecoder.decode(up[0], StandardCharsets.UTF_8));
-            if (up.length > 1) props.setProperty("password", java.net.URLDecoder.decode(up[1], StandardCharsets.UTF_8));
+            props.setProperty("user", URLDecoder.decode(up[0], StandardCharsets.UTF_8));
+            if (up.length > 1) props.setProperty("password", URLDecoder.decode(up[1], StandardCharsets.UTF_8));
         }
         String host = uri.getHost(), path = uri.getPath() == null ? "" : uri.getPath().replaceFirst("^/", ""), query = uri.getQuery() == null ? "" : "?" + uri.getQuery();
         int port = uri.getPort();
@@ -191,7 +195,7 @@ public final class Databases {
         Target t = target(db);
         try {
             Driver driver = (Driver) Class.forName(k.driverClass(), true, DbDrivers.loader(k)).getDeclaredConstructor().newInstance();
-            java.sql.DriverManager.setLoginTimeout(15);
+            DriverManager.setLoginTimeout(15);
             Connection c = driver.connect(t.jdbc(), t.props());
             if (c == null) throw new IOException("The " + k.label() + " driver did not accept the address of " + db.name() + ".");
             try { c.setReadOnly(true); } catch (Exception ignored) { }
@@ -396,7 +400,7 @@ public final class Databases {
      * the data here; a hosted one receives whatever a query returns. Returns the host when it looks hosted, or null.
      */
     public static String hostedModel() {
-        String drive = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE");
+        String drive = Config.get("RESEARCHZOSHO_DRIVE");
         if (drive == null || drive.isBlank()) return null;
         try {
             String host = URI.create(drive.strip()).getHost();

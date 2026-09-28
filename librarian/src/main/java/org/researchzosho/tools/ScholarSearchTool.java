@@ -13,6 +13,11 @@ import java.util.List;
  */
 public final class ScholarSearchTool implements Tool {
 
+    /** Which lists take results out before the model sees them: the run's, or both lists. */
+    private volatile Fetch.Policy policy = Fetch.Policy.DEFAULT;
+
+    public ScholarSearchTool policy(Fetch.Policy p) { this.policy = p == null ? Fetch.Policy.DEFAULT : p; return this; }
+
     @Override public String name() { return "scholar_search"; }
 
     @Override public String description() {
@@ -36,9 +41,11 @@ public final class ScholarSearchTool implements Tool {
         String query = args.path("query").asText("");
         if (query.isBlank()) return "ERROR: empty query";
         int limit = Math.min(Math.max(args.path("limit").asInt(8), 1), 20);
-        List<ScholarSearch.Row> rows = ScholarSearch.merged(query, limit);
-        if (rows.isEmpty()) return "no works found for: " + query + " (Crossref and OpenAlex answered with nothing, or did not answer)";
+        ScholarSearch.Answer answer = ScholarSearch.answer(query, limit);
+        List<ScholarSearch.Row> rows = answer.rows();
+        if (answer.answered() == 0) return "ERROR: neither Crossref nor OpenAlex answered. This is not a search that found nothing: try once more, or use web_search.";
+        if (rows.isEmpty()) return "no works found for: " + query + (answer.answered() == 2 ? " (Crossref and OpenAlex both answered with nothing)" : " (one of Crossref and OpenAlex answered with nothing; the other did not answer)");
         ScholarSearch.SCHOLAR_USED.incrementAndGet();
-        return ScholarSearch.render(query, " (scholarly literature: Crossref and OpenAlex)", rows, limit);
+        return ScholarSearch.render(query, " (scholarly literature: " + answer.by() + ")", rows, limit, policy);
     }
 }

@@ -15,10 +15,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Declined;
 /**
  * Shelf reading — what real libraries call inventory. Each night a few ACCEPTED findings, the
- * ones least recently checked, are re-read against the raw captures of their own sources: does
- * the source still support the claim? The reviewer promotes extractions automatically and
+ * ones least recently checked, are re-read against the raw captures of their own sources (a file of
+ * a cloned repository at the lines it is cited by): does the source still support the claim? The
+ * reviewer promotes extractions automatically and
  * nobody measured it on the live shelf; sources also drift. A finding the source does not
  * support is marked disputed (reviewer {@code inventory:<model>}, reason in the body, a frontier
  * line) — never retired, never edited. Every check is logged to {@code catalog/inventory.log}.
@@ -26,7 +30,7 @@ import java.util.Map;
 public final class Inventory {
 
     private static final ObjectMapper M = new ObjectMapper();
-    static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_INVENTORY_PER_NIGHT", 3);
+    static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_INVENTORY_PER_NIGHT", 3);
     static final int SOURCE_CHARS = 7000;
 
     private Inventory() { }
@@ -34,7 +38,7 @@ public final class Inventory {
     /** Judges one claim against one source's text: {@code supported | unsupported | cannot-tell}, then a reason. */
     public interface Checker { String check(String claim, String sourceText) throws Exception; }
 
-    public static Checker driveChecker(org.researchzosho.drive.DriveClient drive) {
+    public static Checker driveChecker(DriveClient drive) {
         return (claim, source) -> {
             var msgs = M.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
@@ -77,15 +81,20 @@ public final class Inventory {
         for (var s : f.sources()) {
             Path raw;
             try { raw = RawCapture.find(store, s.locator()); } catch (IOException e) { raw = null; }
-            if (raw == null) continue;
+            // a file of a cloned repository is read at the lines the claim cites, as the citation check reads it
+            String code = raw == null ? CodeTool.textOf(store, s.locator()) : null;
+            if (raw == null && code == null) continue;
             anyCapture = true;
             String text;
-            try { text = excerpt(RawCapture.read(raw)[2], claim); } catch (IOException e) { continue; }
+            try { text = excerpt(code != null ? code : RawCapture.read(raw)[2], claim); } catch (IOException e) { continue; }
             String verdict, reason;
             try {
                 var j = M.readTree(strip(checker.check(claim, text)));
                 verdict = j.path("verdict").asText("cannot-tell").toLowerCase(Locale.ROOT).strip();
                 reason = j.path("reason").asText("");
+            } catch (Declined d) {
+                // nothing was decided about the claim: the reason says why, in the library's words
+                verdict = "cannot-tell"; reason = d.statement("to check this claim against its source");
             } catch (Exception e) {
                 verdict = "cannot-tell"; reason = "judge did not answer: " + e.getMessage();
             }

@@ -10,6 +10,11 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.security.NoSuchAlgorithmException;
+import org.researchzosho.tools.DocText;
+import org.researchzosho.tools.Fetch;
 /**
  * The raw tier — the web rots, and a finding whose source is a dead link is unverifiable, so
  * every successfully fetched page is preserved in full at CAPTURE time with its provenance
@@ -28,7 +33,8 @@ import java.util.Map;
 public final class RawCapture {
 
     /** Bytes of readable text worth keeping per page — beyond this it's a dump, not a source. */
-    private static final int MAX_TEXT = 400_000;
+    /** The most of a document's text a capture keeps; the page check reads the same ({@code PageCheck}). */
+    public static final int MAX_TEXT = 400_000;
 
     /** Linked captures: documents read where they are, never copied. The capture holds the head only;
      *  {@link #read} extracts the text from the file on demand and keeps the last few in memory. */
@@ -146,7 +152,7 @@ public final class RawCapture {
     public static String linkedHash(Path raw) { return headField(raw, "sha256: "); }
 
     /** SHA-256 of a file's bytes, hex. */
-    public static String fileHash(Path file) throws java.io.IOException {
+    public static String fileHash(Path file) throws IOException {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
             try (var in = Files.newInputStream(file)) {
@@ -154,7 +160,7 @@ public final class RawCapture {
                 for (int n; (n = in.read(buf)) > 0; ) md.update(buf, 0, n);
             }
             return HexFormat.of().formatHex(md.digest());
-        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+        } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
     private static String headField(Path raw, String key) {
@@ -203,7 +209,7 @@ public final class RawCapture {
     }
 
     /** The captured document for a locator: raw/<file>, a bare file name, or the URL it was fetched from (newest capture wins). */
-    public static Path find(LibraryStore store, String locator) throws java.io.IOException {
+    public static Path find(LibraryStore store, String locator) throws IOException {
         if (locator == null || locator.isBlank()) return null;
         String loc = locator.strip();
         if (loc.startsWith("raw/")) loc = loc.substring(4);
@@ -216,9 +222,9 @@ public final class RawCapture {
                 String url = "";
                 try (var lines = Files.lines(p, StandardCharsets.UTF_8)) {
                     url = lines.limit(8).filter(l -> l.startsWith("url: ")).map(l -> l.substring(5).strip()).findFirst().orElse("");
-                } catch (java.io.UncheckedIOException ignored) { }
+                } catch (UncheckedIOException ignored) { }
                 if (url.equals(loc) || url.equals(loc + "/") || (url + "/").equals(loc)
-                        || (loc.startsWith("http") && org.researchzosho.tools.Fetch.canonical(url).equals(org.researchzosho.tools.Fetch.canonical(loc)))) best = p;   // sorted by name = by date; last wins
+                        || (loc.startsWith("http") && Fetch.canonical(url).equals(Fetch.canonical(loc)))) best = p;   // sorted by name = by date; last wins
             }
         }
         return best;
@@ -232,7 +238,7 @@ public final class RawCapture {
     }
 
     /** Parsed head of a raw file: [locator, title, body]. */
-    public static String[] read(Path raw) throws java.io.IOException {
+    public static String[] read(Path raw) throws IOException {
         String s = Files.readString(raw, StandardCharsets.UTF_8);
         int end = s.indexOf("\n---\n", 4);
         if (!s.startsWith("---\n") || end < 0) return new String[]{"", "", s};
@@ -252,14 +258,14 @@ public final class RawCapture {
         String key = file.toString();
         long mtime;
         try { mtime = Files.getLastModifiedTime(file).toMillis(); }
-        catch (java.io.IOException e) { return unreachable(file, Files.exists(file) ? e.getMessage() : "the path is missing"); }
+        catch (IOException e) { return unreachable(file, Files.exists(file) ? e.getMessage() : "the path is missing"); }
         synchronized (LINKED) {
             String[] hit = LINKED.get(key);
             if (hit != null && hit[0].equals(Long.toString(mtime))) return hit[1];
         }
         String text;
         try {
-            var doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(file), file.getFileName().toString());
+            var doc = DocText.convert(Files.readAllBytes(file), file.getFileName().toString());
             text = doc.text().isBlank() ? unreachable(file, "no text could be read (" + doc.kind() + ")")
                     : doc.text().length() > MAX_TEXT ? doc.text().substring(0, MAX_TEXT) + "\n\n[truncated at read]" : doc.text();
         } catch (Exception e) {

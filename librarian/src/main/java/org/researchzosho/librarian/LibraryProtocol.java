@@ -15,10 +15,28 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
+import java.io.UncheckedIOException;
+import java.security.SecureRandom;
+import java.time.Duration;
+import java.util.Base64;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Random;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.researchzosho.Config;
+import org.researchzosho.Version;
+import org.researchzosho.tools.DocText;
+import org.researchzosho.tools.ContentPolicy;
+import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.PageCheck;
 /**
  * The library protocol, contract 1.0 (docs/LIBRARY_PROTOCOL.md) — what a patron runtime speaks
  * to The Librarian. Transport-free: JSON in, JSON out, {@link ProtocolError} for the stable error
@@ -159,7 +177,7 @@ public final class LibraryProtocol {
         int k = args.path("k").asInt(args.path("limit").asInt(10));
         int offset = cursor(args);
         String subject = args.hasNonNull("subject") ? args.get("subject").asText() : null;
-        var all = new LibrarianIndex(store).search(query, offset + k + 1, subject);
+        List<LibrarianIndex.Hit> all = new LibrarianIndex(store).search(query, offset + k + 1, subject);
         ObjectNode r = envelope();
         ArrayNode hits = r.putArray("hits");
         int end = Math.min(all.size(), offset + k);
@@ -184,7 +202,8 @@ public final class LibraryProtocol {
 
     /** library_get: one entry in full, or {@code not_found}. */
     public ObjectNode get(JsonNode args) throws IOException {
-        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
         String id = reqStr(args, "id");
         if (!LibraryStore.safeName(id)) throw ProtocolError.invalidArgs("An id is an entry name (F-…, I-…, A-…, or a saved page's file name), not a path.");
         String section = args.path("section").asText("").strip();
@@ -218,8 +237,10 @@ public final class LibraryProtocol {
     }
 
     /** The sections the harness itself appends to a write-up; "answer" is everything else. */
-    static final java.util.Set<String> HARNESS_SECTIONS = java.util.Set.of("question", "sources", "caveats", "cite-check", "coverage check", "evidence",
-            "references", "languages of the sources", "web search", "source requests", "worker findings", "sources cited", "answer (as submitted");
+    static final Set<String> HARNESS_SECTIONS = Set.of("question", "sources", "caveats", "cite-check", "coverage check", "evidence",
+            "references", "languages of the sources", "web search", "source requests", "worker findings", "sources cited", "answer (as submitted", "declined");
+    /** Harness headings matched only exactly: a writer's own "Declined applications" or "Declines in trade" is the answer's. */
+    static final Set<String> EXACT_HARNESS_SECTIONS = Set.of("declined");
 
     /** The "## " headings of a body, in order. */
     static List<String> sectionHeadings(String body) {
@@ -241,7 +262,7 @@ public final class LibraryProtocol {
                 if (!part.startsWith("## ")) continue;
                 String h = headingOf(part);
                 boolean harness = false;
-                for (String x : HARNESS_SECTIONS) if (h.equals(x) || h.startsWith(x + " ") || h.startsWith(x + " (") || (x.endsWith("(") && h.startsWith(x))) { harness = true; break; }
+                for (String x : HARNESS_SECTIONS) if (h.equals(x) || !EXACT_HARNESS_SECTIONS.contains(x) && (h.startsWith(x + " ") || h.startsWith(x + " (") || (x.endsWith("(") && h.startsWith(x)))) { harness = true; break; }
                 if (!harness) sb.append(part.strip()).append("\n\n");
             }
             return sb.length() == 0 ? null : sb.toString().strip();
@@ -260,7 +281,8 @@ public final class LibraryProtocol {
 
     /** library_read: the captured raw text behind a source locator — the verbatim path. */
     public ObjectNode read(JsonNode args) throws IOException {
-        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
         String locator = reqStr(args, "locator");
         int max = args.path("max_chars").asInt(20_000);
         if (max <= 0) throw ProtocolError.invalidArgs("max_chars must be a positive number.");
@@ -335,11 +357,13 @@ public final class LibraryProtocol {
             if (!mode.equals("keep")) throw ProtocolError.invalidArgs("A url is always kept, because web pages change. Use mode=keep.");
             Object[] got;
             try { got = Corpus.addUrl(store, url, collection); }
+            catch (PageCheck.NotKept notKept) { throw notKept.unchecked() ? ProtocolError.unavailable(notKept.getMessage()) : ProtocolError.invalidArgs(notKept.getMessage()); }
             catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             Path raw = (Path) got[0];
             if (raw == null) throw ProtocolError.unavailable("The page was read but not saved to the library (no library, or the page was refused).");
             r.put("kind", "url"); r.put("mode", "keep"); r.put("url", url); r.put("title", String.valueOf(got[1])); r.put("format", String.valueOf(got[2]));
             r.put("raw", raw.getFileName().toString());
+            notChecked(r, got.length > 3 && Boolean.TRUE.equals(got[3]));
             if (!collection.isEmpty()) r.put("collection", collection);
             r.put("added", 1);
             store.circulate("add", patron.label() + " :: " + url);
@@ -372,7 +396,7 @@ public final class LibraryProtocol {
         }
         if (mode.equals("survey")) throw ProtocolError.invalidArgs("survey is for a folder. Add a single file with keep or link.");
         Path raw = Corpus.addFile(store, target, collection, mode.equals("link"));
-        if (raw == null) throw ProtocolError.unavailable("No text could be read from " + target.getFileName() + ".");
+        if (raw == null) throw ProtocolError.unavailable("No text could be read from " + target.getFileName() + "." + Corpus.whyNoText());
         r.put("kind", "file"); r.put("path", target.toString()); r.put("mode", mode); r.put("raw", raw.getFileName().toString());
         r.put("title", RawCapture.read(raw)[1]);
         if (!collection.isEmpty()) r.put("collection", collection);
@@ -430,6 +454,14 @@ public final class LibraryProtocol {
         if (name.isEmpty() && !spec.isEmpty()) name = Repos.nameOf(spec);
         if (name.isEmpty()) throw ProtocolError.invalidArgs("Give the name of the surveyed thing (name=…, as the survey called it).");
         Finding claim = Surveys.claimFor(store, name);
+        if (claim == null && !spec.isEmpty()) {
+            // a thing given by its path or url that was never read: read it first, then do what was asked
+            ObjectNode first = ((ObjectNode) args).deepCopy(); first.put("op", "survey");
+            ObjectNode read = survey(first);
+            name = read.path("name").asText(name);
+            claim = Surveys.claimFor(store, name);
+            r.put("surveyed_first", read.path("summary").asText(""));
+        }
         if (claim == null) throw ProtocolError.notFound("No survey is named " + name + ". Run op=survey first.");
         Surveys.Kind kind = Surveys.kindOf(claim);
         String origin = claim.sources().isEmpty() ? name : claim.sources().get(0).locator();
@@ -448,7 +480,9 @@ public final class LibraryProtocol {
                 ObjectNode ask = M.createObjectNode();
                 ask.put("question", Surveys.runQuestion(kind, name, origin, o.question())); ask.put("mode", "depth"); ask.put("sources", "both");
                 ask.set("patron", args.path("patron").deepCopy());
-                String job = research(ask).path("job_id").asText();
+                ObjectNode run = fileRun(ask, r);
+                if (!filed(run)) { runs.addObject().put("n", n).put("question", o.question()).put("state", "not_started").put("help", run.path("help").asText()); continue; }   // not filed: the direction stays open
+                String job = run.path("job_id").asText();
                 Frontier.markExplored(store, o.question(), job);
                 runs.addObject().put("n", n).put("question", o.question()).put("job_id", job);
             }
@@ -459,13 +493,18 @@ public final class LibraryProtocol {
             ObjectNode ask = M.createObjectNode();
             ask.put("question", Surveys.runQuestion(kind, name, origin, q)); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
-            String job = research(ask).path("job_id").asText();
-            Frontier.markExplored(store, q, job);
-            runs.addObject().put("question", q).put("job_id", job);
+            ObjectNode run = fileRun(ask, r);
+            if (!filed(run)) runs.addObject().put("question", q).put("state", "not_started").put("help", run.path("help").asText());   // not filed: the question stays open
+            else {
+                String job = run.path("job_id").asText();
+                Frontier.markExplored(store, q, job);
+                runs.addObject().put("question", q).put("job_id", job);
+            }
         } else throw ProtocolError.invalidArgs("op must be survey, pick or do.");
-        int filed = 0; for (JsonNode j : runs) if (j.hasNonNull("job_id")) filed++;
+        int filed = 0, notStarted = 0; for (JsonNode j : runs) { if (filed(j)) filed++; else if (j.has("help")) notStarted++; }
         ArrayNode left = r.putArray("options"); for (Surveys.Option o : Surveys.options(store, name)) left.addObject().put("n", o.n()).put("question", o.question());
-        r.put("summary", filed + " research run(s) were filed about " + name + "." + (left.size() > 0 ? " " + left.size() + " direction(s) are still open." : ""));
+        r.put("summary", filed + " research run(s) were filed about " + name + "." + (notStarted > 0 ? " " + notStarted + " question(s) were not filed, because they read as a person asking about harming themselves: each says where to find help." : "")
+                + (left.size() > 0 ? " " + left.size() + " direction(s) are still open." : ""));
         r.put("next", "library_job follows each research run. op=pick or op=do files more.");
         store.circulate("survey", patron.label() + " :: " + name + " " + op + " — " + filed + " run(s)");
         return r;
@@ -515,7 +554,7 @@ public final class LibraryProtocol {
     List<String> readInNamedFiles(String question, JsonNode patronNode, Patrons.Patron patron) {
         List<String> out = new ArrayList<>();
         if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) return out;
-        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        Set<String> seen = new LinkedHashSet<>();
         for (Path f : namedPaths(question)) {
             if (seen.size() >= READ_IN_FILES) break;
             if (!seen.add(f.toString())) continue;
@@ -526,7 +565,7 @@ public final class LibraryProtocol {
                 if (calibre) {
                     ObjectNode r = items(a.put("as", "none"));
                     out.add("the Calibre library at " + f + " as the list \"" + r.path("title").asText() + "\" (" + r.path("items_found").asInt() + " books)");
-                } else if (Files.isRegularFile(f) && Corpus.EXTENSIONS.contains(Corpus.ext(f))) {
+                } else if (Files.isRegularFile(f) && (Corpus.EXTENSIONS.contains(Corpus.ext(f)) || Corpus.PICTURES.contains(Corpus.ext(f)))) {   // a file named by the person, a picture among them
                     add(a);
                     out.add("the document " + f);
                 }
@@ -541,7 +580,7 @@ public final class LibraryProtocol {
      */
     static List<Path> namedPaths(String text) {
         List<Path> out = new ArrayList<>();
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?<![\\w/.~])(~?/)").matcher(text);
+        Matcher m = Pattern.compile("(?<![\\w/.~])(~?/)").matcher(text);
         int from = 0;
         while (m.find()) {
             if (m.start() < from) continue;
@@ -566,7 +605,7 @@ public final class LibraryProtocol {
     static boolean isCalibreDatabase(Path f) {
         if (!Files.isRegularFile(f)) return false;
         try (var in = Files.newInputStream(f)) {
-            if (!org.researchzosho.tools.DocText.isSqlite(in.readNBytes(16))) return false;
+            if (!DocText.isSqlite(in.readNBytes(16))) return false;
         } catch (IOException e) { return false; }
         try { Calibre.fromDatabase(f); return true; } catch (Exception e) { return false; }
     }
@@ -628,9 +667,22 @@ public final class LibraryProtocol {
         ArrayNode out = r.putArray("matches");
         for (Holdings.Match m : found) { ObjectNode n = out.addObject(); n.put("item", m.item()); if (!m.note().isEmpty()) n.put("note", m.note()); n.put("list", m.list()); n.put("raw", m.raw()); }
         r.put("count", found.size());
-        r.put("summary", found.isEmpty() ? "No list entry matches \"" + q + "\" (" + Holdings.size(store) + " entries in all)." : found.size() + (found.size() == 1 ? " entry matches \"" : " entries match \"") + q + "\"" + (found.size() >= limit ? " (the first " + limit + ")" : "") + ".");
+        r.put("summary", found.isEmpty() ? "No list entry matches \"" + q + "\" (" + r.path("lists_hold").asInt() + " entries in all)." : found.size() + (found.size() == 1 ? " entry matches \"" : " entries match \"") + q + "\"" + (found.size() >= limit ? " (the first " + limit + ")" : "") + ".");
         return r;
     }
+
+    /**
+     * library_who: a field's own tool (genealogy's: who, of the people the web shows under a name, is the person in the family), answered
+     * by the field whose tool it is ({@link Profile#tool}).
+     */
+    public ObjectNode who(JsonNode args) throws IOException {
+        for (Profile p : Profiles.known()) { ObjectNode r = p.tool("library_who", this, args); if (r != null) return r; }
+        throw ProtocolError.invalidArgs("No field of this library answers library_who.");
+    }
+
+    /** The web search and the model behind library_who op=find, when a test puts its own in; null for the live ones. */
+    public Supplier<?> whoSearch = null;
+    public Supplier<?> whoModel = null;
 
     /**
      * library_absorb: a conversation the person had with another assistant, as a starting point. The
@@ -641,6 +693,7 @@ public final class LibraryProtocol {
      * {@code limit} (default 25) and says how many remain.
      */
     public ObjectNode absorb(JsonNode args) throws IOException {
+        boolean unchecked = false;   // the person's url, saved before a model could check it
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), text = args.path("text").asText("");
@@ -659,11 +712,16 @@ public final class LibraryProtocol {
             bytes = Files.readAllBytes(f); source = f.toString(); nameHint = f.getFileName().toString();
         } else if (!url.isEmpty()) {
             try {
-                var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
+                var page = PageCheck.fetch(url, Duration.ofSeconds(60), ContentPolicy.person(null), "");   // the caller's own address: the always-dropped check
+                var resp = page.fetched();
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
                 String ct = resp.contentType() == null ? "" : resp.contentType();
-                bytes = ct.contains("json") ? resp.body() : org.researchzosho.tools.DocText.convert(resp.body(), url).text().getBytes(StandardCharsets.UTF_8);
-            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
+                bytes = ct.contains("json") ? resp.body() : page.orThrow().doc().text().getBytes(StandardCharsets.UTF_8);
+                page.orThrow();
+                unchecked = page.unchecked();
+                UncheckedPages.after(store, page, url, null, null);   // saved from it below even when no model could check it, and checked when one answers
+            } catch (PageCheck.NotKept notKept) { throw notKept.unchecked() ? ProtocolError.unavailable(notKept.getMessage()) : ProtocolError.invalidArgs(notKept.getMessage()); }
+            catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             source = url; nameHint = titleGiven.isEmpty() ? url : titleGiven;
         } else {
             bytes = text.getBytes(StandardCharsets.UTF_8); source = "pasted"; nameHint = titleGiven.isEmpty() ? "pasted conversation" : titleGiven;
@@ -676,7 +734,7 @@ public final class LibraryProtocol {
         r.put("threads_found", threads.size());
         ArrayNode out = r.putArray("threads");
         int filed = 0, claimsAll = 0;
-        List<String> allClaims = new ArrayList<>(); String firstTitle = ""; String mainQuestion = "";
+        List<String> allClaims = new ArrayList<>(), declinedIn = new ArrayList<>(); String firstTitle = ""; String mainQuestion = ""; String declinedSaid = "";
         for (Conversations.Thread t : threads.subList(0, Math.min(limit, threads.size()))) {
             Conversations.Outcome o = Conversations.absorb(store, t, source, collection, patron.writer(), extractor);
             ObjectNode tn = out.addObject();
@@ -684,6 +742,7 @@ public final class LibraryProtocol {
             ArrayNode qf = tn.putArray("questions_filed"); o.questionsFiled().forEach(qf::add);
             ArrayNode qh = tn.putArray("questions_already_open"); o.questionsHeld().forEach(qh::add);
             ArrayNode cl = tn.putArray("claims_to_check"); o.claims().forEach(cl::add);
+            if (!o.declined().isEmpty()) { tn.put("declined", o.declined()); declinedIn.add(o.title()); if (declinedSaid.isEmpty()) declinedSaid = o.declined(); }   // shelved and filed; the model declined its claims
             filed += o.questionsFiled().size(); claimsAll += o.claims().size();
             if (firstTitle.isEmpty()) { firstTitle = o.title(); mainQuestion = Conversations.mainQuestion(t); }
             if (allClaims.size() < Conversations.MAX_CLAIMS) for (String c : o.claims()) { if (allClaims.size() >= Conversations.MAX_CLAIMS) break; allClaims.add(c); }
@@ -692,17 +751,25 @@ public final class LibraryProtocol {
         r.put("remaining", Math.max(0, threads.size() - limit));
         r.put("questions_filed", filed); r.put("claims_to_check", claimsAll);
         r.put("claims_by", extractor == null ? "mechanical" : "model");
+        if (!declinedSaid.isEmpty()) r.put("declined", declinedSaid);
         if (verify && !allClaims.isEmpty()) {
             ObjectNode ask = M.createObjectNode();
             ask.put("question", Conversations.verifyQuestion(firstTitle, allClaims)); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
-            ObjectNode job = research(ask);
-            r.put("verify_job_id", job.path("job_id").asText());
+            if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            ObjectNode job = fileRun(ask, r);
+            if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
+            else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
         }
         r.put("main_question", mainQuestion);
         r.put("summary", (threads.size() == 1 ? "Read \"" + Acquisitions.compress(firstTitle, 60) + "\"" : "Read " + Math.min(limit, threads.size()) + " of " + threads.size() + " conversations")
                 + ". The transcript is saved in the library (collection " + collection + "). " + filed + " question(s) were added to the open questions. " + claimsAll + " claim(s) made by the assistant are listed for checking"
-                + (verify && !allClaims.isEmpty() ? ". A research run is checking them (" + r.path("verify_job_id").asText() + ")." : ". None of them is saved as a claim."));
+                + (verify && !allClaims.isEmpty() ? ". A research run is checking them (" + r.path("verify_job_id").asText() + ")." : ". None of them is saved as a claim.")
+                + (declinedIn.isEmpty() ? "" : " " + (threads.size() == 1 ? "The model declined to list the claims in it, so there are none to check. "
+                        : "The model declined to list the claims in " + declinedIn.size() + " of the conversations (" + String.join("; ", declinedIn.stream().map(x -> "\"" + Acquisitions.compress(x, 60) + "\"").toList()) + "); their transcripts are saved and their questions filed like the others. ")
+                        + declinedSaid));
+        notChecked(r, unchecked);
         r.put("next", verify ? "library_job shows the check's progress. To research the subject itself, use library_research {question: <the thread's main question>, sources: both}."
                 : "verify=true starts one research run that checks the claims. To research the subject itself, use library_research {question: \"" + Acquisitions.compress(mainQuestion, 200).replace("\"", "'") + "\", sources: both}.");
         return r;
@@ -716,6 +783,7 @@ public final class LibraryProtocol {
      * nothing is filed and the person just sees what is held (as=none). Input: path (the keeper's), url, or text.
      */
     public ObjectNode items(JsonNode args) throws IOException {
+        boolean unchecked = false;   // the person's url, saved before a model could check it
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         String path = args.path("path").asText("").strip(), url = args.path("url").asText("").strip(), text = args.path("text").asText("");
@@ -741,7 +809,7 @@ public final class LibraryProtocol {
                 source = f.toString(); if (title.isEmpty()) title = "Calibre library " + f.getFileName();
             } else {
                 if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
-                org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(f), f.getFileName().toString());
+                DocText.Doc doc = DocText.convert(Files.readAllBytes(f), f.getFileName().toString());
                 body = doc.text();
                 if (Corpus.ext(f).equals("csv") || Corpus.ext(f).equals("txt") || Corpus.ext(f).equals("md")) body = Files.readString(f, StandardCharsets.UTF_8);
                 if ("calibre".equals(doc.kind())) { readFrom = "metadata.db"; if (title.isEmpty()) title = doc.title(); }   // a bare metadata.db is the library's books
@@ -750,10 +818,14 @@ public final class LibraryProtocol {
             }
         } else if (!url.isEmpty()) {
             try {
-                var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
+                var page = PageCheck.fetch(url, Duration.ofSeconds(60), ContentPolicy.person(null), "");   // the caller's own address: the always-dropped check
+                var resp = page.fetched();
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
-                body = org.researchzosho.tools.DocText.convert(resp.body(), url).text();
-            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
+                body = page.orThrow().doc().text();
+                unchecked = page.unchecked();
+                UncheckedPages.after(store, page, url, null, null);   // saved below even when no model could check it, and checked when one answers
+            } catch (PageCheck.NotKept notKept) { throw notKept.unchecked() ? ProtocolError.unavailable(notKept.getMessage()) : ProtocolError.invalidArgs(notKept.getMessage()); }
+            catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
             source = url; if (title.isEmpty()) title = Conversations.titleFrom(url);
         } else { body = text; source = "pasted"; if (title.isEmpty()) title = "list"; }
         List<Items.Item> all = Items.parse(body, column);
@@ -802,7 +874,11 @@ public final class LibraryProtocol {
                 ArrayNode subs = ask.putArray("sub_questions"); batch.forEach(subs::add);
                 ask.put("mode", "broad"); ask.put("sources", args.path("sources").asText("both"));
                 ask.set("patron", args.path("patron").deepCopy());
-                jobsOut.add(research(ask).path("job_id").asText());
+                if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());
+                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+                ObjectNode run = fileRun(ask, r);
+                if (filed(run)) jobsOut.add(run.path("job_id").asText());
+                else (r.has("not_started") ? (ArrayNode) r.get("not_started") : r.putArray("not_started")).addObject().put("question", ask.path("question").asText("")).put("help", run.path("help").asText());
             }
         }
         r.put("questions_filed", filed); r.put("questions_already_open", already);
@@ -816,11 +892,22 @@ public final class LibraryProtocol {
                 : as.equals("runs") ? "library_job shows each run's progress. library_get opens the reports."
                 : "as=frontier adds one open question per item. as=runs starts research runs.");
         store.circulate("items", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + what + " (" + as + ")");
+        notChecked(r, unchecked);
         return r;
     }
 
     /** What a launching point was given: the bytes, where they came from, a name to title it by. */
-    private record Given(byte[] bytes, String source, String nameHint, boolean pasted) { }
+    /** {@code unchecked}: a url of the person's that no model could check, saved all the same and checked when one answers. */
+    private record Given(byte[] bytes, String source, String nameHint, boolean pasted, boolean unchecked) {
+        Given(byte[] bytes, String source, String nameHint, boolean pasted) { this(bytes, source, nameHint, pasted, false); }
+    }
+
+    /** A result whose url of the person's was saved before a model could check it says so. */
+    static void notChecked(ObjectNode r, boolean unchecked) {
+        if (!unchecked) return;
+        r.put("checked", false);
+        r.put("note", "Saved, and " + PageCheck.NOT_CHECKED_YET + ". The library checks it when a model answers, and removes it then if the check finds " + PageCheck.Category.CHILD.said() + ".");
+    }
 
     /** path (the keeper's), url, or text — exactly one. {@code pastedName} titles a pasted text. */
     private Given given(JsonNode args, Patrons.Patron patron, String pastedName, String what) throws IOException {
@@ -837,10 +924,14 @@ public final class LibraryProtocol {
         }
         if (!url.isEmpty()) {
             try {
-                var resp = org.researchzosho.tools.Fetch.get(url, java.time.Duration.ofSeconds(60));
+                var page = PageCheck.fetch(url, Duration.ofSeconds(60), ContentPolicy.person(null), "");   // the caller's own address: the always-dropped check
+                var resp = page.fetched();
                 if (resp.status() >= 400) throw new IOException("HTTP " + resp.status());
-                return new Given(resp.body(), url, title.isEmpty() ? url : title, false);
-            } catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
+                page.orThrow();
+                UncheckedPages.after(store, page, url, null, null);   // saved from it by the caller even when no model could check it, and checked when one answers
+                return new Given(resp.body(), url, title.isEmpty() ? url : title, false, page.unchecked());
+            } catch (PageCheck.NotKept notKept) { throw notKept.unchecked() ? ProtocolError.unavailable(notKept.getMessage()) : ProtocolError.invalidArgs(notKept.getMessage()); }
+            catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
         }
         return new Given(text.getBytes(StandardCharsets.UTF_8), "pasted", title.isEmpty() ? pastedName : title, true);
     }
@@ -849,7 +940,7 @@ public final class LibraryProtocol {
     private static String textOf(Given g) {
         String name = g.nameHint().toLowerCase(Locale.ROOT);
         if (g.pasted() || name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".csv") || name.endsWith(".bib") || name.endsWith(".ris") || name.endsWith(".vtt") || name.endsWith(".json") || name.endsWith(".html") || name.endsWith(".htm")) return new String(g.bytes(), StandardCharsets.UTF_8);
-        return org.researchzosho.tools.DocText.convert(g.bytes(), g.nameHint()).text();
+        return DocText.convert(g.bytes(), g.nameHint()).text();
     }
 
     /**
@@ -861,14 +952,14 @@ public final class LibraryProtocol {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         Given g = given(args, patron, "draft", "a draft: text, markdown, a Word file or a PDF");
-        String text = org.researchzosho.tools.DocText.convert(g.bytes(), g.nameHint()).text();
+        String text = DocText.convert(g.bytes(), g.nameHint()).text();
         if (text.isBlank()) text = new String(g.bytes(), StandardCharsets.UTF_8);
         if (text.isBlank()) throw ProtocolError.invalidArgs("No text could be read from the draft.");
         String title = args.path("title").asText("").strip();
         if (title.isEmpty()) {
-            var doc = org.researchzosho.tools.DocText.convert(g.bytes(), g.nameHint());
+            var doc = DocText.convert(g.bytes(), g.nameHint());
             title = doc.title().isBlank() ? "" : doc.title();
-            if (title.isEmpty()) { java.util.regex.Matcher h = java.util.regex.Pattern.compile("(?m)^#\\s+(.+)$").matcher(text); if (h.find()) title = h.group(1).strip(); }   // a markdown draft's first heading
+            if (title.isEmpty()) { Matcher h = Pattern.compile("(?m)^#\\s+(.+)$").matcher(text); if (h.find()) title = h.group(1).strip(); }   // a markdown draft's first heading
             if (title.isEmpty()) title = Conversations.titleFrom(g.nameHint());
         }
         String collection = args.path("collection").asText("drafts").strip();
@@ -883,19 +974,26 @@ public final class LibraryProtocol {
         int shelved = 0, requested = 0;
         for (Shelving.Got got : o.citations()) {
             ObjectNode c = ci.addObject(); c.put("locator", got.locator());
-            if (got.shelved()) { shelved++; c.put("raw", got.raw().getFileName().toString()); c.put("title", got.title()); c.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); }
+            if (got.shelved()) { shelved++; c.put("raw", got.raw().getFileName().toString()); c.put("title", got.title()); c.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); if (got.unchecked()) c.put("note", PageCheck.NOT_CHECKED_YET); }
             else { c.put("state", got.requested() ? "requested" : "not read"); c.put("problem", got.problem()); if (got.requested()) requested++; }
         }
         r.put("claims_by", Explain.drive() == null ? "mechanical" : "model");
+        if (!o.declined().isEmpty()) r.put("declined", o.declined());   // the draft, its questions and its citations are saved; the model declined its claims
         if (args.path("verify").asBoolean(false) && !o.claims().isEmpty()) {
             ObjectNode ask = M.createObjectNode();
             ask.put("question", Drafts.verifyQuestion(title, o.claims())); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
-            r.put("verify_job_id", research(ask).path("job_id").asText());
+            if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            ObjectNode job = fileRun(ask, r);
+            if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
+            else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
         }
         r.put("summary", "draft \"" + Acquisitions.compress(title, 60) + "\": " + o.claims().size() + " claim(s) to check, " + o.citations().size() + " citation(s) found (" + shelved + " saved in the library" + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + "). " + o.questionsFiled().size() + " question(s) were added to the open questions"
-                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim."));
+                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim.")
+                + (o.declined().isEmpty() ? "" : " The model declined to list the draft's claims, so there are none to check. " + o.declined()));
         r.put("next", r.hasNonNull("verify_job_id") ? "library_job shows the check's progress. library_get opens the report." : "verify=true starts one research run that checks the claims against sources, including the draft's own citations. If a citation could not be read, supply it with researchzosho add <file> --for <url>.");
+        notChecked(r, g.unchecked());
         return r;
     }
 
@@ -928,7 +1026,7 @@ public final class LibraryProtocol {
             if (!e.located()) { unlocated++; n.put("state", "no locator"); titlesOnly.add(e.title()); continue; }
             n.put("locator", e.locator());
             Shelving.Got got = Shelving.fetch(store, e.locator(), collection, "on the reading list \"" + Acquisitions.compress(title, 60) + "\"");
-            if (got.shelved()) { shelved++; n.put("raw", got.raw().getFileName().toString()); n.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); if (!got.title().isEmpty()) n.put("title_read", got.title()); }
+            if (got.shelved()) { shelved++; n.put("raw", got.raw().getFileName().toString()); n.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); if (!got.title().isEmpty()) n.put("title_read", got.title()); if (got.unchecked()) n.put("note", PageCheck.NOT_CHECKED_YET); }
             else { n.put("state", got.requested() ? "requested" : "not read"); n.put("problem", got.problem()); if (got.requested()) requested++; }
         }
         boolean watch = args.path("watch").asBoolean(false);
@@ -939,6 +1037,7 @@ public final class LibraryProtocol {
                 + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + (unlocated > 0 ? ", " + unlocated + " have a title but no DOI or url" : "") + (watch ? ". Nightly maintenance re-reads the pages" : ""));
         r.put("next", "To research from them, use library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (unlocated > 0 ? ". Titles without a DOI or url can go through library_items to be researched by name" : "") + (requested > 0 ? ". If an entry could not be read, supply it with researchzosho add <file> --for <url>" : ""));
         store.circulate("reading", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + shelved + " shelved, " + requested + " requested, " + unlocated + " unlocated");
+        notChecked(r, g.unchecked());
         return r;
     }
 
@@ -963,22 +1062,28 @@ public final class LibraryProtocol {
         r.put("title", title); r.put("source", g.source()); r.put("as", as);
         r.put("questions_found", qs.size()); r.put("taken", take.size()); r.put("remaining", qs.size() - take.size());
         ArrayNode out = r.putArray("questions"); ArrayNode jobs = r.putArray("jobs");
-        int filed = 0, already = 0;
+        int filed = 0, already = 0, notStarted = 0;
         for (int i = 0; i < take.size(); i++) {
             String q = take.get(i);
             ObjectNode n = out.addObject(); n.put("question", q);
-            if (as.equals("runs") && jobs.size() < Questions.MAX_RUNS) {
+            if (as.equals("runs") && jobs.size() + notStarted < Questions.MAX_RUNS) {
                 ObjectNode ask = M.createObjectNode(); ask.put("question", q); ask.put("mode", "broad"); ask.put("sources", args.path("sources").asText("both")); ask.set("patron", args.path("patron").deepCopy());
-                String id = research(ask).path("job_id").asText(); jobs.add(id); n.put("job_id", id);
+                if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());
+                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+                ObjectNode run = fileRun(ask, r);
+                if (filed(run)) { String id = run.path("job_id").asText(); jobs.add(id); n.put("job_id", id); }
+                else { n.put("state", "not_started"); n.put("help", run.path("help").asText()); notStarted++; }   // not filed, and not put on the open questions either
                 continue;
             }
             boolean ok = Items.file(store, open, q, patron.writer(), title);
             n.put("filed", ok); if (ok) filed++; else already++;
         }
         r.put("questions_filed", filed); r.put("questions_already_open", already);
-        r.put("summary", "questions \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + (qs.size() > take.size() ? " of " + qs.size() : "") + " question(s). " + (jobs.size() > 0 ? jobs.size() + " started as research runs. " : "") + filed + " were added to the open questions, in order" + (already > 0 ? ". " + already + " were already open" : ""));
+        r.put("summary", "questions \"" + Acquisitions.compress(title, 60) + "\": " + take.size() + (qs.size() > take.size() ? " of " + qs.size() : "") + " question(s). " + (jobs.size() > 0 ? jobs.size() + " started as research runs. " : "")
+                + (notStarted > 0 ? notStarted + " were not filed, because they read as a person asking about harming themselves: each says where to find help. " : "") + filed + " were added to the open questions, in order" + (already > 0 ? ". " + already + " were already open" : ""));
         r.put("next", jobs.size() > 0 ? "library_job shows each run's progress. The rest wait in the open questions for the nightly research." : "The nightly research works through them in this order. library_frontier op=next moves one to the front. as=runs starts the first " + Questions.MAX_RUNS + " now.");
         store.circulate("questions", patron.writer() + " :: " + Acquisitions.compress(title, 80) + " — " + filed + " filed, " + jobs.size() + " run(s)");
+        notChecked(r, g.unchecked());
         return r;
     }
 
@@ -1009,7 +1114,7 @@ public final class LibraryProtocol {
         for (Bookmarks.Mark m : take) {
             ObjectNode n = out.addObject(); n.put("title", m.title()); n.put("url", m.url()); if (!m.folder().isEmpty()) n.put("folder", m.folder());
             Shelving.Got got = Shelving.fetch(store, m.url(), collection, "a bookmark in \"" + Acquisitions.compress(title, 60) + "\"");
-            if (got.shelved()) { shelved++; n.put("raw", got.raw().getFileName().toString()); n.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); }
+            if (got.shelved()) { shelved++; n.put("raw", got.raw().getFileName().toString()); n.put("state", "held".equals(got.kind()) ? "already held" : "shelved"); if (got.unchecked()) n.put("note", PageCheck.NOT_CHECKED_YET); }
             else { n.put("state", got.requested() ? "requested" : "not read"); n.put("problem", got.problem()); if (got.requested()) requested++; }
         }
         boolean watch = args.path("watch").asBoolean(false);
@@ -1018,6 +1123,7 @@ public final class LibraryProtocol {
         r.put("summary", "bookmarks" + (folder.isEmpty() ? "" : " in " + folder) + ": " + take.size() + (marks.size() > take.size() ? " of " + marks.size() : "") + " page(s), " + shelved + " on the shelves in collection " + collection + (requested > 0 ? ", " + requested + " could not be read and are on the request list" : "") + (watch ? ". Nightly maintenance re-reads them and keeps a new copy when one changes" : ""));
         r.put("next", "To research from them, use library_research {sources: \"shelves\", collections: [\"" + collection + "\"]}" + (watch ? "" : ". watch=true makes nightly maintenance re-read the pages"));
         store.circulate("bookmarks", patron.writer() + " :: " + title + " — " + shelved + " shelved, " + requested + " requested" + (watch ? ", watching" : ""));
+        notChecked(r, g.unchecked());
         return r;
     }
 
@@ -1044,15 +1150,22 @@ public final class LibraryProtocol {
         ArrayNode cl = r.putArray("claims_to_check"); o.claims().forEach(cl::add);
         ArrayNode de = r.putArray("decisions"); o.decisions().forEach(de::add);
         r.put("claims_by", Explain.drive() == null ? "mechanical" : "model");
+        if (!o.declined().isEmpty()) r.put("declined", o.declined());   // the transcript, its questions and decisions are saved; the model declined its claims
         if (args.path("verify").asBoolean(false) && !o.claims().isEmpty()) {
             ObjectNode ask = M.createObjectNode();
             ask.put("question", Meetings.verifyQuestion(title, o.claims())); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
-            r.put("verify_job_id", research(ask).path("job_id").asText());
+            if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            ObjectNode job = fileRun(ask, r);
+            if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
+            else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
         }
         r.put("summary", "meeting \"" + Acquisitions.compress(title, 60) + "\": " + o.speakers().size() + " speaker(s). " + o.questionsFiled().size() + " question(s) raised were added to the open questions. " + o.claims().size() + " claim(s) to check, " + o.decisions().size() + " decision(s) were saved with the transcript"
-                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim."));
+                + (r.hasNonNull("verify_job_id") ? ". A research run is checking the claims (" + r.path("verify_job_id").asText() + ")." : ". Nothing is saved as a claim.")
+                + (o.declined().isEmpty() ? "" : " The model declined to list the claims made in the meeting, so there are none to check. " + o.declined()));
         r.put("next", r.hasNonNull("verify_job_id") ? "library_job shows the check's progress." : "verify=true starts one research run that checks the claims. library_ask finds the decisions later.");
+        notChecked(r, g.unchecked());
         return r;
     }
 
@@ -1070,7 +1183,10 @@ public final class LibraryProtocol {
             case "list" -> {
                 Patrons.check(store, patron, Patrons.Level.read);
                 ArrayNode items = r.putArray("proposals");
-                for (Frontier.Line l : Bridges.open(store)) { ObjectNode o = items.addObject(); o.put("question", l.text()); o.put("date", l.date()); o.put("found_by", l.kind()); o.put("evidence", Bridges.evidenceFor(store, l.text())); }
+                for (Frontier.Line l : Bridges.open(store)) {
+                    String evidence = Bridges.evidenceFor(store, l.text());
+                    ObjectNode o = items.addObject(); o.put("question", l.text()); o.put("date", l.date()); o.put("found_by", l.kind()); o.put("evidence", evidence);
+                }
                 r.put("count", items.size());
                 r.put("next", items.size() == 0 ? "op=run suggests some. op=run with dry=true only shows the pairs." : "op=accept with the question starts the research run that tests it. op=dismiss drops it.");
             }
@@ -1082,7 +1198,7 @@ public final class LibraryProtocol {
                 if (args.hasNonNull("strict")) s = s.with("strict", args.get("strict").asBoolean() ? "true" : "false");
                 if (args.hasNonNull("propose")) s = s.with("propose", String.valueOf(args.get("propose").asInt()));
                 boolean dry = args.path("dry").asBoolean(false);
-                ObjectNode out = Bridges.propose(store, Explain.drive(), Researcher.webTools(), s, area.isEmpty() ? null : area, dry, patron.writer(), new java.util.Random());
+                ObjectNode out = Bridges.propose(store, Explain.drive(), Researcher.webTools(), s, area.isEmpty() ? null : area, dry, patron.writer(), new Random());
                 r.setAll(out);
                 r.put("next", dry ? "The same call without dry adds the suggestions to the open questions." : "op=list shows them. op=accept starts the research run that tests one.");
             }
@@ -1102,11 +1218,18 @@ public final class LibraryProtocol {
                     String ev = Bridges.evidenceFor(store, found.text());
                     ask.put("question", found.text() + (ev.isEmpty() ? "" : "\n\nWhat this question rests on (start here, then go further):\n" + ev)); ask.put("mode", "broad"); ask.put("sources", "both");
                     ask.set("patron", args.path("patron").deepCopy());
-                    String job = research(ask).path("job_id").asText();
-                    Frontier.markExplored(store, found.text(), job);
-                    Bridges.fate(store, found.text(), "kept", job);
-                    r.put("accepted", found.text()); r.put("job_id", job);
-                    r.put("next", "library_job shows the run's progress. The claims it verifies show whether the connection holds.");
+                    ObjectNode run = fileRun(ask, r);
+                    if (!filed(run)) {
+                        // not filed: the proposal stays open, and no kept bridge is written down without a run
+                        r.put("question", found.text()); r.put("state", "not_started"); r.put("help", run.path("help").asText());
+                        r.put("next", "Nothing was started. The proposal stays open.");
+                    } else {
+                        String job = run.path("job_id").asText();
+                        Frontier.markExplored(store, found.text(), job);
+                        Bridges.fate(store, found.text(), "kept", job);
+                        r.put("accepted", found.text()); r.put("job_id", job);
+                        r.put("next", "library_job shows the run's progress. The claims it verifies show whether the connection holds.");
+                    }
                 }
             }
             case "settings" -> {
@@ -1212,11 +1335,13 @@ public final class LibraryProtocol {
                     case "drop" -> Frontier.drop(store, q, patron.writer());
                     case "next" -> Frontier.next(store, q);
                     case "later" -> Frontier.later(store, q);
-                    case "park" -> Frontier.park(store, q);
+                    case "park" -> Frontier.park(store, q, args.path("why").asText(""));
                     default -> Frontier.unpark(store, q);
                 };
-                if (!ok) throw ProtocolError.notFound("No open question matches this text exactly: " + q + (op.equals("unpark") ? " (or it is not parked)" : ""));
+                boolean already = !ok && op.equals("park") && Frontier.isParked(store, q);
+                if (!ok && !already) throw ProtocolError.notFound("No open question matches this text exactly: " + q + (op.equals("unpark") ? " (or it is not parked)" : ""));
                 r.put(op.equals("drop") ? "dropped" : op.equals("park") ? "parked" : op.equals("unpark") ? "unparked" : "moved", true);
+                if (already) r.put("already", true);   // it was parked before: it stays parked, and a why given now is its reason
                 r.put("question", q);
             }
             default -> throw ProtocolError.invalidArgs("op must be list, add, drop, next, later, park, unpark or tidy.");
@@ -1239,7 +1364,7 @@ public final class LibraryProtocol {
                 for (Serials.Shelf sh : Serials.shelves(store)) {
                     ObjectNode o = arr.addObject();
                     o.put("name", sh.slug()); o.put("query", sh.query()); o.put("every_days", sh.everyDays()); o.put("last", sh.lastChecked());
-                    o.put("parked", sh.parked()); o.put("due", sh.due(java.time.LocalDate.now()));
+                    o.put("parked", sh.parked()); o.put("due", sh.due(LocalDate.now()));
                 }
             }
             case "add" -> {
@@ -1279,7 +1404,8 @@ public final class LibraryProtocol {
 
     /** library_subjects: the controlled vocabulary; broader = the facet before {@code --}. */
     public ObjectNode subjects(JsonNode args) throws IOException {
-        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
         ObjectNode r = envelope();
         ArrayNode out = r.putArray("subjects");
         Map<String, Integer> counts = Related.counts(store);
@@ -1368,7 +1494,7 @@ public final class LibraryProtocol {
         if (patron.anonymous()) throw ProtocolError.forbidden("Sign in to subscribe. Notifications are signed for a named user.");
         String url = reqStr(args, "url").strip();
         String secret = args.path("secret").asText("").strip();
-        if (secret.isEmpty()) { byte[] b = new byte[24]; new java.security.SecureRandom().nextBytes(b); secret = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b); }
+        if (secret.isEmpty()) { byte[] b = new byte[24]; new SecureRandom().nextBytes(b); secret = Base64.getUrlEncoder().withoutPadding().encodeToString(b); }
         List<String> kinds = new ArrayList<>();
         for (JsonNode k : args.path("events")) if (k.isTextual() && !k.asText().isBlank()) kinds.add(k.asText().strip());
         try { Webhooks.add(store, patron.did(), url, secret, kinds); }
@@ -1392,7 +1518,8 @@ public final class LibraryProtocol {
     }
 
     public ObjectNode changes(JsonNode args) throws IOException {
-        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
         long since = 0;
         if (args.hasNonNull("since") && !args.get("since").asText().isBlank()) {
             try { since = Long.parseLong(args.get("since").asText()); }
@@ -1424,6 +1551,18 @@ public final class LibraryProtocol {
     /** No ceiling unless the ask names one: the run goes until the work is done. */
     public static final int DEFAULT_TURNS = 0;
 
+    /**
+     * Before the checks that refuse a question too short to research: a program's short question that reads as a person asking about
+     * harming themselves is answered with where to find help ({@link ProtocolError#confirm}), not with "too short". A longer question
+     * is read for it with the rest ({@link ContentOffer#detect}), once.
+     */
+    public static void helpBeforeTooShort(JsonNode args, Way way) {
+        if (!Way.PROGRAM.where().equals(way.where())) return;   // the terminal, the web page and the chat ask the person themselves
+        String question = args.path("question").asText("").strip();
+        if (question.isEmpty() || question.length() >= 12 || allowOf(args).contains(ContentPolicy.SELF_HARM)) return;
+        if (ContentOffer.harm(question, null) == ContentOffer.Harm.SURE) throw ProtocolError.confirm(ContentOffer.confirmMessage());
+    }
+
     /** The argument checks, separately so a transport can run them before its own drive check. */
     public static void validateResearch(JsonNode args) {
         String question = reqStr(args, "question").strip();
@@ -1445,13 +1584,101 @@ public final class LibraryProtocol {
             if (!subs.isArray() || subs.size() > 8) throw ProtocolError.invalidArgs("sub_questions must be an array of at most 8 strings.");
             for (JsonNode s : subs) if (!s.isTextual() || s.asText().isBlank()) throw ProtocolError.invalidArgs("sub_questions must be an array of non-empty strings.");
         }
+        JsonNode field = args.path("field");
+        if (!field.isMissingNode() && !field.isNull() && (!field.isTextual() || field.asText().isBlank())) throw ProtocolError.invalidArgs("field, when given, is the name of one of the library's fields, for example \"science\".");
+        validateAllow(args);
     }
 
-    public ObjectNode research(JsonNode args) throws IOException {
+    /** What {@code allow}, when given, may say: a list of the names in {@link ContentPolicy#ALLOW_NAMES}, once each. */
+    static final String ALLOW_TAKES = "allow, when given, is a list of what to let into this run that the library leaves out by default: \"explicit\" (pornography, "
+            + "and gore) and \"howto\" (step-by-step instructions for making a weapon or an explosive, making an illegal drug, or running working exploit code against a system); "
+            + "and \"self-harm\", the yes to researching a question that reads as a person asking about harming themselves, after the help the library showed.";
+
+    /** The check of {@code allow}, as {@code field} is checked: a list of known names, or a refusal that says what it takes. */
+    public static void validateAllow(JsonNode args) {
+        JsonNode allow = args.path("allow");
+        if (allow.isMissingNode() || allow.isNull()) return;
+        if (!allow.isArray() && !allow.isTextual()) throw ProtocolError.invalidArgs(ALLOW_TAKES);
+        List<String> names = ContentOffer.names(allow);
+        if (names.size() > ContentPolicy.ALLOW_NAMES.size()) throw ProtocolError.invalidArgs(ALLOW_TAKES);
+        for (String n : names) if (!ContentPolicy.ALLOW_NAMES.contains(n)) throw ProtocolError.invalidArgs("This library cannot let in \"" + n + "\". " + ALLOW_TAKES);
+    }
+
+    /**
+     * What a job's arguments let in for its run: {@code allow}, the names in {@link ContentPolicy#ALLOW_NAMES} (a job filed before 0.5.0
+     * carries none, and a nightly one never does).
+     */
+    public static List<String> allowOf(JsonNode args) {
+        List<String> out = new ArrayList<>();
+        if (args != null) for (String a : ContentOffer.names(args.path("allow"))) if (ContentPolicy.ALLOW_NAMES.contains(a) && !out.contains(a)) out.add(a);
+        return out;
+    }
+
+    /** The fields a job's arguments ask for: {@code field}, one name (older jobs carry none). */
+    public static List<String> fieldsOf(JsonNode args) {
+        String f = args == null ? "" : args.path("field").asText("").strip();
+        return f.isEmpty() ? List.of() : List.of(f.toLowerCase(Locale.ROOT));
+    }
+
+    /**
+     * Where a research ask came in, for the fields ledger and for the suggestion: {@code how} a field it names was chosen, {@code where}
+     * the person would be told that the question looks like a field's, and whether the protocol tells them in its result. The chat and
+     * the command line ask the person themselves and tell nothing here.
+     */
+    public record Way(String how, String where, boolean tell) {
+        public static final Way PROGRAM = new Way("mcp-field", "program", true);
+        public static final Way QUIET = new Way("asked", "", false);
+    }
+
+    public ObjectNode research(JsonNode args) throws IOException { return research(args, Way.PROGRAM); }
+
+    /**
+     * A research run filed. {@code field} names a field the run is to be (a field that joins only when asked joins only this way); a name
+     * the library does not know, or has turned off, is refused with a sentence that says which fields there are. With no field, a question
+     * that looks like a field's that joins only when asked is filed as ordinary research, and the result carries {@code suggestion}: the
+     * field, what its mode does, and how to ask for it. Once per question.
+     */
+    public ObjectNode research(JsonNode args, Way way) throws IOException { return research(args, way, (Jobs.Offer) null, 0); }
+
+    /**
+     * {@code offered} not null: the run is filed waiting for the person's answer to the chat's question about that field ({@link
+     * Jobs#submitOffered}); nobody's answer by {@code offeredUntil} starts it as ordinary research.
+     */
+    ObjectNode research(JsonNode args, Way way, Fields.Suggestion offered, long offeredUntil) throws IOException { return research(args, way, offered, offeredUntil, false); }
+
+    /** {@code onlyOnYes}: the offered run starts only on a yes; anything else stops it (a second run of a question that already runs). */
+    ObjectNode research(JsonNode args, Way way, Fields.Suggestion offered, long offeredUntil, boolean onlyOnYes) throws IOException {
+        return research(args, way, offered == null ? null : new Jobs.Offer(offered.field(), onlyOnYes, List.of()), offeredUntil);
+    }
+
+    /**
+     * The run filed waiting for the person's answers to {@code offer}'s questions (null: filed at once). A run a program files (where
+     * nobody can answer) has its question read for what the library leaves out by default: it goes with that left out, unless {@code allow}
+     * lets it in, and the result carries {@code content_suggestion}: what may be needed and how to let it in.
+     */
+    ObjectNode research(JsonNode args, Way way, Jobs.Offer offer, long offeredUntil) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
+        if (offer == null) helpBeforeTooShort(args, way);
         validateResearch(args);
+        String field = args.path("field").asText("").strip();
+        if (!field.isEmpty()) {
+            Profile p = Profiles.named(field);
+            List<String> on = Profiles.enabledProfiles(store).stream().map(Profile::name).toList();
+            if (p == null) throw ProtocolError.invalidArgs("This library has no field called \"" + field + "\". Its fields are: " + String.join(", ", on) + ".");
+            if (!on.contains(p.name())) throw ProtocolError.invalidArgs("The " + p.name() + " field is turned off in this library. The owner turns it on with the command researchzosho profile enable " + p.name() + ".");
+            field = p.name();
+        }
         String question = reqStr(args, "question").strip();
+        List<String> allow = allowOf(args);
+        // nobody can answer a program's run: its question is read for what it may need, and for a person asking about harming themselves,
+        // which starts nothing: the caller is answered with the confirm error, whose message is where to find help and the sentence that
+        // says to ask the person, so that a client that prints errors shows it to them
+        ContentOffer.Detected detected = null;
+        if (Way.PROGRAM.where().equals(way.where()) && offer == null) {
+            detected = ContentOffer.detect(question, null);
+            if (detected.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) throw ProtocolError.confirm(ContentOffer.confirmMessage());
+        }
         // a run cannot open files on this machine: it reads the web and the library. So when the library owner's question
         // names a file that exists, the library reads it in first and tells the run where to look.
         List<String> readIn = readInNamedFiles(question, args.path("patron"), patron);
@@ -1475,14 +1702,67 @@ public final class LibraryProtocol {
             ArrayNode cs = a.putArray("collections");
             for (JsonNode c : args.path("collections")) if (c.isTextual() && !c.asText().isBlank()) cs.add(c.asText().strip());
         }
-        String id = jobs.submit("research", who, a);
+        Fields.Suggestion told = null;
+        if (!field.isEmpty()) { a.put("field", field); a.put("field_how", way.how()); }
+        else if (way.tell() && (told = Fields.tell(store, question, way.where())) != null) a.putObject("suggested").put("field", told.field()).put("offer", told.offer());
+        // what this run lets in that the library leaves out by default: only what the caller named in allow, for this run alone
+        if (!allow.isEmpty()) {
+            ArrayNode al = a.putArray("allow"); allow.forEach(al::add);
+            // how it was asked for, for the ledger: a program named it; the terminal and the web page say whether it was a flag, a box or a yes
+            a.put("allow_how", Way.PROGRAM.where().equals(way.where()) ? "mcp-allow" : args.path("allow_how").asText(way.how()));
+        }
+        // nobody can answer a program's run: its question is read for what it may need, and the result says how to let it in
+        List<String> needs = List.of();
+        if (detected != null) { needs = new ArrayList<>(detected.needs()); needs.removeAll(allow); }
+        String id = offer != null ? jobs.submitOffered("research", who, a, offer, offeredUntil) : jobs.submit("research", who, a);
         store.circulate("research-job", id + " by " + patron.writer() + " :: " + Acquisitions.compress(question, 120));
         ObjectNode r = envelope();
         r.put("job_id", id);
-        r.put("state", "queued");
+        r.put("state", offer != null ? Jobs.OFFERED : "queued");
         if (quick) r.put("quick", true);
+        if (!field.isEmpty()) r.put("field", field);
+        if (!allow.isEmpty()) r.set("allow", a.get("allow").deepCopy());
+        if (told != null) r.putObject("suggestion").put("field", told.field()).put("why", told.offer()).put("how", told.how());
+        if (!needs.isEmpty()) r.set("content_suggestion", ContentOffer.suggestion(needs));
+        // the judge could not tell whether the question is a person asking about harming themselves: the help is shown anyway, it costs nothing
+        if (detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !allow.contains(ContentPolicy.SELF_HARM)) r.putObject("help").put("text", CrisisHelp.text());
         return r;
     }
+
+    /** How a run is filed where a person can answer the library's question about a field: the chat files it waiting for their answer. */
+    public interface Asker { ObjectNode file(ObjectNode ask) throws IOException; }
+
+    /** Set by the chat for its own calls: the runs a batch starts are filed the chat's way. Null: a program's way, told in the result. */
+    volatile Asker asker = null;
+
+    /**
+     * One run of a batch, filed as the program's ask. The batch's result carries one suggestion: the first question of it that looks like a
+     * field's, with that question; it alone is written down as told, since it alone is shown. The later runs are filed without telling.
+     */
+    private ObjectNode fileRun(ObjectNode ask, ObjectNode batch) throws IOException {
+        if (asker != null) return asker.file(ask);
+        ObjectNode r;
+        try { r = research(ask, batch.has("suggestion") ? new Way(Way.PROGRAM.how(), Way.PROGRAM.where(), false) : Way.PROGRAM); }
+        catch (ProtocolError e) {
+            if (!ProtocolError.CONFIRM.equals(e.code)) throw e;
+            // its question reads as a person asking about harming themselves: nothing is filed for it, and the batch says so for that
+            // question, with where to find help; the batch's result carries the help once, for the first such question
+            ObjectNode n = M.createObjectNode();
+            n.put("state", "not_started");
+            n.put("help", ContentOffer.confirmOne());
+            if (!batch.has("help")) batch.putObject("help").put("text", CrisisHelp.text()).put("how", ContentOffer.CONFIRM_ONE).put("question", ask.path("question").asText(""));
+            return n;
+        }
+        if (r.has("suggestion") && !batch.has("suggestion")) { ObjectNode s = r.get("suggestion").deepCopy(); batch.set("suggestion", s.put("question", ask.path("question").asText(""))); }
+        // what a run of the batch may need that the library leaves out by default, and how the person lets it in: once, for the first such question
+        if (r.has("content_suggestion") && !batch.has("content_suggestion")) { ObjectNode s = r.get("content_suggestion").deepCopy(); batch.set("content_suggestion", s.put("question", ask.path("question").asText(""))); }
+        // the judge could not tell whether the question is a person asking about harming themselves: the run starts, and the help goes on the batch's result
+        if (r.has("help") && !batch.has("help")) { ObjectNode h = r.get("help").deepCopy(); batch.set("help", h.put("question", ask.path("question").asText(""))); }
+        return r;
+    }
+
+    /** Whether a run a batch tool asked for was filed: it has a job id. One the library did not start has none. */
+    static boolean filed(JsonNode run) { return run != null && !run.path("job_id").asText("").isBlank(); }
 
     /**
      * library_sharpen: a rough question in, a better one out — before anything runs. What the shelves hold
@@ -1492,10 +1772,16 @@ public final class LibraryProtocol {
      * access; needs a model drive. Two or three model calls.
      */
     public ObjectNode sharpen(JsonNode args) throws IOException {
+        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        return sharpen(args, Explain.drive(), Researcher.webTools());
+    }
+
+    /** library_sharpen with the model and the web tools given. */
+    ObjectNode sharpen(JsonNode args, Researcher.Drive judge, Researcher.Tools tools) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.read);
         String question = reqStr(args, "question").strip();
-        Sharpen.Sharpened s = Sharpen.run(store, Explain.drive(), Researcher.webTools(), question);
+        Sharpen.Sharpened s = Sharpen.run(store, patron, judge, tools, question);
         ObjectNode r = envelope();
         r.setAll(s.json());
         store.circulate("sharpen", patron.label() + " :: " + Acquisitions.compress(question, 120));
@@ -1520,8 +1806,8 @@ public final class LibraryProtocol {
         String id = args.path(term.isEmpty() ? "id" : "in").asText("").strip();
         if (term.isEmpty() && id.isEmpty()) throw ProtocolError.invalidArgs("Give the id of an entry to explain, or a term. With a term, in = the entry it appears in.");
         Explain.Reading r = term.isEmpty()
-                ? Explain.entry(store, rung == Explain.Rung.written ? null : Explain.drive(), id, rung, fresh)
-                : Explain.term(store, Explain.drive(), term, id, rung, fresh);
+                ? Explain.entry(store, rung == Explain.Rung.written ? null : Explain.drive(), id, rung, fresh, Explain.Progress.NONE)
+                : Explain.term(store, Explain.drive(), term, id, rung, fresh, Explain.Progress.NONE);
         ObjectNode out = envelope();
         out.setAll(r.json());
         store.circulate("explain", patron.label() + " :: " + (term.isEmpty() ? id : term + (id.isEmpty() ? "" : " in " + id)) + " @ " + rung.name());
@@ -1532,7 +1818,7 @@ public final class LibraryProtocol {
      * library_map: the graph around a focus — a node name (a person, a place, a work, a
      * concept) or an entry id — out to {@code depth} hops (default 1, max 3), at most {@code k} nodes
      * (default 25). Nodes carry kind, label, aliases, wikidata; edges ARE findings (id, state,
-     * confidence, disputed). Private nodes are shown only to the person.
+     * confidence, disputed).
      */
     public ObjectNode map(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
@@ -1545,19 +1831,19 @@ public final class LibraryProtocol {
         r.put("focus", focus);
         // the names the map knows best, most connected first: what to try when a name finds nothing, or when the page opens empty
         ArrayNode suggestions = r.putArray("suggestions");
-        g.nodes().stream().filter(n -> !n.privateNode() || patron.person()).sorted((x, y) -> Integer.compare(y.degree(), x.degree())).limit(12)
+        g.nodes().stream().sorted((x, y) -> Integer.compare(y.degree(), x.degree())).limit(12)
                 .forEach(n -> suggestions.addObject().put("label", n.label()).put("kind", n.kind()).put("degree", n.degree()));
         if (focus.isEmpty()) { r.putNull("node"); r.putArray("nodes"); r.putArray("edges"); r.putArray("open"); r.put("holds_nothing", g.nodes().isEmpty()); return r; }
-        Graph.Neighbourhood nb = g.around(focus, depth, k, patron.person());
+        Graph.Neighbourhood nb = g.around(focus, depth, k);
         if (nb.focus() == null) {
             // no node of exactly that name: the nearest names — a label or alias containing the words typed — most connected first;
             // the best one becomes the focus ("Tokyo" → "Tokyo Vice"; "Akasaka" → "Akasaka district"), and the rest are offered
             String needle = focus.toLowerCase(Locale.ROOT);
-            List<Graph.Node> near = g.nodes().stream().filter(n -> !n.privateNode() || patron.person())
+            List<Graph.Node> near = g.nodes().stream()
                     .filter(n -> n.label().toLowerCase(Locale.ROOT).contains(needle) || n.aliases().stream().anyMatch(al -> al.toLowerCase(Locale.ROOT).contains(needle)))
                     .sorted((x, y) -> Integer.compare(y.degree(), x.degree())).toList();
             if (!near.isEmpty()) {
-                nb = g.around(near.get(0).label(), depth, k, patron.person());
+                nb = g.around(near.get(0).label(), depth, k);
                 r.put("resolved_from", focus);
                 suggestions.removeAll();
                 near.stream().limit(12).forEach(n -> suggestions.addObject().put("label", n.label()).put("kind", n.kind()).put("degree", n.degree()));
@@ -1582,7 +1868,6 @@ public final class LibraryProtocol {
         o.put("id", n.id()); o.put("kind", n.kind()); o.put("label", n.label()); o.put("degree", n.degree());
         ArrayNode a = o.putArray("also"); for (String s : n.aliases()) a.add(s);
         if (n.wikidata().isEmpty()) o.putNull("wikidata"); else o.put("wikidata", n.wikidata());
-        if (n.privateNode()) o.put("private", true);
         return o;
     }
 
@@ -1594,10 +1879,22 @@ public final class LibraryProtocol {
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
         String question = reqStr(args, "question").strip();
         if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short.");
-        String driveUrl = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
-        String model = org.researchzosho.Config.get("RESEARCHZOSHO_MODEL", "local-model");
+        String driveUrl = Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
+        String model = Config.get("RESEARCHZOSHO_MODEL", "local-model");
         if (!Crews.driveAnswers(driveUrl)) throw ProtocolError.unavailable("No model answers at " + driveUrl + ". This needs a model.");
-        List<Perspectives.Perspective> ps = Perspectives.discover(question, Researcher.judgeDrive(driveUrl, model), Researcher.webTools(), Math.min(8, Math.max(1, args.path("max").asInt(5))));
+        return perspectives(args, perspectivesDrive(driveUrl, model), Researcher.webTools());
+    }
+
+    /** The seat library_perspectives and the perspectives command ask: the judgment seat, watched, so a decline is said, never "no perspectives". */
+    static Researcher.Drive perspectivesDrive(String driveUrl, String model) { return Researcher.watchedJudge(driveUrl, model, Declines.toCrewsLog(null, "declines")); }
+
+    /** library_perspectives with the model and the web tools given. */
+    ObjectNode perspectives(JsonNode args, Researcher.Drive judge, Researcher.Tools tools) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
+        String question = reqStr(args, "question").strip();
+        if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short.");
+        List<Perspectives.Perspective> ps = Perspectives.discover(question, judge, tools, Math.min(8, Math.max(1, args.path("max").asInt(5))));
         ObjectNode r = envelope();
         r.put("question", question);
         ArrayNode out = r.putArray("perspectives");
@@ -1624,25 +1921,27 @@ public final class LibraryProtocol {
         String op = args.path("op").asText("").toLowerCase(Locale.ROOT);
         if (op.equals("pause") || op.equals("resume")) {   // the runner: queued runs wait, a running one holds at its next turn
             Patrons.check(store, patron, Patrons.Level.write);
-            org.researchzosho.Config.set(ResearchSettings.PAUSE, op.equals("pause") ? "on" : "off");
+            Config.set(ResearchSettings.PAUSE, op.equals("pause") ? "on" : "off");
             r.put("paused", op.equals("pause"));
             return r;
         }
-        if (op.equals("stop")) {   // one run: a queued one never starts, a running one ends at its next turn
+        if (op.equals("stop")) {   // one run: a queued one never starts, a running one ends within seconds, also in the middle of a call; the nightly tasks after their step
             Patrons.check(store, patron, Patrons.Level.write);
             if (id.isEmpty()) throw ProtocolError.invalidArgs("stop needs job_id.");
             ObjectNode j = jobs.get(id);
             if (j == null || !Jobs.visibleTo(patron, j)) throw ProtocolError.notFound("No research run has the id " + id + ".");
-            String now = jobs.stop(id, patron.writer());
+            Jobs.Stop now = jobs.stopRun(id, patron.writer());
             if (now == null) throw ProtocolError.invalidArgs("Research run " + id + " is not queued or running. It is " + j.path("state").asText() + ".");
-            r.put("job_id", id); r.put("state", now);
+            r.put("job_id", id); r.put("state", now.state()); r.put("kind", now.kind());
+            if (now.filed()) r.put("filed", true);   // the run had begun filing its report: the report stays
             return r;
         }
         r.put("paused", ResearchSettings.paused());
         if (!id.isEmpty()) {
             ObjectNode j = jobs.get(id);
-            if (j == null) throw ProtocolError.notFound("No research run has the id " + id + ".");
-            r.set("job", Jobs.view(j));
+            ObjectNode v = j == null ? null : Jobs.view(j);
+            if (v == null) throw ProtocolError.notFound("No research run has the id " + id + ".");
+            r.set("job", v);
             return r;
         }
         int limit = Math.min(200, Math.max(1, args.path("limit").asInt(20)));
@@ -1658,7 +1957,9 @@ public final class LibraryProtocol {
             if (page.isEmpty()) break;
             for (ObjectNode j : page) {
                 last = j.path("job_id").asText();
-                if (Jobs.visibleTo(patron, j)) { finished.add(Jobs.view(j)); if (finished.size() >= limit) break; }
+                if (!Jobs.visibleTo(patron, j)) continue;
+                finished.add(Jobs.view(j));
+                if (finished.size() >= limit) break;
             }
             c = last;
         }
@@ -1681,7 +1982,7 @@ public final class LibraryProtocol {
         counts.put("investigation", countFiles(store.investigationsDir(), ".md"));
         counts.put("article", countFiles(store.articlesDir(), ".md"));
         counts.put("raw", countFiles(store.rawDir(), ".md"));
-        r.put("version", org.researchzosho.Version.string());
+        r.put("version", Version.string());
         counts.put("subject", (int) Related.counts(store).size());
         r.put("last_updated", lastUpdated());
         return r;
@@ -1689,8 +1990,12 @@ public final class LibraryProtocol {
 
     // ---- resources ----
 
-    /** resources/list — paged: finding://, article://, raw:// (locator = the captured URL). */
-    public ObjectNode resourcesList(String cursorText) throws IOException {
+    /** resources/list — paged: finding://, article://, raw:// (locator = the captured URL). For a caller who does not name itself. */
+    public ObjectNode resourcesList(String cursorText) throws IOException { return resourcesList(cursorText, Patrons.Patron.ANONYMOUS); }
+
+    /** resources/list as {@code patron} may see it: read access. */
+    public ObjectNode resourcesList(String cursorText, Patrons.Patron patron) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
         int offset = 0;
         if (cursorText != null && !cursorText.isBlank()) {
             try { offset = Integer.parseInt(cursorText); } catch (NumberFormatException e) { throw ProtocolError.invalidArgs("This cursor is not valid for this library."); }
@@ -1729,8 +2034,12 @@ public final class LibraryProtocol {
         return r;
     }
 
-    /** resources/read — the same body library_get / library_read return. */
-    public ObjectNode resourcesRead(String uri) throws IOException {
+    /** resources/read — the same body library_get / library_read return. For a caller who does not name itself. */
+    public ObjectNode resourcesRead(String uri) throws IOException { return resourcesRead(uri, Patrons.Patron.ANONYMOUS); }
+
+    /** resources/read as {@code patron} may see it: read access. */
+    public ObjectNode resourcesRead(String uri, Patrons.Patron patron) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
         if (uri == null || uri.isBlank()) throw ProtocolError.invalidArgs("A resource uri is required.");
         int scheme = uri.indexOf("://");
         String name = scheme < 0 ? uri : uri.substring(scheme + 3);
@@ -1855,10 +2164,10 @@ public final class LibraryProtocol {
         return out;
     }
 
-    private static final java.util.regex.Pattern REF_LINE = java.util.regex.Pattern.compile("^\\[(\\d+)\\] (.*)$");
-    private static final java.util.regex.Pattern REF_PUBLISHED = java.util.regex.Pattern.compile("\\(published (\\d{4}-\\d{2}-\\d{2})[^)]*\\)");
-    private static final java.util.regex.Pattern REF_SAME = java.util.regex.Pattern.compile("\\(same text as \\[(\\d+)\\]\\)");
-    private static final java.util.regex.Pattern NOTE_LINE = java.util.regex.Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", java.util.regex.Pattern.MULTILINE);
+    private static final Pattern REF_LINE = Pattern.compile("^\\[(\\d+)\\] (.*)$");
+    private static final Pattern REF_PUBLISHED = Pattern.compile("\\(published (\\d{4}-\\d{2}-\\d{2})[^)]*\\)");
+    private static final Pattern REF_SAME = Pattern.compile("\\(same text as \\[(\\d+)\\]\\)");
+    private static final Pattern NOTE_LINE = Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", Pattern.MULTILINE);
 
     /**
      * The references of a write-up as rows: {@code {n, locator, title, edition, published, fetched, language, same_as, tier, rule, why}}.
@@ -1872,16 +2181,16 @@ public final class LibraryProtocol {
         SourceRules rules = SourceRules.load(store);
         // locator → language of the notes taken from it
         Map<String, String> langOf = new HashMap<>();
-        java.util.regex.Matcher nm = NOTE_LINE.matcher(body);
+        Matcher nm = NOTE_LINE.matcher(body);
         while (nm.find()) {
             String loc = nm.group(2).replaceAll("[),.;]+$", "");
-            java.util.regex.Matcher um = java.util.regex.Pattern.compile("(?:https?|file)://\\S+").matcher(loc);
+            Matcher um = Pattern.compile("(?:https?|file)://\\S+").matcher(loc);
             String url = um.find() ? um.group().replaceAll("[),.;]+$", "") : loc;
             langOf.putIfAbsent(url, Lanes.languageOf(url, nm.group(3) == null ? "" : nm.group(3)));
         }
         List<String[]> rows = new ArrayList<>();   // [n, rest]
         if (refs != null) {
-            for (String line : refs.split("\n")) { java.util.regex.Matcher m = REF_LINE.matcher(line.strip()); if (m.matches()) rows.add(new String[]{m.group(1), m.group(2)}); }
+            for (String line : refs.split("\n")) { Matcher m = REF_LINE.matcher(line.strip()); if (m.matches()) rows.add(new String[]{m.group(1), m.group(2)}); }
         } else {
             String cited = sectionOf(body, "sources cited");
             if (cited == null) cited = sectionOf(body, "sources");
@@ -1891,7 +2200,7 @@ public final class LibraryProtocol {
         for (String[] row : rows) {
             String rest = row[1];
             // a URL, a raw capture, a shelved file by name, or a host and path a worker wrote without its scheme ("arxiv.org/html/2510.24011v1")
-            java.util.regex.Matcher um = java.util.regex.Pattern.compile("(?:https?|file)://\\S+|raw/\\S+|(?<=^| )[^\\s]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?)(?= |$)|(?<=^| )(?:[a-z0-9-]+\\.)+[a-z]{2,}/\\S*").matcher(rest);
+            Matcher um = Pattern.compile("(?:https?|file)://\\S+|raw/\\S+|(?<=^| )[^\\s]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?)(?= |$)|(?<=^| )(?:[a-z0-9-]+\\.)+[a-z]{2,}/\\S*").matcher(rest);
             if (!um.find()) continue;
             String locator = um.group().replaceAll("[),.;]+$", "");
             String head = rest.substring(0, um.start()).strip();
@@ -1904,15 +2213,15 @@ public final class LibraryProtocol {
             boolean isEdition = head.matches(".*\\b(1[5-9]\\d\\d|20\\d\\d)\\b.*") && (head.contains(",") || head.contains("("));
             o.put("title", isEdition ? "" : head);
             if (isEdition) o.put("edition", head); else o.putNull("edition");
-            java.util.regex.Matcher pm = REF_PUBLISHED.matcher(tail);
+            Matcher pm = REF_PUBLISHED.matcher(tail);
             if (pm.find()) o.put("published", pm.group(1)); else o.putNull("published");
             boolean fetched = false;
-            try { Path rp = RawCapture.find(store, locator); fetched = rp != null && org.researchzosho.tools.Fetch.wall(RawCapture.read(rp)[1], RawCapture.read(rp)[2]) == null; } catch (Exception ignored) { }
+            try { Path rp = RawCapture.find(store, locator); fetched = rp != null && Fetch.wall(RawCapture.read(rp)[1], RawCapture.read(rp)[2]) == null; } catch (Exception ignored) { }
             o.put("fetched", fetched);
             String lang = langOf.get(locator);
             if (lang == null) for (var en : langOf.entrySet()) if (en.getKey().startsWith(locator) || locator.startsWith(en.getKey())) { lang = en.getValue(); break; }
             if (lang == null) o.putNull("language"); else o.put("language", lang);
-            java.util.regex.Matcher sm = REF_SAME.matcher(tail);
+            Matcher sm = REF_SAME.matcher(tail);
             if (sm.find()) o.put("same_as", Integer.parseInt(sm.group(1))); else o.putNull("same_as");
             o.put("tier", SourceTier.of(locator).name());
             SourceRules.Rule rule = rules.ruleFor(locator);
@@ -1988,11 +2297,11 @@ public final class LibraryProtocol {
 
     record Route(String kind, String arg) { }
 
-    static final java.util.regex.Pattern ID = java.util.regex.Pattern.compile("^\\s*([FIA]-\\d{4}-[a-z0-9-]+)\\s*$");
-    static final java.util.regex.Pattern URL = java.util.regex.Pattern.compile("^\\s*(https?://\\S+)\\s*$");
-    static final java.util.regex.Pattern SINCE_DATE = java.util.regex.Pattern.compile("(?i)\\bsince\\s+(\\d{4}-\\d{2}-\\d{2})");
-    static final java.util.regex.Pattern LAST_DAYS = java.util.regex.Pattern.compile("(?i)\\b(?:last|past)\\s+(\\d{1,3})\\s+days?\\b");
-    static final java.util.regex.Pattern CHANGED = java.util.regex.Pattern.compile("(?i)\\b(what(?:'s| has| is)? (?:changed|new)|recent(?:ly)? (?:added|changed)|new since|変更|更新|最近)\\b|変更|更新|最近");
+    static final Pattern ID = Pattern.compile("^\\s*([FIA]-\\d{4}-[a-z0-9-]+)\\s*$");
+    static final Pattern URL = Pattern.compile("^\\s*(https?://\\S+)\\s*$");
+    static final Pattern SINCE_DATE = Pattern.compile("(?i)\\bsince\\s+(\\d{4}-\\d{2}-\\d{2})");
+    static final Pattern LAST_DAYS = Pattern.compile("(?i)\\b(?:last|past)\\s+(\\d{1,3})\\s+days?\\b");
+    static final Pattern CHANGED = Pattern.compile("(?i)\\b(what(?:'s| has| is)? (?:changed|new)|recent(?:ly)? (?:added|changed)|new since|変更|更新|最近)\\b|変更|更新|最近");
 
     /** Deterministic intent: id · locator · changes · subject · search. */
     Route route(String q) throws IOException {
@@ -2003,8 +2312,8 @@ public final class LibraryProtocol {
         m = SINCE_DATE.matcher(q);
         if (m.find()) return new Route("changes", m.group(1));
         m = LAST_DAYS.matcher(q);
-        if (m.find()) return new Route("changes", java.time.LocalDate.now().minusDays(Integer.parseInt(m.group(1))).toString());
-        if (CHANGED.matcher(q).find()) return new Route("changes", java.time.LocalDate.now().minusDays(7).toString());
+        if (m.find()) return new Route("changes", LocalDate.now().minusDays(Integer.parseInt(m.group(1))).toString());
+        if (CHANGED.matcher(q).find()) return new Route("changes", LocalDate.now().minusDays(7).toString());
         String subject = subjectNamed(q);
         if (subject != null) return new Route("subject", subject);
         return new Route("search", q);
@@ -2077,7 +2386,7 @@ public final class LibraryProtocol {
     private static String headField(Path p, String prefix) throws IOException {
         try (var lines = Files.lines(p, StandardCharsets.UTF_8)) {
             return lines.limit(8).filter(l -> l.startsWith(prefix)).map(l -> l.substring(prefix.length()).strip()).findFirst().orElse("");
-        } catch (java.io.UncheckedIOException e) {
+        } catch (UncheckedIOException e) {
             return "";
         }
     }
@@ -2122,8 +2431,9 @@ public final class LibraryProtocol {
         List<ObjectNode> out = new ArrayList<>();
         List<Frontier.Line> open = new ArrayList<>();
         for (Frontier.Line l : Frontier.read(store)) if (l.open()) open.add(l);
-        java.util.Set<String> tonight = new java.util.HashSet<>();
-        for (Crews.Bundle b : Crews.plan(open.stream().filter(Frontier.Line::researchable).toList(), Crews.explorerBudget())) for (Frontier.Line l : b.all()) tonight.add(l.text());
+        Set<String> tonight = new HashSet<>();
+        var fieldRuns = Fields.runs(store);
+        for (Crews.Bundle b : Crews.plan(open.stream().filter(Frontier.Line::researchable).toList(), Crews.explorerBudget(), l -> Fields.ofLine(l, fieldRuns))) for (Frontier.Line l : b.all()) tonight.add(l.text());
         Map<String, List<Frontier.Line>> alike = Frontier.similar(open);
         Map<String, String> headOf = new HashMap<>();
         for (var e : alike.entrySet()) for (Frontier.Line l : e.getValue()) headOf.put(l.text(), e.getKey());
@@ -2135,8 +2445,11 @@ public final class LibraryProtocol {
         int pos = 0;
         for (Frontier.Line l : open) {
             ObjectNode o = M.createObjectNode();
-            o.put("date", l.date()); o.put("kind", l.kind()); o.put("text", l.text());
+            o.put("date", l.date()); o.put("kind", Fields.unmarked(l.kind())); o.put("text", l.text());
+            String field = Fields.ofLine(l, fieldRuns);
+            if (!field.isEmpty()) o.put("field", field);
             o.put("type", l.type()); o.put("parked", l.parked()); o.put("position", ++pos); o.put("tonight", tonight.contains(l.text()));
+            if (l.parked()) { String why = Frontier.whyParked(store, l.text()); if (!why.isEmpty()) o.put("parked_why", why); }
             if (l.type().equals("asked")) o.put("asked", Frontier.asks(l));
             String origin = l.origin();
             List<String> subjects = new ArrayList<>();
@@ -2194,7 +2507,7 @@ public final class LibraryProtocol {
                 if (op.equals("dispute") && why.isEmpty()) throw ProtocolError.invalidArgs("A dispute needs a reason. Give why.");
                 Council c = new Council(store);
                 ArrayNode decided = r.putArray("decided");
-                for (String id : new java.util.LinkedHashSet<>(ids)) {
+                for (String id : new LinkedHashSet<>(ids)) {
                     if (store.finding(id) == null) throw ProtocolError.notFound("No claim has the id " + id + ".");
                     Finding f = switch (op) { case "accept" -> c.accept(id); case "retire" -> c.retire(id); default -> c.dispute(id, why); };
                     ObjectNode d = decided.addObject(); d.put("id", f.id()); d.put("state", f.state().name()); d.put("title", f.title());
@@ -2227,10 +2540,13 @@ public final class LibraryProtocol {
             o.put("kind", f.claimType().name()); o.put("tier", row.tier().name()); o.put("confidence", f.confidence().name());
             o.put("writer", f.writer()); o.put("date", f.recordedAt().length() >= 10 ? f.recordedAt().substring(0, 10) : f.recordedAt());
             ArrayNode sj = o.putArray("subjects"); for (String x : f.subjects()) sj.add(x);
-            o.put("language", Frontier.language(f.title()));
+            o.put("language", Frontier.language(f.title(), String.join(" ", f.sources().stream().map(Finding.Source::locator).toList())));
             o.put("sources", f.sources().size());
             Investigation inv = byFinding.get(f.id());
             if (inv != null) { o.put("report", inv.id()); o.put("report_title", inv.title()); }
+            String against = "";   // read from a picture: the reading its words were checked against
+            for (Profile p : Profiles.known()) { String a = p.checkedAgainst(f); if (!a.isEmpty()) against = a; }
+            if (!against.isEmpty()) o.put("checked_against", against);
             out.add(o);
         }
         return out;

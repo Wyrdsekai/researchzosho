@@ -13,6 +13,10 @@ import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import java.util.Collections;
+import java.util.Random;
+import java.util.regex.Matcher;
+import org.researchzosho.Config;
 /**
  * A list of things — books, tools, places, compounds, an inventory of line items — as a starting point.
  * Not questions: items, and a LENS that says what the person wants to know about each one ("{item}: what
@@ -26,9 +30,9 @@ import java.util.regex.Pattern;
 public final class Items {
 
     public static final String DEFAULT_LENS = "{item}: what it is, who made or wrote it, what it is for, and what is known about it";
-    static final int MAX_ITEMS = org.researchzosho.Config.getInt("RESEARCHZOSHO_ITEMS_MAX", 200);
+    static final int MAX_ITEMS = Config.getInt("RESEARCHZOSHO_ITEMS_MAX", 200);
     /** Items per research run when the list goes out as runs: one lane each. */
-    static final int BATCH = org.researchzosho.Config.getInt("RESEARCHZOSHO_ITEMS_BATCH", 8);
+    static final int BATCH = Config.getInt("RESEARCHZOSHO_ITEMS_BATCH", 8);
 
     public record Item(String name, String note) {
         public String line() { return note.isEmpty() ? name : name + " — " + note; }
@@ -98,7 +102,7 @@ public final class Items {
             for (String m : match) if (!m.isBlank() && !line.contains(m.strip().toLowerCase(Locale.ROOT))) { ok = false; break; }
             if (ok) out.add(it);
         }
-        if (sample > 0 && out.size() > sample) { java.util.Collections.shuffle(out, new java.util.Random(seed)); out = new ArrayList<>(out.subList(0, sample)); }
+        if (sample > 0 && out.size() > sample) { Collections.shuffle(out, new Random(seed)); out = new ArrayList<>(out.subList(0, sample)); }
         return out;
     }
 
@@ -159,7 +163,7 @@ public final class Items {
     /** The lists/ file a shelved list's raw record points at, by name ("<hash>.md"), or "" when the record does not say. */
     public static String listFileName(LibraryStore store, Path raw) {
         if (raw == null) return "";
-        try { java.util.regex.Matcher m = Pattern.compile("the whole list is lists/(\\S+\\.md)").matcher(RawCapture.read(raw)[2]); return m.find() ? m.group(1) : ""; } catch (IOException e) { return ""; }
+        try { Matcher m = Pattern.compile("the whole list is lists/(\\S+\\.md)").matcher(RawCapture.read(raw)[2]); return m.find() ? m.group(1) : ""; } catch (IOException e) { return ""; }
     }
 
     /** The search half of {@link #held(LibraryStore, LibrarianIndex, Item, String)}. */

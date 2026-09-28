@@ -16,6 +16,9 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.DeclineJudge;
 /**
  * The per-run trace: every model call a research run makes, with the EXACT request messages, the tools
  * offered, the reply's shape, the server's usage and the latency, one JSON line each, plus the runner's own
@@ -25,10 +28,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * <p>It is the instrument. "The writer never saw lanes four and five" (0.1.6) was found by a reader of the
  * write-up; with this file it is one grep. {@code RESEARCHZOSHO_TRACE=off} turns it off.
  */
-public final class RunTrace implements AutoCloseable {
+public final class RunTrace implements AutoCloseable, Declines.Notes {
     private static final ObjectMapper M = new ObjectMapper();
-    static final int KEEP = org.researchzosho.Config.getInt("RESEARCHZOSHO_TRACE_KEEP", 50);
-    static boolean enabled() { return !"off".equalsIgnoreCase(org.researchzosho.Config.get("RESEARCHZOSHO_TRACE", "on")); }
+    static final int KEEP = Config.getInt("RESEARCHZOSHO_TRACE_KEEP", 50);
+    static boolean enabled() { return !"off".equalsIgnoreCase(Config.get("RESEARCHZOSHO_TRACE", "on")); }
 
     private final Path file;
     private final String runId;
@@ -71,6 +74,11 @@ public final class RunTrace implements AutoCloseable {
     }
 
     /** A runner event: {@code compaction} (pieces, chars before, chars after), and anything else worth a line. */
+    /** A reply the decline judge was not sure of, as a {@code decline_unsure} line. */
+    @Override public void unsure(ObjectNode note) { event("decline_unsure", note); }
+    /** A decline as it passed a watched seat, as a {@code declined} line. */
+    @Override public void declined(ObjectNode note) { event("declined", note); }
+
     public void event(String type, ObjectNode data) {
         if ("compaction".equals(type)) compactions.incrementAndGet();
         ObjectNode o = M.createObjectNode(); o.put("capture", type); o.setAll(data); write(o);
@@ -100,6 +108,7 @@ public final class RunTrace implements AutoCloseable {
                 if (tools != null) for (JsonNode t : tools) names.add(t.path("function").path("name").asText(t.path("name").asText("")));
                 line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
                 ObjectNode reply = null; String error = null;
+                DriveClient.forgetUsage();
                 try { reply = delegate.chat(messages, tools, maxTokens, toolChoice); return reply; }
                 catch (RuntimeException e) { error = e.getMessage(); throw e; }
                 finally { finish(line, t0, reply, error); }
@@ -109,16 +118,30 @@ public final class RunTrace implements AutoCloseable {
                 ObjectNode line = M.createObjectNode();
                 line.put("capture", "llm_call"); line.put("seat", seat); line.put("kind", "classify"); line.put("max_tokens", maxTokens);
                 line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
-                String out = "";
+                String out = ""; String error = null;
+                DriveClient.forgetUsage();
                 try { out = delegate.classify(messages, maxTokens); return out; }
-                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); finish(line, t0, r, null); }
+                catch (RuntimeException e) { error = e.getMessage(); throw e; }   // a decline among them: the line says what the model declined
+                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); finish(line, t0, r, error); }
+            }
+            @Override public String prose(ArrayNode messages, int maxTokens) {
+                long t0 = System.nanoTime();
+                ObjectNode line = M.createObjectNode();
+                line.put("capture", "llm_call"); line.put("seat", seat); line.put("kind", "prose"); line.put("max_tokens", maxTokens);
+                line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
+                String out = ""; String error = null;
+                DriveClient.forgetUsage();
+                try { out = delegate.prose(messages, maxTokens); return out; }
+                catch (RuntimeException e) { error = e.getMessage(); throw e; }
+                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); finish(line, t0, r, error); }
             }
             @Override public int contextWindow() { return delegate.contextWindow(); }
+            @Override public DeclineJudge declineJudge() { return delegate.declineJudge(); }
             private void finish(ObjectNode line, long t0, ObjectNode reply, String error) {
                 long ms = (System.nanoTime() - t0) / 1_000_000;
                 line.put("latency_ms", ms);
                 trace.calls.incrementAndGet(); trace.latencyMs.addAndGet(ms);
-                long[] u = org.researchzosho.drive.DriveClient.lastUsage();
+                long[] u = DriveClient.lastUsage();
                 if (u != null) { line.putObject("usage").put("prompt_tokens", u[0]).put("completion_tokens", u[1]); trace.promptTokens.addAndGet(u[0]); trace.completionTokens.addAndGet(u[1]); }
                 if (reply != null) {
                     ObjectNode r = line.putObject("reply");

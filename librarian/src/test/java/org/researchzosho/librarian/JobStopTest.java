@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.researchzosho.Config;
 /** Stopping a run: a queued one never starts; a running one ends at its next turn; the runner can be paused from the protocol. */
 class JobStopTest {
 
@@ -22,7 +23,7 @@ class JobStopTest {
     void aQueuedRunIsStoppedAtOnceAndARunningOneAtItsNextTurn(@TempDir Path tmp) throws Exception {
         String realHome = System.getProperty("user.home");
         System.setProperty("user.home", tmp.toString());   // the pause is a config setting: keep it off the developer's own file
-        org.researchzosho.Config.invalidate();
+        Config.invalidate();
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Patrons.set(store, "did:key:zA", "A", Patrons.Level.write);
         CountDownLatch started = new CountDownLatch(1), release = new CountDownLatch(1);
@@ -57,7 +58,7 @@ class JobStopTest {
             ObjectNode done = jobs.get(running);
             assertEquals("stopped", done.path("state").asText(), done.toString());
             assertFalse(done.path("is_error").asBoolean(), "stopped is not failed");
-            assertTrue(done.path("result").asText().startsWith("stopped by the person at a turn"), done.path("result").asText());
+            assertTrue(done.path("result").asText().startsWith("stopped by the person"), done.path("result").asText());
             assertFalse(jobs.stopRequested(running), "the marker is cleared");
             // a finished job cannot be stopped; a reader may not stop anything
             assertThrows(ProtocolError.class, () -> p.job(args("{\"op\":\"stop\",\"job_id\":\"" + running + "\",\"patron\":{\"did\":\"did:key:zA\"}}")));
@@ -69,19 +70,19 @@ class JobStopTest {
         } finally {
             jobs.stop();
             System.setProperty("user.home", realHome);
-            org.researchzosho.Config.invalidate();
+            Config.invalidate();
         }
     }
 
     @Test
     void progressLandsOnTheRunningJobAndItsView(@TempDir Path tmp) throws Exception {
-        org.researchzosho.Config.invalidate();
+        Config.invalidate();
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Patrons.set(store, "did:key:zA", "A", Patrons.Level.write);
         Jobs[] holder = new Jobs[1];
         Jobs jobs = new Jobs(store, (job, drive) -> {
             String id = job.path("job_id").asText();
-            ObjectNode p = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+            ObjectNode p = new ObjectMapper().createObjectNode();
             p.put("phase", "workers"); p.put("round", 1); p.put("rounds", 2); p.put("workers_done", 2); p.put("workers_total", 5); p.put("turns_used", 41); p.put("turns_ceiling", 200);
             holder[0].progress(id, p);
             ObjectNode seen = holder[0].get(id);
@@ -102,7 +103,7 @@ class JobStopTest {
 
     @Test
     void aRunWaitingForAModelThatDoesNotAnswerSaysSoOnItsRecord(@TempDir Path tmp) throws Exception {
-        org.researchzosho.Config.invalidate();
+        Config.invalidate();
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Patrons.set(store, "did:key:zA", "A", Patrons.Level.write);
         Jobs jobs = new Jobs(store, (job, drive) -> "ran", List.of("http://127.0.0.1:1"), 1);   // nothing listens on port 1

@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
+import org.researchzosho.drive.Declined;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
@@ -72,5 +73,17 @@ class CatalogerTest {
         Cataloger.run(store, (v, t) -> "{\"subjects\": [\"translation--register\"], \"proposed\": []}", false);
         var out = Cataloger.run(store, (v, t) -> { throw new AssertionError("must not be called"); }, false);
         assertEquals(0, out.grounded());
+    }
+
+    @Test
+    void aClaimTheModelDeclinedToCatalogIsNotAskedAgainUntilItChanges() throws Exception {
+        // M5
+        LibraryStore store = seeded();
+        int[] calls = {0};
+        Cataloger.Judge declining = (vocab, text) -> { calls[0]++; throw new Declined("placeholder-model", "", Declined.How.FILTERED); };
+        Cataloger.run(store, declining, false);
+        var again = Cataloger.run(store, declining, false);
+        assertEquals(1, calls[0], "the same claim was not sent again");
+        assertTrue(again.problems().get(0).contains("not asked again"), again.problems().toString());
     }
 }

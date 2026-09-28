@@ -64,7 +64,7 @@ class CiteMapTest {
         RawCapture.capture(store, "https://example.org/readai", "In 159,870 meetings women spoke 9% more airtime when an AI notetaker was present.", "Read AI", "test", "");
         List<CiteCheck.Ref> refs = List.of(new CiteCheck.Ref(1, "https://example.org/readai", "", "Read AI"));
         List<String> asked = new ArrayList<>();
-        // one citation, then two uncited clauses: only the first clause is read against the source (dolores, I-0002)
+        // one citation, then two uncited clauses: only the first clause is read against the source (a test box, I-0002)
         String text = "On the design concerns: (a) women spoke 9% more airtime with an AI notetaker present (https://example.org/readai); "
                 + "(b) no evidence was found that delegation erodes cohesion; (c) nothing was found on labels and trust.";
         var out = CiteCheck.run(store, text, refs, judgeOf(asked), new Researcher.Budget(50));

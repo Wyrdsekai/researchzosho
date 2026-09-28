@@ -32,6 +32,9 @@ dependencies {
     // Calibre's metadata.db, read only (a Calibre library as a list of books)
     implementation("org.xerial:sqlite-jdbc:3.50.3.0")
 
+    // Daitch-Mokotoff sound codes, so a family check finds one surname in two spellings (Hale, Hail) (Apache Commons Codec, Apache-2.0, about 370 KB)
+    implementation("commons-codec:commons-codec:1.20.0")
+
     // HTTP: java.net.http, no dependency. The daemon: com.sun.net.httpserver, no dependency.
 }
 
@@ -50,6 +53,13 @@ tasks.test {
     environment("RESEARCHZOSHO_EMBED", "off")
     environment("RESEARCHZOSHO_RERANK", "off")
     environment("RESEARCHZOSHO_ENRICH", "both")
+
+    // GenealogyBoundaryTest writes its baseline when run with -Dboundary.write=true (the list only shrinks; never edit it by hand)
+    systemProperty("boundary.write", System.getProperty("boundary.write") ?: "false")
+
+    // InstalledLauncherTest runs the start scripts an install ships
+    dependsOn("startScripts", "zoshoScript")
+    systemProperty("launchers.dirs", listOf("scripts", "scripts-zosho").joinToString(File.pathSeparator) { layout.buildDirectory.dir(it).get().asFile.path })
 }
 
 tasks.jar {
@@ -67,6 +77,29 @@ application {
     )
 }
 
+/**
+ * The start scripts an install ships read RESEARCHZOSHO_JAVA_OPTS (CODEZAIKU_JAVA_OPTS from before the split), as bin/researchzosho does:
+ * the service puts its heap cap there. Gradle's own scripts read only JAVA_OPTS and <NAME>_OPTS, so the cap never reached an installed
+ * program. It goes after the default options and before JAVA_OPTS, so the options a person sets still win.
+ */
+fun CreateStartScripts.readsTheServicesJavaOpts() = doLast {
+    val task = this as CreateStartScripts
+    fun edit(f: File, from: String, to: String) {
+        val text = f.readText()
+        check(text.split(from).size == 2) { "${f.name}: gradle's start script changed, and the place that passes the Java options was not found once: $from" }
+        f.writeText(text.replace(from, to))
+    }
+    edit(task.unixScript, "\"\$DEFAULT_JVM_OPTS \$JAVA_OPTS ", "\"\$DEFAULT_JVM_OPTS \${RESEARCHZOSHO_JAVA_OPTS:-\$CODEZAIKU_JAVA_OPTS} \$JAVA_OPTS ")
+    val bat = task.windowsScript
+    val nl = if (bat.readText().contains("\r\n")) "\r\n" else "\n"
+    edit(bat, "@rem Execute ", "@rem The Java options the service was installed with, as the source tree's launcher reads them$nl"
+            + "set RESEARCHZOSHO_LAUNCH_OPTS=%RESEARCHZOSHO_JAVA_OPTS%$nl"
+            + "if not defined RESEARCHZOSHO_LAUNCH_OPTS set RESEARCHZOSHO_LAUNCH_OPTS=%CODEZAIKU_JAVA_OPTS%$nl$nl@rem Execute ")
+    edit(bat, "%DEFAULT_JVM_OPTS% %JAVA_OPTS% ", "%DEFAULT_JVM_OPTS% %RESEARCHZOSHO_LAUNCH_OPTS% %JAVA_OPTS% ")
+}
+
+tasks.named<CreateStartScripts>("startScripts") { readsTheServicesJavaOpts() }
+
 // `zosho`, the short form, ships beside `researchzosho` in the distribution.
 val zoshoScript = tasks.register<CreateStartScripts>("zoshoScript") {
     mainClass.set("org.researchzosho.Main")
@@ -74,6 +107,7 @@ val zoshoScript = tasks.register<CreateStartScripts>("zoshoScript") {
     outputDir = layout.buildDirectory.dir("scripts-zosho").get().asFile
     classpath = tasks.named<CreateStartScripts>("startScripts").get().classpath
     defaultJvmOpts = application.applicationDefaultJvmArgs
+    readsTheServicesJavaOpts()
 }
 
 /** README and LICENSE live under docs/public/ in the private tree and at the ROOT of the exported one. */

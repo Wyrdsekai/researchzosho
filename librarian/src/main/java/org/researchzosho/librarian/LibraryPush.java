@@ -1,7 +1,12 @@
 package org.researchzosho.librarian;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.List;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.HashSet;
 /**
  * The PUSH half of retrieval (push before pull — measured repeatedly: small models do not call
  * recall tools) and the desk's deterministic answer package.
@@ -26,12 +31,34 @@ public final class LibraryPush {
         return block(LibraryStore.open(), question, k);
     }
 
+    /** A report named in the question ("Follow-up to I-0010 (…): …") is handed to the run whole, its answer first, before the claims. */
+    static final Pattern NAMED_REPORT = Pattern.compile("\\b(I-\\d{3,}-[a-z0-9-]+)");
+    static final int REPORT_CHARS = 14_000;
+
+    static String reportNamed(LibraryStore store, String question) {
+        Matcher m = NAMED_REPORT.matcher(question == null ? "" : question);
+        while (m.find()) {
+            try {
+                Investigation inv = store.investigation(m.group(1));
+                if (inv == null) continue;
+                String body = inv.body() == null ? "" : inv.body();
+                int cut = body.length();
+                for (String h : List.of("\n## Evidence", "\n## References", "\n## Worker findings", "\n## Sources cited")) { int i = body.indexOf(h); if (i >= 0 && i < cut) cut = i; }
+                String text = body.substring(0, Math.min(cut, REPORT_CHARS));
+                return "THE EARLIER REPORT THIS QUESTION FOLLOWS (" + inv.id() + ", \"" + Acquisitions.compress(inv.title(), 120) + "\"; build on it, cite it as [" + inv.id() + "], and spend the run on what it did not settle):\n"
+                        + Fence.wrap("EARLIER REPORT", text) + "\n" + Fence.rule("EARLIER REPORT") + "\n\n";
+            } catch (Exception e) { return ""; }
+        }
+        return "";
+    }
+
     static String block(LibraryStore store, String question, int k) {
+        String named = reportNamed(store, question);
         try {
             LibrarianIndex index = new LibrarianIndex(store);
             List<LibrarianIndex.Hit> hits = index.searchStrict(question, k, null, null);   // never push a one-word match
-            if (hits.isEmpty()) return "";
-            StringBuilder sb = new StringBuilder(
+            if (hits.isEmpty()) return named;
+            StringBuilder sb = new StringBuilder(named).append(
                     "LIBRARY (reviewed background from earlier research — build on it, do not "
                     + "re-research it; it never overrides direct evidence you gather now):\n");
             int rendered = 0;
@@ -50,12 +77,12 @@ public final class LibraryPush {
                 sb.append('\n');
                 rendered++;
             }
-            if (rendered == 0) return "";
+            if (rendered == 0) return named;
             store.circulate("push", Acquisitions.compress(question, 120));
             Heat.used(store, hits.stream().map(LibrarianIndex.Hit::id).toList());
             return sb.append('\n').toString();
         } catch (Exception e) {
-            return ""; // an unreadable library is an absent library, never a crashed run
+            return named; // an unreadable library is an absent library, never a crashed run
         }
     }
 
@@ -113,9 +140,9 @@ public final class LibraryPush {
                       .append(Acquisitions.compress(inv.body(), 500)).append("\n\n");
                     rendered++;
                 } else if ("article".equals(h.kind())) {
-                    java.nio.file.Path ap = store.articlesDir().resolve(h.id() + ".md");
-                    if (!java.nio.file.Files.exists(ap)) continue;
-                    String text = java.nio.file.Files.readString(ap);
+                    Path ap = store.articlesDir().resolve(h.id() + ".md");
+                    if (!Files.exists(ap)) continue;
+                    String text = Files.readString(ap);
                     int body = text.indexOf("\n---\n", 4);
                     sb.append("== ").append(h.id()).append(" [shelf article — generated from the findings it cites]\n")
                       .append(h.title()).append('\n')
@@ -123,8 +150,8 @@ public final class LibraryPush {
                     rendered++;
                 } else if ("raw".equals(h.kind())) {
                     // a captured DOCUMENT — the source itself, not a claim about it
-                    java.nio.file.Path rp = store.rawDir().resolve(h.id());
-                    if (!java.nio.file.Files.exists(rp)) continue;
+                    Path rp = store.rawDir().resolve(h.id());
+                    if (!Files.exists(rp)) continue;
                     String[] r = RawCapture.read(rp);
                     sb.append("== raw/").append(h.id()).append(" [captured document — quoted text, not the library's voice]\n")
                       .append(r[1].isEmpty() ? r[0] : r[1]).append('\n')
@@ -148,13 +175,13 @@ public final class LibraryPush {
     /** Frontier lines sharing a term with the question — cheap, deterministic, good enough for v1. */
     private static String frontierMatches(LibraryStore store, String question) {
         try {
-            if (!java.nio.file.Files.exists(store.frontierFile())) return "";
-            var qTerms = new java.util.HashSet<String>();
+            if (!Files.exists(store.frontierFile())) return "";
+            var qTerms = new HashSet<String>();
             for (String w : question.toLowerCase().split("[^\\p{L}\\p{N}]+")) {
                 if (w.length() >= 4) qTerms.add(w);
             }
             StringBuilder sb = new StringBuilder();
-            for (String line : java.nio.file.Files.readAllLines(store.frontierFile())) {
+            for (String line : Files.readAllLines(store.frontierFile())) {
                 if (!line.startsWith("- ")) continue;
                 String lower = line.toLowerCase();
                 if (qTerms.stream().anyMatch(lower::contains)) sb.append(line).append('\n');

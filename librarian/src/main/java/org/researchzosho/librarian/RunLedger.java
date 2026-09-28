@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.time.Instant;
 /**
  * The cross-run ledger: one JSON line per research run in {@code catalog/runs.jsonl} — turns, rounds, whether
  * the critic was satisfied first time, whether a ceiling cut the run, the cite-check's counts, sources read
@@ -31,7 +32,7 @@ public final class RunLedger {
         if (store == null) return;
         try {
             Files.createDirectories(file(store).getParent());
-            row.put("recorded_at", java.time.Instant.now().toString());
+            row.put("recorded_at", Instant.now().toString());
             Files.writeString(file(store), row.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException ignored) { }
     }
@@ -42,6 +43,7 @@ public final class RunLedger {
         o.put("job_id", jobId);
         o.put("question", ask.question());
         o.put("mode", ask.mode()); o.put("sources", ask.sources());
+        o.put("allow", String.join(",", ask.allow()));   // what the run let in because the person asked; "" for the default
         o.put("max_turns", ask.maxTurns()); o.put("max_minutes", ask.maxMinutes());
         o.put("outcome", outcome);
         o.put("wall_ms", wallMs);
@@ -52,6 +54,9 @@ public final class RunLedger {
         o.put("answer_chars", r.answer() == null ? 0 : r.answer().length());
         o.put("evidence_chars", r.evidence() == null ? 0 : r.evidence().length());
         if (r.stats() != null) o.setAll(r.stats());
+        // the model declined: "run" (the whole run, nothing filed), "part" (some of it), "" (nothing)
+        o.put("declined", r.ended() != null ? "run" : r.declines().isEmpty() ? "" : "part");
+        o.put("declined_parts", r.declines().size());
         if (traceTotals != null) o.set("trace", traceTotals);
         return o;
     }
@@ -88,6 +93,8 @@ public final class RunLedger {
     public static Map<String, String> summary(List<ObjectNode> rows) {
         Map<String, String> out = new LinkedHashMap<>();
         if (rows.isEmpty()) { out.put("runs", "0"); return out; }
+        int declinedRuns = 0, declinedPart = 0;
+        for (ObjectNode r : rows) { String d = r.path("declined").asText(""); if (d.equals("run")) declinedRuns++; else if (d.equals("part")) declinedPart++; }
         int n = rows.size(), firstTry = 0, noCritic = 0, cut = 0, refused = 0, checked = 0, supported = 0, unsupported = 0, withCheck = 0, mechanical = 0, overruled = 0, unretrieved = 0;
         long fetchTotal = 0, fetchDistinct = 0, tokens = 0; int withTokens = 0;
         List<Long> turns = new ArrayList<>(), wall = new ArrayList<>(), sources = new ArrayList<>();
@@ -108,6 +115,8 @@ public final class RunLedger {
         out.put("critic satisfied first time", firstTry + " of " + (n - noCritic) + (noCritic > 0 ? " (" + noCritic + " run(s) never reached the critic: the ceiling left no room)" : ""));
         out.put("cut by a ceiling", cut + " of " + n);
         if (refused > 0) out.put("refused at the gate", refused + " of " + n);
+        if (declinedRuns > 0) out.put("declined by the model", declinedRuns + " of " + n);
+        if (declinedPart > 0) out.put("parts declined by the model", declinedPart + " of " + n + " run(s)");
         if (withCheck > 0) out.put("cite-check", checked + " sentences read: " + supported + " supported, " + unsupported + " not, " + (checked - supported - unsupported) + " undecidable"
                 + (checked > 0 ? " (" + Math.round(100.0 * supported / checked) + "% supported)" : "") + (mechanical + overruled + unretrieved > 0 ? "; " + mechanical + " settled mechanically, " + overruled + " judge verdict(s) overruled, " + unretrieved + " citation(s) of unread sources" : ""));
         sources.removeIf(v -> v < 0);

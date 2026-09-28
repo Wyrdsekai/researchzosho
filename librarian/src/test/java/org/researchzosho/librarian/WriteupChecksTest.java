@@ -6,6 +6,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Map;
 /** The write-up against its own evidence: the contradictions the 27B produced on 2026-09-12, caught without a model. */
 class WriteupChecksTest {
     static final String EVIDENCE = "- Karakeep is licensed AGPL-3.0 — source: https://github.com/karakeep-app/karakeep\n"
@@ -47,7 +48,7 @@ class WriteupChecksScopedTest {
     @Test
     void aNumberIsCheckedAgainstTheNotesAndTheSentenceOwnSources() {
         var refs = List.of(new CiteCheck.Ref(1, "https://a.example/leaderboard", "", "Board"), new CiteCheck.Ref(2, "https://b.example/other", "", "Other"));
-        var texts = java.util.Map.of(1, "GPT-5.6 Sol leads at 92.2% on the board.", 2, "Somewhere in this long page the number 58% appears about something else entirely.");
+        var texts = Map.of(1, "GPT-5.6 Sol leads at 92.2% on the board.", 2, "Somewhere in this long page the number 58% appears about something else entirely.");
         String notes = "- the leader scores 92.2% — source: https://a.example/leaderboard";
         String answer = "Top scores cluster in the 38–58% range [1]. The leader scores 92.2% [1]. Cost fell 40% last year.";
         var off = WriteupChecks.numbersUnbacked(answer, notes, refs, texts);
@@ -78,5 +79,19 @@ class WriteupChecksTightenedTest {
     void rangesShareTheirUnitForEveryUnit() {
         var off = WriteupChecks.numbersUnbacked("Indexing takes 30–120 seconds per document and needs an 8–12 GB card.", "- indexing takes 45 seconds — source: x");
         assertTrue(off.stream().anyMatch(l -> l.startsWith("30 ")) && off.stream().anyMatch(l -> l.startsWith("120 ")) && off.stream().anyMatch(l -> l.startsWith("12 ")), off.toString());
+    }
+
+    @Test
+    void aQuotationIsBackedByAPageSavedWithCharacterReferencesOrByAWorkersNote() {
+        String answer = "One maintainer wrote \"a project's popularity has almost zero correlation to the effort behind it\" and another \"it is hard for people to even find them at all\".";
+        String savedPage = "Cool project. What I have observed is that a project&#x27;s popularity has almost zero correlation to the effort behind it, or how well done it is.";
+        String notes = "- side projects struggle to be noticed — source: https://forum.example/t/1 — quote: \"it is hard for people to even find them at all\"";
+        assertTrue(WriteupChecks.quotesUnbacked(answer, List.of(savedPage, notes)).isEmpty(), WriteupChecks.quotesUnbacked(answer, List.of(savedPage, notes)).toString());
+        assertEquals(1, WriteupChecks.quotesUnbacked(answer, List.of(savedPage)).size(), "without the note, the second quotation is in no source");
+        assertEquals(2, WriteupChecks.quotesUnbacked(answer + " And \"nobody ever wrote these seven words here\".", List.of(savedPage)).size());
+        // a quotation that marks a gap with an ellipsis is two pieces of one source
+        String elided = "A maintainer: \"a project's popularity has almost zero correlation… how well done it is\".";
+        assertTrue(WriteupChecks.quotesUnbacked(elided, List.of(savedPage)).isEmpty(), WriteupChecks.quotesUnbacked(elided, List.of(savedPage)).toString());
+        assertEquals(1, WriteupChecks.quotesUnbacked("A maintainer: \"a project's popularity has almost zero correlation… and nobody ever reads the docs\".", List.of(savedPage)).size(), "a piece the source does not have is still flagged");
     }
 }

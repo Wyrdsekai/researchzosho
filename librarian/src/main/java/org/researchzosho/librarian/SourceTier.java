@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.Locale;
 
+import org.researchzosho.records.RecordSources;
 /**
  * Source-class trust tiers — wyrdsekai's acquisition shape (paper/wiki/book auto-approve;
  * blog/forum need the steward), adapted to how a research run actually cites: by URL.
@@ -19,6 +20,11 @@ import java.util.Locale;
  * blogs, forums or unclassified web stays draft for the person — a note.com post and a Keio
  * journal article no longer carry the same weight (they did on the first live keigo shelf).
  * Nothing is REFUSED by tier: a blog is evidence too; it just does not walk into canon alone.
+ *
+ * <p>Only {@link #personal} is the person's own word, which one source is enough for. A file of a
+ * repository the library cloned under {@code raw/repos/} is {@link #code}: the thing itself, as the
+ * repository's page on a forge is, and not the person's document, so a claim on one file of it
+ * waits for a second, independent source like any other.
  */
 public enum SourceTier {
     /** Curated reference: encyclopedias, standards bodies, official documentation, government. */
@@ -27,6 +33,12 @@ public enum SourceTier {
     scholarly,
     /** Primary: the thing itself — a code repository, a model card, a dataset record, an official product site. */
     primary,
+    /**
+     * A file of a repository the library cloned, cited {@code raw/repos/<repository>/<path>[:<line>]}: the code itself, read on disk.
+     * It sits beside {@link #primary}, which the repository's own page is, and below the person's own documents in what one source can
+     * do: it is not {@link #personal}, so it never carries a claim into canon alone.
+     */
+    code,
     /** Personal publishing: blogs, newsletters, developer write-ups. */
     blog,
     /** Discussion: forums, Q&A, social. */
@@ -38,7 +50,7 @@ public enum SourceTier {
 
     /** Tiers that may carry an extraction into canon without the person. */
     public boolean autoPromotes() {
-        return this == reference || this == scholarly || this == primary || this == personal;
+        return this == reference || this == scholarly || this == primary || this == code || this == personal;
     }
 
     /** The strongest tier among a finding's sources — what its promotion rests on. */
@@ -54,6 +66,8 @@ public enum SourceTier {
     public static SourceTier of(String locator) {
         if (locator == null || locator.isBlank()) return web;
         String l = locator.strip().toLowerCase(Locale.ROOT);
+        // a cloned repository's file is the code itself, not a document the person shelved; checked before the rest of raw/
+        if (l.startsWith("raw/repos/")) return code;
         if (l.startsWith("file://") || l.startsWith("raw/")) return personal;
         if (l.startsWith("cite:")) {
             // an edition citation: scholarly when it names a venue, reference when it names an
@@ -94,6 +108,8 @@ public enum SourceTier {
                 || host.startsWith("blog.") || host.contains(".blog.")) {
             return blog;
         }
+        // a page on a source that holds records themselves (a newspaper page, a patent, a scanned book) is the thing itself
+        if (RecordSources.holdsRecords(host)) return primary;
         // scholarly
         if (endsWith(host, "arxiv.org", "doi.org", "biorxiv.org", "medrxiv.org", "ssrn.com",
                 "semanticscholar.org", "pubmed.ncbi.nlm.nih.gov", "ncbi.nlm.nih.gov",

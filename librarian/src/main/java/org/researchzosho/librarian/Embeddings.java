@@ -11,7 +11,13 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import org.researchzosho.Config;
+import org.researchzosho.Stopping;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import org.researchzosho.drive.aws.Bedrock;
+import org.slf4j.LoggerFactory;
 /**
  * The dense half of retrieval. An {@link Embedder} turns text into a vector for Lucene's HNSW
  * index; the live one speaks the OpenAI-compatible {@code /v1/embeddings} that llama.cpp's
@@ -30,8 +36,8 @@ public final class Embeddings {
     public interface Embedder {
         float[] embed(String text);
         /** Batched: one call for many texts (llama.cpp accepts an array input). Default loops. */
-        default java.util.List<float[]> embedAll(java.util.List<String> texts) {
-            java.util.List<float[]> out = new java.util.ArrayList<>();
+        default List<float[]> embedAll(List<String> texts) {
+            List<float[]> out = new ArrayList<>();
             for (String t : texts) out.add(embed(t));
             return out;
         }
@@ -52,7 +58,30 @@ public final class Embeddings {
         // "off" is an explicit switch (an EMPTY env var falls through to the config file — a
         // BM25-only A/B arm run that way silently had the embedder on, 2026-09-02).
         if (e == null || e.isBlank() || e.equalsIgnoreCase("off") || e.equalsIgnoreCase("none")) return none();
+        // embed = bedrock: an embedding model in the person's own AWS account (Titan Text Embeddings V2 unless embed.model names another)
+        if (Bedrock.is(e)) return bedrock(e, Config.get("RESEARCHZOSHO_EMBED_MODEL", "amazon.titan-embed-text-v2:0"));
         return http(e.replaceAll("/+$", ""), Config.get("RESEARCHZOSHO_EMBED_MODEL", "embed"));
+    }
+
+    /** Vectors from Amazon Bedrock. A text that AWS refuses gives no vector, like any embedder that is out of reach: the index then works by words. */
+    static Embedder bedrock(String setting, String model) {
+        String id = model == null || model.isBlank() || model.equals("embed") ? "amazon.titan-embed-text-v2:0" : model.strip();
+        Bedrock[] client = {null};
+        return new Embedder() {
+            @Override public float[] embed(String text) {
+                if (text == null || text.isBlank()) return null;
+                try {
+                    if (client[0] == null) client[0] = new Bedrock(Bedrock.settings(setting, Config::get, System.getenv()));
+                    // Titan takes about 8,000 tokens: a longer text is cut rather than refused
+                    float[] v = client[0].embed(id, text.length() > 20_000 ? text.substring(0, 20_000) : text, Config.getInt("RESEARCHZOSHO_EMBED_DIMENSIONS", 1024));
+                    double norm = 0; for (float x : v) norm += x * x;
+                    norm = Math.sqrt(norm);
+                    if (norm > 0) for (int i = 0; i < v.length; i++) v[i] /= (float) norm;
+                    return v;
+                } catch (RuntimeException ex) { LoggerFactory.getLogger(Embeddings.class).warn("bedrock embedding failed: {}", ex.getMessage()); return null; }
+            }
+            @Override public String modelId() { return "bedrock:" + id; }
+        };
     }
 
     public static Embedder none() {
@@ -69,13 +98,13 @@ public final class Embeddings {
 
     public static Embedder http(String endpoint, String model) {
         return new Embedder() {
-            @Override public java.util.List<float[]> embedAll(java.util.List<String> texts) {
+            @Override public List<float[]> embedAll(List<String> texts) {
                 // Batched, BATCH at a time: a chunked rebuild embeds thousands of chunks — one
                 // request each ran past ten minutes (2026-09-03); batched it is a minute.
-                java.util.List<float[]> out = new java.util.ArrayList<>();
+                List<float[]> out = new ArrayList<>();
                 for (int from = 0; from < texts.size(); from += BATCH) {
                     var slice = texts.subList(from, Math.min(texts.size(), from + BATCH));
-                    java.util.List<float[]> got = null;
+                    List<float[]> got = null;
                     try {
                         var body = M.createObjectNode();
                         body.put("model", model);
@@ -100,7 +129,7 @@ public final class Embeddings {
                                 if (norm > 0) for (int j = 0; j < v.length; j++) v[j] /= (float) norm;
                                 vs[i] = v;
                             }
-                            got = java.util.Arrays.asList(vs);
+                            got = Arrays.asList(vs);
                         }
                     } catch (Exception e) {
                         got = null;
@@ -118,11 +147,12 @@ public final class Embeddings {
                     var body = M.createObjectNode();
                     body.put("model", model);
                     body.put("input", t);
-                    HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(endpoint + "/v1/embeddings"))
+                    // a search of the shelves inside a research run: the wait ends at the run's stop
+                    HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(endpoint + "/v1/embeddings"))
                             .timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))
-                            .build(), HttpResponse.BodyHandlers.ofString());
+                            .build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(60), "the embeddings server at " + endpoint);
                     if (resp.statusCode() != 200) return null;
                     JsonNode arr = M.readTree(resp.body()).path("data").path(0).path("embedding");
                     if (!arr.isArray() || arr.isEmpty()) return null;

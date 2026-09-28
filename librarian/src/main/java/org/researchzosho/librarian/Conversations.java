@@ -17,6 +17,8 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.Config;
+import org.researchzosho.drive.Declined;
 /**
  * A conversation the person had with another assistant, absorbed as a starting point for research. The
  * transcript goes on the shelves as it is; the person's questions join the open questions; what the
@@ -33,8 +35,8 @@ public final class Conversations {
     private static final ObjectMapper M = new ObjectMapper();
 
     /** Questions filed per thread, claims listed per thread, threads taken per export unless the call says more. */
-    static final int MAX_QUESTIONS = org.researchzosho.Config.getInt("RESEARCHZOSHO_ABSORB_QUESTIONS", 20);
-    static final int MAX_CLAIMS = org.researchzosho.Config.getInt("RESEARCHZOSHO_ABSORB_CLAIMS", 30);
+    static final int MAX_QUESTIONS = Config.getInt("RESEARCHZOSHO_ABSORB_QUESTIONS", 20);
+    static final int MAX_CLAIMS = Config.getInt("RESEARCHZOSHO_ABSORB_CLAIMS", 30);
     static final int CLAIMS_PER_TURN = 8;
     public static final int DEFAULT_THREADS = 25;
 
@@ -42,7 +44,10 @@ public final class Conversations {
     public record Thread(String title, List<Turn> turns) {
         public int personTurns() { return (int) turns.stream().filter(t -> t.role().equals("person")).count(); }
     }
-    public record Outcome(String title, String raw, int turns, List<String> questionsFiled, List<String> questionsHeld, List<String> claims) { }
+    /** {@code declined}: the library's statement when the model declined to list the claims, "" when it did not; the rest was shelved and filed. */
+    public record Outcome(String title, String raw, int turns, List<String> questionsFiled, List<String> questionsHeld, List<String> claims, String declined) {
+        public Outcome(String title, String raw, int turns, List<String> questionsFiled, List<String> questionsHeld, List<String> claims) { this(title, raw, turns, questionsFiled, questionsHeld, claims, ""); }
+    }
 
     private Conversations() { }
 
@@ -243,7 +248,9 @@ public final class Conversations {
             var messages = M.createArrayNode();
             messages.addObject().put("role", "system").put("content", "You list the checkable factual claims in a text. A claim names something and states something definite about it: a number, a date, a name, a cause, a property. Leave out opinions, advice, questions, hedges and anything about the conversation itself. Write each claim as one short self-contained sentence, one per line, no bullets, at most " + CLAIMS_PER_TURN + " lines. Write NONE when there are no such claims.");
             messages.addObject().put("role", "user").put("content", Fence.open("TEXT") + "\n" + Acquisitions.compress(text, 6000) + "\n" + Fence.close("TEXT"));
-            String reply = drive.classify(messages, 600);
+            String reply;
+            try (var step = Declines.step("list the checkable factual claims in a text, one per line, or write NONE")) { reply = drive.prose(messages, 600); }   // the list is the work: a watched seat reads it for a decline
+            catch (Declined d) { throw d.at("to list the checkable claims in this text"); }   // never filed as a claim to check
             List<String> out = new ArrayList<>();
             if (reply == null) return out;
             for (String line : reply.split("\n")) {
@@ -281,9 +288,11 @@ public final class Conversations {
             store.frontier("person " + who + " (from a conversation: " + Acquisitions.compress(t.title(), 60) + ")", q);
             filed.add(q);
         }
-        List<String> claims = claims(t, extractor);
-        store.circulate("absorb", who + " :: " + Acquisitions.compress(t.title(), 80) + " — " + t.turns().size() + " turns, " + filed.size() + " question(s) filed, " + claims.size() + " claim(s) to check");
-        return new Outcome(t.title(), raw == null ? "" : raw.getFileName().toString(), t.turns().size(), filed, held, claims);
+        List<String> claims; String declined = "";
+        try { claims = claims(t, extractor); }
+        catch (Declined d) { claims = List.of(); declined = d.statement(); }   // the transcript is shelved and its questions filed already: said, not undone
+        store.circulate("absorb", who + " :: " + Acquisitions.compress(t.title(), 80) + " — " + t.turns().size() + " turns, " + filed.size() + " question(s) filed, " + (declined.isEmpty() ? claims.size() + " claim(s) to check" : "the model declined to list the claims"));
+        return new Outcome(t.title(), raw == null ? "" : raw.getFileName().toString(), t.turns().size(), filed, held, claims, declined);
     }
 
     /** The question for a run that checks the claims: numbered, with the standing instruction. */

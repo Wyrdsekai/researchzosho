@@ -13,6 +13,15 @@ import java.util.List;
 import java.util.Locale;
 import org.researchzosho.Config;
 
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.security.SecureRandom;
+import java.util.HexFormat;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Pattern;
 /**
  * The library on disk — plain markdown files in one directory tree, no service required to
  * read your own knowledge (the architecture notes). The corpus is PRIVATE; only this code is
@@ -99,8 +108,8 @@ public final class LibraryStore {
         if (name == null || name.isBlank()) name = dirName;
         if (id == null || id.isBlank()) {
             byte[] b = new byte[8];
-            new java.security.SecureRandom().nextBytes(b);
-            id = "lib_" + java.util.HexFormat.of().formatHex(b);
+            new SecureRandom().nextBytes(b);
+            id = "lib_" + HexFormat.of().formatHex(b);
             Files.createDirectories(p.getParent());
             if (Files.exists(p)) {
                 // the file already carries other lines (a `profiles:` line, say): insert the id, keep the rest
@@ -189,7 +198,7 @@ public final class LibraryStore {
     }
 
     private int issue(String prefix, Path dir) throws IOException {
-        java.util.Map<String, Integer> ledger = new java.util.TreeMap<>();
+        Map<String, Integer> ledger = new TreeMap<>();
         if (Files.exists(serialsFile())) {
             for (String line : Files.readAllLines(serialsFile(), StandardCharsets.UTF_8)) {
                 int eq = line.indexOf('=');
@@ -210,7 +219,7 @@ public final class LibraryStore {
         int max = 0;
         try (var files = Files.list(dir)) {
             for (Path p : files.toList()) {
-                var m = java.util.regex.Pattern.compile(prefix + "-(\\d+)-.*\\.md")
+                var m = Pattern.compile(prefix + "-(\\d+)-.*\\.md")
                         .matcher(p.getFileName().toString());
                 if (m.matches()) max = Math.max(max, Integer.parseInt(m.group(1)));
             }
@@ -245,8 +254,8 @@ public final class LibraryStore {
         Files.createDirectories(p.getParent());
         Investigation before = null;
         if (Files.exists(p)) { try { before = Investigation.parse(Files.readString(p, StandardCharsets.UTF_8)); } catch (Exception ignored) { } }
-        Changes.noteInvestigation(this, before, check);
         Files.writeString(p, text, StandardCharsets.UTF_8);
+        Changes.noteInvestigation(this, before, check);   // after the write, as for a finding: whoever reads the change finds the entry
         return p;
     }
 
@@ -310,6 +319,19 @@ public final class LibraryStore {
         return Finding.parse(Files.readString(p, StandardCharsets.UTF_8));
     }
 
+    /**
+     * A claim by the short code the program prints for it ("F-0012"), when exactly one claim has that code; else null. The full id
+     * is the code with the claim's title after it, and a person types the code.
+     */
+    public Finding findingByCode(String code) throws IOException {
+        if (code == null || !code.matches("F-\\d+")) return null;
+        Path dir = findingsDir();
+        if (!Files.isDirectory(dir)) return null;
+        List<Path> hits;
+        try (var files = Files.list(dir)) { hits = files.filter(p -> p.getFileName().toString().startsWith(code + "-") && p.getFileName().toString().endsWith(".md")).toList(); }
+        return hits.size() == 1 ? Finding.parse(Files.readString(hits.get(0), StandardCharsets.UTF_8)) : null;
+    }
+
     public Investigation investigation(String id) throws IOException {
         Path p = under(investigationsDir(), id + ".md");
         if (p == null) return null;
@@ -322,7 +344,7 @@ public final class LibraryStore {
     /** Work that may throw IOException, run under a lock. */
     public interface Locked<T> { T run() throws IOException; }
 
-    private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.locks.ReentrantLock> JVM_LOCKS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, ReentrantLock> JVM_LOCKS = new ConcurrentHashMap<>();
 
     /**
      * Run {@code work} under a lock other PROCESSES honour too: a {@code catalog/.lock-<name>} file lock,
@@ -332,14 +354,14 @@ public final class LibraryStore {
      */
     public <T> T locked(String name, Locked<T> work) throws IOException {
         String key = root.toAbsolutePath() + "|" + name;
-        java.util.concurrent.locks.ReentrantLock jvm = JVM_LOCKS.computeIfAbsent(key, k -> new java.util.concurrent.locks.ReentrantLock());
+        ReentrantLock jvm = JVM_LOCKS.computeIfAbsent(key, k -> new ReentrantLock());
         jvm.lock();
         try {
             if (jvm.getHoldCount() > 1) return work.run();   // re-entrant: the file lock is already ours on this thread
             Path lockFile = root.resolve("catalog").resolve(".lock-" + name);
             Files.createDirectories(lockFile.getParent());
-            try (java.nio.channels.FileChannel ch = java.nio.channels.FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-                 java.nio.channels.FileLock ignored = ch.lock()) {
+            try (FileChannel ch = FileChannel.open(lockFile, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+                 FileLock ignored = ch.lock()) {
                 return work.run();
             }
         } finally {
@@ -359,6 +381,7 @@ public final class LibraryStore {
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             return null;
         });
+        Frontier.forgetWhy(this, text.strip().replaceAll("\\s+", " "));   // filed again: a reason the earlier line was parked with is not this one's
     }
 
     /** Log one circulation event (a desk query, a push, a submission). TSV: instant, kind, detail. */

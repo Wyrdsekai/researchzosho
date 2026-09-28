@@ -20,6 +20,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 /** The Java client against the real daemon, in-process, on a temporary library. */
 class LibrarianClientTest {
 
@@ -91,27 +94,27 @@ class LibrarianClientTest {
     }
 
     @Test void rpcSpeaksTheStreamableHttpSubset() throws Exception {
-        var http = java.net.http.HttpClient.newHttpClient();
-        var base = java.net.URI.create(daemon.url() + "/rpc");
-        var init = http.send(java.net.http.HttpRequest.newBuilder(base).header("Content-Type", "application/json")
-                .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")).build(),
-                java.net.http.HttpResponse.BodyHandlers.ofString());
+        var http = HttpClient.newHttpClient();
+        var base = URI.create(daemon.url() + "/rpc");
+        var init = http.send(HttpRequest.newBuilder(base).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")).build(),
+                HttpResponse.BodyHandlers.ofString());
         assertEquals(200, init.statusCode());
         assertTrue(init.body().contains("\"protocolVersion\""));
-        var note = http.send(java.net.http.HttpRequest.newBuilder(base).header("Content-Type", "application/json")
-                .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")).build(),
-                java.net.http.HttpResponse.BodyHandlers.ofString());
+        var note = http.send(HttpRequest.newBuilder(base).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\"}")).build(),
+                HttpResponse.BodyHandlers.ofString());
         assertEquals(202, note.statusCode(), "a notification is accepted with no body");
-        var get = http.send(java.net.http.HttpRequest.newBuilder(base).GET().build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+        var get = http.send(HttpRequest.newBuilder(base).GET().build(), HttpResponse.BodyHandlers.ofString());
         assertEquals(405, get.statusCode(), "no server-push stream");
-        var call = http.send(java.net.http.HttpRequest.newBuilder(base).header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
-                .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"library_status\",\"arguments\":{}}}")).build(),
-                java.net.http.HttpResponse.BodyHandlers.ofString());
+        var call = http.send(HttpRequest.newBuilder(base).header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
+                .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"library_status\",\"arguments\":{}}}")).build(),
+                HttpResponse.BodyHandlers.ofString());
         assertEquals(200, call.statusCode());
         assertTrue(call.body().contains("\"library_id\""));
-        var list = http.send(java.net.http.HttpRequest.newBuilder(base).header("Content-Type", "application/json")
-                .POST(java.net.http.HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\",\"params\":{}}")).build(),
-                java.net.http.HttpResponse.BodyHandlers.ofString());
+        var list = http.send(HttpRequest.newBuilder(base).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/list\",\"params\":{}}")).build(),
+                HttpResponse.BodyHandlers.ofString());
         assertFalse(list.body().contains("\"name\":\"fix\""), "the library's endpoint serves the library only");
         assertTrue(list.body().contains("\"name\":\"library_ask\""));
     }

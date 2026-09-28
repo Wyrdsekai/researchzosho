@@ -1,0 +1,167 @@
+# Russian names in Latin letters.
+#
+# A Russian name in Cyrillic is written in Latin letters by BGN/PCGN, the first way here: Чайковский is Chaykovskiy. Records in other
+# languages write the same letters their own way: English Chaikovsky, the Russian passport's Chaikovskii, German Tschaikowski, French
+# Tchaïkovski, the scholarly Čajkovskij, Polish Czajkowski. The soft and hard signs (ь, ъ) are left out, as passports and most records
+# leave them out. These rules say how each sound is written in each tradition, so all of those spellings compare as one name.
+language: ru
+name: Russian
+scripts: Cyrillic
+vowels: а е ё и о у ы э ю я a e i o u y
+# left out between two letters when names are compared: the apostrophes and primes some transliterations write for ь and ъ
+joins: ' ’ ʹ ʺ ”
+
+# Cyrillic in Latin letters, BGN/PCGN. е and ё are ye and yë at the start of a word, after a vowel and after ь or ъ.
+letter а: a
+letter б: b
+letter в: v
+letter г: g
+letter д: d
+letter е: ye (at the start)
+letter е: ye (after a vowel)
+letter е: ye (after ь ъ)
+letter е: e
+letter ё: yë (at the start)
+letter ё: yë (after a vowel)
+letter ё: yë (after ь ъ)
+letter ё: ë
+letter ж: zh
+letter з: z
+letter и: i
+letter й: y
+letter к: k
+letter л: l
+letter м: m
+letter н: n
+letter о: o
+letter п: p
+letter р: r
+letter с: s
+letter т: t
+letter у: u
+letter ф: f
+letter х: kh
+letter ц: ts
+letter ч: ch
+letter ш: sh
+letter щ: shch
+letter ъ: _
+letter ы: y
+letter ь: _
+letter э: e
+letter ю: yu
+letter я: ya
+# letters of Ukrainian and Belarusian that Russian has not, so a name in those languages is not left half in Cyrillic
+letter і: i
+letter ї: yi
+letter є: ye
+letter ґ: g
+letter ў: w
+
+# English as newspapers and books write it: Chaikovsky, Pyotr, Sergei, Dmitry
+letter english ё: o (after ж ч ш щ)
+letter english ё: yo
+letter english й: y (at the start)
+letter english й: i
+letter english ий: y (at the end)
+letter english ый: y (at the end)
+
+# the Russian passport since 2013 (ICAO): Chaikovskii, Iurii, Mariia
+letter icao е: e
+letter icao ё: e
+letter icao й: i
+letter icao ъ: ie
+letter icao ю: iu
+letter icao я: ia
+
+# German (Duden): Tschaikowski, Chruschtschow, Jewgeni, Pjotr
+letter german в: w
+letter german е: je (at the start)
+letter german е: je (after a vowel)
+letter german е: je (after ь ъ)
+letter german е: e
+letter german ё: o (after ж ч ш щ)
+letter german ё: jo
+letter german ж: sch
+letter german з: s
+letter german й: i
+letter german ий: i (at the end)
+letter german ый: y (at the end)
+letter german с: ss (between vowels)
+letter german х: ch
+letter german ц: z
+letter german ч: tsch
+letter german ш: sch
+letter german щ: schtsch
+letter german ю: ju
+letter german я: ja
+
+# French: Tchaïkovski, Pouchkine, Gueorgui, Vassili
+letter french г: gu (before е и ы)
+letter french е: ie (after a vowel)
+letter french е: ie (after ь ъ)
+letter french е: e
+letter french ё: o (after ж ч ш щ)
+letter french ё: io
+letter french ж: j
+letter french й: ï (after a vowel)
+letter french й: i
+letter french ий: i (at the end)
+letter french ый: y (at the end)
+letter french ин: ine (at the end)
+letter french с: ss (between vowels)
+letter french у: ou
+letter french ч: tch
+letter french ш: ch
+letter french щ: chtch
+letter french ю: iou
+letter french я: ia
+
+# the scholarly transliteration of Slavists: Čajkovskij, Chruščëv
+letter scholarly е: e
+letter scholarly ё: ë
+letter scholarly ж: ž
+letter scholarly й: j
+letter scholarly х: ch
+letter scholarly ц: c
+letter scholarly ч: č
+letter scholarly ш: š
+letter scholarly щ: šč
+letter scholarly э: è
+letter scholarly ю: ju
+letter scholarly я: ja
+
+# comparison. The traditions share letters for different sounds, so some sounds are one here:
+#  - ч and х: English writes ч as ch, German and the scholars write х as ch (Chruschtschow). kh, ch, tch, tsch, cz, č and a lone h are one.
+#  - ш and ж: German writes both as sch (Schukow for Жуков). sh, sch, sz, zh, š, ž are one, and French j before ou (Joukov).
+#  - й, ы and и: y, j and i are one (Chaykovskiy, Čajkovskij, Chaikovskii), and so are ya, ja, ia and yu, ju, iu, iou.
+#  - е after a vowel and at the start: ye, je, ie and e are one (Yevgeniy, Jewgeni, Evgeni); ё as yo, jo, io, ë or e is e (Pyotr, Petr).
+#  - the endings: -ev and -ov are one (-ёв is written both ways: Gorbachev, Gorbatschow), -off and -ow are -ov, and -ina, French -ine.
+# French ш, written ch (Pouchkine), meets the English ч instead; French ж before any vowel but ou reads as the German glide j. The male and
+# female forms (Ivanov, Ivanova) stay two names.
+fold _: ʹ, ʺ
+fold sh: š
+fold ch: č
+fold zh: ž, ż
+fold l: ł
+fold shch: schtsch, chtch, szcz
+fold ch: tsch, tch, cz
+fold zhu: jou
+fold sh: sch, sz, zh
+fold ch: kh
+fold ch: h (not after c s)
+fold u: ou
+fold g: gu (before e i)
+fold ks: x
+fold v: w
+fold v: ff (at the end)
+fold e: ye (at the start), je (at the start), ie (at the start)
+fold i: y, j
+fold i: ii
+fold i: ii
+fold e: ie, io
+fold in: ine (at the end)
+fold r: re (at the end)
+fold s: ss
+fold ov: ev (at the end)
+fold ova: eva (at the end)

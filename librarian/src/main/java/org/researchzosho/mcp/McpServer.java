@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.librarian.LibraryProtocol;
+import org.researchzosho.librarian.Patrons;
 import org.researchzosho.librarian.ProtocolError;
 
 import java.io.BufferedReader;
@@ -12,6 +13,10 @@ import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 
+import java.util.function.Predicate;
+import org.researchzosho.Version;
+import org.researchzosho.librarian.LibraryStore;
+import org.researchzosho.drive.Declined;
 /**
  * The Librarian over MCP (JSON-RPC 2.0): the library protocol's fourteen tools and its three resource
  * schemes, over stdio ({@code researchzosho mcp}) and, through {@link #envelopeFor}, the daemon's
@@ -27,18 +32,18 @@ public final class McpServer {
     private static final String PROTOCOL_VERSION = "2024-11-05";
     public static final String SERVER_NAME = "researchzosho";
     /** The release version from the jar manifest, so the server introduces itself as what it is (it said 0.1.2 through 0.1.7). */
-    public static final String SERVER_VERSION = org.researchzosho.Version.string();
+    public static final String SERVER_VERSION = Version.string();
 
     private McpServer() { }
 
     /** Only tools whose name passes this are listed or callable; null = all. */
-    private static volatile java.util.function.Predicate<String> toolFilter = null;
+    private static volatile Predicate<String> toolFilter = null;
 
     /** Restrict every entry point (stdio and the daemon's /rpc) to the tools {@code filter} admits. */
-    public static void setToolFilter(java.util.function.Predicate<String> filter) { toolFilter = filter; }
+    public static void setToolFilter(Predicate<String> filter) { toolFilter = filter; }
 
     /** Serve MCP over stdio with only the tools {@code filter} admits. */
-    public static void serveStdio(java.util.function.Predicate<String> filter) throws Exception {
+    public static void serveStdio(Predicate<String> filter) throws Exception {
         toolFilter = filter;
         serveStdio();
     }
@@ -63,14 +68,14 @@ public final class McpServer {
 
     /** One request → its JSON-RPC envelope (result or error), or null for a notification. */
     /** The library a call is served from when a daemon binds one; otherwise the configured library. */
-    private static final ThreadLocal<org.researchzosho.librarian.LibraryStore> BOUND = new ThreadLocal<>();
+    private static final ThreadLocal<LibraryStore> BOUND = new ThreadLocal<>();
 
     /**
      * The envelope for a request against {@code store}: the daemon's door. Without this the tool call
      * opened whichever library the config named, which is the daemon's own only by coincidence of config
      * (found by a test that started a daemon on a temp library and read the wrong circulation log).
      */
-    public static ObjectNode envelopeFor(JsonNode req, org.researchzosho.librarian.LibraryStore store) {
+    public static ObjectNode envelopeFor(JsonNode req, LibraryStore store) {
         BOUND.set(store);
         try { return envelopeFor(req); } finally { BOUND.remove(); }
     }
@@ -116,11 +121,11 @@ public final class McpServer {
             case "tools/call":
                 return toolsCall(params);
             case "resources/list":
-                return library(p -> p.resourcesList(params.path("cursor").asText(null)));
+                return library(p -> p.resourcesList(params.path("cursor").asText(null), resourcePatron(params)));
             case "resources/templates/list":
                 return library(p -> p.resourceTemplates());
             case "resources/read":
-                return library(p -> p.resourcesRead(params.path("uri").asText("")));
+                return library(p -> p.resourcesRead(params.path("uri").asText(""), resourcePatron(params)));
             default:
                 throw new RpcError(-32601, "method not found: " + method);
         }
@@ -227,6 +232,8 @@ public final class McpServer {
                         prop("collection", "string", "Where the transcript is shelved (default conversations)."),
                         prop("verify", "boolean", "File one research run that checks the assistant's claims."),
                         prop("limit", "integer", "How many conversations of an export to take (default 25)."),
+                        prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
+                        allowProp(),
                         patronProp())));
         tools.add(tool("library_survey",
                 "A thing the person already has, read as a starting point for research: a code repository (a folder, or a git url "
@@ -259,6 +266,8 @@ public final class McpServer {
                         prop("text", "string", "The list itself, pasted."),
                         prop("lens", "string", "What to find out about each item; {item} marks where the item goes (default: what it is, who made it, what it is for)."),
                         prop("as", "string", "frontier | runs | none (default frontier)."),
+                        prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
+                        allowProp(),
                         prop("title", "string", "A name for the list (default: the file name)."),
                         prop("column", "string", "For a CSV: the column that holds the items (default: a column named title, name, item or book, else the first)."),
                         prop("collection", "string", "Where the list is shelved (default lists)."),
@@ -288,6 +297,20 @@ public final class McpServer {
                         prop("query", "string", "Words of a title, an author, a year: \"wizard earthsea le guin\"."),
                         prop("limit", "integer", "Matches to return (default 20, up to 100)."),
                         patronProp())));
+        tools.add(tool("library_who",
+                "Family history: who, of the people the web shows under a name, is the person in the family. A name is shared, and only somebody "
+                + "in the family can say which entry is their relative. op=list: who waits for an answer. op=show: one person's entries, numbered, "
+                + "each with who they are, their pages, and what those pages say that the family's facts also say. op=answer: the family's word. "
+                + "op=tell: something said of the person, kept in those words for their search. op=find: look one person up now (about half a minute). "
+                + "The answer is the family's own word: show the entries and ask.",
+                schema(new String[]{"op"},
+                        prop("op", "string", "list, show, answer, tell or find."),
+                        prop("person", "string", "The person in the family, as the library writes the name. For show: empty takes the first who waits."),
+                        prop("is", "string", "For answer: the numbers of the entries who ARE the person, as \"1\" or \"1,3\" when two entries are the same person."),
+                        prop("none", "boolean", "For answer: none of the entries is the person."),
+                        prop("later", "boolean", "For answer: they cannot tell now; the question stays answered as unsure."),
+                        prop("text", "string", "For tell: what was said of the person, as they said it."),
+                        patronProp())));
         tools.add(tool("library_remove",
                 "Take a report or a claim out of the library for good. id is a report (I-…) or a claim (F-…). For a report, what=all "
                 + "(default) removes it and the claims that are its alone, what=report the report only, what=claims its claims only; a "
@@ -312,6 +335,8 @@ public final class McpServer {
                         prop("collection", "string", "Where the draft and its citations are shelved (default drafts)."),
                         prop("fetch_citations", "boolean", "Fetch the citations onto the shelves (default true)."),
                         prop("verify", "boolean", "File one research run that checks the claims."),
+                        prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
+                        allowProp(),
                         patronProp())));
         tools.add(tool("library_reading",
                 "A reading list as a starting point: BibTeX, RIS (Zotero, EndNote), a CSV export, or lines of DOIs, urls and titles. Every entry "
@@ -336,6 +361,8 @@ public final class McpServer {
                         prop("url", "string", "The list on the web."),
                         prop("text", "string", "The questions, pasted, one per line."),
                         prop("as", "string", "frontier | runs (default frontier)."),
+                        prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
+                        allowProp(),
                         prop("title", "string", "A name for the list."),
                         prop("limit", "integer", "How many questions to take (default all, up to 200)."),
                         patronProp())));
@@ -363,6 +390,8 @@ public final class McpServer {
                         prop("title", "string", "The meeting's name (default: the file name)."),
                         prop("collection", "string", "Where it is shelved (default meetings)."),
                         prop("verify", "boolean", "File one research run that checks the claims."),
+                        prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
+                        allowProp(),
                         patronProp())));
         tools.add(tool("library_bridges",
                 "Discovery by combination: two areas of the library that no source read together, joined by specific terms both "
@@ -391,11 +420,12 @@ public final class McpServer {
                 "The queue of open questions the housekeeping's explorer researches a few of each night — op=list returns them in queue order with type, parked, position, tonight, "
                 + "the report that left each (report, report_title, report_fate: kept | waiting | disputed | retired | none), perspective, subjects, language, and similar (the head of a group that reads alike); "
                 + "list takes filters: type, show (queued | parked | all, default all), report (an id or its prefix), fate, who (perspective text), subject, language, q (words); hints=true adds answered {id, title, state} where a claim on the shelves already answers a question. "
-                + "op=add queues one attributed to the patron; op=next moves one to the head; op=later to the tail; op=park keeps one out of the explorer's reach; op=unpark returns it; "
+                + "op=add queues one attributed to the patron; op=next moves one to the head; op=later to the tail; op=park keeps one out of the explorer's reach, with why (the reason, listed back as parked_why with the date); op=unpark returns it; "
                 + "op=drop closes one without researching it; op=tidy removes duplicate lines (write access). A report's leftover questions are filed parked.",
                 schema(new String[]{},
                         prop("op", "string", "list (default) | add | next | later | park | unpark | drop | tidy."),
                         prop("question", "string", "For add, next, later, park, unpark, drop: the question, exactly as listed."),
+                        prop("why", "string", "For park: why it waits, for example: waits on the record office's answer."),
                         prop("type", "string", "For list: report | asked | person | dispute | check."),
                         prop("show", "string", "For list: queued | parked | all (default all)."),
                         prop("report", "string", "For list: only questions left by this investigation (an id, or its prefix such as I-0016)."),
@@ -477,7 +507,9 @@ public final class McpServer {
                 + "fact with its source, has a critic decide on a second round, and writes the investigation in sections; the "
                 + "result enters the library as a draft investigation attributed to you and the review crew extracts findings "
                 + "from it. Returns a job_id to poll with library_job. Write access. "
-                + "Takes minutes to hours — do not wait inline.",
+                + "Takes minutes to hours — do not wait inline. A field that acts only when asked for, such as family history, joins the run only when "
+                + "field names it; a question that looks like one of its questions is researched as ordinary research, and the result then carries "
+                + "suggestion {field, why, how}: what the field's mode does and how to ask for it.",
                 schema(new String[]{"question"},
                         prop("question", "string", "The research question, as you would put it to a librarian."),
                         prop("mode", "string", "broad (survey the landscape, default) | depth (deep-read a narrow question)."),
@@ -487,6 +519,8 @@ public final class McpServer {
                         prop("sources", "string", "both (the shelves first, then the web — default) | shelves (the person's own corpus only, no web) | web."),
                         arrayProp("collections", "Optional: names of the person's collections (folders shelved with `researchzosho add <dir>`) to search."),
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
+                        prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
+                        allowProp(),
                         patronProp())));
         tools.add(tool("library_job",
                 "One job from the ledger ({job}: state queued|running|done|failed|stopped, elapsed_s, result when finished), or "
@@ -544,6 +578,17 @@ public final class McpServer {
         return tools;
     }
 
+    /**
+     * Who reads a resource: the {@code patron} in the params, as a tool call names it in its arguments (the daemon's /rpc puts the
+     * caller its token proved there). A caller who names nobody reads at the library's default level.
+     */
+    private static Patrons.Patron resourcePatron(JsonNode params) {
+        if ("person".equals(params.path("patron").path("did").asText(""))) {
+            throw new RpcError(403, "The did \"person\" is the keeper's own and cannot be asserted by a client; name your patron by its did.", "forbidden");
+        }
+        return Patrons.Patron.from(params);
+    }
+
     private static JsonNode toolsCall(JsonNode params) {
         String name = params.path("name").asText("");
         if (toolFilter != null && !toolFilter.test(name)) throw new RpcError(-32601, "unknown tool: " + name);
@@ -567,6 +612,7 @@ public final class McpServer {
             case "library_repo" -> p.repo(args);
             case "library_items" -> p.items(args);
             case "library_holdings" -> p.holdings(args);
+            case "library_who" -> p.who(args);
             case "library_db" -> p.db(args);
             case "library_remove" -> p.remove(args);
             case "library_check" -> p.check(args);
@@ -616,6 +662,9 @@ public final class McpServer {
             throw new RpcError(e.rpc, e.getMessage(), e.code);
         } catch (RpcError e) {
             throw e;
+        } catch (Declined d) {
+            ProtocolError e = ProtocolError.declined(d.statement());   // the model declined: its own code, the statement, never "the library could not answer"
+            throw new RpcError(e.rpc, e.getMessage(), e.code);
         } catch (Exception e) {
             throw new RpcError(-32002, "The library could not answer: " + e.getMessage(), "unavailable");
         }
@@ -635,6 +684,19 @@ public final class McpServer {
         ObjectNode wrap = M.createObjectNode();
         wrap.set("patron", spec);
         return wrap;
+    }
+
+    /**
+     * {@code allow}: what the caller lets into this run that the library leaves out by default, for this run only. The person's to give:
+     * the chat never offers it to its model, and strips it from any call its model makes.
+     */
+    private static ObjectNode allowProp() {
+        return arrayProp("allow", "Optional: what to let into this run that the library leaves out by default, for this run only: \"explicit\" "
+                + "(pornography, and gore) and \"howto\" (step-by-step instructions for making a weapon or an explosive, "
+                + "making an illegal drug, or running working exploit code against a system). Without it a question that may need such material is researched with it left out, and the result carries "
+                + "content_suggestion {allow, why, how}: show it to the person and ask them, and send allow only if the person says yes. \"self-harm\" is the person's yes to researching a question that reads as them asking about harming themselves: "
+                + "without it such a question starts nothing, and the call is answered with the error confirm, whose message is where to find help. "
+                + "Show that message to the person and ask them; send \"self-harm\" only if the person says yes.");
     }
 
     private static ObjectNode arrayProp(String name, String description) {

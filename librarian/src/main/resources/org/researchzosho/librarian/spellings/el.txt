@@ -1,0 +1,101 @@
+# Greek names in Latin letters.
+#
+# A Greek name in Greek letters is written in Latin letters by ELOT 743, the Greek standard and the passport's, the first way here:
+# Παπαδόπουλος is Papadopoulos, Χρήστος is Christos, Ευάγγελος is Evangelos. Records also write the name as it sounds (Hristos, Kiriakos,
+# Irini, Yiorgos) and in the old learned way (Philippos, Euangelos), and Greeks writing Greek in Latin letters online write μπ as mp and γγ as
+# gg (Mpakogiannis, Aggelos). These rules say how each sound is written, so those spellings compare as one name.
+language: el
+name: Greek
+scripts: Greek
+decompose: yes
+vowels: α ε η ι ο υ ω a e i o u y
+joins: ' ’
+
+# Greek in Latin letters, ELOT 743. The stress mark is left out. αυ, ευ and ηυ are av, ev and iv, but af, ef and if before a voiceless
+# consonant and at the end; μπ and ντ are b and d at the start of a word and mp and nt inside it.
+letter αυ: af (before θ κ ξ π σ ς τ φ χ ψ)
+letter αυ: af (at the end)
+letter αυ: av
+letter ευ: ef (before θ κ ξ π σ ς τ φ χ ψ)
+letter ευ: ef (at the end)
+letter ευ: ev
+letter ηυ: if (before θ κ ξ π σ ς τ φ χ ψ)
+letter ηυ: if (at the end)
+letter ηυ: iv
+letter αϋ: ay
+letter εϋ: ey
+letter οϋ: oy
+letter ου: ou
+letter αι: ai
+letter ει: ei
+letter οι: oi
+letter υι: yi
+letter γγ: ng
+letter γκ: gk
+letter γξ: nx
+letter γχ: nch
+letter μπ: b (at the start)
+letter μπ: mp
+letter ντ: d (at the start)
+letter ντ: nt
+letter α: a
+letter β: v
+letter γ: g
+letter δ: d
+letter ε: e
+letter ζ: z
+letter η: i
+letter θ: th
+letter ι: i
+letter κ: k
+letter λ: l
+letter μ: m
+letter ν: n
+letter ξ: x
+letter ο: o
+letter π: p
+letter ρ: r
+letter σ: s
+letter ς: s
+letter τ: t
+letter υ: y
+letter φ: f
+letter χ: ch
+letter ψ: ps
+letter ω: o
+
+# as it sounds: Hristos, Kiriakos, Irini, Yiorgos, Panayiotis
+letter phonetic υ: i
+letter phonetic η: i
+letter phonetic ει: i
+letter phonetic οι: i
+letter phonetic υι: i
+letter phonetic αι: e
+letter phonetic χ: h
+letter phonetic γ: y (before ε ι η υ)
+
+# the old learned way: Philippos, Euangelos, Theophilos
+letter classical φ: ph
+letter classical αυ: au
+letter classical ευ: eu
+letter classical ηυ: eu
+
+# comparison: ph and f are one (φ); ch, kh and h are one (χ), and a c that is no s sound is k (Constantinos); y, i and ei are one (υ, ι, ει);
+# gi and yi before a vowel are the y sound of γ (Giorgos, Yiorgos, Jorgos); gg is ng; gk, mp and nt at the start are g, b and d; eu and au
+# are ev and av (Euangelos), and ou is u. η written e, the ancient way (Demetrios), stays apart from i: with it every e would be an i.
+fold f: ph
+fold k: c (not before e i y)
+fold h: kh
+fold ks: x
+fold ng: gg
+fold g: gk (at the start)
+fold b: mp (at the start)
+fold d: nt (at the start)
+fold ev: eu, ef
+fold av: au, af
+fold iv: if
+fold u: ou
+fold y: gi (before a vowel), yi (before a vowel), j (before a vowel)
+# γ before e and i is said as y: Georgios and Yeorgios are one name
+fold y: g (before e i)
+fold i: y, ei

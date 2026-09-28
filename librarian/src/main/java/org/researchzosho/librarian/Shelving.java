@@ -1,21 +1,28 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.DocText;
 import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.PageCheck;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import org.researchzosho.tools.WebFetchTool;
 /**
  * One locator onto the shelves, for the launching points that carry many: fetched, converted, kept; a
  * wall or a failure becomes a source request the person can answer with {@code add <file> --for <url>}.
  */
 public final class Shelving {
 
-    /** What became of one locator. {@code raw} is null when nothing was shelved; {@code requested} when a request was filed. */
-    public record Got(String locator, Path raw, String title, String kind, String problem, boolean requested) {
+    /**
+     * What became of one locator. {@code raw} is null when nothing was shelved; {@code requested} when a request was filed;
+     * {@code unchecked} when it was saved before a model could check it ({@link PageCheck#NOT_CHECKED_YET}).
+     */
+    public record Got(String locator, Path raw, String title, String kind, String problem, boolean requested, boolean unchecked) {
+        public Got(String locator, Path raw, String title, String kind, String problem, boolean requested) { this(locator, raw, title, kind, problem, requested, false); }
         public boolean shelved() { return raw != null; }
     }
 
@@ -31,19 +38,24 @@ public final class Shelving {
             // already on the shelves: say so, fetch nothing
             Path have = RawCapture.find(store, u);
             if (have != null) { String[] r = RawCapture.read(have); if (!RawCapture.looksBinary(r[2]) && Fetch.wall(r[1], r[2]) == null) return new Got(u, have, r[1], "held", "", false); }
-            Fetch.Result resp = Fetch.get(u, Duration.ofSeconds(60));
+            // a reading list, bookmarks, a draft's citations: the person's own addresses, so only the always-dropped check
+            PageCheck.Page page = PageCheck.fetch(u, Duration.ofSeconds(60), ContentPolicy.person(null), "");
+            Fetch.Result resp = page.fetched();
             if (resp.status() >= 400) return request(store, u, "HTTP " + resp.status(), context);
-            DocText.Doc doc = DocText.convert(resp.body(), u);
+            if (!page.kept()) return new Got(u, null, "", "", "left out: " + page.leftOut() + ", and not saved", false);   // never a request: the person is not asked to supply it
+            DocText.Doc doc = page.doc();
             if (doc.text().isBlank()) return request(store, u, "no text could be read (" + doc.kind() + ")", context);
             String title = doc.title();
             try { Citations.Meta meta = Citations.resolve(store, resp.url(), Citations.LIVE); if (meta != null && !meta.title().isEmpty()) title = meta.title(); } catch (Exception ignored) { }
             String wall = Fetch.wall(title, doc.text());
             if (wall != null) return request(store, u, "a wall: " + wall, context);
             String published = "";
-            try { published = org.researchzosho.tools.WebFetchTool.publishedDate(new String(resp.body(), 0, Math.min(resp.body().length, 200_000), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
+            try { published = WebFetchTool.publishedDate(new String(resp.body(), 0, Math.min(resp.body().length, 200_000), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
             Path raw = RawCapture.capture(store, resp.url(), doc.text(), title, "researchzosho-" + (collection == null || collection.isBlank() ? "add" : collection), collection, published);
             if (raw == null) return new Got(u, null, title, doc.kind(), "not shelved (no library, or the capture was refused)", false);
-            return new Got(u, raw, title, doc.kind(), "", false);
+            // saved even when no model could check it, and checked when one answers; a checked page means a model answers now
+            UncheckedPages.after(store, page, resp.url(), raw, null);
+            return new Got(u, raw, title, doc.kind(), "", false, page.unchecked());
         } catch (Exception e) {
             return request(store, u, e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage(), context);
         }

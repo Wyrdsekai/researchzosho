@@ -13,6 +13,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 /** Readings: the shelves only, checked, cached, and an offer when the shelves do not explain a term. */
 class ExplainTest {
 
@@ -142,12 +143,12 @@ class ExplainTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         store.write(f("F-0001-gears", "The gears were cut by hand", "Body.\n"));
         LibraryProtocol p = new LibraryProtocol(store);
-        ObjectNode a = new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+        ObjectNode a = new ObjectMapper().createObjectNode();
         a.put("id", "F-0001-gears"); a.put("rung", "as written");
         ObjectNode r = p.explain(a);
         assertEquals("written", r.path("rung").asText()); assertEquals("Body.", r.path("text").asText()); assertFalse(r.path("is_record").asBoolean());
         assertEquals(Explain.Rung.beginner, Explain.Rung.of(""));
         assertThrows(ProtocolError.class, () -> Explain.Rung.of("genius"));
-        assertThrows(ProtocolError.class, () -> p.explain(new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode()));
+        assertThrows(ProtocolError.class, () -> p.explain(new ObjectMapper().createObjectNode()));
     }
 }

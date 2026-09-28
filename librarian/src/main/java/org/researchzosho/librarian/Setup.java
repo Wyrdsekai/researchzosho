@@ -19,6 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import java.io.File;
+import java.net.ConnectException;
+import java.net.http.HttpTimeoutException;
+import org.researchzosho.ModelChoice;
 /**
  * {@code researchzosho setup}: the first ten minutes, one question at a time, each with a sensible
  * answer already filled in. Where the library goes; which model reads (found on the usual local
@@ -110,7 +114,7 @@ public final class Setup {
         return new Probe() {
             @Override public List<String> models(String base, String key) {
                 try {
-                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/models")).timeout(Duration.ofSeconds(6)).GET();
+                    var b = HttpRequest.newBuilder(URI.create(Config.driveBase(base) + "/v1/models")).timeout(Duration.ofSeconds(6)).GET();
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
                     if (r.statusCode() / 100 != 2) return null;
@@ -125,7 +129,7 @@ public final class Setup {
                     body.put("model", model); body.put("max_tokens", 400);   // a reasoning model spends its first tokens thinking; 12 left nothing for the word
                     ArrayNode msgs = body.putArray("messages");
                     msgs.addObject().put("role", "user").put("content", "Reply with the single word: ready");
-                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
+                    var b = HttpRequest.newBuilder(URI.create(Config.driveBase(base) + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
@@ -151,7 +155,7 @@ public final class Setup {
             @Override public boolean embeds(String base, String key) {
                 try {
                     var body = M.createObjectNode(); body.put("input", "ready"); body.put("model", "embed");   // the name a proxy set up by `model install` routes; a bare server ignores it
-                    var b = HttpRequest.newBuilder(URI.create(org.researchzosho.Config.driveBase(base) + "/v1/embeddings")).timeout(Duration.ofSeconds(15))
+                    var b = HttpRequest.newBuilder(URI.create(Config.driveBase(base) + "/v1/embeddings")).timeout(Duration.ofSeconds(15))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
@@ -179,7 +183,7 @@ public final class Setup {
             @Override public boolean have(String command) {
                 String path = System.getenv("PATH");
                 if (path == null) return false;
-                for (String dir : path.split(java.io.File.pathSeparator)) {
+                for (String dir : path.split(File.pathSeparator)) {
                     if (Files.isRegularFile(Path.of(dir, command)) || Files.isRegularFile(Path.of(dir, command + ".exe")) || Files.isRegularFile(Path.of(dir, command + ".cmd"))) return true;
                 }
                 return false;
@@ -199,8 +203,8 @@ public final class Setup {
 
     static String plain(Exception e) {
         String m = e.getMessage();
-        if (e instanceof java.net.ConnectException || (m != null && m.contains("Connection refused"))) return "nothing is answering at that address";
-        if (e instanceof java.net.http.HttpTimeoutException) return "it did not answer in time";
+        if (e instanceof ConnectException || (m != null && m.contains("Connection refused"))) return "nothing is answering at that address";
+        if (e instanceof HttpTimeoutException) return "it did not answer in time";
         return m == null || m.isBlank() ? e.getClass().getSimpleName() : m;
     }
 
@@ -236,7 +240,7 @@ public final class Setup {
         for (String id : ids.subList(0, Math.min(20, ids.size()))) width = Math.max(width, id.length());
         for (int i = 0; i < Math.min(20, ids.size()); i++) {
             String id = ids.get(i);
-            String note = org.researchzosho.ModelChoice.looksUnableToChat(id) ? "looks like an embedding or ranking model: it cannot chat" : id.equals(configured) ? "in your settings" : "";
+            String note = ModelChoice.looksUnableToChat(id) ? "looks like an embedding or ranking model: it cannot chat" : id.equals(configured) ? "in your settings" : "";
             out.println(String.format("    %2d. %-" + width + "s%s", i + 1, id, note.isEmpty() ? "" : "   (" + note + ")"));
         }
         if (ids.size() > 20) out.println("    … and " + (ids.size() - 20) + " more; type a name to use one of them.");
@@ -244,7 +248,7 @@ public final class Setup {
         String firstChoice = null;
         int asked = 0;
         while (!left.isEmpty() && asked++ < ids.size() + 5) {      // the cap is for a person who keeps typing names the server does not have
-            String dflt = org.researchzosho.ModelChoice.preferred(left, configured);
+            String dflt = ModelChoice.preferred(left, configured);
             String answer = ask("  Which one? (number or name)", dflt);
             String choice = answer;
             if (answer.matches("\\d{1,3}")) {
@@ -451,7 +455,7 @@ public final class Setup {
             if (!acts.have(h.command()) || !yesNo(h.name() + " is installed. Connect it to the library?", true)) continue;
             String who = System.getProperty("user.name", "me");
             // one identity per machine, person and program — setup run three times listed one person's Claude Code three times
-            // writers, each with a token (dolores, 2026-09-11); the same line is rewritten, its token reissued
+            // writers, each with a token (a second test box, 2026-09-11); the same line is rewritten, its token reissued
             String did = Patrons.localDid(h.command(), who);
             for (Patrons.Entry e : Patrons.load(store).listed()) if (e.name().equals(who + " (" + h.name() + ")") && e.did().startsWith("did:key:local-" + h.command() + "-")) { did = e.did(); break; }
             Patrons.set(store, did, who + " (" + h.name() + ")", Patrons.Level.write);

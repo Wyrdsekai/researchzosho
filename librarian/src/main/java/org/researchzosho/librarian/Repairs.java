@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.time.Instant;
 /**
  * What an update owes the library: things an earlier version saved wrongly are fixed by the new one,
  * without being asked. It runs once per version when the service starts, and by hand as
@@ -48,7 +49,7 @@ public final class Repairs {
         if (doneFor(store, version)) return null;
         Outcome o = run(store);
         Files.createDirectories(marker(store).getParent());
-        Files.writeString(marker(store), "# Repairs\n\nversion: " + version + "\nat: " + java.time.Instant.now() + "\nresult: " + o.summary() + "\n", StandardCharsets.UTF_8);
+        Files.writeString(marker(store), "# Repairs\n\nversion: " + version + "\nat: " + Instant.now() + "\nresult: " + o.summary() + "\n", StandardCharsets.UTF_8);
         return o;
     }
 

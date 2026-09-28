@@ -14,6 +14,8 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.security.SecureRandom;
+import java.util.HexFormat;
 /**
  * SearXNG, run for the person through Docker: the free, private search backend. ResearchZosho does not
  * ship SearXNG (a Python service does not belong inside a Java tarball); it starts the official image
@@ -55,7 +57,8 @@ public final class Searx {
      * suspended; Bing answered but matched the first word only. What answered with real results: Seznam and Naver
      * (English), Yandex (English and Japanese), Yahoo (Japanese), and Wikipedia. So those are on and the others are
      * off, which also keeps a search from waiting on engines that will not answer. `researchzosho search test` shows
-     * what the set does today; the person can edit the file.
+     * what the set does today; the person can edit the file. Safe search is moderate ({@code safe_search: 1}) for the engines that
+     * have the setting; the search tool asks for the same in every request.
      */
     static String settings() {
         return "# Written by ResearchZosho. SearXNG's own defaults apply; only what ResearchZosho needs is set here.\n"
@@ -63,9 +66,10 @@ public final class Searx {
                 + "# CAPTCHA or a suspension on the first query. Edit freely; `researchzosho search test <query>` shows the result.\n"
                 + "use_default_settings: true\n"
                 + "server:\n"
-                + "  secret_key: \"" + java.util.HexFormat.of().formatHex(java.security.SecureRandom.getSeed(24)) + "\"\n"
+                + "  secret_key: \"" + HexFormat.of().formatHex(SecureRandom.getSeed(24)) + "\"\n"
                 + "  limiter: false\n"
                 + "search:\n"
+                + "  safe_search: 1\n"
                 + "  formats:\n"
                 + "    - html\n"
                 + "    - json\n"

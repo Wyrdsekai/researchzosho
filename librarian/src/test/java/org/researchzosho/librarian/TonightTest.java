@@ -6,9 +6,11 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Files;
 /** The plan the housekeeping will follow, read from its own files: shelves due by cadence, questions by demand. */
 class TonightTest {
 
@@ -19,7 +21,7 @@ class TonightTest {
         Serials.add(store, "titan", "Titan methane lakes", 30);
         // a shelf checked yesterday with a 30-day cadence is not due
         Path shelves = store.root().resolve("catalog").resolve("shelves.md");
-        java.nio.file.Files.writeString(shelves, java.nio.file.Files.readString(shelves)
+        Files.writeString(shelves, Files.readString(shelves)
                 .replaceAll("(titan \\| Titan methane lakes \\| every 30 days \\| last )\\S+", "$1" + LocalDate.now().minusDays(1)));
         Frontier.demand(store, "when was lead paint banned in Japan", "did:key:a");
         Frontier.demand(store, "when was lead paint banned in Japan", "did:key:b");   // asked twice: researchable
@@ -34,6 +36,16 @@ class TonightTest {
         assertTrue(text.contains("runs tonight   lead:") && text.contains("not yet due    titan:"), text);
         assertTrue(text.contains("run 1: when was lead paint banned in Japan  [asked, asked 2]"), text);
         assertFalse(text.contains("kura"), "asked once: not on the plan");
+    }
+
+    @Test
+    void thePlanKeepsAFieldsQuestionsApartFromOrdinaryOnesAsTheNightDoes(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        store.frontier("person me " + FamilyReset.FROM_TREE + Fields.mark("genealogy"), "Mary Hale (born 1885): who were the parents of Mary Hale?");
+        store.frontier("person me", "Who were the parents of Mary Hale (born 1885)?");
+        Tonight.Plan p = Tonight.plan(store, LocalDate.now());
+        assertEquals(2, p.bundles().size(), "one run for the family's question and one for the ordinary one: " + Tonight.text(p));
+        assertEquals(List.of("genealogy", ""), p.bundles().stream().map(Crews.Bundle::field).toList());
     }
 
     @Test

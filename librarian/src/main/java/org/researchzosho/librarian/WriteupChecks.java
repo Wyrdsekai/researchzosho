@@ -8,6 +8,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.Map;
 /**
  * Mechanical checks of a write-up against the evidence it was written from — no model, a few
  * milliseconds. They exist because the 27B's prose contradicted its own evidence table (a benchmark
@@ -29,14 +30,14 @@ public final class WriteupChecks {
      * captured sources) never does: one line each, with the sentence. Bare small integers are not checked
      * (a list count is the writer's own arithmetic); a number with a unit is a claim.
      */
-    public static List<String> numbersUnbacked(String answer, String evidence) { return numbersUnbacked(answer, evidence, List.of(), java.util.Map.of()); }
+    public static List<String> numbersUnbacked(String answer, String evidence) { return numbersUnbacked(answer, evidence, List.of(), Map.of()); }
 
     /**
      * As above, scoped: a sentence is checked against the notes and the text of the sources IT cites (by number, URL or
      * id); a sentence citing nothing is checked against the notes alone. Every source's full text would contain any
      * two-digit number somewhere (measured: zero findings over five 12,000-word write-ups).
      */
-    public static List<String> numbersUnbacked(String answer, String notes, List<CiteCheck.Ref> refs, java.util.Map<Integer, String> textByRef) {
+    public static List<String> numbersUnbacked(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
         List<String> out = new ArrayList<>();
         String notesFolded = fold(notes);
         Set<String> seen = new LinkedHashSet<>();
@@ -61,9 +62,9 @@ public final class WriteupChecks {
     }
 
     /** Licence names and CVE ids the answer states that the evidence never does. */
-    public static List<String> namesUnbacked(String answer, String evidence) { return namesUnbacked(answer, evidence, List.of(), java.util.Map.of()); }
+    public static List<String> namesUnbacked(String answer, String evidence) { return namesUnbacked(answer, evidence, List.of(), Map.of()); }
 
-    public static List<String> namesUnbacked(String answer, String notes, List<CiteCheck.Ref> refs, java.util.Map<Integer, String> textByRef) {
+    public static List<String> namesUnbacked(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
         List<String> out = new ArrayList<>();
         String notesFolded = fold(notes);
         Set<String> seen = new LinkedHashSet<>();
@@ -90,15 +91,15 @@ public final class WriteupChecks {
     }
 
     /** The product names a sentence carries: capitalised words of three letters or more that are not sentence-initial function words. */
-    static java.util.List<String> products(String sentence) {
-        java.util.List<String> out = new ArrayList<>();
+    static List<String> products(String sentence) {
+        List<String> out = new ArrayList<>();
         Matcher m = Pattern.compile("\\b([A-Z][\\p{L}\\p{N}.-]{2,})\\b").matcher(sentence);
         while (m.find()) { String w = m.group(1); if (!Set.of("The", "This", "That", "These", "Those", "Its", "Both", "MIT", "AGPL", "GPL", "LGPL", "Apache", "BSD", "MPL", "CVE").contains(w) && !out.contains(w)) out.add(w); }
         return out;
     }
 
     /** The lines of the folded evidence that name any of {@code names} (case folded); "" when none does. */
-    static String linesNaming(String evFolded, java.util.List<String> names) {
+    static String linesNaming(String evFolded, List<String> names) {
         if (names.isEmpty()) return "";
         StringBuilder b = new StringBuilder();
         for (String line : evFolded.split("\\n")) for (String n : names) if (line.contains(n.toLowerCase(Locale.ROOT))) { b.append(line).append('\n'); break; }
@@ -121,8 +122,12 @@ public final class WriteupChecks {
             String q = m.group(1).strip();
             String nq = CiteCheck.norm(q);
             if (nq.split(" ").length < 5 || !seen.add(nq)) continue;
+            // a quotation with a gap marked (… or ... or [...]) is several pieces of one source: each piece of three words or more must stand in it
+            List<String> pieces = new ArrayList<>();
+            for (String part : q.split("…|\\.\\.\\.|\\[\\s*\\.\\.\\.\\s*\\]")) { String np = CiteCheck.norm(part); if (np.split(" ").length >= 3) pieces.add(np); }
+            if (pieces.isEmpty()) pieces.add(nq);
             boolean found = false;
-            for (String n : norms) if (!n.isEmpty() && n.contains(nq)) { found = true; break; }
+            for (String n : norms) if (!n.isEmpty() && pieces.stream().allMatch(n::contains)) { found = true; break; }
             if (!found) out.add("\"" + Acquisitions.compress(q, 120) + "\" — in no source read this run");
         }
         return out;

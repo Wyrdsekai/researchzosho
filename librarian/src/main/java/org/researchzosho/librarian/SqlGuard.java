@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.regex.Pattern;
 
+import java.util.Set;
 /**
  * The check every SQL statement passes before it runs against a person's database. One statement, and
  * it must only read. The connection is opened read-only as well, and a read-only database user is what
@@ -82,7 +83,7 @@ public final class SqlGuard {
     }
 
     /** The aggregation stages a MongoDB pipeline may use: the ones that read. */
-    static final java.util.Set<String> MONGO_STAGES = java.util.Set.of("$match", "$group", "$sort", "$limit", "$skip", "$project", "$count", "$unwind", "$addFields", "$set", "$unset",
+    static final Set<String> MONGO_STAGES = Set.of("$match", "$group", "$sort", "$limit", "$skip", "$project", "$count", "$unwind", "$addFields", "$set", "$unset",
             "$bucket", "$bucketAuto", "$facet", "$sample", "$sortByCount", "$lookup", "$replaceRoot", "$replaceWith", "$redact", "$densify", "$fill", "$setWindowFields", "$geoNear");
 
     /** Null when a MongoDB filter or pipeline (as JSON text) may run; otherwise the reason. */

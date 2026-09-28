@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.util.List;
 
 import org.researchzosho.Config;
+import org.researchzosho.Stopping;
 
 /**
  * The cross-encoder reranker — the single largest precision lever the organization survey
@@ -61,11 +62,12 @@ public final class Reranker {
                     body.put("top_n", documents.size());
                     var arr = body.putArray("documents");
                     for (String d : documents) arr.add(d.length() > MAX_DOC_CHARS ? d.substring(0, MAX_DOC_CHARS) : d);
-                    HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(endpoint + "/v1/rerank"))
+                    // a search of the shelves inside a research run: the wait ends at the run's stop
+                    HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(endpoint + "/v1/rerank"))
                             .timeout(Duration.ofSeconds(120))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))
-                            .build(), HttpResponse.BodyHandlers.ofString());
+                            .build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(120), "the reranker at " + endpoint);
                     if (resp.statusCode() != 200) return null;
                     JsonNode results = M.readTree(resp.body()).path("results");
                     if (!results.isArray()) return null;

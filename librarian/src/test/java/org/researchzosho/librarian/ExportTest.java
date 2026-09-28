@@ -12,6 +12,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.charset.StandardCharsets;
 /** An entry as a file: Markdown as it is, and a PDF that reads back, Japanese included when a font is there. */
 class ExportTest {
 
@@ -30,14 +31,14 @@ class ExportTest {
 
         Export.File md = Export.markdown(store, "F-0001-gears", null);
         assertEquals("F-0001-gears.md", md.name());
-        String text = new String(md.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+        String text = new String(md.bytes(), StandardCharsets.UTF_8);
         assertTrue(text.startsWith("# The gears were cut by hand\n"), text);
         assertTrue(text.contains("## Sources") && text.contains("https://museum.example/gears — the museum's page"), text);
         assertTrue(text.contains("歯車は手で切られた"));
 
         Export.File pdf = Export.pdf(store, "F-0001-gears", null);
         assertEquals("F-0001-gears.pdf", pdf.name());
-        assertTrue(new String(pdf.bytes(), 0, 5, java.nio.charset.StandardCharsets.ISO_8859_1).startsWith("%PDF"));
+        assertTrue(new String(pdf.bytes(), 0, 5, StandardCharsets.ISO_8859_1).startsWith("%PDF"));
         try (PDDocument doc = Loader.loadPDF(pdf.bytes())) {
             String got = new PDFTextStripper().getText(doc);
             assertTrue(got.contains("The gears were cut by hand"), got);
@@ -57,7 +58,7 @@ class ExportTest {
         Explain.Reading r = new Explain.Reading("F-0001-gears", "", Explain.Rung.beginner, "Someone cut each tooth with a file [F-0001-gears].", List.of(new Explain.Term("file", "a hand tool")), "shelves", 1, 0, Instant.now().toString(), true, null);
         Export.File md = Export.markdown(store, "F-0001-gears", r);
         assertEquals("F-0001-gears-beginner.md", md.name());
-        String text = new String(md.bytes(), java.nio.charset.StandardCharsets.UTF_8);
+        String text = new String(md.bytes(), StandardCharsets.UTF_8);
         assertTrue(text.contains("A beginner reading of F-0001-gears") && text.contains("not a record") && text.contains("Words you may meet next") && text.contains("## The record it rests on"), text);
         assertThrows(ProtocolError.class, () -> Export.markdown(store, "F-9999-nope", null));
     }

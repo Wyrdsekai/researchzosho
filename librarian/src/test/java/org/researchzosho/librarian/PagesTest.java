@@ -13,6 +13,10 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.file.Files;
+import org.researchzosho.Version;
 /** The library in a browser: the pages render from a real store, and writing needs the cookie. */
 class PagesTest {
 
@@ -34,12 +38,28 @@ class PagesTest {
     }
 
     @Test
+    void aBrowserThatMayNotStartResearchIsToldSoAndNothingIsWrittenDown(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Patrons.set(store, "did:key:me", "Me", Patrons.Level.write);
+        WebAccess.OVERRIDE = Boolean.TRUE;   // the sign-in is on, and this browser has not signed in
+        LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
+        HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        try {
+            var r = post(c, "http://127.0.0.1:" + d.port() + "/research", "question=" + Pages.enc("Who were my great-grandfather's parents, and where did they farm?") + "&mode=broad", null);
+            assertEquals(403, r.statusCode(), r.body());
+            assertTrue(r.body().contains("Not allowed"), r.body());
+            assertFalse(Files.exists(Fields.suggestionsFile(store)), "a browser that may not send the question writes nothing down about it");
+            assertFalse(Fields.seen(store, "Who were my great-grandfather's parents, and where did they farm?", "genealogy"), "and the owner is still told about the question");
+        } finally { d.stop(); WebAccess.OVERRIDE = null; }
+    }
+
+    @Test
     void theLibraryInABrowser(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         store.write(f("F-0001-gears", "The gears were cut by hand", "The museum states the **gears** were cut with files.\n\n- a dividing plate\n- hand files\n\nSee [[F-0002-teeth]].\n", "https://museum.example/gears"));
         store.write(f("F-0002-teeth", "Tooth profiles measured by CT", "CT scans show triangular teeth. https://journal.example/paper\n", "https://journal.example/paper"));
         new LibrarianIndex(store, Embeddings.none()).rebuild();
-        java.nio.file.Files.writeString(store.subjectsFile(), "# Subjects\n\n- gears--cutting — how the gears were made\n");
+        Files.writeString(store.subjectsFile(), "# Subjects\n\n- gears--cutting — how the gears were made\n");
         store.frontier("gap person", "Who measured the tooth profiles first, and with what instrument?");
         Patrons.set(store, "did:key:me", "Me", Patrons.Level.write);
         String token = Patrons.issueToken(store, "did:key:me");
@@ -52,12 +72,13 @@ class PagesTest {
             assertEquals(200, home.statusCode());
             assertTrue(home.headers().firstValue("content-type").orElse("").startsWith("text/html"));
             assertTrue(home.body().contains("2 claims") && home.body().contains("Open questions") && home.body().contains("sign in"), home.body());
+            assertFalse(home.body().contains("/tree"), "a library with no family shows no family pages");
             // the header says which version this is, next to the library's name; the footer says it in full
-            String v = org.researchzosho.Version.number();
+            String v = Version.number();
             assertNotNull(v, "the build writes the version into a resource, so a run from the source tree knows it");
             assertTrue(home.body().contains("<span class=\"ver\">" + v + "</span>"), "the version in the header: " + v);
-            assertTrue(home.body().contains("ResearchZosho " + org.researchzosho.Version.string()), "the version in the footer");
-            assertTrue(org.researchzosho.Version.string().equals(v) || org.researchzosho.Version.string().equals(v + " (source tree)"), org.researchzosho.Version.string());
+            assertTrue(home.body().contains("ResearchZosho " + Version.string()), "the version in the footer");
+            assertTrue(Version.string().equals(v) || Version.string().equals(v + " (source tree)"), Version.string());
 
             var search = get(c, base + "/search?q=gears", null);
             assertTrue(search.body().contains("/entry/F-0001-gears") && search.body().contains("The gears were cut by hand"), search.body());
@@ -91,9 +112,9 @@ class PagesTest {
             assertTrue(needsDrive.body().contains("No model is answering"), needsDrive.body());
             // with a (slow) model: the page comes back at once saying what is happening, refreshes, and becomes the reading
             Explain.DRIVES = () -> new Researcher.Drive() {
-                @Override public com.fasterxml.jackson.databind.node.ObjectNode chat(com.fasterxml.jackson.databind.node.ArrayNode m, com.fasterxml.jackson.databind.node.ArrayNode tl, int x, String y) { throw new UnsupportedOperationException(); }
+                @Override public ObjectNode chat(ArrayNode m, ArrayNode tl, int x, String y) { throw new UnsupportedOperationException(); }
                 @Override public int contextWindow() { return 32_000; }
-                @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode m, int max) {
+                @Override public String classify(ArrayNode m, int max) {
                     try { Thread.sleep(400); } catch (InterruptedException e) { }
                     String p = m.get(m.size() - 1).path("content").asText();
                     return p.startsWith("A report sentence cites") ? "{\"verdict\":\"supported\"}" : "Someone cut each tooth with a file [F-0001-gears].\n\n## Terms\n- file — a hand tool\n";
@@ -133,9 +154,9 @@ class PagesTest {
             assertTrue(noDrive.body().contains("No model is answering"), noDrive.body());
             // with a slow model: the sharpen post comes back at once as a working page, which turns into the sharpened form
             Explain.DRIVES = () -> new Researcher.Drive() {
-                @Override public com.fasterxml.jackson.databind.node.ObjectNode chat(com.fasterxml.jackson.databind.node.ArrayNode m, com.fasterxml.jackson.databind.node.ArrayNode tl, int x, String y) { throw new UnsupportedOperationException(); }
+                @Override public ObjectNode chat(ArrayNode m, ArrayNode tl, int x, String y) { throw new UnsupportedOperationException(); }
                 @Override public int contextWindow() { return 32_000; }
-                @Override public String classify(com.fasterxml.jackson.databind.node.ArrayNode m, int max) {
+                @Override public String classify(ArrayNode m, int max) {
                     try { Thread.sleep(300); } catch (InterruptedException e) { }
                     String p = m.get(m.size() - 1).path("content").asText();
                     if (p.startsWith("A person typed a research question")) return "{\"question\":\"How were the Antikythera gears cut?\",\"assumptions\":[\"the Antikythera mechanism\"],\"sub_questions\":[\"What tools survive?\"],\"depth\":\"depth\",\"size\":\"quick\"}";
@@ -183,6 +204,11 @@ class PagesTest {
             String cookie = login.headers().firstValue("set-cookie").orElseThrow().split(";")[0];
             assertTrue(cookie.startsWith(Pages.COOKIE + "="));
             assertTrue(get(c, base + "/", cookie).body().contains("sign out"));
+            // a report's page offers to go deeper: the questions it left open as buttons, and a box for one's own follow-up
+            store.write(new Investigation("I-0010-gears-report", "How were the gears cut?", Finding.State.accepted, "w", "2026-09-22T00:00:00Z", List.of(), List.of("Who cut them?"), "## Answer\n\nBy hand.\n"));
+            String report = get(c, base + "/entry/I-0010-gears-report", cookie).body();
+            assertTrue(report.contains("<b>Go deeper</b>") && report.contains("Follow-up to I-0010-gears-report (How were the gears cut?): Who cut them?") && report.contains("name=\"follow_up_to\""), report);
+            assertFalse(get(c, base + "/entry/I-0010-gears-report", null).body().contains("Go deeper"), "a reader who may not write is not offered a run");
             // signed in, the research form posts; no drive answers in the test, so the page reports that rather than filing
             var filed = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", cookie);
             assertEquals(200, filed.statusCode());

@@ -6,6 +6,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 /**
  * The schema layer's contract: format/parse round-trips exactly, and everything malformed
  * FAILS CLOSED with an error naming the problem — the store never guesses, never repairs.
@@ -83,12 +85,12 @@ class FindingSchemaTest {
     @Test
     void subjectsAreOutsideTheHashAndLegacySignaturesMigrate() throws Exception {
         Finding f = sample();
-        Finding cataloged = new Finding(f.id(), f.title(), java.util.List.of("translation--register"), f.state(),
+        Finding cataloged = new Finding(f.id(), f.title(), List.of("translation--register"), f.state(),
                 f.claimType(), f.confidence(), f.writer(), f.recordedAt(), f.validAsOf(), f.volatility(),
                 f.reviewBy(), f.sources(), f.supersedes(), f.review(), f.body());
         assertEquals(f.contentHash(), cataloged.contentHash(), "cataloging is metadata, not substance");
         // a review signed under the OLD formula migrates; one whose content really changed does not
-        java.nio.file.Path dir = java.nio.file.Files.createTempDirectory("cz-migrate");
+        Path dir = Files.createTempDirectory("cz-migrate");
         LibraryStore store = new LibraryStore(dir); store.init();
         Finding legacySigned = new Finding(f.id(), f.title(), f.subjects(), Finding.State.accepted, f.claimType(),
                 f.confidence(), f.writer(), f.recordedAt(), f.validAsOf(), f.volatility(), f.reviewBy(), f.sources(),

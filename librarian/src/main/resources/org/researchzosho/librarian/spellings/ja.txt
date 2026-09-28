@@ -1,0 +1,25 @@
+# Japanese names in Latin letters (romaji).
+#
+# Records write one Japanese name in several ways: a long vowel with a macron (Endō), doubled (Endoo), with u (Endou), with h (Endoh), or not
+# marked at all (Endo); ん before a vowel with an apostrophe or a hyphen (Ken'ichi, Ken-ichi) or without (Kenichi). These rules say how the
+# sounds are written, never which name is which. Kana is written in Latin letters by the program's own Hepburn table.
+language: ja
+name: Japanese
+scripts: Hiragana, Katakana
+vowels: a e i o u y
+# left out between two letters when names are compared: Ken'ichi, Ken-ichi and Kenichi are one name
+joins: ' ’ ‘ ʼ ` ´ -
+# written and left out alike by records: each search spelling is tried both ways
+drop: ' ’ ‘ ʼ ` ´
+
+# comparison: a long vowel written any of its ways is the short vowel (the macrons go with every accent). Each rule applies to the
+# whole word in turn, in this order. "oh" before a vowel is a syllable of its own (Ohashi's o-ha).
+fold o: ou, oo
+fold u: uu
+fold o: oh (not before a vowel)
+
+# searches: a name written with macrons, in each of the ways records write long vowels
+style plain: ō=o ū=u ā=a ē=e ī=i
+style ou: ō=ou ū=uu
+style oh: ō=oh ū=u
+style oo: ō=oo ū=uu

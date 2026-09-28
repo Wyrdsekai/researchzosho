@@ -12,6 +12,12 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.HashSet;
+import java.util.Set;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Declined;
+import org.researchzosho.drive.DeclineJudge;
 /**
  * The ABSTRACTING crew — per-subject ARTICLES (the architecture notes, §crews; the WikiCrow /
  * STORM shape): the library writes its own condensed page for each subject from the findings
@@ -87,6 +93,7 @@ public final class Abstracts {
             String hash = shelfHash(shelf);
             Path file = articleFile(store, subject);
             if (hash.equals(currentHash(file))) { unchanged++; continue; }
+            if (Declines.declinedBefore(store, "abstracts", subject, hash)) { problems.add(subject + ": " + Declines.notAskedAgain("to write the article for this subject")); continue; }
             StringBuilder enumerated = new StringBuilder();
             for (Finding f : shelf) {
                 enumerated.append("[").append(f.id()).append("] (").append(f.state()).append(", ")
@@ -107,12 +114,16 @@ public final class Abstracts {
                             + "\nRETRY — your previous draft cited nothing. Every sentence that states a fact "
                             + "ENDS with one of exactly these ids, copied character for character: " + idsOnly);
                 }
+            } catch (Declined d) {
+                problems.add(subject + ": " + d.statement("to write the article for this subject"));   // no retry with the rule restated
+                Declines.rememberDeclined(store, "abstracts", subject, hash, d);   // not asked again until the shelf changes
+                continue;
             } catch (Exception ex) {
                 problems.add(subject + ": writer failed — " + ex.getMessage());
                 continue;
             }
             // MACHINE checks: cited ids must exist on the shelf; count uncited sentences.
-            java.util.Set<String> ids = new java.util.HashSet<>();
+            Set<String> ids = new HashSet<>();
             for (Finding f : shelf) ids.add(f.id());
             // Citations may arrive bare (F-0012), parenthesised or bracketed — the id is what is
             // unmintable, not the brackets. Normalise every shelf id to [F-…] before checking.
@@ -158,9 +169,10 @@ public final class Abstracts {
     }
 
     /** The live seat: fixed sections, cite by the enumerated ids, drafts labelled. */
-    public static Writer driveWriter(org.researchzosho.drive.DriveClient drive) {
+    public static Writer driveWriter(DriveClient drive) {
+        DeclineJudge declines = DeclineJudge.of(drive);
         return (subject, description, enumerated) -> {
-            var m = new com.fasterxml.jackson.databind.ObjectMapper();
+            var m = new ObjectMapper();
             var msgs = m.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
                     "You are The Librarian writing the shelf ARTICLE for the subject '" + subject
@@ -171,7 +183,9 @@ public final class Abstracts {
                     + "are reported AS draft or disputed, never as settled. Do not add knowledge that is not "
                     + "on the shelf; if the shelf is thin, say so. 200-500 words.\n\nFINDINGS ON THE SHELF:\n"
                     + enumerated);
-            return drive.classify(msgs, 1400);
+            String article = drive.classify(msgs, 1400);
+            declines.raise(drive.model(), "write a short article about the subject \"" + subject + "\" from the claims on a library's shelves", article);   // the article is the work: a decline in words is said, not retried
+            return article;
         };
     }
 
@@ -181,7 +195,7 @@ public final class Abstracts {
         for (int i = 2; i < args.length; i++) {
             if (args[i].startsWith("http")) drive = args[i]; else only.add(args[i]);
         }
-        Outcome o = run(store, driveWriter(new org.researchzosho.drive.DriveClient(drive, model)), only);
+        Outcome o = run(store, driveWriter(new DriveClient(drive, model)), only);
         System.out.println("articles: " + o.written() + " written, " + o.unchanged() + " unchanged (shelf hash matched)");
         for (String p : o.problems()) System.out.println("  note: " + p);
         System.out.println("  " + store.articlesDir());

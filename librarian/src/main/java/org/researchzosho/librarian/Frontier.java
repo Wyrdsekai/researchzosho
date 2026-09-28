@@ -1,8 +1,13 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -12,6 +17,10 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import org.researchzosho.Config;
 /**
  * The frontier as the DEMAND side of the library. A desk answer of holds_nothing is a patron
  * saying what to acquire; it becomes a {@code [demand …]} line here (deduplicated — the same
@@ -38,7 +47,7 @@ public final class Frontier {
 
     /** Which types the explorer may take: RESEARCHZOSHO_EXPLORER_TYPES, default asked, person and report; never check. A bridge proposal waits for the person (accept files its run). */
     public static Set<String> explorerTypes() {
-        String v = org.researchzosho.Config.get("RESEARCHZOSHO_EXPLORER_TYPES", "asked,person,report");
+        String v = Config.get("RESEARCHZOSHO_EXPLORER_TYPES", "asked,person,report");
         Set<String> out = new HashSet<>();
         for (String t : v.toLowerCase(Locale.ROOT).split("[,\\s]+")) if (TYPES.contains(t) && !t.equals("check")) out.add(t);
         return out;
@@ -67,7 +76,7 @@ public final class Frontier {
 
     /** The type of a line from its bracket, old spellings included. */
     public static String typeOf(Line l) {
-        String k = l.kind().replace("·parked", "").strip().toLowerCase(Locale.ROOT);
+        String k = Fields.unmarked(l.kind().replace("·parked", "")).strip().toLowerCase(Locale.ROOT);
         String head = k.split("[\\s×]+")[0];
         if (head.equals("dispute")) return k.contains("inventory") ? "check" : "dispute";   // the old inventory spelling, before "check"
         if (TYPES.contains(head)) return head;
@@ -95,7 +104,7 @@ public final class Frontier {
      * acquisition demand; a question that keeps coming back is. Gaps ([gap], the desk's own
      * refusals) are always eligible. The person's own asks go through /research go, never here.
      */
-    static final int MIN_ASKS = org.researchzosho.Config.getInt("RESEARCHZOSHO_EXPLORER_MIN_ASKS", 2);
+    static final int MIN_ASKS = Config.getInt("RESEARCHZOSHO_EXPLORER_MIN_ASKS", 2);
 
     public static List<Line> read(LibraryStore store) throws IOException {
         List<Line> out = new ArrayList<>();
@@ -118,7 +127,9 @@ public final class Frontier {
         if (q.length() < 12) return false;
         Set<String> qt = terms(q);
         return store.locked("frontier", () -> {
+            var runs = Fields.runs(store);
             for (Line l : read(store)) {
+                if (!Fields.ofLine(l, runs).isEmpty()) continue;   // a question a field filed is that field's: an ordinary ask is not folded into it
                 if (jaccard(qt, terms(l.text())) >= 0.6) {
                     if (l.open() && l.type().equals("asked")) bump(store, l);
                     return false;
@@ -175,10 +186,64 @@ public final class Frontier {
     }
 
     /** Park an open question: kept, shown, never taken by the explorer. False when it is not open or already parked. */
-    public static boolean park(LibraryStore store, String text) throws IOException { return mark(store, text, true); }
+    public static boolean park(LibraryStore store, String text) throws IOException { return park(store, text, ""); }
+
+    /**
+     * Park with the person's reason ("waits on the 戸籍 request"), kept with today's date beside the list and shown with the question,
+     * so the list says why it waits and since when. A blank reason parks without one. A question already parked keeps waiting, and a
+     * reason given now replaces the one it had. False when it was not parked by this call ({@link #isParked} tells whether it already was).
+     */
+    public static boolean park(LibraryStore store, String text, String why) throws IOException {
+        boolean done = mark(store, text, true);
+        String reason = why == null ? "" : why.strip().replaceAll("\\s+", " ");
+        if ((done || isParked(store, text)) && !reason.isEmpty()) store.locked("frontier-why", () -> {
+            ObjectNode all = readWhy(store);
+            all.putObject(text).put("why", reason).put("date", LocalDate.now().toString());
+            Files.writeString(whyFile(store), W.writerWithDefaultPrettyPrinter().writeValueAsString(all), StandardCharsets.UTF_8);
+            return null;
+        });
+        else if (done) forgetWhy(store, text);   // parked again without a reason: an older one does not come back
+        return done;
+    }
+
+    /** Whether an open question with exactly this text is parked. */
+    public static boolean isParked(LibraryStore store, String text) throws IOException {
+        for (Line l : read(store)) if (l.open() && l.parked() && l.text().equals(text)) return true;
+        return false;
+    }
 
     /** Put a parked question back in the queue, at the tail. False when it is not parked. */
-    public static boolean unpark(LibraryStore store, String text) throws IOException { return mark(store, text, false) && later(store, text); }
+    public static boolean unpark(LibraryStore store, String text) throws IOException {
+        boolean done = mark(store, text, false) && later(store, text);
+        if (done) forgetWhy(store, text);
+        return done;
+    }
+
+    /** A question's reason for waiting is over: it went back in the queue, was dropped, explored or taken off, or was filed again. */
+    static void forgetWhy(LibraryStore store, String text) throws IOException {
+        if (!Files.exists(whyFile(store))) return;
+        store.locked("frontier-why", () -> {
+            ObjectNode all = readWhy(store);
+            if (all.remove(text) != null) Files.writeString(whyFile(store), W.writerWithDefaultPrettyPrinter().writeValueAsString(all), StandardCharsets.UTF_8);
+            return null;
+        });
+    }
+
+    /** Why a parked question waits, as the person said it, with the date: "waits on the 戸籍 request (parked 2026-10-02)"; "" when nobody said. */
+    public static String whyParked(LibraryStore store, String text) throws IOException {
+        JsonNode o = readWhy(store).path(text);
+        return o.isMissingNode() ? "" : o.path("why").asText("") + " (parked " + o.path("date").asText("") + ")";
+    }
+
+    private static final ObjectMapper W = new ObjectMapper();
+
+    static Path whyFile(LibraryStore store) { return store.frontierFile().resolveSibling("parked-why.json"); }
+
+    private static ObjectNode readWhy(LibraryStore store) throws IOException {
+        if (!Files.exists(whyFile(store))) return W.createObjectNode();
+        try { JsonNode n = W.readTree(Files.readString(whyFile(store), StandardCharsets.UTF_8)); return n instanceof ObjectNode o ? o : W.createObjectNode(); }
+        catch (IOException e) { return W.createObjectNode(); }   // a damaged file loses the reasons, never the questions
+    }
 
     private static boolean mark(LibraryStore store, String text, boolean park) throws IOException {
         if (!Files.exists(store.frontierFile())) return false;
@@ -213,7 +278,7 @@ public final class Frontier {
      * spending nights on questions nobody asked for.
      */
     public static boolean reportQuestionsParked() {
-        return !org.researchzosho.Config.get("RESEARCHZOSHO_REPORT_QUESTIONS", "parked").trim().equalsIgnoreCase("queued");
+        return !Config.get("RESEARCHZOSHO_REPORT_QUESTIONS", "parked").trim().equalsIgnoreCase("queued");
     }
 
     /**
@@ -276,7 +341,7 @@ public final class Frontier {
         return store.locked("frontier", () -> {
             List<Line> dups = duplicates(store);
             if (dups.isEmpty()) return 0;
-            java.util.Map<String, Integer> gone = new java.util.HashMap<>();   // counted: two identical lines are two copies to remove
+            Map<String, Integer> gone = new HashMap<>();   // counted: two identical lines are two copies to remove
             for (Line d : dups) gone.merge("- " + d.date() + " [" + d.kind() + "] " + d.text(), 1, Integer::sum);
             List<String> out = new ArrayList<>();
             int removed = 0;
@@ -306,6 +371,16 @@ public final class Frontier {
      * The language a question is in, or asks for: a "sources written in X" question is that language; otherwise the script
      * it is written in (Japanese, Korean, Chinese, Russian, Greek, Arabic, Hebrew, Thai, Hindi), else English.
      */
+    /**
+     * The same, for a text whose source is known. Han characters alone are written by Japanese and by Chinese, and a Japanese
+     * name or a register line often has no kana: where the text came from then decides (ja.wikipedia.org, a .jp host).
+     */
+    public static String language(String text, String sourceLocators) {
+        String l = language(text);
+        if (!l.equals("chinese") || sourceLocators == null) return l;
+        return sourceLocators.toLowerCase(Locale.ROOT).matches("(?s).*(//ja\\.|\\.jp[/:\\s]|\\.jp$|/ja/).*") ? "japanese" : l;
+    }
+
     public static String language(String text) {
         String t = strip(text);
         Matcher m = NAMED_LANGUAGE.matcher(t);
@@ -338,8 +413,8 @@ public final class Frontier {
     }
 
     /** Groups of open questions that read alike (terms overlap, the origin not counted): each group's head is its first line, in queue order. */
-    public static java.util.Map<String, List<Line>> similar(List<Line> open) {
-        java.util.Map<String, List<Line>> out = new java.util.LinkedHashMap<>();
+    public static Map<String, List<Line>> similar(List<Line> open) {
+        Map<String, List<Line>> out = new LinkedHashMap<>();
         List<Set<String>> terms = new ArrayList<>();
         for (Line l : open) terms.add(terms(bare(l.text())));
         int[] head = new int[open.size()];
@@ -361,10 +436,32 @@ public final class Frontier {
         return true;
     }
 
+    /**
+     * Take open questions off the list, as a fresh read does: a question written from facts that no longer stand is written again by
+     * whatever wrote it, and a question taken off counts as neither asked nor searched. Returns how many were taken off.
+     */
+    public static int remove(LibraryStore store, Set<String> texts) throws IOException {
+        if (texts.isEmpty() || !Files.exists(store.frontierFile())) return 0;
+        int taken = store.locked("frontier", () -> {
+            List<String> out = new ArrayList<>();
+            int n = 0;
+            for (String raw : Files.readAllLines(store.frontierFile(), StandardCharsets.UTF_8)) {
+                Matcher m = LINE.matcher(raw);
+                if (m.matches() && m.group(4) == null && texts.contains(m.group(3))) { n++; continue; }
+                out.add(raw);
+            }
+            Files.write(store.frontierFile(), out, StandardCharsets.UTF_8);
+            return n;
+        });
+        for (String t : texts) forgetWhy(store, t);
+        return taken;
+    }
+
     /** Mark a line explored, in place: {@code ⇒ explored <date> <result>}. */
     public static void markExplored(LibraryStore store, String text, String result) throws IOException {
         if (!Files.exists(store.frontierFile())) return;
         store.locked("frontier", () -> { markExploredLocked(store, text, result); return null; });
+        forgetWhy(store, text);
     }
 
     private static void markExploredLocked(LibraryStore store, String text, String result) throws IOException {

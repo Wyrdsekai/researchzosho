@@ -15,6 +15,20 @@ import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.HashMap;
+import java.util.concurrent.TimeUnit;
+import org.researchzosho.Config;
+import org.researchzosho.librarian.Calibre;
+import org.researchzosho.drive.Declined;
 /**
  * Document → text, for everything the research path and the library shelve: a fetched page, a
  * downloaded paper, a colleague's DOCX, an EPUB edition.
@@ -43,7 +57,12 @@ public final class DocText {
     /** Convert by sniffing the bytes. {@code nameHint} (a URL or filename) only breaks ties. */
     public static Doc convert(byte[] bytes, String nameHint) {
         if (bytes == null || bytes.length == 0) return new Doc("", "", "empty");
-        if (isPdf(bytes)) return pdf(bytes);
+        if (isPdf(bytes)) { Doc d = pdf(bytes); return d.text().strip().length() >= 20 ? d : scannedPdf(bytes, nameHint, d); }
+        if (ImageText.isImage(bytes)) {
+            StringBuilder why = new StringBuilder();
+            String text = ImageText.read(bytes, nameHint, why);
+            return text.isEmpty() ? new Doc("", "", "image: " + why) : new Doc(text, text.startsWith("PHOTO:") ? text.substring(6).strip() : "", "image");
+        }
         if (isSqlite(bytes)) return sqlite(bytes, nameHint);
         if (isZip(bytes)) {
             Doc z = zipDocument(bytes);
@@ -56,6 +75,62 @@ public final class DocText {
             return new Doc(WebFetchTool.readable(s), WebFetchTool.pageTitle(s), "html");
         }
         return new Doc(s, "", "text");
+    }
+
+    static final int SCANNED_PAGES = 30;
+
+    /** A PDF with no text in it is pictures of pages: each page is drawn (poppler's pdftoppm) and read as a picture. */
+    static Doc scannedPdf(byte[] bytes, String nameHint, Doc asItWas) {
+        String pdftotext = pdftotext();
+        if (pdftotext == null) return asItWas;
+        Path tool = Path.of(pdftotext).resolveSibling(pdftotext.endsWith(".exe") ? "pdftoppm.exe" : "pdftoppm");
+        Path dir = null;
+        try {
+            dir = Files.createTempDirectory("researchzosho-scan");
+            Path pdf = dir.resolve("in.pdf");
+            Files.write(pdf, bytes);
+            Process pr = new ProcessBuilder(Files.exists(tool) ? tool.toString() : "pdftoppm", "-r", "170", "-png", "-l", String.valueOf(SCANNED_PAGES), pdf.toString(), dir.resolve("p").toString()).redirectErrorStream(true).start();
+            try (InputStream in = pr.getInputStream()) { in.readAllBytes(); }
+            if (!pr.waitFor(300, TimeUnit.SECONDS)) { pr.destroyForcibly(); return asItWas; }
+            List<Path> pages;
+            try (var ls = Files.list(dir)) { pages = ls.filter(p -> p.getFileName().toString().endsWith(".png")).sorted().toList(); }
+            StringBuilder why = new StringBuilder();
+            String text = readPages(pages, nameHint, why);
+            if (text.isEmpty()) return new Doc("", asItWas.title(), "scanned pdf: " + why);
+            return new Doc(cap(text), asItWas.title().isBlank() ? firstLine(text.replaceFirst("^\\[page 1]\\s*", "")) : asItWas.title(), "scanned pdf");
+        } catch (Exception e) {
+            return asItWas;
+        } finally {
+            if (dir != null) try (var ls = Files.walk(dir)) { ls.sorted(Comparator.reverseOrder()).forEach(p -> { try { Files.delete(p); } catch (Exception ignored) { } }); } catch (Exception ignored) { }
+        }
+    }
+
+    /**
+     * The pages' writing, each under "[page n]"; "" with {@code why} filled in when no page gave any. A page the model declined to read
+     * is said in the text at its place, the library's statement with the model's words, and the pages after it are read. A page the
+     * model gave nothing for ends it: a model that does not read pictures will not read the next page either.
+     */
+    static String readPages(List<Path> pages, String nameHint, StringBuilder why) throws IOException {
+        StringBuilder text = new StringBuilder();
+        int n = 0, read = 0;
+        Declined declined = null;
+        for (Path page : pages) {
+            n++;
+            ImageText.Reading r = ImageText.reading(Files.readAllBytes(page), (nameHint == null ? "" : nameHint + ", ") + "page " + n);
+            if (r.declined() != null) {
+                declined = r.declined();
+                text.append("[page ").append(n).append("]\n(").append(declined.statement("to read the writing on this page")).append(")\n\n");
+                continue;
+            }
+            if (r.text().isEmpty()) { why.append(r.why()); break; }   // the model does not read pictures: the next page will not go better
+            text.append("[page ").append(n).append("]\n").append(r.text()).append("\n\n");
+            read++;
+        }
+        if (read == 0) {
+            if (declined != null) { why.setLength(0); why.append(declined.statement("to read the writing on the pages of this document")); }
+            return "";
+        }
+        return text.toString();
     }
 
     static final byte[] SQLITE_MAGIC = "SQLite format 3\u0000".getBytes(StandardCharsets.US_ASCII);
@@ -74,33 +149,33 @@ public final class DocText {
      * Calibre database recovered eleven titles out of hundreds by reading it as text, 2026-09-17).
      */
     static Doc sqlite(byte[] bytes, String nameHint) {
-        java.nio.file.Path tmp = null;
+        Path tmp = null;
         try {
-            tmp = java.nio.file.Files.createTempFile("researchzosho-", ".db");
-            java.nio.file.Files.write(tmp, bytes);
+            tmp = Files.createTempFile("researchzosho-", ".db");
+            Files.write(tmp, bytes);
             try {
-                java.util.List<org.researchzosho.librarian.Calibre.Book> books = org.researchzosho.librarian.Calibre.fromDatabase(tmp);
-                return new Doc(org.researchzosho.librarian.Calibre.csv(books), "Calibre library (" + books.size() + " books)", "calibre");
+                List<Calibre.Book> books = Calibre.fromDatabase(tmp);
+                return new Doc(Calibre.csv(books), "Calibre library (" + books.size() + " books)", "calibre");
             } catch (Exception notCalibre) {
                 return new Doc(tables(tmp), (nameHint == null || nameHint.isBlank() ? "SQLite database" : nameHint) + " (SQLite)", "sqlite");
             }
         } catch (Exception e) {
             return new Doc("An SQLite database that could not be opened: " + e.getMessage(), "", "sqlite");
         } finally {
-            if (tmp != null) try { java.nio.file.Files.deleteIfExists(tmp); } catch (java.io.IOException ignored) { }
+            if (tmp != null) try { Files.deleteIfExists(tmp); } catch (IOException ignored) { }
         }
     }
 
     /** The tables of a database and how many rows each holds, one per line. */
-    static String tables(java.nio.file.Path db) throws Exception {
+    static String tables(Path db) throws Exception {
         Class.forName("org.sqlite.JDBC");
         StringBuilder sb = new StringBuilder("An SQLite database. Tables and rows:\n");
-        try (java.sql.Connection c = java.sql.DriverManager.getConnection("jdbc:sqlite:file:" + db.toAbsolutePath().toString().replace("\\", "/") + "?immutable=1&mode=ro");
-             java.sql.Statement st = c.createStatement(); java.sql.ResultSet rs = st.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
-            java.util.List<String> names = new java.util.ArrayList<>();
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:file:" + db.toAbsolutePath().toString().replace("\\", "/") + "?immutable=1&mode=ro");
+             Statement st = c.createStatement(); ResultSet rs = st.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")) {
+            List<String> names = new ArrayList<>();
             while (rs.next()) names.add(rs.getString(1));
             for (String n : names) {
-                try (java.sql.Statement s2 = c.createStatement(); java.sql.ResultSet r2 = s2.executeQuery("SELECT count(*) FROM \"" + n.replace("\"", "\"\"") + "\"")) { sb.append("- ").append(n).append(": ").append(r2.next() ? r2.getLong(1) : 0).append(" row(s)\n"); }
+                try (Statement s2 = c.createStatement(); ResultSet r2 = s2.executeQuery("SELECT count(*) FROM \"" + n.replace("\"", "\"\"") + "\"")) { sb.append("- ").append(n).append(": ").append(r2.next() ? r2.getLong(1) : 0).append(" row(s)\n"); }
                 catch (Exception e) { sb.append("- ").append(n).append('\n'); }
             }
         }
@@ -125,12 +200,12 @@ public final class DocText {
     static String pdftotext() {
         if (!"?".equals(pdftotext)) return pdftotext;
         String found = null;
-        if (!"off".equalsIgnoreCase(org.researchzosho.Config.get("RESEARCHZOSHO_PDFTOTEXT", ""))) {
+        if (!"off".equalsIgnoreCase(Config.get("RESEARCHZOSHO_PDFTOTEXT", ""))) {
             String path = System.getenv().getOrDefault("PATH", "");
-            for (String dir : path.split(java.io.File.pathSeparator)) {
+            for (String dir : path.split(File.pathSeparator)) {
                 for (String name : new String[]{"pdftotext", "pdftotext.exe"}) {
-                    java.nio.file.Path c = java.nio.file.Path.of(dir.isBlank() ? "." : dir).resolve(name);
-                    if (java.nio.file.Files.isExecutable(c)) { found = c.toString(); break; }
+                    Path c = Path.of(dir.isBlank() ? "." : dir).resolve(name);
+                    if (Files.isExecutable(c)) { found = c.toString(); break; }
                 }
                 if (found != null) break;
             }
@@ -141,21 +216,21 @@ public final class DocText {
 
     /**
      * A PDF's text: poppler's {@code pdftotext} when the box has it — a two-column audit report PDFBox garbled came out
-     * clean with it, in one line (dolores, 2026-09-11) — else PDFBox, always PDFBox for the title.
+     * clean with it, in one line (measured on a test box, 2026-09-11) — else PDFBox, always PDFBox for the title.
      */
     static Doc pdf(byte[] bytes) {
         String tool = pdftotext();
         if (tool != null) {
-            java.nio.file.Path tmp = null;
+            Path tmp = null;
             try {
-                tmp = java.nio.file.Files.createTempFile("researchzosho-", ".pdf");
-                java.nio.file.Files.write(tmp, bytes);
+                tmp = Files.createTempFile("researchzosho-", ".pdf");
+                Files.write(tmp, bytes);
                 Process pr = new ProcessBuilder(tool, "-enc", "UTF-8", "-q", tmp.toString(), "-").redirectErrorStream(false).start();
                 byte[] out;
-                try (java.io.InputStream in = pr.getInputStream()) { out = in.readNBytes(MAX_TEXT * 3); }
-                boolean done = pr.waitFor(120, java.util.concurrent.TimeUnit.SECONDS);
+                try (InputStream in = pr.getInputStream()) { out = in.readNBytes(MAX_TEXT * 3); }
+                boolean done = pr.waitFor(120, TimeUnit.SECONDS);
                 if (!done) pr.destroyForcibly();
-                String text = new String(out, java.nio.charset.StandardCharsets.UTF_8).replace("\f", "\n\n");
+                String text = new String(out, StandardCharsets.UTF_8).replace("\f", "\n\n");
                 if (done && pr.exitValue() == 0 && text.strip().length() >= 20) {
                     String title = "";
                     try (PDDocument doc = Loader.loadPDF(bytes)) { if (doc.getDocumentInformation() != null && doc.getDocumentInformation().getTitle() != null) title = doc.getDocumentInformation().getTitle(); } catch (Exception ignored) { }
@@ -165,7 +240,7 @@ public final class DocText {
             } catch (Exception ignored) {
                 // fall through to PDFBox
             } finally {
-                if (tmp != null) try { java.nio.file.Files.deleteIfExists(tmp); } catch (Exception ignored) { }
+                if (tmp != null) try { Files.deleteIfExists(tmp); } catch (Exception ignored) { }
             }
         }
         try (PDDocument doc = Loader.loadPDF(bytes)) {
@@ -284,7 +359,7 @@ public final class DocText {
 
         List<String> order = new ArrayList<>();
         if (!opf.isEmpty()) {
-            var hrefById = new java.util.HashMap<String, String>();
+            var hrefById = new HashMap<String, String>();
             Matcher im = Pattern.compile("<item\\b[^>]*>").matcher(opf);
             while (im.find()) {
                 String tag = im.group();
@@ -324,12 +399,7 @@ public final class DocText {
                 .replaceAll(" *\\t *", "\t").replaceAll("\\n{3,}", "\n\n").strip();
     }
 
-    static String unescape(String s) {
-        return s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
-                .replace("&apos;", "'").replace("&#39;", "'").replace("&nbsp;", " ")
-                .replaceAll("&#(\\d+);", "")     // numeric entities: dropped rather than mis-decoded
-                .replace("&amp;", "&");
-    }
+    static String unescape(String s) { return Entities.decode(s); }
 
     static String firstLine(String text) {
         for (String line : text.split("\n")) {

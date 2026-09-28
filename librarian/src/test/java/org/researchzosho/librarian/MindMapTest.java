@@ -5,11 +5,13 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.List;
 class MindMapTest {
 
     private static final ObjectMapper M = new ObjectMapper();
 
-    private static com.fasterxml.jackson.databind.JsonNode json(String s) throws Exception {
+    private static JsonNode json(String s) throws Exception {
         return M.readTree(s);
     }
 
@@ -64,7 +66,7 @@ class MindMapTest {
         // and the body parses into a valid draft investigation end to end
         Investigation inv = new Investigation("I-0001-ja-subtitle-register",
                 "JA subtitle register", Finding.State.draft, "person+model",
-                "2026-09-01T10:00:00Z", java.util.List.of(), java.util.List.of(), body);
+                "2026-09-01T10:00:00Z", List.of(), List.of(), body);
         assertEquals(inv, Investigation.parse(inv.format()));
     }
 

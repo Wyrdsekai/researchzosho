@@ -25,6 +25,15 @@ import java.util.Random;
 import java.util.Set;
 import java.util.regex.Pattern;
 
+import java.time.Duration;
+import java.util.AbstractSet;
+import java.util.Iterator;
+import java.util.TreeSet;
+import java.util.regex.Matcher;
+import org.researchzosho.Config;
+import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.Tool;
+import org.researchzosho.drive.Declined;
 /**
  * Discovery by combination (docs/DESIGN_BRIDGES.md): two areas of the library that no source read together,
  * joined by specific terms both areas' claims share. Swanson's fish oil and Raynaud's, joined through blood
@@ -107,11 +116,11 @@ public final class Bridges {
 
     public record Proposal(String question, Pair pair, Settings settings, String by) { }
 
-    static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_PER_NIGHT", 3);
+    static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_BRIDGES_PER_NIGHT", 3);
     /** A one-word area name must be at least this long to count as naming the area in a source; a chosen value, not a derived one. */
-    static final int NAME_CHARS = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_NAME_CHARS", 10);
+    static final int NAME_CHARS = Config.getInt("RESEARCHZOSHO_BRIDGES_NAME_CHARS", 10);
     /** A plain word must be at least this long to carry a bridge; a chosen value, not a derived one. */
-    static final int WORD_CHARS = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_WORD_CHARS", 5);
+    static final int WORD_CHARS = Config.getInt("RESEARCHZOSHO_BRIDGES_WORD_CHARS", 5);
 
     /** Findings an area needs before it can bridge. */
     static final int MIN_FINDINGS = 2;
@@ -169,9 +178,9 @@ public final class Bridges {
     }
 
     /** Kept as a set view for the callers that test membership: every function word, and stems answer through commonplace(). */
-    static final Set<String> STOP = new java.util.AbstractSet<>() {
+    static final Set<String> STOP = new AbstractSet<>() {
         @Override public boolean contains(Object o) { return o instanceof String && commonplace((String) o); }
-        @Override public java.util.Iterator<String> iterator() { return FUNCTION.iterator(); }
+        @Override public Iterator<String> iterator() { return FUNCTION.iterator(); }
         @Override public int size() { return FUNCTION.size(); }
     };
 
@@ -196,7 +205,7 @@ public final class Bridges {
                 terms.addAll(words(f.title() + " " + f.body()));
                 head.addAll(words(f.title()));   // a claim's title and triple carry its nouns; its body carries the connective tissue
                 if (f.triple() != null) { entities.add(f.triple().subject()); entities.add(f.triple().object()); named.add(f.triple().subject()); terms.addAll(words(f.triple().subject() + " " + f.triple().object())); head.addAll(words(f.triple().subject() + " " + f.triple().object())); }
-                for (Finding.Source src : f.sources()) sources.add(org.researchzosho.tools.Fetch.canonical(src.locator()));
+                for (Finding.Source src : f.sources()) sources.add(Fetch.canonical(src.locator()));
             }
             Vocabulary.Term t = vocab == null ? null : vocab.get(e.getKey());
             out.add(new Area(e.getKey(), label(e.getKey(), vocab), t == null || t.description() == null ? "" : t.description(), e.getValue(), terms, entities, named, sources, head));
@@ -233,7 +242,7 @@ public final class Bridges {
 
     static Set<String> words(String text) {
         Set<String> out = new HashSet<>();
-        java.util.regex.Matcher m = WORD.matcher(text.toLowerCase(Locale.ROOT));
+        Matcher m = WORD.matcher(text.toLowerCase(Locale.ROOT));
         while (m.find()) { String w = m.group(); if (!STOP.contains(w) && !w.matches("\\d+")) out.add(w); }
         return out;
     }
@@ -378,7 +387,7 @@ public final class Bridges {
      * (cosine ≥ FOLD) are walked as one node, so "blood viscosity" and "viscosity of blood" meet even without an alias.
      */
     static final class Walk {
-        static final double FOLD = Double.parseDouble(org.researchzosho.Config.get("RESEARCHZOSHO_BRIDGES_FOLD", "0.92"));
+        static final double FOLD = Double.parseDouble(Config.get("RESEARCHZOSHO_BRIDGES_FOLD", "0.92"));
         static final int MAX_PATHS = 6;
         final Graph g;
         final Map<String, String> fold = new HashMap<>();          // node id → representative id
@@ -476,8 +485,8 @@ public final class Bridges {
     }
 
     /** Middles the model may name for one pair, and pairs of areas one run may take outside the library. */
-    static final int OPEN_MIDDLES = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_OPEN_MIDDLES", 10);
-    static final int OPEN_PAIRS = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_OPEN_PAIRS", 3);
+    static final int OPEN_MIDDLES = Config.getInt("RESEARCHZOSHO_BRIDGES_OPEN_MIDDLES", 10);
+    static final int OPEN_PAIRS = Config.getInt("RESEARCHZOSHO_BRIDGES_OPEN_PAIRS", 3);
 
     /** A few of an area's claim titles: what it has established, without handing the model its vocabulary to copy back. */
     static String titles(Area a) {
@@ -530,7 +539,13 @@ public final class Bridges {
                     + titles(a) + "\nAREA C: " + c.label() + "\nWhat it has established:\n" + titles(c)
                     + (closest.length() == 0 ? "" : "\nWhere the library's own map finds the two closest (a concept of A  ~  a concept of C):\n" + closest)
                     + Fence.close("AREAS"));
-            String reply = drive.classify(messages, 180);
+            String reply;
+            try (var step = Declines.step("name, one per line, the things two areas of a library both depend on: " + a.label() + " and " + c.label())) { reply = drive.prose(messages, 180); }   // the list is the work: a watched seat reads it for a decline
+            catch (Declined d) {
+                // this pair only: said in what was tried, and no middle is made up in its place
+                tried.add(a.label() + " and " + c.label() + " — " + d.statement("to name what the two areas share"));
+                return List.of();
+            }
             if (reply == null) return List.of();
             for (String line : reply.split("\n")) {
                 if (middles.size() >= fromMap.size() + OPEN_MIDDLES) break;
@@ -588,7 +603,7 @@ public final class Bridges {
 
     /** The url in a search result entry, or "". */
     static String urlOf(String entry) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://\\S+").matcher(entry == null ? "" : entry);
+        Matcher m = Pattern.compile("https?://\\S+").matcher(entry == null ? "" : entry);
         return m.find() ? m.group() : "";
     }
 
@@ -692,7 +707,7 @@ public final class Bridges {
     static String backing(Researcher.Tools web, String middle, Area area) {
         try {
             List<String> vocab = areaVocabulary(area);
-            for (org.researchzosho.tools.Tool t : web.web("bridges")) {
+            for (Tool t : web.web("bridges")) {
                 if (!t.name().equals("web_search")) continue;
                 // the middle quoted, the area by its label words unquoted: what a person types. A six-way OR of the area's
                 // vocabulary made the engine return the area's own literature with the middle nowhere in it (2026-09-15).
@@ -757,7 +772,7 @@ public final class Bridges {
     /** One web search for both names; results whose title or snippet carry both count. */
     static int webCoMentions(Area a, Area c, Researcher.Tools web) {
         try {
-            for (org.researchzosho.tools.Tool t : web.web("bridges")) {
+            for (Tool t : web.web("bridges")) {
                 if (!t.name().equals("web_search")) continue;
                 String out = t.execute(M.createObjectNode().put("query", "\"" + a.label() + "\" \"" + c.label() + "\""));
                 int n = 0;
@@ -795,13 +810,17 @@ public final class Bridges {
                     + "Write the question whenever a research run could test it, even when the transfer is a long shot — the person decides what to keep, and a question nobody asked is the point. "
                     + "When the shared term means two different things in the two areas, ask whether the two meanings share anything after all. Write the question only.");
             messages.addObject().put("role", "user").put("content", Fence.open("PAIR") + "\n" + u + Fence.close("PAIR"));
-            String q = drive.classify(messages, 120);
+            String q;
+            try (var step = Declines.step("write one research question that joins two areas of a library: " + p.a().label() + " and " + p.c().label())) { q = drive.prose(messages, 120); }   // the question is the work: a watched seat reads it for a decline
             if (q == null) return fallback;
             q = q.strip().replaceAll("^[\"“]|[\"”]$", "").replaceAll("\\s+", " ");
-            // the model phrases; it does not judge. A refusal, a claim instead of a question, or noise all become the plain
-            // question — the person decides at the inbox. A veto here swallowed every cross-field pair for a day (2026-09-15).
+            // the model phrases; it does not judge. A claim instead of a question, or noise, becomes the plain question — the person
+            // decides at the inbox (a veto here swallowed every cross-field pair for a day, 2026-09-15). A decline is not phrasing: it
+            // is said, and the pair is left (decided 2026-09-23: the model the person chose decides, and the library does not go around it).
             if (q.length() < 20 || q.length() > 400 || !q.contains("?") || q.toUpperCase(Locale.ROOT).startsWith("NONE")) return fallback;
             return q;
+        } catch (Declined d) {
+            throw d.at("to write the research question for " + p.a().label() + " and " + p.c().label());
         } catch (Exception e) { return fallback; }
     }
 
@@ -845,13 +864,20 @@ public final class Bridges {
         r.put("areas", areas(store).size()); r.put("candidates", all.size()); r.put("novel", novel.size()); r.put("settings", s.line()); r.put("dry", dry);
         if (focus != null) r.put("focus", focus);
         List<Frontier.Line> open = Frontier.read(store);
+        ArrayNode declined = r.putArray("declined");
         ArrayNode props = r.putArray("proposals");
         int filed = 0;
         for (Pair p : novel.subList(0, Math.min(TOP, novel.size()))) {
             if (filed >= s.perNight()) break;
             // one proposal per pair, ever: the ledger remembers
             if (proposedBefore(store, p)) continue;
-            String q = question(drive, p);
+            String q;
+            try { q = question(drive, p); }
+            catch (Declined d) {
+                // the model declined this pair's question: said, and no plain question is filed in its place; the other pairs go on
+                declined.addObject().put("a", p.a().slug()).put("c", p.c().slug()).put("statement", d.statement());
+                continue;
+            }
             Proposal prop = new Proposal(q, p, s, by);
             ObjectNode o = props.addObject();
             o.put("a", p.a().slug()); o.put("c", p.c().slug()); o.put("a_label", p.a().label()); o.put("c_label", p.c().label());
@@ -872,7 +898,8 @@ public final class Bridges {
         ArrayNode skipped = r.putArray("not_novel");
         for (Pair p : all) if (p.coMentions() > 0 && skipped.size() < 5) skipped.addObject().put("a", p.a().slug()).put("c", p.c().slug()).put("sources_naming_both", p.coMentions());
         r.put("filed", filed);
-        r.put("summary", (focus == null ? "from the hottest areas" : "from " + focus) + ": " + all.size() + " candidate pair(s), " + novel.size() + " novel, " + (dry ? props.size() + " shown, nothing filed" : filed + " proposal(s) filed as open questions of type bridge") + " (" + s.line() + ")");
+        r.put("summary", (focus == null ? "from the hottest areas" : "from " + focus) + ": " + all.size() + " candidate pair(s), " + novel.size() + " novel, " + (dry ? props.size() + " shown, nothing filed" : filed + " proposal(s) filed as open questions of type bridge")
+                + (declined.isEmpty() ? "" : ", " + declined.size() + " declined by the model (its words are in declined)") + " (" + s.line() + ")");
         store.circulate("bridges", by + " :: " + r.path("summary").asText());
         return r;
     }
@@ -906,7 +933,7 @@ public final class Bridges {
         Set<String> out = new HashSet<>();
         try {
             if (!Files.exists(ledger(store))) return out;
-            Instant since = Instant.now().minus(java.time.Duration.ofDays(TRIED_DAYS));
+            Instant since = Instant.now().minus(Duration.ofDays(TRIED_DAYS));
             for (String line : Files.readAllLines(ledger(store), StandardCharsets.UTF_8)) {
                 if (line.isBlank()) continue;
                 JsonNode j = M.readTree(line);
@@ -1011,7 +1038,7 @@ public final class Bridges {
     }
 
     /** How many of the nearest concept pairs the open mode takes as middles and shows the model. */
-    static final int NEAR_CONCEPTS = org.researchzosho.Config.getInt("RESEARCHZOSHO_BRIDGES_NEAR_CONCEPTS", 3);
+    static final int NEAR_CONCEPTS = Config.getInt("RESEARCHZOSHO_BRIDGES_NEAR_CONCEPTS", 3);
 
     /**
      * The middles the map itself points at: each side of the nearest concept pairs, closest first, without repeats.
@@ -1044,7 +1071,7 @@ public final class Bridges {
         r.put("a", a.slug()); r.put("c", c.slug()); r.put("a_label", a.label()); r.put("c_label", c.label());
         int hops = hops(g, "subject:" + a.slug(), "subject:" + c.slug());
         r.put("hops_on_map", hops); r.put("siblings", facet(a.slug()).equals(facet(c.slug())));
-        Set<String> shared = new java.util.TreeSet<>(); for (String t : a.headTerms()) if (c.headTerms().contains(t) && !a.labelWords().contains(t) && !c.labelWords().contains(t)) shared.add(t);
+        Set<String> shared = new TreeSet<>(); for (String t : a.headTerms()) if (c.headTerms().contains(t) && !a.labelWords().contains(t) && !c.labelWords().contains(t)) shared.add(t);
         ArrayNode st = r.putArray("shared_terms"); shared.forEach(st::add);
         ArrayNode ps = r.putArray("paths"); walk.paths(a, c, 3).forEach(ps::add);
         Set<String> sharedSources = new HashSet<>(a.sources()); sharedSources.retainAll(c.sources());
@@ -1103,6 +1130,11 @@ public final class Bridges {
         if (!done) lines.add(row);
         Files.createDirectories(settingsFile(store).getParent());
         Files.write(settingsFile(store), lines, StandardCharsets.UTF_8);
+    }
+
+    /** The nightly run on the library's judgment seat, watched: a model that declines a pair's question is said, and the pair left. */
+    public static String nightly(LibraryStore store, String driveUrl, String model) throws IOException {
+        return nightly(store, Researcher.watchedJudge(driveUrl, model, Declines.toCrewsLog(store, "bridges")), Researcher.webTools());
     }
 
     /** The nightly step: the hottest areas, each area's own settings for the count, {@code perNight} proposals in all. */

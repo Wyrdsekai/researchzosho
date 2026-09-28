@@ -14,6 +14,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.HashMap;
 /** The library protocol, contract 1.0 — what a patron runtime can rely on. */
 class LibraryProtocolTest {
 
@@ -197,7 +199,7 @@ class LibraryProtocolTest {
         assertEquals(2, list.get("questions").size());
         assertTrue(list.get("questions").get(1).get("kind").asText().contains("did:key:zW"));
         ObjectNode subs = p.subjects(args("{}"));
-        var byId = new java.util.HashMap<String, com.fasterxml.jackson.databind.JsonNode>();
+        var byId = new HashMap<String, JsonNode>();
         for (var s : subs.get("subjects")) byId.put(s.get("id").asText(), s);
         assertEquals("japanese", byId.get("japanese--keigo").get("broader").asText());
         assertEquals("japanese", byId.get("japanese--keigo").get("facet").asText());

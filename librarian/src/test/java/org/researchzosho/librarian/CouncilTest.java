@@ -10,6 +10,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 class CouncilTest {
 
     @TempDir Path tmp;
@@ -98,16 +101,16 @@ class CouncilTest {
         draft("F-0001-a", "Old claim", Finding.State.accepted, null);
         assertEquals(Finding.State.retired, new Council(store).retire("F-0001-a").state());
         assertTrue(Files.exists(store.findingsDir().resolve("F-0001-a.md")));
-        assertThrows(java.io.IOException.class, () -> new Council(store).accept("F-9999-absent"));
+        assertThrows(IOException.class, () -> new Council(store).accept("F-9999-absent"));
     }
 
     @Test
     void mcpOnAMachineWithNoLibraryMakesOne() throws Exception {
         String realHome = System.getProperty("user.home");
-        java.io.InputStream realIn = System.in;
+        InputStream realIn = System.in;
         try {
             System.setProperty("user.home", tmp.toString());
-            System.setIn(new java.io.ByteArrayInputStream(new byte[0]));   // the client closes at once: the server ends on EOF
+            System.setIn(new ByteArrayInputStream(new byte[0]));   // the client closes at once: the server ends on EOF
             assertFalse(Files.isDirectory(tmp.resolve("researchzosho-library")));
             assertEquals(0, LibrarianCli.run(new String[]{"librarian", "mcp"}, "http://none", "m"));
             assertTrue(Files.isDirectory(tmp.resolve("researchzosho-library").resolve("catalog")), "made on the way in");

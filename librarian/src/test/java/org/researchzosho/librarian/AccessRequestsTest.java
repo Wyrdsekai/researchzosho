@@ -13,6 +13,8 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.nio.file.Files;
 /** A stranger asks in, the owner answers, the requester collects the token once with the claim secret. */
 class AccessRequestsTest {
 
@@ -23,7 +25,7 @@ class AccessRequestsTest {
         LibraryStore store = new LibraryStore(tmp); store.init();
         Patrons.setDefault(store, Patrons.Level.deny);   // a closed library: asking still works
         var p = new LibraryProtocol(store);
-        ObjectNode r = p.requestAccess((ObjectNode) M.readTree("{\"did\":\"did:key:zStranger\",\"name\":\"Cousin Ana\",\"note\":\"the Nakamura branch in Osaka\"}"));
+        ObjectNode r = p.requestAccess((ObjectNode) M.readTree("{\"did\":\"did:key:zStranger\",\"name\":\"Cousin Ana\",\"note\":\"the Morita branch in Osaka\"}"));
         String id = r.get("request_id").asText(), claim = r.get("claim").asText();
         assertEquals("pending", r.get("state").asText());
         assertFalse(claim.isBlank(), "the claim secret is given once");
@@ -47,7 +49,7 @@ class AccessRequestsTest {
         ObjectNode second = p.access((ObjectNode) M.readTree("{\"request_id\":\"" + id + "\",\"claim\":\"" + claim + "\"}"));
         assertEquals("claimed", second.get("state").asText(), "the second look says it was already collected"); assertFalse(second.has("token"), second.toString());
         // and the request file holds no token any more
-        assertFalse(java.nio.file.Files.readString(AccessRequests.file(store)).contains(token), "the token is burned from the record after the claim");
+        assertFalse(Files.readString(AccessRequests.file(store)).contains(token), "the token is burned from the record after the claim");
         // a listed reader cannot ask again
         assertEquals("invalid_args", assertThrows(ProtocolError.class, () -> p.requestAccess((ObjectNode) M.readTree("{\"did\":\"did:key:zStranger\"}"))).code);
     }
@@ -94,7 +96,7 @@ class AccessRequestsTest {
     void theLimitsHold(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         for (int i = 0; i < AccessRequests.MAX_PENDING; i++) AccessRequests.request(store, "did:key:z" + i, "", "");
-        assertThrows(java.io.IOException.class, () -> AccessRequests.request(store, "did:key:zMore", "", ""), "the fifty-first waits");
-        assertThrows(java.io.IOException.class, () -> AccessRequests.request(store, "person", "", ""), "the keeper does not ask");
+        assertThrows(IOException.class, () -> AccessRequests.request(store, "did:key:zMore", "", ""), "the fifty-first waits");
+        assertThrows(IOException.class, () -> AccessRequests.request(store, "person", "", ""), "the keeper does not ask");
     }
 }

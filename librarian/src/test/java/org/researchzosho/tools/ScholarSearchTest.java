@@ -1,11 +1,20 @@
 package org.researchzosho.tools;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.researchzosho.librarian.LibrarianCli;
+import org.researchzosho.librarian.LibraryStore;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 /** Crossref and OpenAlex answers become rows with a DOI URL, a venue/year/author line, and merge one row per work. */
 class ScholarSearchTest {
 
@@ -65,5 +74,64 @@ class ScholarSearchTest {
     void brokenAnswersAreEmpty() {
         assertTrue(ScholarSearch.parseCrossref("<html>").isEmpty());
         assertTrue(ScholarSearch.parseOpenAlex("{}").isEmpty());
+    }
+
+    @Test
+    void neitherSourceAnsweringIsNotASearchThatFoundNothing() throws Exception {
+        var args = new ObjectMapper().createObjectNode().put("query", "Endo Genzaburo silk");
+        try {
+            ScholarSearch.reader = url -> { throw new IllegalStateException("connection refused"); };
+            String down = new ScholarSearchTool().execute(args);
+            assertTrue(down.startsWith("ERROR: neither Crossref nor OpenAlex answered"), down);
+            ScholarSearch.reader = url -> url.contains("crossref") ? "{\"message\":{\"items\":[]}}" : "{\"results\":[]}";
+            String empty = new ScholarSearchTool().execute(args);
+            assertTrue(empty.startsWith("no works found for: Endo Genzaburo silk (Crossref and OpenAlex both answered with nothing)"), empty);
+            ScholarSearch.reader = url -> { if (url.contains("crossref")) throw new IllegalStateException("timeout"); return "{\"results\":[]}"; };
+            assertTrue(new ScholarSearchTool().execute(args).contains("the other did not answer"));
+        } finally { ScholarSearch.reader = null; }
+    }
+
+    @Test
+    void theCommandAndTheToolNameTheOneSourceThatAnsweredWhenTheOtherDidNot(@TempDir Path home) throws Exception {
+        new LibraryStore(home.resolve("researchzosho-library")).init();
+        String real = System.getProperty("user.home");
+        PrintStream out = System.out;
+        ByteArrayOutputStream said = new ByteArrayOutputStream();
+        System.setProperty("user.home", home.toString());   // the command opens ~/researchzosho-library
+        System.setOut(new PrintStream(said, true, StandardCharsets.UTF_8));
+        int rc;
+        String tool;
+        try {
+            ScholarSearch.reader = url -> { if (url.contains("crossref")) throw new IllegalStateException("timeout"); return OPENALEX; };
+            rc = LibrarianCli.run(new String[]{"researchzosho", "search", "papers", "mmr", "retraction"}, "http://127.0.0.1:1", "m");
+            tool = new ScholarSearchTool().execute(new ObjectMapper().createObjectNode().put("query", "mmr retraction"));
+        } finally { ScholarSearch.reader = null; System.setOut(out); System.setProperty("user.home", real); }
+        String o = said.toString(StandardCharsets.UTF_8);
+        assertEquals(0, rc);
+        assertFalse(o.contains("Crossref and OpenAlex"), "nothing says both answered: " + o);
+        assertTrue(o.startsWith("The search took ") && o.contains("Only OpenAlex answered; Crossref did not, so the list may be short.") && o.contains("(scholarly literature: OpenAlex)"), o);
+        assertTrue(tool.contains("(scholarly literature: OpenAlex)") && !tool.contains("Crossref and OpenAlex"), tool);
+    }
+
+    @Test
+    void theCommandTellsAPersonWhenNeitherSourceAnsweredAndFails(@TempDir Path home) throws Exception {
+        new LibraryStore(home.resolve("researchzosho-library")).init();
+        String real = System.getProperty("user.home");
+        PrintStream out = System.out, err = System.err;
+        ByteArrayOutputStream said = new ByteArrayOutputStream(), errors = new ByteArrayOutputStream();
+        System.setProperty("user.home", home.toString());   // the command opens ~/researchzosho-library
+        System.setOut(new PrintStream(said, true, StandardCharsets.UTF_8)); System.setErr(new PrintStream(errors, true, StandardCharsets.UTF_8));
+        int down, empty;
+        try {
+            ScholarSearch.reader = url -> { throw new IllegalStateException("connection refused"); };
+            down = LibrarianCli.run(new String[]{"researchzosho", "search", "papers", "Endo", "Genzaburo", "silk"}, "http://127.0.0.1:1", "m");
+            ScholarSearch.reader = url -> url.contains("crossref") ? "{\"message\":{\"items\":[]}}" : "{\"results\":[]}";
+            empty = LibrarianCli.run(new String[]{"researchzosho", "search", "papers", "Endo", "Genzaburo", "silk"}, "http://127.0.0.1:1", "m");
+        } finally { ScholarSearch.reader = null; System.setOut(out); System.setErr(err); System.setProperty("user.home", real); }
+        String e = errors.toString(StandardCharsets.UTF_8), o = said.toString(StandardCharsets.UTF_8);
+        assertEquals(1, down, "a search that could not run fails");
+        assertTrue(e.contains("Neither Crossref nor OpenAlex answered, so nothing was searched.") && !e.contains("ERROR") && !e.contains("web_search"), e);
+        assertEquals(0, empty, "a search that found nothing did run");
+        assertTrue(o.contains("No papers or books were found for \"Endo Genzaburo silk\"."), o);
     }
 }

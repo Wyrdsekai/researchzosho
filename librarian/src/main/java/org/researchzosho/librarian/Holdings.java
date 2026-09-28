@@ -10,6 +10,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import java.nio.charset.StandardCharsets;
 /**
  * What the person's own lists hold: a Calibre library, an inventory, a reading list — every list shelved
  * through {@code items}. An exact lookup by the words of a title and an author, cheap enough to ask for
@@ -53,7 +54,7 @@ public final class Holdings {
                 Cached c = CACHE.get(p);
                 if (c == null || c.modified() != modified) {
                     String text;
-                    try { text = Files.readString(p, java.nio.charset.StandardCharsets.UTF_8); } catch (IOException e) { continue; }
+                    try { text = Files.readString(p, StandardCharsets.UTF_8); } catch (IOException e) { continue; }
                     String title = text.startsWith("# ") ? text.substring(2, Math.max(2, text.indexOf('\n') < 0 ? text.length() : text.indexOf('\n'))).strip() : p.getFileName().toString();
                     c = new Cached(modified, title, Items.parse(text, null, Integer.MAX_VALUE));
                     CACHE.put(p, c);
@@ -91,6 +92,13 @@ public final class Holdings {
         List<Match> out = new ArrayList<>(inName);
         for (Match m : inLine) { if (out.size() >= max) break; out.add(m); }
         return out.size() > max ? out.subList(0, max) : out;
+    }
+
+    /** Every entry of every shelved list, as a match. */
+    public static List<Match> all(LibraryStore store) throws IOException {
+        List<Match> out = new ArrayList<>();
+        for (Map.Entry<Path, Cached> e : lists(store)) for (Items.Item it : e.getValue().items()) out.add(new Match(it.name(), it.note(), e.getValue().title(), "lists/" + e.getKey().getFileName()));
+        return out;
     }
 
     /** How many entries the shelved lists hold in all; 0 when the shelves cannot be read. */

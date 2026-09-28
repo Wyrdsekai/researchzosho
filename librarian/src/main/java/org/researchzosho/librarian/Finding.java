@@ -4,10 +4,13 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.text.Normalizer;
+import java.util.regex.Pattern;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import java.util.Locale;
 /**
  * One claim, one file — the library's atomic unit.
  *
@@ -79,6 +82,23 @@ public record Finding(
      * 2026-09-05): two findings with the SAME subject and predicate and a DIFFERENT object are a
      * contradiction candidate by arithmetic — nominated before any model reads them.
      */
+    /**
+     * A title that can be read alone. Titles are what a list shows: the inbox, a search of the shelves, what a later research run
+     * sees of an earlier one. "Absence of authored works" says nothing of whom, and a run about one person took it for a claim about
+     * another. When the claim has a subject and the title carries no word of its name, the subject goes in front.
+     */
+    public static String titled(String title, Triple triple) {
+        if (triple == null || title == null || title.isBlank()) return title;
+        String subject = triple.subject().replaceAll("\\s*[(（][^)）]*[)）]\\s*", " ").strip();
+        if (subject.isEmpty()) return title;
+        String t = fold(title);
+        if (t.replace(" ", "").contains(fold(subject).replace(" ", ""))) return title;
+        for (String w : fold(subject).split("[^\\p{L}\\p{N}]+")) if (w.length() >= 3 && Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(w) + "(?![\\p{L}\\p{N}])").matcher(t).find()) return title;
+        return triple.subject().strip() + ": " + title;
+    }
+
+    private static String fold(String s) { return Normalizer.normalize(s, Normalizer.Form.NFKD).replaceAll("\\p{M}+", "").toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip(); }
+
     public record Triple(String subject, String predicate, String object) {
         String toLine() { return subject + " | " + predicate + " | " + object; }
         static Triple fromLine(String line) {
@@ -88,7 +108,7 @@ public record Finding(
         }
         /** Lowercased, whitespace-collapsed, trailing punctuation dropped — the entity-resolution floor. */
         public static String canon(String s) {
-            return s == null ? "" : s.strip().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ").replaceAll("[.。、,;:!?]+$", "");
+            return s == null ? "" : s.strip().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").replaceAll("[.。、,;:!?]+$", "");
         }
         public boolean sameKey(Triple o) { return o != null && canon(subject).equals(canon(o.subject)) && canon(predicate).equals(canon(o.predicate)); }
         public boolean clashes(Triple o) { return sameKey(o) && !canon(object).equals(canon(o.object)); }
@@ -248,6 +268,37 @@ public record Finding(
     /** True when the entry's approval no longer covers its content — review needed again. */
     public boolean reviewStale() {
         return review != null && !review.contentHash().equals(contentHash());
+    }
+
+    /** Who set a claim aside, disputed or retired it: the person, or the library by itself. */
+    public enum SetAside { person, library }
+
+    /**
+     * Who set this claim aside; null when it is not disputed or retired. The PERSON: a dispute or a retirement they made (the dispute and
+     * retire commands, the Inbox and Decisions pages, a program acting for them, all signed {@code person}), or a state line they changed
+     * by hand, which leaves no note. The LIBRARY: the review marking both sides of a contradiction, the inventory finding that a source does
+     * not say the claim, the retraction check finding that a paper it cites was retracted, and any other dispute or retirement a note signs
+     * with a name other than the person's.
+     * The notes keep every act in order. A dispute or retirement by the person holds whatever the library noted after it; a claim the
+     * person accepted and the library disputed after that is the library's dispute.
+     */
+    public SetAside setAsideBy() {
+        if (state != State.disputed && state != State.retired) return null;
+        if (review != null && "person".equals(review.reviewer()) && (review.decision().equals("disputed") || review.decision().equals("retired"))) return SetAside.person;
+        int person = -1, library = -1;
+        for (int i = 0; i < notes.size(); i++) {
+            Note n = notes.get(i);
+            boolean decision = n.kind().equals("accepted") || n.kind().equals("disputed") || n.kind().equals("retired");
+            if ("person".equals(n.by())) { if (decision) person = i; }
+            else if (n.kind().equals("disputed") || n.kind().equals("retired") || n.kind().equals("inventory")) library = i;
+        }
+        if (person >= 0 && !notes.get(person).kind().equals("accepted")) return SetAside.person;
+        return library > person ? SetAside.library : SetAside.person;
+    }
+
+    /** Whether a note is the review's mark on one side of a contradiction: "contradicts F-…" on the new claim, "contradicted by F-…" on the other. */
+    public static boolean contradiction(Note n) {
+        return n.kind().equals("disputed") && !"person".equals(n.by()) && (n.text().startsWith("contradicts ") || n.text().startsWith("contradicted by "));
     }
 
     /** The hash formula BEFORE 2026-09-02 (subjects were inside it). A recorded review carrying

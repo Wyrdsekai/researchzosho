@@ -1,0 +1,21 @@
+# Danish, Norwegian, Swedish and Icelandic names in Latin letters.
+#
+# The Nordic languages write letters English has not: å, æ and ø (Danish, Norwegian), å, ä and ö (Swedish), þ and ð (Icelandic). Records
+# write å as aa (the Danish and Norwegian way before the 1940s: Kierkegaard, Aase) or as a, æ and ä as ae or a, ø and ö as oe or o, þ as th
+# and ð as d (Guðrún, Gudrun). Swedish ä and ö are Danish æ and ø, so they are one here too. These rules say how the letters are written,
+# not which name is which: Hansen and Hanson, Larsen and Larsson stay two names.
+language: nordic
+name: Danish, Norwegian, Swedish and Icelandic
+marks: å æ ø ä ö þ ð
+joins: ' ’
+
+# comparison: every way of writing å, æ, ä is a; every way of writing ø, ö is o; þ is th and ð is d
+fold th: þ
+fold d: ð
+fold a: å, æ, ä, aa, ae
+fold o: ø, ö, oe
+
+# searches: a name in the old double letters, without the marks, and in the Swedish letters
+style double: å=aa æ=ae ø=oe ä=ae ö=oe þ=th ð=d
+style plain: å=a æ=ae ø=o ä=a ö=o þ=th ð=d
+style swedish: æ=ä ø=ö þ=th ð=d

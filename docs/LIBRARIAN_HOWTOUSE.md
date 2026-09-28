@@ -181,8 +181,31 @@ researchzosho update auto on    # the service updates itself after each housekee
 ```
 
 The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. An update never touches
-the library or the settings. On Windows, stop the service first (`researchzosho service uninstall`),
-run `researchzosho update now`, then `researchzosho service install`.
+the library or the settings. On Windows the new version goes in place when `update now` has ended,
+and a service that was running starts again on it. Open a new terminal and run
+`researchzosho --version` to see it. What the update did is written to
+`~/.researchzosho/logs/update.log`.
+
+One update runs at a time. An update that starts while another is running, from this program or
+another one, changes nothing and says so. On Windows that holds until the new version is in place.
+
+#### For a program that keeps ResearchZosho up to date
+
+CodeZaiku, Wyrdsekai and any other program that updates ResearchZosho ask its own updater. They
+never download it or replace its files themselves:
+
+```
+researchzosho update --json        # installed, running, latest, newer, mode, root, canUpdate, updating
+researchzosho update now --json    # result, code, from, to, finishesAfterExit, note
+```
+
+`update now` ends with 0 when it updated or the install was already current, 75 when another update
+is running (ask again later), 3 when this install cannot update itself (a run from the source tree),
+and 1 when it failed. With `--json` it prints one JSON document, and the progress goes to the error
+stream. `installed` is the version whose files are in place, and `running` the one answering, which
+differ until a program started before the update is started again. Only ResearchZosho's own service
+updates it without being asked, and only with `RESEARCHZOSHO_UPDATE=auto`. While the service
+restarts after an update, calls to it fail for a few seconds: try them again.
 
 ## 3. The basic loop
 
@@ -216,14 +239,34 @@ researchzosho research ask "…" --quick          # a short run: front of the li
 researchzosho research ask "…" --shelves        # read only your own documents
 researchzosho research ask "…" --max-turns 200  # limit the run to 200 model steps
 researchzosho research ask "…" --max-minutes 120
+researchzosho research ask "…" --genealogy      # research it in genealogy mode: records, your family tree, your relatives
 ```
 
 From Claude Code or a program, the same thing is `library_research`. From the web pages, use the
 Research page.
 
+**Genealogy mode is used only when you ask for it.** A question such as "who were my great-grandfather's
+parents" looks like family history. The library then says so once, in the place where you asked:
+
+- In a terminal, it asks: `This looks like family history. Genealogy mode searches record collections
+  (registers, newspapers, censuses), builds your family tree and uses what the library already knows
+  about your relatives. Use genealogy mode for this question? (y/N)`. Type `y` or `yes` for genealogy
+  mode. Enter, or anything else, sends the question as ordinary research.
+- In a script or a pipe, nothing is asked and nothing waits. The question goes as ordinary research, and
+  the command prints the command that asks for genealogy mode, ready to paste.
+- On the Research page, the box "Family history (genealogy mode)" is unticked. The page says beside it when
+  a question looks like family history. Sent as it is, the question is ordinary research.
+- A program that uses `library_research` gets `suggestion` in the result, and asks for genealogy mode with
+  `field: "genealogy"`.
+
+The same question is told once. `--field <name>` asks for any field by its name.
+
 The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, queued and running
 ones first. `researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is
-waiting for, and where its write-up went.
+waiting for, and where its write-up went. A run that has shown no progress for a quarter of an hour
+(`RESEARCHZOSHO_STALL_MINUTES`) is marked "no progress since" with the time, and the service writes
+where each of the run's threads waits into its log, once, so that whoever looks into it sees what the
+run waits for.
 
 ### Sharpening a question first
 
@@ -294,6 +337,252 @@ researchzosho research ask "Recommend books like the ones in ~/Calibre Library t
 A Calibre library or its `metadata.db` becomes a list, and the run can look up what you own. Any
 other document is added to the library. This happens only for the library owner's questions.
 
+### When the model declines
+
+ResearchZosho does not decide what you may research. The model you chose does. When that model
+declines to do something, the library says so plainly and does not try to get around it: it does not
+ask again in other words, and it does not hand the work to another model.
+
+How the library knows:
+
+- A hosted model's server can mark a reply as filtered or as a refusal. Azure OpenAI can stop the
+  request itself with its content filter, an HTTP 400 answer with the code `content_filter`. Amazon
+  Bedrock can stop a reply with its content filter or with a guardrail on your account. The library
+  reads each of these as the model declining.
+- A local model sends no mark. It declines in its own words. The library then asks the same model
+  one yes-or-no question about the reply:
+
+  ```
+  Is this reply the model declining to do the task it was given?
+  ```
+
+  With the question, the model reads a few words that say what the step was, such as "list the
+  checkable factual claims in a text" or "research this sub-question: …", and never the text the step
+  worked on. A reply that says a record could not be found, a page could not be reached, or the
+  sources cannot tell, is the work done, not a decline.
+
+Which replies the library asks about:
+
+- Words where the step needed a tool call. These are always asked about.
+- Replies that sound like a decline: an apology or an inability, such as "sorry", "cannot",
+  "unable", "won't", "decline", "refuse", "申し訳", "できません", "désolé" or "ne peux pas". Only
+  such replies are asked about, among: the chat's own answer, a reader's closing summary, a section
+  of the write-up, a reply without the data the step asked for, a prose answer that is itself the
+  work, the writing read from a picture, an article about a subject, and the genealogy steps. To add
+  words, set `RESEARCHZOSHO_DECLINE_WORDS` to them, separated by commas. The words only decide that
+  the question is asked. The answer decides whether the reply was a decline.
+- Never asked about: the write-up's closing caveats (what stayed uncertain), a section or a summary
+  that cites a source or is longer than 800 characters, and a reader's closing summary after the
+  reader noted facts.
+
+How sure the answer must be:
+
+- Where a decline would end a research run or throw away work already done (the plan, a reader's
+  sub-question, the write-up), only the typed answer counts: the model's own probability of "yes",
+  read from its token probabilities under a grammar that allows only yes or no, must be at least 0.8.
+  llama.cpp gives these probabilities.
+- Everywhere else, a typed "yes" with a probability of at least 0.65 counts. Where the typed answer
+  cannot be read (Amazon Bedrock, or a server that ignores the grammar), the model is asked for one
+  word, and a plain "yes" counts.
+- Anything less is not a decline, and the step goes on. The library writes the reply down, as
+  `decline_unsure`, in the run's trace (`catalog/traces/<run>.jsonl`), on the chat turn's line in
+  `catalog/chat-turns.jsonl`, and in `catalog/crews.log` for the nightly explorer, the bridges,
+  sharpening, explanations, surveys, perspectives and the claims of an absorbed text. The review of a
+  new report, the reading of a picture, the articles and the genealogy steps do not write it down.
+
+What happens then:
+
+- A reader whose sub-question the model declined stops, and what it noted is not used. The other
+  readers go on. That sub-question is not sent round again. The critic's gap is dropped when it has
+  mostly the same words as a declined sub-question, or when the model's typed answer to "Does this
+  new question ask for the same thing as this declined question?" is a sure yes.
+- When the model declines to plan the research, to write the report, or every sub-question, the run
+  ends as declined. Nothing is filed, and the question is not put back on the open questions to be
+  run again. The run's result says, for example:
+
+  ```
+  The model this library uses (qwen3.8-27b) declined to research this question. ResearchZosho did not try to get around it. What the model said: "…"
+  ```
+
+- When it declines only some parts, the report is written from the rest and has a section
+  **Declined**, written by the library: which model declined what, and what it said. When the model
+  declines to check one sentence's citation, the marks the check already placed stay, and that
+  sentence and the ones after it are left unchecked. When the library then does not accept the report
+  (for example, because no source could be read), only the sub-questions the model did not decline go
+  back on the open questions.
+- `researchzosho jobs <J-…>`, the run's page, the chat and `library_job` say it too, with the model
+  that declined each part, and `researchzosho stats` counts the declined runs.
+- In the chat, a turn the model declined shows the same kind of statement, instead of asking the
+  model again. When the model of a tool declines, the other tools the chat asked for in the same turn
+  are not run, and the reply says which. When a tool did its own part and the model declined the rest,
+  the statement is added under the reply.
+- `library_absorb`, `library_meeting` and `library_check` save the text and file its questions
+  before they ask the model for its claims. When the model declines to list the claims, the result
+  says so in `declined` and in its summary, and for an export it says which conversations.
+- A scanned PDF: a page the model declined to read is marked in the saved text with the statement,
+  and the other pages are read.
+- The genealogy commands: a decline for one person is written in the circulation log and said at the
+  end. That person's search is not started, and the others go on.
+- The nightly review of a new report, the articles about subjects, the cataloger and the enrichment
+  write a decline in `catalog/declined.tsv`, with a hash of what was sent. The housekeeping does not
+  send the same thing again until it changes.
+- Sharpening a question, explanations, surveys, perspectives, bridges and the reading of a picture
+  say a decline the same way. None of these treats a decline as an empty answer.
+- The triples, concepts, cataloger, shelf-reading and enrichment crews recognise only a server's own
+  mark. A local model that declines there in its own words is not recognised as declining.
+- Over MCP and HTTP, a step the model declined answers with the error code `declined` (JSON-RPC
+  -32006, HTTP 422) and the statement as its message. Asking again sends the same request to the same
+  model, so a program that calls the library does not retry it.
+
+What to do next is your choice: ask a different question, or choose another model.
+
+### What the library leaves out, and how to let it in
+
+ResearchZosho does not decide what you may research. It leaves out a few kinds of material by
+default, and you can let most of them in for one question.
+
+Left out by default:
+
+- Pornography, and gore: pictures or detailed descriptions of mutilated or dead bodies, shown to
+  shock.
+- Step-by-step instructions for making a weapon or an explosive, making an illegal drug, or running
+  working exploit code against a system. Writing about these subjects is not left out: their
+  history, the law, how an attack worked in general, and how to defend against one.
+
+Always left out, whatever you say: sexual content involving a child, in a page or in a picture.
+Nothing of it is saved. The run's log says only that a page was left out, and where it was.
+
+Everything else is researched as usual. Extremist material, for example, is researched like
+anything else.
+
+How it works:
+
+- Web search asks for moderate safe search where the search engine has the setting (Brave and
+  SearXNG). Wikipedia, Crossref, OpenAlex and the record sources have no such setting. When you let
+  in pornography and gore for a question, that question's run searches with safe search off.
+- A list of pornography, shock and gore sites takes those sites out of the search results before
+  the model sees them, and the library never fetches a page from them. Your own refused sources
+  (`researchzosho sources refuse <site>`) are left out of fetches too, not only of search results.
+- Every page the library fetches is checked before the model reads it or the library saves it. The
+  library asks its own model one short yes-or-no question for each kind of material. The first two
+  read the opening of the page and the passages the reader is shown; the last reads the whole page,
+  in pieces, and stops at the first yes:
+
+  ```
+  Is this page pornography, or gore: pictures or detailed descriptions of mutilated or dead bodies, shown to shock?
+  Does this page give step-by-step instructions for making a weapon or explosive, making an illegal drug, or running working exploit code against a system?
+  Does this page contain sexual content involving a child?
+  ```
+
+  A yes leaves the page out: it is not saved, not shown to the model and not cited. The report has
+  a section **Left out** that lists each such page by its address and the kind of material, and
+  nothing else. A site on the site list is listed with the list it is on, and where that list came
+  from. Where the model's typed answer cannot be read, it is asked for one word. When no
+  model answers the check, the page is left out. When that happens for three pages in a row while
+  the model answers the research itself, the run stops and says why and what to set: the check
+  asks with the same temperature and template settings as the research, so `RESEARCHZOSHO_TEMP=none`
+  (a server that refuses a temperature) or `RESEARCHZOSHO_DRIVE_TEMPLATE_KWARGS` (a model that
+  thinks before it answers) usually mends it. A check asked while you wait, when you add a page or
+  send a question, takes at most thirty seconds.
+- A page, a reading list or bookmarks that you add yourself are your own choice. Only the last
+  question is asked about them, and neither the site list nor your refused sources stop them. When
+  no model answers that question, the page is saved all the same and marked "not checked yet: no
+  model answered". The library asks it at the next housekeeping, or at the next command that has a
+  model, and removes the page if the answer is yes, and tells you: in that command's output, in
+  `researchzosho status` and on the Inbox page. A survey of your own address is checked the same
+  way. A repository the library clones is checked against your refused sources and the site list
+  first.
+
+To let the material in for one question:
+
+- At a terminal, `researchzosho research ask` asks when a question may need it:
+
+  ```
+  This question may need material the library leaves out of research by default: pornography, and gore: pictures or detailed descriptions of mutilated or dead bodies. A yes lets it into this question's research run only; every other run leaves it out as before. Let it in for this question? (y/N)
+  ```
+
+  Only a clear yes lets it in: `y`, `yes`, `はい`, `ja`, `oui`, `sí`, `si`, `sim`, `да`, `是`, `네` or
+  `예`, alone or at the start of the answer ("yes, please"). Enter, `n` or anything else leaves it
+  out. You can also ask for it
+  yourself: `--allow explicit`, `--allow howto`, or `--allow explicit,howto`. In a script nothing is
+  asked, the run leaves the material out, and the command prints the line that lets it in.
+- In the chat, the Librarian asks the same question under its reply. When it also asks about a
+  field's mode, it asks one question, and the next after you answer. The web chat has Yes and No
+  buttons. No answer within ten minutes counts as no.
+- On the Research page, tick the box "Let in what the library leaves out by default, for this
+  question only".
+- A program passes `allow: ["explicit"]`, `["howto"]` or both (see LIBRARY_PROTOCOL.md). When it
+  did not and the question may need it, the result carries `content_suggestion`, which tells the
+  program to ask you and to send `allow` only if you say yes.
+
+A yes counts for that one run. It is never remembered: the same question asked again is asked
+about again. The nightly research never lets anything in. A report whose run let something in says
+so under its question, for example "This run let in pornography, and gore: pictures or detailed
+descriptions of mutilated or dead bodies because you asked for it.", and
+`catalog/run-content.tsv` lists such runs.
+
+### When a question is about harming yourself
+
+When a question reads as you asking about harming yourself, the library first shows where to find
+help, then asks whether to research it:
+
+```
+If you are thinking about harming yourself, you can talk to someone now, in confidence.
+- In the United States and Canada: call or text 988, free, at any hour.
+- Anywhere in the world: findahelpline.com lists free helplines in more than 175 countries.
+- In the United Kingdom and Ireland: call Samaritans on 116 123, free, at any hour.
+- In Japan: よりそいホットライン 0120-279-338, free, at any hour; or いのちの電話 0120-783-556, free, every day from 16:00 to 21:00.
+- In Australia: call Lifeline on 13 11 14, at any hour.
+- In Germany: TelefonSeelsorge, 0800 111 0 111 or 0800 111 0 222, free, day and night.
+If you are in danger right now, call your local emergency number.
+Do you want the library to research this question? (y/N)
+```
+
+The line for your country comes first when your computer's settings name the country, then the
+worldwide directory. No, Enter, or no answer means nothing is researched. A yes starts ordinary
+research. When the model cannot tell whether the question is about harming yourself, the help is
+shown anyway, and the run goes on. A script, a program and the nightly research start nothing for
+such a question: a script gets the help and the line with `--allow self-harm`; a program gets the
+error `confirm` (JSON-RPC -32007, HTTP 422), whose message is the help and a sentence that tells it to show the help to you, ask
+you, and send `allow: ["self-harm"]` only if you say yes. A tool that files several runs at once
+files nothing for such a question and lists it with the help. A short question is asked too.
+
+### Pictures in web pages
+
+Every picture's alt text (the text a page gives for readers who cannot see it) stays in the page's
+text, where the picture stands, and so does a figure's caption. The page's own pictures are listed at
+the end of its text, without the site's logos, icons, tracking pixels, adverts and decorative
+pictures: how large the page draws a picture, its role and a caption decide first, and its name only
+when those leave it open. The list gives each picture's alt text, caption and address, and the
+reading model can have one read by the model that reads pictures, the same way your own pictures are
+read. Before a picture is read, the model is asked only this:
+
+```
+Does this image appear to show a child in a sexual context?
+```
+
+A yes leaves it out. Pictures are never saved to disk; only what the model read from them is kept,
+as text. The picture must be JPEG, PNG, GIF, BMP or TIFF. A WebP picture is recognised, and the
+library says it cannot read it. A picture whose header says it is more than 250 million pixels is not
+opened, and a large one is read at a fraction of its pixels.
+
+### Where the site list comes from
+
+The site list is the OISD nsfw list (https://nsfw.oisd.nl, about 470,000 sites of pornography,
+shock and gore; GPL-3.0). It is somebody else's list, and it is separate from your own refused
+sources. ResearchZosho downloads it at most once a day into its own folder
+(`~/.researchzosho/site-list/`), and every library on the computer uses it. When a download fails,
+the list already on disk goes on being used, and the next try is the next day. Until the first
+download arrives, a smaller list that ships with the program is used: Sinfonietta's pornography
+hosts (MIT) and ShadowWhisperer's Shock list (Unlicense); while nothing has arrived, a failed
+download is tried again after an hour. A site on the OISD list or the Shock list covers its
+subdomains. Sinfonietta's list is a hosts file, which names exact hosts, so each of its entries
+covers that host only: a blog at `someone.blog.fc2.com` is not left out because the list names
+`fc2.com`. A site you trust (`researchzosho sources trust <site>`) is never left out by the site
+list: your own list outranks somebody else's. A download is used only when nearly all of it names
+sites and, when its header says how many entries it has, it has about that many.
+`RESEARCHZOSHO_SITE_LIST=off` stops the download and keeps to the list that ships with the program.
+
 ## 5. Reading the write-up
 
 The write-up appears on the web pages when the run is done, and in the vault if you use one. It
@@ -348,11 +637,35 @@ researchzosho retire <id>
 
 - `accept`: the claim is now part of what the library knows.
 - `dispute`: the claim stays, marked as disputed. The library says so whenever the claim comes up.
+  It also lists the other claims that rest on the same source, and which of them have no other source.
 - `retire`: the claim is removed from answers. The record of it is kept.
 
 A claim does not count as known until you accept it. The library answers from what you have
 accepted. A draft is also accepted on its own when a later run finds the same claim from an
 independent source.
+
+A claim with the same subject, relation and object as one on the shelf is the same claim. The library
+knows this without asking the model. What happens next depends on the claim on the shelf:
+
+- If it is waiting or accepted, the run's source is added to it, also when a disputed copy of the same
+  claim is on the shelf. When you disputed or retired such a copy, a waiting claim that gained the source
+  is not accepted on its own: it waits for you. An accepted one stays accepted.
+- If you disputed or retired it, and no copy of it is waiting or accepted, the run's claim is not filed.
+  Your decision holds against later runs. A note on the old claim says where the claim came back from.
+- If the library disputed it by itself, the run's source is added to it and it stays disputed, so that
+  later sources can settle it. The library disputes a claim by itself when the review finds another claim
+  that says otherwise, when the inventory finds that its source does not say it, or when the retraction
+  check finds that a paper it cites was retracted.
+
+The same rules hold when the claim has no subject, relation and object, or words them differently, and
+the model finds that it is a claim already on the shelf. The review says which of these it did, in what
+`researchzosho review` prints and in `catalog/crews.log`.
+A claim from a family's own account or tree file is never accepted on its own, whatever record backs it.
+
+A claim read from a picture carries a note saying what its words were checked against: the model's
+reading of the picture, or a transcript a person accepted. `researchzosho inbox` marks the first kind,
+and `researchzosho accept` says so when you accept one. `library_inbox` returns the note as
+`checked_against`.
 
 The same decisions, on every surface:
 
@@ -374,6 +687,28 @@ command line:
 The two pages point at each other. A report's group on the Open questions page links to its claims
 in the Inbox. A report's group in the Inbox links to its open questions. Accepting a report's claims
 turns its questions' "what became of it" from "still in the inbox" to "kept".
+
+### What a search did not find
+
+A search that looks for something and does not find it has not shown that it does not exist. It has shown
+where somebody looked, on one day. The library keeps that apart from the claims, as a dated list:
+
+```
+researchzosho looked                         # every line: the date, what was looked for, where
+researchzosho looked "Endo Genzaburo"        # the lines about one subject
+researchzosho looked move F-0994-…           # an older "nothing was found" claim becomes a line here, and the claim is retired
+researchzosho looked add "Endo Genzaburo" --where familysearch --what "Endo Genzaburo 1872"   # a search you made yourself
+```
+
+A line reads like this: `on 2026-09-20 a search found nothing about Endo Genzaburo: No patents by him were
+found. Looked in: patents.example. [I-0011-…]`. The next search about the same subject is shown these lines as
+places somebody has already looked. It is told to look elsewhere first, and to look in the same place again
+when it has something the earlier search did not have: a new collection, another spelling of the name, new
+access. The list grows as searches look again, so you can see over time where people have looked and when.
+
+`looked add <person or subject> --where <site> --what <the words you searched for>` writes down a search
+you made yourself, on a site or in an archive, dated today. The next search about that subject is shown
+it like any other line.
 
 ## 7. Asking what the library already has
 
@@ -550,6 +885,23 @@ researchzosho survey ~/src/tidebook --do "compare its caching with what the pape
 A run takes the model about half an hour. Directions you do not pick stay on the open questions. The
 nightly explorer may take them. `researchzosho repo` is the same command for a repository.
 
+A run about a repository the library cloned under `raw/repos/` reads its code with the `read_code`
+tool: it lists the files of a folder, searches every file for a word or a pattern, and reads a file with
+its line numbers. A run is about the repository when it is the survey's own run, when its collections name
+the repository, or when it is a software question that names it; a question that only uses the name as a
+word, such as "react", is not given the tool. The tool reads that repository's folder only. It does not
+follow a link out of it, and it skips `.git` and build folders. A search stops after 5,000 files, 2,000
+matching lines or 10 seconds, and says where it stopped. A README says what is planned as often as what is built, so the run
+settles what the software does from the code and cites the file and the line, written
+`raw/repos/<repository>/<path>:<line>`. The citation check reads the lines these point to, and so
+does the inventory when it re-reads an accepted claim. Such a citation is not your own document: its
+source tier is `code`. A claim that rests on one file of the repository stays in the inbox until a
+second, independent source backs it, as a claim from any source other than your own documents does.
+Other lines of the same file count as the same source, and so do a copy of the file's text on the web
+and the file's page on GitHub, GitLab or Codeberg. The repository's own page there counts as its README.
+A report marks other lines of a file it already cites as the same file. A repository surveyed from a
+folder of your own is read in place and is not under `raw/repos/`, so its runs do not get the tool.
+
 In the chat, "look at ~/src/tidebook" or "read this paper" with the file returns the summary and the
 directions. "do 1 and 3, and also check X" starts the runs.
 
@@ -677,6 +1029,16 @@ researchzosho research ask "…" --shelves
 With the default setting, `both`, readers use your documents first and the web second. A program can
 also name a collection with the `collections` field of `library_research`.
 
+When a research run in the software field has found projects, the projects can be read in one go:
+
+```
+researchzosho survey --from I-0042              # the repositories the report names, the first five cloned and read
+researchzosho survey --from I-0042 --top 10 --do "how does it read a GEDCOM file, and what does it do with dates it cannot parse?"
+```
+
+Each is cloned into the library and read the same way as one given by hand, in the order the report's
+table puts them, and `--do` files that research question about each one.
+
 ## 9. Languages
 
 A model left alone searches in English. When a question names a place or a culture whose language
@@ -699,7 +1061,10 @@ source itself is reliable. None of them uses a model's opinion.
   is not independent of it. A claim with a single independent source stays a draft until a second
   independent source confirms it, or until you accept it. When a later run finds the same claim from
   an independent source, the existing claim gains that source and is accepted. Every claim shows how
-  many sources it has and how many are independent.
+  many sources it has and how many are independent. The code of a repository the library cloned is
+  not your own document: a claim on one file of it waits for a second source like any other. The
+  same file reached another way, by other lines of it, a copy on the web or its page on GitHub, GitLab
+  or Codeberg, is not a second source.
 - **Retractions.** Every claim that cites a paper by DOI is checked against Retraction Watch,
   through Crossref. The check runs when the claim arrives and every thirty days. A retracted paper
   disputes the claim, with the notice as the reason. An expression of concern is noted on the claim.
@@ -716,8 +1081,9 @@ source itself is reliable. None of them uses a model's opinion.
 - **Dates.** Each source shows the date its page says it was published. A write-up's reference list
   shows the range of dates.
 - **Unknown sites.** When a claim cites a site the library has not cited before, the library runs one
-  search about the site. It adds a note to the claim with what it found. Journals, archives and sites
-  you trust are skipped.
+  search about the site. It adds a note to the claim with what it found. When the search could not be
+  made, the note says so, and never that nothing was found. Journals, archives and sites you trust are
+  skipped.
 
 The library does not decide whether a claim is true. It shows what supports the claim. You decide.
 
@@ -808,6 +1174,13 @@ HTTP, `library_frontier` takes the same names: `report`, `fate`, `who`, `subject
 Before 0.1.2, a report's questions were filed twice, once by the run and once by the review. The page
 says when it finds second copies. `researchzosho questions tidy` deletes them.
 
+`researchzosho questions park <n> --why "<reason>"` parks a question and keeps the reason with it, for
+example "waits on the archive's answer". `questions list --parked` and the Open questions page show the
+reason with the date it was parked. Over MCP or HTTP, `library_frontier` op=park takes `why`, and
+op=list returns it as `parked_why`. The reason goes when the question goes back in the queue, is dropped,
+researched or taken off, or is filed again. Parking a question that is already parked says so, and a
+`--why` given then replaces its reason; over MCP or HTTP the answer carries `already: true`.
+
 ### Setting and unsetting what runs on its own
 
 There are two kinds: a kept search, and an open question. Each can be set or unset four ways.
@@ -856,17 +1229,33 @@ computer. You can change these settings while a run is in progress:
 researchzosho research workers 2              # how many readers work at once (default 3)
 researchzosho research pause                  # hold everything at the next step
 researchzosho research resume
-researchzosho research stop J-0031             # end one run at its next step; a queued one never starts
+researchzosho research stop J-0031             # end one run within seconds; a queued one never starts
 researchzosho research window 22:00-07:00     # only start runs in these hours
 researchzosho research window off
 researchzosho research                        # show the settings and what is running
 ```
 
 The Runs page has the same controls: "Pause the runner" and "Resume", and a "Stop" beside each run
-that is queued or running. A stopped run is recorded as stopped, not failed. If you stop a run after
-its write-up landed, while its claims are being reviewed and catalogued, those steps end at the next
-step. The nightly housekeeping finishes them. Over MCP or HTTP, `library_job` takes `op` stop with
-`job_id`, pause, or resume.
+that is queued or running. A stop ends a run within seconds, whatever it is doing, also when it is
+waiting for the model, a web page or a search: what it waits for is given up and its connection
+closed. The run is recorded as stopped, not failed, and nothing of it is filed, also when the stop
+comes after its research and before its report is filed. If you stop a run once its report is being
+filed, the report stays in the library, and `research stop` says so: the checking of the report's
+claims that comes after the filing ends with the step it is on, and the nightly housekeeping finishes
+it. The nightly tasks end after the task they are on. Over MCP or HTTP, `library_job` takes `op` stop
+with `job_id`, pause, or resume.
+
+A request to the model may take, from the question to the last word of the answer, as long as reading
+its prompt and writing its answer take at the slowest pace the model keeps, and at least five minutes
+(`RESEARCHZOSHO_DRIVE_TIMEOUT`, in seconds, for a slow model). The pace is half the median of the
+model's tokens a second over its last twenty answers, and ten tokens a second until three answers were
+measured. The log gives the limit of each request. A request that takes longer is given up and its
+connection closed, the log says so, and it is not asked again with the same limit; a request that
+never got through is asked once more. A page is read
+for as long as it keeps coming: the fetch gives up when nothing has come for as long as it waits for the
+site to answer (30 seconds for a page a run reads, 60 for one you add), or when the page comes slower
+than 4,096 bytes a second on average (`RESEARCHZOSHO_FETCH_MIN_BYTES_PER_SECOND`), so a large scan from a
+slow archive is read to its end. A search keeps to its limit for the whole answer.
 
 The settings are stored in your config file. A running question follows a changed setting at its next
 step.
@@ -997,6 +1386,14 @@ open them. Things you can say:
 - "what do the shelves hold on X?": the answer, with sources and states.
 - "why?": it takes that as a question about the last answer.
 - "find out how the gears were cut": files a research run. "yes" is enough when it offers one.
+- "find out who my great-grandfather's parents were": the Librarian files the run and asks, under its
+  reply, whether to use genealogy mode for it, ending with `(y/N)`. `y` or `yes` (or はい, ja, oui) says
+  yes. Enter, `n`, or anything else says no, and the run is ordinary research. With no answer within 10
+  minutes, the run starts as ordinary research, and what you type after that is a new message: the
+  Librarian says the run started and answers it. The question is not asked again in the same
+  conversation. The web Chat page shows a Yes and a No button while the question waits. A family word in
+  what you say is asked about only for the run it is about, so a second, unrelated run in the same reply
+  starts at once.
 - "how did that go?": the answer section and the checks from the finished run.
 - "what's waiting?": the inbox. "accept the first" accepts it.
 
@@ -1010,7 +1407,8 @@ Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Co
 `catalog/chat/` and continue where they left off.
 
 The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the
-model takes. The page returns when the reply is ready.
+model takes. The page returns when the reply is ready. Someone who signs in there and may only read has
+conversations of their own, kept apart from yours, and never sees yours.
 
 **Research runs started from the chat.** The chat follows every run it starts. You do not have to ask
 how it is going.
@@ -1182,6 +1580,66 @@ researchzosho survey db:shop --pick 1,2
 It reads the schema, saves one draft claim on what the database records, and lists research questions
 the data could answer. Only the library owner's questions can use a database.
 
+## 12e. Record sources
+
+A web search cannot see inside a newspaper archive or a scanned directory. What a person did in life is
+mostly in places like that. So a research run has one more tool, `record_search`, which searches one
+collection of records at a time.
+
+```
+researchzosho records                                  the sources, and which need a key
+researchzosho records test ndl-fulltext 高峰譲吉          search one now
+researchzosho records key europeana <key>              save a key for a source that needs one
+```
+
+Each hit has a date, a link, and a line that says how to cite the record. The words shown beside a hit
+were read from a scan by a machine, so the run opens the link and reads the record before it notes a fact.
+A search that finds nothing is noted too, with the source and the words searched.
+
+The run lists the sources in the language of your question first. Search a name the way the records
+wrote it: in Japanese for a Japanese source, family name first, and again in the old character forms.
+
+To add a source, for another country say, create `~/.researchzosho/record-sources.json`. It is a list of
+entries like this one:
+
+```json
+[{"id": "my-papers", "name": "My country's newspapers", "holds": "newspaper pages, 1850-1950",
+  "kind": "newspaper", "countries": ["XX"], "languages": ["xx"], "from": 1850, "to": 1950,
+  "url": "https://papers.example/api?q={query}[&from={from}&to={to}]&rows={limit}",
+  "items": "/results",
+  "title": "{/paper}[, page {/page}]", "date": "{/date}", "link": "{/url}", "snippet": "{/text}",
+  "where": "{/paper}[, {/date}][, page {/page}], My country's newspapers"}]
+```
+
+- `url` is the search address. `{query}`, `{limit}`, `{from}`, `{to}` and `{key}` are filled in.
+  `{query:bare}` is the query without its quotes. A part in square brackets is left out when a value
+  inside it is missing.
+- `items` is where the list of hits is in the answer. The other fields are read from each hit:
+  `{/a/b/0}` is a path into a JSON hit. For an XML answer add `"format": "xml"`, give `items` the
+  element name of one hit, and write `{dc:title}` for an element inside it.
+- `where` is how the record is cited.
+- `kind` is `newspaper`, `book`, `archive`, `index` or `catalogue`. A page on an `index` or a
+  `catalogue` source points to a record and is not counted as a primary source.
+- A source that needs a key has `"key": "MY_KEY_NAME"` and uses `{key}` in its `url`.
+- A source that signs in with a key and a secret (OAuth's "client credentials", as the European Patent
+  Office does) has `"key"`, `"secret": "MY_SECRET_NAME"` and `"token_url"`, the address where the two are
+  exchanged for a short-lived token. The search then carries the token. Set both with
+  `researchzosho records key <source> <key> <secret>`.
+- `"accept": "application/json"` asks a source for that format. `"empty_status": 404` is for a source that
+  answers "nothing found" with that status: it is then a search that found nothing, not a failure.
+- An answer made from XML is read as it comes: a list of one may be written as the one thing, a title may
+  come once per language (the English one is taken), and the text of a part sits under `$`.
+- An entry with the id of a built-in source replaces it.
+- A site the library cannot search, because it has no search a program may use, is added as a link:
+  `{"id": "parish", "kind": "link", "name": "The parish registers", "access": "free",
+  "url": "https://parish.example/find?surname={family}[&born={born}]"}`. A run never searches a link.
+  For each person, `genealogy research --list` and `genealogy log` print it with `{name}`, `{given}`,
+  `{family}`, `{born}`, `{died}` and `{place}` filled in from your library. A part in square brackets is
+  left out when a value inside it is missing, and a link whose other slots cannot be filled is not shown.
+  `access` is `free`, `registration` or `subscription`.
+
+The tool joins a run in genealogy mode, or on a software question, with that field's collections. In an entry, `"fields": ["genealogy"]` or `["software"]` says which. `RESEARCHZOSHO_RECORDS=always` gives it to every run, and `off` to none.
+
 ## 13. The map
 
 A claim can say that a person lived in a place, an author wrote a work, or a company holds a
@@ -1203,23 +1661,98 @@ A write-up's claims are added to the map as soon as the write-up arrives.
 Commands for the map:
 
 ```
-researchzosho graph merge "A. Ellis" "Arthur Ellis"   # two names are one person; the housekeeping only proposes this
+researchzosho graph merge "A. Ellis" "Arthur Ellis" --because "<why>"   # two names are one person; the housekeeping only proposes this
+researchzosho graph unmerge "A. Ellis"                # takes that merge back
 researchzosho graph alias <node> <name…>              # other names for someone, in any language
-researchzosho graph kind <node> person --private      # hide a person from everyone but you
+researchzosho graph kind <node> person               # file a node under a kind: person, place, event, work, or any other word
 researchzosho graph link <node> Q123                  # link to a Wikidata entry
 researchzosho graph proposals
 ```
+
+`graph merge` joins the first name into the second and keeps your reason in `catalog/graph/merges.tsv`.
+It lists the claims that are now about the second name. `graph unmerge <a> [<b>] --because "<why>"`
+takes that one merge back: the merge stays in the file, and a line after it takes it back. The name the
+merge gave the other node as another name is removed. Neither command rewrites a claim.
+`catalog/graph/different.tsv` keeps the pairs somebody said are two different people (`genealogy
+different`), and the proposals leave them out.
+
+For places, a proposal needs the place and what it lies in to agree, compared part by part: the parts
+between commas, or for a Japanese address the prefecture, 郡, 市, 区, 町 and 村. Springfield, Illinois,
+USA is proposed as Springfield, Sangamon, Illinois, USA, but not as Springfield, Ohio, USA, and York,
+England is not proposed as New York, England. An address written in old character forms is proposed as
+the same address in new forms.
 
 ## 14. Fields
 
 The core library has no built-in subject knowledge. A field adds some.
 
-- `science` is on by default. It looks up citations from the record, tracks preprint versions, and
+Every field is on. `researchzosho profile disable <name>` turns one off for this library.
+
+- `science` looks up citations from the record, tracks preprint versions, and
   writes BibTeX with `researchzosho bib <id>`.
-- `genealogy`: turn it on with `researchzosho profile enable genealogy`. It adds family relations.
+- `software` is for questions about projects, libraries and tools. When a question names GitHub, open
+  source, a repository or a package index, the research run searches GitHub and the package indexes
+  directly, by best match and by most recent push. It judges a project by its last push, its licence and
+  its own README, not by its stars, and gives the answer as a table.
+- `genealogy` adds family relations, adoption and household heads included. It acts only on the
+  family history you ask for: its own commands and pages, and a research run asked for in genealogy
+  mode (`research ask … --genealogy`, the box on the Research page, `field: "genealogy"`, or a yes to the
+  chat's question). Such a run follows genealogy's rules: it works from records, ties a record to a
+  person by more than a name, notes searches that found nothing, and lists the records only the family
+  can request. Everything else in the library works as if genealogy were off: a question that only
+  looks like family history is told that genealogy mode is there, and runs as ordinary research; the
+  map reads family relations only in the family's own claims and in the claims of genealogy-mode runs;
+  the Family tree, Who is who and Decisions pages are in the menu once the library holds family work.
+  `researchzosho profile runs list` shows which runs were genealogy runs, and `profile runs forget` or
+  `profile runs add` corrects that list.
+  The whole way through, step by step, is in [FAMILY_HISTORY.md](FAMILY_HISTORY.md).
+  Start from what your family already knows. You do not need a family-tree file:
+
+  ```
+  researchzosho genealogy read aunt-notes.docx --by "my great-aunt Hanae"
+  researchzosho genealogy read https://ja.wikipedia.org/wiki/…
+  researchzosho genealogy tell "My grandfather 髙橋正一 was born in 明治41年 in 広島県佐伯郡." --by "Mara"
+  ```
+
+  Each person becomes a node and each relation a draft claim, with the sentence that says it and the
+  account as its source. Nothing is checked yet. A research run then looks for the records. Dates stay
+  as written with the year beside them, 明治41年 (1908). Old and new character forms of a name, 髙橋 and
+  高橋, are the same person. A person counts as possibly living until their dates show they died or place
+  them more than 110 years ago; the research then asks about their work and public life, not their death.
+
+  `researchzosho genealogy read ~/family-sources` reads a whole folder: notes first, then a tree file, lists
+  of links and pictures, the books last and kept to the family's names. Each file is read once.
+
+  `researchzosho genealogy tree "髙橋正一"` draws the family around a person into `family-tree.svg`, which
+  any browser opens. The library's pages draw the same at `/tree`. A grey line is a claim nobody has
+  checked yet, a green one is accepted, a dashed one is an adoption.
+
+  `researchzosho genealogy research` writes a research question for each person in the tree and lists the
+  people, the least known first, each with what is not known yet about them. It asks which to start with:
+  numbers such as `1,3`, `all`, or Enter for nobody; then whether to put the others on the nightly waiting
+  list (Enter is no). Nothing starts or waits by itself, and only the people you pick or put on the list
+  are looked up on the web. `genealogy research "髙橋まり"` researches the
+  people you name and not their relatives, and says for each what happened; `--family --up 6 --down 3`
+  lists their relatives too. `--skip-living` keeps to those who have died, `--list` only shows the
+  questions. Give it again when the reports have landed and the tree has grown.
+
+  `researchzosho genealogy life "髙橋源三郎"` shows a person's life in order of date: every claim about them,
+  with its state and where it is from.
+
+  `researchzosho genealogy check` lists what cannot be true: a child born after a parent died, three
+  birth parents, a person who is their own ancestor. These usually mean two people of one name were
+  taken for one. It also lists names that may be the same person. It changes nothing.
+
+  When two people share a name, move the second one's claims to a name that tells them apart:
+  `researchzosho genealogy split "John Ellis" --as "John Ellis (born 1851)" --claims F-0003,F-0007`.
+
   `genealogy import tree.ged` reads a family-tree file. Each person becomes a node. Each relation
-  becomes a draft claim with the file as its source. Living people are kept private.
-  `genealogy export "Arthur Ellis"` writes a family-tree file out.
+  becomes a draft claim with the file as its source.
+  `genealogy import tree.ged --dry` says what an import would do, and who in the file may already be in
+  your library, and changes nothing. `genealogy export "Arthur Ellis"` writes a family-tree file out.
+
+  `researchzosho genealogy source <file name or address>` lists every fact that rests on one source, and
+  which of them have no other source.
 
 ## 15. Running it as a service
 
@@ -1252,7 +1785,7 @@ Open `http://127.0.0.1:4649/` in a browser. The pages are:
 | Home | A question box, the library's counts, recent changes, open questions, and what is running. |
 | Ask | The same answer as `researchzosho ask`. |
 | Search | Search of the library. |
-| Entry | A claim, write-up, summary or saved document in full, with its sources, notes, review and connections. |
+| Entry | A claim, write-up, summary or saved document in full, with its sources, notes, review and connections. A report's page has "Go deeper": the questions it left open, each sent as an in-depth run with one button, and a box for your own follow-up; the run is given the report first. |
 | Subjects | The subject list. |
 | Inbox | Claims waiting for a decision, grouped by the report they came from and filtered nine ways. Tick any number, then accept, retire, or dispute them with a reason. |
 | Open | The searches kept up to date, and the open questions, grouped by the report that left them and filtered eight ways: tick any number, then send them as runs, reorder, park, or drop them. |
@@ -1260,6 +1793,8 @@ Open `http://127.0.0.1:4649/` in a browser. The pages are:
 | Runs | What the housekeeping will do tonight; research runs, running and finished. "Pause the runner" holds every run at its next turn until "Resume"; "Stop" beside a run ends that one. |
 | Research | Send a question, or sharpen it first. |
 | Map | The map. |
+| Who is who | Family history: for each person in your family, the people the web shows under their name, with links. You tick the one who is your relative, or say none of them is, or leave it for later, and you can write something about the person. One person at a time; leave whenever you like, and the Inbox says how many still wait. At `/who`, for people who may write. |
+| Decisions | Family history: what only the family can settle, in one place. Names that may be one person, then two sources that disagree about one person, then who is who. Each answer says what it will do before you give it. At `/decide`, for people who may write. |
 
 Every entry has "Read it: beginner · familiar · as written" and a Download line.
 
@@ -1282,6 +1817,15 @@ To restrict that, set the default level for callers not on the list:
 
 Then `researchzosho reader allow <did> write <name>` lets a named program through. The list is
 `catalog/patrons.md`. `reader list` shows it.
+
+Someone who may read sees everything in the library, on the pages, in the chat and through a program:
+every claim, report, saved page, question, research run and explanation, the family's own texts, and the
+living in a family as much as anybody else. To keep the library from somebody, do not give them read
+access. What changes the library, such as a decision in the inbox, an answer on the Who is who or
+Decisions page, or a research run, needs write access.
+
+A conversation in the chat belongs to whoever had it. Someone who may only read has conversations of their
+own, which nobody else opens, and never opens yours.
 
 ### Waiting and double sends
 
@@ -1361,7 +1905,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.4.6 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.0 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 
@@ -1400,6 +1944,10 @@ you supplied for a page that could not be read. Each post carries the change, th
 from, and a signature made with a secret the reader was given. If the address does not answer, the
 library tries three times and then writes a line in `catalog/webhooks.log`. The changes feed stays
 the record. A missed post is caught the next time the reader asks for changes.
+
+A webhook is sent changes only while its reader may read the library. When you deny a reader, or
+close the library with `researchzosho reader default deny`, their webhooks are sent nothing more, and
+each change not sent is written in `catalog/webhooks.log`. `reader webhook remove` takes one away.
 
 A program can subscribe itself with `library_subscribe`.
 

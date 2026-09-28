@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.researchzosho.Config;
 /** A report's leftovers are filed once and parked; the list carries the facets a person sorts a long queue by. */
 class FrontierFiltersTest {
 
@@ -46,12 +47,12 @@ class FrontierFiltersTest {
         // a different report may leave the same words: that is its own line
         assertEquals(1, Frontier.fromReport(store, "I-0017-other", List.of("What is the role of the KL term in the loss? [Machine Learning Researcher]")));
         // the switch: RESEARCHZOSHO_REPORT_QUESTIONS=queued puts them straight in the queue
-        org.researchzosho.Config.set("RESEARCHZOSHO_REPORT_QUESTIONS", "queued");
+        Config.set("RESEARCHZOSHO_REPORT_QUESTIONS", "queued");
         try {
             Frontier.fromReport(store, "I-0018-x", List.of("Where were the night scenes shot, beyond Akasaka?"));
             Frontier.Line q = open(store).get(3);
             assertFalse(q.parked()); assertTrue(q.researchable());
-        } finally { org.researchzosho.Config.set("RESEARCHZOSHO_REPORT_QUESTIONS", ""); }
+        } finally { Config.set("RESEARCHZOSHO_REPORT_QUESTIONS", ""); }
     }
 
     @Test

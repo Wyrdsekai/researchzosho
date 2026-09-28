@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
 /** A 2026 arXiv id was dated 2025 in every write-up when the page carried no date (measured 2026-09-12); the id says the month. */
 class ArxivDateTest {
     @Test
@@ -35,7 +36,7 @@ class ArxivDateTest {
         assertEquals("workers, round 1 of up to 2, workers 3/8, turns 41, no turn ceiling", w);
         p.put("turns_ceiling", 200);
         assertTrue(LibrarianCli.progressWords(p).contains("turns 41 of 200"), LibrarianCli.progressWords(p));
-        p.put("deadline_at", java.time.Instant.now().plusSeconds(600).toString());
+        p.put("deadline_at", Instant.now().plusSeconds(600).toString());
         assertTrue(LibrarianCli.progressWords(p).matches(".*, (9|10) min left"), LibrarianCli.progressWords(p));
     }
 }

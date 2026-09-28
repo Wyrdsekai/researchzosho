@@ -8,6 +8,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** The embeddings server through Docker: the image for the card, the command lines, and the states — without docker. */
 class EmbedTest {
     final List<List<String>> ran = new ArrayList<>();
@@ -46,7 +47,7 @@ class EmbedTest {
 
     @Test
     void withoutDockerStartSaysSoAndStateReadsInspect() {
-        Searx.runner = cmd -> { ran.add(cmd); throw new java.io.IOException("docker: not found"); };
+        Searx.runner = cmd -> { ran.add(cmd); throw new IOException("docker: not found"); };
         String r = Embed.start(8215, false);
         assertTrue(r.startsWith("!docker is not on this machine"), r);
         assertEquals("absent", Embed.state());

@@ -168,7 +168,7 @@ class LibrarianChatShapeTest {
 
     @Test
     void thinkingIsNeverTheReplyAndAnEmptyAnswerGetsOneNudge() throws Exception {
-        java.nio.file.Path tmp = java.nio.file.Files.createTempDirectory("rzchat");
+        Path tmp = Files.createTempDirectory("rzchat");
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         List<ArrayNode> seen = new ArrayList<>();
         Researcher.Drive drive = new Researcher.Drive() {
@@ -196,7 +196,7 @@ class LibrarianChatFitTest {
 
     @Test
     void theContextIsFittedToTheWindowByClearingOlderLookUpsFirst() throws Exception {
-        java.nio.file.Path tmp = java.nio.file.Files.createTempDirectory("rzfit");
+        Path tmp = Files.createTempDirectory("rzfit");
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         List<ArrayNode> seen = new ArrayList<>();
         String big = "x ".repeat(6000);   // ~3000 tokens a result on an 8000-token window

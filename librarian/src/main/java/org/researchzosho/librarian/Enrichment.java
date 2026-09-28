@@ -13,6 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.function.BooleanSupplier;
+import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Declined;
 /**
  * GENERATED contextual enrichment — the extracts crew's first job, and the organization survey's
  * other large lever (I-0005, Anthropic's contextual retrieval: a short generated context per chunk
@@ -71,12 +77,12 @@ public final class Enrichment {
     public static Outcome run(LibraryStore store, Contextualizer ctx, int limit) throws IOException { return run(store, ctx, limit, () -> false); }
 
     /** Raw files the nightly crew enriches at most; the rest wait for the next night. It had no cap and held a card for a whole morning (2026-09-13). */
-    public static final int PER_NIGHT = org.researchzosho.Config.getInt("RESEARCHZOSHO_ENRICH_PER_NIGHT", 20);
+    public static final int PER_NIGHT = Config.getInt("RESEARCHZOSHO_ENRICH_PER_NIGHT", 20);
 
     /** As above; {@code stop} is read between chunks, and a true ends the run where it stands (what was written stays). */
-    public static Outcome run(LibraryStore store, Contextualizer ctx, int limit, java.util.function.BooleanSupplier stop) throws IOException {
+    public static Outcome run(LibraryStore store, Contextualizer ctx, int limit, BooleanSupplier stop) throws IOException {
         int files = 0, gen = 0, skipped = 0;
-        List<String> problems = new java.util.ArrayList<>();
+        List<String> problems = new ArrayList<>();
         if (!Files.isDirectory(store.rawDir())) return new Outcome(0, 0, 0, problems);
         List<Path> raws;
         try (var l = Files.list(store.rawDir())) { raws = l.filter(p -> p.toString().endsWith(".md")).sorted().toList(); }
@@ -94,10 +100,15 @@ public final class Enrichment {
             for (String chunk : chunks) {
                 String key = chunkKey(chunk);
                 if (have.containsKey(key)) { skipped++; continue; }
+                if (Declines.declinedBefore(store, "enrichment", name, key)) { skipped++; continue; }   // declined before, and this part has not changed
                 if (stop.getAsBoolean()) { problems.add("stopped in " + name); break; }
                 String c;
                 try {
                     c = ctx.situate(r[1].isEmpty() ? r[0] : r[1], head, chunk);
+                } catch (Declined d) {
+                    problems.add(name + ": " + d.statement("to describe a part of this document"));
+                    Declines.rememberDeclined(store, "enrichment", name, key, d);   // this part is not sent again until it changes
+                    break;
                 } catch (Exception e) {
                     problems.add(name + ": " + e.getMessage());
                     break;
@@ -109,7 +120,7 @@ public final class Enrichment {
                 line.put("key", key);
                 line.put("context", c);
                 Files.writeString(ctxFile(store, name), M.writeValueAsString(line) + "\n", StandardCharsets.UTF_8,
-                        java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
                 have.put(key, c);
                 gen++;
                 touched = true;
@@ -121,7 +132,7 @@ public final class Enrichment {
     }
 
     /** The live seat — Anthropic's prompt shape, positive, short. */
-    public static Contextualizer driveContextualizer(org.researchzosho.drive.DriveClient drive) {
+    public static Contextualizer driveContextualizer(DriveClient drive) {
         return (title, head, chunk) -> {
             var msgs = M.createArrayNode();
             msgs.addObject().put("role", "user").put("content",
@@ -142,7 +153,7 @@ public final class Enrichment {
             if (args[i].startsWith("http")) drive = args[i];
             else if (args[i].matches("\\d+")) limit = Integer.parseInt(args[i]);
         }
-        Outcome o = run(store, driveContextualizer(new org.researchzosho.drive.DriveClient(drive, model)), limit);
+        Outcome o = run(store, driveContextualizer(new DriveClient(drive, model)), limit);
         System.out.println("enriched: " + o.chunksGenerated() + " chunk context(s) generated across " + o.files()
                 + " raw file(s); " + o.chunksSkipped() + " already had one → `researchzosho rebuild` to index them");
         for (String p : o.problems()) System.out.println("  note: " + p);

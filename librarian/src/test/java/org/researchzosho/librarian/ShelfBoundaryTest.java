@@ -17,6 +17,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.researchzosho.mcp.McpServer;
 /**
  * Wyrdsekai's two findings before the first public commit (2026-09-07): an id or uri with a path in it
  * read files outside the shelf; a stdio client could name itself "person" and skip the allow list.
@@ -76,10 +77,10 @@ class ShelfBoundaryTest {
         try {
             new LibraryStore(tmp.resolve("researchzosho-library")).init();
             Patrons.setDefault(LibraryStore.open(), Patrons.Level.deny);
-            JsonNode env = org.researchzosho.mcp.McpServer.envelopeFor(M.readTree(
+            JsonNode env = McpServer.envelopeFor(M.readTree(
                     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"library_status\",\"arguments\":{\"patron\":{\"did\":\"person\"}}}}"));
             assertEquals("forbidden", env.get("error").get("data").get("code").asText(), env.toString());
-            JsonNode anon = org.researchzosho.mcp.McpServer.envelopeFor(M.readTree(
+            JsonNode anon = McpServer.envelopeFor(M.readTree(
                     "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"library_status\",\"arguments\":{}}}"));
             assertEquals("forbidden", anon.get("error").get("data").get("code").asText(), "deny by default means deny: " + anon);
         } finally {

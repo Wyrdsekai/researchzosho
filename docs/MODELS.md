@@ -30,6 +30,14 @@ measured. That is different from not recommended.
 |---|---|---|
 | Qwen3.8-27B at 4-bit | `Qwen3.8-27B-UD-Q4_K_M.gguf` | the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file |
 
+**Linux or Windows, any card with 4 GB free, and 32 GB of RAM**
+
+| model | file | what we saw |
+|---|---|---|
+| Qwen3.6-35B-A3B at 4-bit | `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` | a 35B model that uses about 3B of its weights for each token, so its experts run from RAM and only the rest sits on the card; 22 GB file. On a 16 GB desktop card it read 1,700 tokens a second and wrote 33; with 4 GB of that card, 1,200 and 34; on an 8 GB laptop card in daily use, 700 and 28. A whole research run served from the 16 GB box took 27 minutes. It reads about twice as many sources as the 27B in the same time and cites them more loosely: on the first question both answered, the citation check marked 27% of its cited sentences against the 27B's 11% |
+
+`researchzosho model install` picks it for a Linux or Windows machine that cannot hold the 27B whole and has the RAM. The speeds above are Linux with CUDA. Under Vulkan, which Windows uses, the same model on the same 16 GB card read 540 tokens a second and wrote 25: about half the reading speed. A Mac keeps the rows below: its memory is one pool, so there is no RAM to put experts in. It sets the flags that matter: `--n-cpu-moe` for how many layers stay in RAM, `-b 4096 -ub 4096`, and one thread on each fast core.
+
 **16 GB of VRAM**
 
 | model | file | what we saw |

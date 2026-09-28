@@ -9,6 +9,16 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.HashSet;
+import java.util.Locale;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.researchzosho.Config;
+import org.researchzosho.Stopping;
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.DeclineJudge;
+import org.researchzosho.drive.Declined;
 /**
  * The librarian review pass — the held-out judgment step between DRAFT and canon
  * (the architecture notes, §crews). Runs with NO tools, in a fresh context that never saw the
@@ -51,7 +61,7 @@ public final class LibrarianReview {
     /** Findings one review may extract from a write-up. It was 5, which dropped a section of every six-section write-up
      *  (2026-09-15: the entropy section of a cryptography run never became a claim, and the bridges sensor, which reads
      *  claims, could not see it). */
-    static final int MAX_FINDINGS = org.researchzosho.Config.getInt("RESEARCHZOSHO_REVIEW_FINDINGS", 12);
+    static final int MAX_FINDINGS = Config.getInt("RESEARCHZOSHO_REVIEW_FINDINGS", 12);
 
     /** Where citation records come from; a test injects a canned one. */
     Citations.Source citations = Citations.LIVE;
@@ -61,6 +71,8 @@ public final class LibrarianReview {
     public interface Judge {
         /** Extract 1–5 atomic findings from an investigation. Returns a JSON array (see prompt). */
         String extract(String investigationBody) throws Exception;
+        /** The same for a run of a field: {@code rule} is the field's sentence for the relations its claims use ({@link Profile#extractionRule}), "" for an ordinary run. */
+        default String extract(String investigationBody, String rule) throws Exception { return extract(investigationBody); }
         /** Compare a candidate against BM25-nominated neighbors: duplicate|contradicts|independent. */
         String compare(String candidate, String neighbors) throws Exception;
     }
@@ -105,7 +117,15 @@ public final class LibrarianReview {
                 disputed = new ArrayList<>(), dupes = new ArrayList<>(), problems = new ArrayList<>();
         List<String> invUrls = Acquisitions.urls(inv.body());
 
-        String rawExtraction = judge.extract(inv.body());
+        String rawExtraction;
+        try { rawExtraction = judge.extract(inv.body(), extractionRule(store, Fields.ofRun(store, inv.id()))); }
+        catch (Declined d) {
+            // the model declined to read this report: said as that, never as an unparseable reply, and the report stays a draft
+            problems.add(d.statement("to read the claims out of this report") + " The report stays a draft.");
+            Declines.rememberDeclined(store, "review", inv.id(), Conversations.hash8(inv.body()), d);   // the nightly review does not send it again until it changes
+            logProblems(inv, problems);
+            return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+        }
         JsonNode arr = parseArray(rawExtraction);
         if (arr == null) {
             arr = salvageArray(rawExtraction);   // a reply cut off mid-array (a small drive's long answer) keeps its whole objects
@@ -118,12 +138,23 @@ public final class LibrarianReview {
         }
         if (arr.isEmpty()) problems.add("extraction returned no candidates; the reply began: " + Acquisitions.compress(rawExtraction, 160));
 
+        for (Looked.Entry counted : Looked.fromReport(inv.id(), inv.title(), inv.body(), Looked.today())) Looked.add(store, counted);   // what the library itself counted as searched and empty
+
         List<String> findingIds = new ArrayList<>(inv.findings());
         for (JsonNode c : arr) {
             String title = c.path("title").asText("").strip();
             String claim = c.path("claim").asText("").strip();
             if (title.isEmpty() || claim.isEmpty()) {
                 problems.add("candidate missing title/claim — dropped");
+                continue;
+            }
+            // LOOKED AND NOT FOUND: what one search did not find on one day is not a finding about the world. It goes to the dated
+            // ledger of places somebody has looked, which a later run is shown apart from the claims, and no claim is filed for it.
+            if (c.path("found").isBoolean() && !c.path("found").asBoolean()) {
+                List<String> lookedIn = new ArrayList<>();
+                for (JsonNode u : c.path("sources")) { String match = u.isTextual() ? resolveCited(invUrls, u.asText()) : null; if (match != null && !lookedIn.contains(match)) lookedIn.add(match); }
+                String about = c.path("triple").path("subject").asText("").strip();
+                if (Looked.add(store, new Looked.Entry(Looked.today(), about.isEmpty() ? title : about, claim, Looked.places(lookedIn), inv.id(), inv.title()))) store.circulate("review-looked", title);
                 continue;
             }
             // EVIDENCE GATE (mechanical): every cited source must appear in the investigation.
@@ -175,6 +206,26 @@ public final class LibrarianReview {
                     && !tj.path("object").asText("").isBlank()) {
                 triple = new Finding.Triple(tj.path("subject").asText().strip(), tj.path("predicate").asText().strip(), tj.path("object").asText().strip());
             }
+            title = Finding.titled(title, triple);   // a title is read alone, in a list: it says whom the claim is about
+
+            // THE SAME CLAIM, BY ITS TRIPLE: machine evidence ahead of the model's duplicate call. Who set a copy of it aside decides
+            // (Finding#setAsideBy). A copy that is waiting or accepted is the duplicate weighed below, whatever disputed copy stands beside it.
+            // Without one, a claim the PERSON disputed or retired is not filed again: their decision holds against later runs, and a note on it
+            // says where it came back. A claim the LIBRARY disputed by itself (the review's contradiction pass, the inventory, the retraction
+            // check) gains the source and stays disputed, so later sources can settle it.
+            String sameId = null;
+            Finding personNo = null, libraryNo = null;
+            if (triple != null) {
+                for (Finding other : store.scanFindings().findings()) {
+                    if (!sameTriple(other.triple(), triple)) continue;
+                    Finding.SetAside by = other.setAsideBy();
+                    if (by == Finding.SetAside.person && personNo == null) personNo = other;
+                    else if (by == Finding.SetAside.library && libraryNo == null) libraryNo = other;
+                    else if (sameId == null && (other.state() == Finding.State.draft || other.state() == Finding.State.accepted)) sameId = other.id();
+                }
+            }
+            if (sameId == null && personNo != null) { metAgain(personNo, cited, title, claim, inv, problems); continue; }
+            if (sameId == null && libraryNo != null) { furtherSource(libraryNo, cited, title, claim, inv, findingIds, problems); continue; }
 
             // NEIGHBOR JUDGMENT: the machine nominates, the model only disambiguates among nominees.
             // First by ARITHMETIC — same subject + predicate, different object is a contradiction
@@ -192,7 +243,8 @@ public final class LibrarianReview {
             }
             String verdict = "independent";
             String conflictId = null;
-            if (!clashIds.isEmpty() || !neighbors.isEmpty()) {
+            if (sameId != null) { verdict = "duplicate"; conflictId = sameId; }
+            else if (!clashIds.isEmpty() || !neighbors.isEmpty()) {
                 StringBuilder nb = new StringBuilder();
                 for (String cid : clashIds) {
                     Finding nf = store.finding(cid);
@@ -209,7 +261,15 @@ public final class LibrarianReview {
                           .append(": ").append(Acquisitions.compress(nf.body(), 300)).append('\n');
                     }
                 }
-                JsonNode v = parseObject(judge.compare(title + ": " + claim, nb.toString()));
+                JsonNode v;
+                try { v = parseObject(judge.compare(title + ": " + claim, nb.toString())); }
+                catch (Declined d) {
+                    // declined, not independent: the review stops here, and what it has not decided stays a draft
+                    problems.add(d.statement("to compare a claim of this report with the claims on the shelves") + " The review stopped there; the report stays a draft.");
+                    Declines.rememberDeclined(store, "review", inv.id(), Conversations.hash8(inv.body()), d);
+                    logProblems(inv, problems);
+                    return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+                }
                 if (v != null) {
                     verdict = v.path("verdict").asText("independent");
                     conflictId = v.path("id").asText(null);
@@ -220,6 +280,18 @@ public final class LibrarianReview {
                 // independent source the one-source rule waits for. The existing finding gains the source; a draft that
                 // waited only for that is accepted. The same source again is a plain duplicate.
                 Finding existing = store.finding(conflictId);
+                // the model's duplicate call follows the same rule as the triple: who set the claim aside decides, and a copy of it with
+                // the same triple that the person set aside keeps this one from being accepted on its own
+                Finding.SetAside setAside = existing.setAsideBy();
+                if (setAside == Finding.SetAside.person) { metAgain(existing, cited, title, claim, inv, problems); continue; }
+                if (setAside == Finding.SetAside.library) { furtherSource(existing, cited, title, claim, inv, findingIds, problems); continue; }
+                Finding personCopy = null, libraryCopy = null;
+                if (existing.triple() != null) for (Finding other : store.scanFindings().findings()) {
+                    if (other.id().equals(existing.id()) || !sameTriple(other.triple(), existing.triple())) continue;
+                    Finding.SetAside by = other.setAsideBy();
+                    if (by == Finding.SetAside.person && personCopy == null) personCopy = other;
+                    else if (by == Finding.SetAside.library && libraryCopy == null) libraryCopy = other;
+                }
                 List<String> have = new ArrayList<>(); for (Finding.Source es : existing.sources()) have.add(es.locator());
                 List<String> all = new ArrayList<>(have); for (String u : cited) if (!all.contains(u)) all.add(u);
                 int before = Independence.independent(store, have);
@@ -228,9 +300,13 @@ public final class LibrarianReview {
                     List<Finding.Source> merged = new ArrayList<>(existing.sources());
                     for (String u : cited) if (!have.contains(u)) merged.add(u.startsWith("cite:") ? new Finding.Source(u, u.substring(5), "corroborates, from " + inv.id()) : new Finding.Source(u, "n/a", "corroborates, from " + inv.id()));
                     merged = Citations.enrich(store, merged, citations);
-                    boolean waited = existing.state() == Finding.State.draft && existing.claimType() == Finding.ClaimType.extraction
+                    // a family's own account or tree file waits for the family's word, whatever record backs it; and a claim the person
+                    // disputed or retired once, in another copy, waits for them too, so their decision holds
+                    boolean family = Profiles.ownWriters().values().stream().anyMatch(w -> w.contains(existing.writer()));
+                    boolean waited = !family && existing.state() == Finding.State.draft && existing.claimType() == Finding.ClaimType.extraction
                             && SourceTier.strongest(merged).autoPromotes() && after >= 2
-                            && existing.notes().stream().noneMatch(n -> n.kind().equals("disputed"));
+                            && existing.notes().stream().noneMatch(n -> n.kind().equals("disputed"))
+                            && personCopy == null;
                     Finding.State st = waited ? Finding.State.accepted : existing.state();
                     Finding grown = new Finding(existing.id(), existing.title(), existing.subjects(), st, existing.claimType(), existing.confidence(),
                             existing.writer(), existing.recordedAt(), existing.validAsOf(), existing.volatility(), existing.reviewBy(), merged,
@@ -247,6 +323,12 @@ public final class LibrarianReview {
                     Changes.append(store, "finding", existing.id(), waited ? "state:draft→accepted" : "edited", "corroborated by " + String.join(", ", cited));
                     if (!findingIds.contains(existing.id())) findingIds.add(existing.id());
                     if (waited) accepted.add(existing.id());
+                    // the copy that took the source, beside the ones set aside: said, so the person knows why it is not the set-aside copy that grew
+                    if (personCopy != null) problems.add("'" + Acquisitions.compress(title, 50) + "' is the claim " + existing.id() + ", which gained the source"
+                            + (st == Finding.State.draft ? "; it waits for your decision, because you " + personCopy.state() + " its copy " + personCopy.id()
+                                    : " and stays " + st + "; you " + personCopy.state() + " its copy " + personCopy.id() + ", which stays as you left it"));
+                    else if (libraryCopy != null) problems.add("'" + Acquisitions.compress(title, 50) + "' is the claim " + existing.id() + ", which gained the source; its copy "
+                            + libraryCopy.id() + ", which the library " + libraryCopy.state() + " by itself, did not stop that");
                     store.circulate("review-corroborated", title + " ≈ " + conflictId + (waited ? " → accepted" : ""));
                     continue;
                 }
@@ -272,14 +354,15 @@ public final class LibrarianReview {
             boolean contradiction = "contradicts".equals(verdict) && conflictId != null
                     && store.finding(conflictId) != null;
             // Promotion arithmetic: extraction + independent + sourced from a tier that may
-            // auto-promote (reference / scholarly / primary / personal) → accepted. A blog- or
+            // auto-promote (reference / scholarly / primary / code / personal) → accepted. A blog- or
             // forum-only extraction stays draft for the person — wyrdsekai's steward gate.
             SourceTier tier = SourceTier.strongest(sources);
             // ONE source is never enough on its own: copies of one text count once, and a claim with a single independent
             // source stays a draft for the person however good the source — that is how most misinformation gets in
             List<String> locs = new ArrayList<>(); for (Finding.Source s : sources) locs.add(s.locator());
             int independent = Independence.independent(store, locs);
-            boolean corroborated = independent >= 2 || tier == SourceTier.personal;   // the person's own document is their word
+            // the person's own document is their word; a file of a cloned repository is not their document (SourceTier.code), and waits
+            boolean corroborated = independent >= 2 || tier == SourceTier.personal;
             Finding.State state = (!contradiction && type == Finding.ClaimType.extraction
                     && tier.autoPromotes() && corroborated) ? Finding.State.accepted : Finding.State.draft;
             if (!contradiction && type == Finding.ClaimType.extraction && !tier.autoPromotes()) {
@@ -344,6 +427,66 @@ public final class LibrarianReview {
         return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
     }
 
+    /** Whether two triples say the same claim: the same subject and relation, and the same object once written one way. */
+    static boolean sameTriple(Finding.Triple a, Finding.Triple b) {
+        return a != null && b != null && a.sameKey(b) && Finding.Triple.canon(a.object()).equals(Finding.Triple.canon(b.object()));
+    }
+
+    /**
+     * The same claim again, when the person disputed or retired it: it is not filed again, their decision holds against later runs, and a
+     * note on the claim says where it came back. Its review is left as the person signed it.
+     */
+    private void metAgain(Finding held, List<String> cited, String title, String claim, Investigation inv, List<String> problems) throws IOException {
+        List<Finding.Source> again = new ArrayList<>();
+        for (String u : cited) again.add(new Finding.Source(u, "n/a", "met again in " + inv.id()));
+        Finding noted = Evidence.toldAgain(store, held, again, reviewerName, claim);
+        if (noted != null) index.upsert(noted);
+        problems.add("'" + Acquisitions.compress(title, 50) + "' is the claim " + held.id() + ", which is " + held.state() + "; it came back from " + String.join(", ", cited)
+                + " and was not filed again, because you " + held.state() + " it and your decision holds");
+        store.circulate("review-met-again", title + " = " + held.id() + " (" + held.state() + " by the person)");
+    }
+
+    /** The same claim again, when the library set it aside by itself: it gains the source and keeps its state, so later sources can settle it. */
+    private void furtherSource(Finding held, List<String> cited, String title, String claim, Investigation inv, List<String> findingIds, List<String> problems) throws IOException {
+        List<Finding.Source> again = new ArrayList<>();
+        for (String u : cited) again.add(u.startsWith("cite:") ? new Finding.Source(u, u.substring(5), "said again in " + inv.id()) : new Finding.Source(u, "n/a", "said again in " + inv.id()));
+        Finding grown = Evidence.toldAgain(store, held, Citations.enrich(store, again, citations), reviewerName, claim);
+        if (grown != null) index.upsert(grown);
+        if (!findingIds.contains(held.id())) findingIds.add(held.id());
+        problems.add("'" + Acquisitions.compress(title, 50) + "' is the claim " + held.id() + ", which is " + held.state() + "; it came back from " + String.join(", ", cited)
+                + (grown == null ? ", a source it already has. The library " + held.state() + " it by itself" + howSetAside(held) + ", and a new source can settle it"
+                        : " and was added to it as a further source, because the library " + held.state() + " it by itself" + howSetAside(held) + ", so that later sources can settle it"));
+        store.circulate("review-source-added", title + " = " + held.id() + " (" + held.state() + " by the library)");
+    }
+
+    /** How the library set a claim aside by itself, from its newest note that did: said in brackets for the review's problems line, "" when no note says. */
+    static String howSetAside(Finding f) {
+        for (int i = f.notes().size() - 1; i >= 0; i--) {
+            Finding.Note n = f.notes().get(i);
+            if (Finding.contradiction(n)) return " (the review found a claim that says otherwise)";
+            if (n.kind().equals("inventory")) {
+                // the retraction check disputes a claim through the inventory, after a note of its own: then the reason is the retraction
+                for (int j = i - 1; j >= 0; j--) {
+                    Finding.Note r = f.notes().get(j);
+                    if (r.kind().equals("retracted") && n.text().contains(r.text())) return retracted(r.text());
+                }
+                return " (a check of its source found that the source does not say it)";
+            }
+            if (!"person".equals(n.by()) && (n.kind().equals("disputed") || n.kind().equals("retired"))) return " (" + n.by() + ": " + Acquisitions.compress(n.text(), 80) + ")";
+        }
+        return "";
+    }
+
+    private static final Pattern RETRACTED = Pattern.compile("doi:(\\S+) was (partial retraction|retraction|withdrawal|removal)");
+
+    /** The retraction check's reason, in brackets: which paper, and what became of it. */
+    static String retracted(String note) {
+        Matcher m = RETRACTED.matcher(note);
+        if (!m.find()) return " (the retraction check found that a paper it cites was retracted)";
+        String what = switch (m.group(2)) { case "withdrawal" -> "withdrawn"; case "removal" -> "removed"; case "partial retraction" -> "partly retracted"; default -> "retracted"; };
+        return " (the retraction check found that the paper it cites, doi:" + m.group(1) + ", was " + what + ")";
+    }
+
     // ---- the live seat ---------------------------------------------------------
 
     /**
@@ -359,21 +502,31 @@ public final class LibrarianReview {
      * and garbles anything it has to compose.
      */
     /** The record's own sections, in order: the write-up's "## " headings, without the frame the runner always writes. */
-    static final java.util.Set<String> FRAME = java.util.Set.of("question", "answer", "sources", "caveats", "cite-check", "checks", "evidence", "references", "what was read", "method");
+    static final Set<String> FRAME = Set.of("question", "answer", "sources", "caveats", "cite-check", "checks", "evidence", "references", "what was read", "method");
 
     static List<String> sections(String investigationBody) {
         List<String> out = new ArrayList<>();
         for (String line : investigationBody.split("\n")) {
             if (!line.startsWith("## ")) continue;
             String h = line.substring(3).strip();
-            String key = h.toLowerCase(java.util.Locale.ROOT).replaceAll("\\(.*", "").strip();
+            String key = h.toLowerCase(Locale.ROOT).replaceAll("\\(.*", "").strip();
             if (FRAME.contains(key) || key.startsWith("answer (")) continue;
             if (!out.contains(h)) out.add(h);
         }
         return out;
     }
 
-    static String extractPrompt(String investigationBody) {
+    /** The sentences the fields of a run add to the extraction prompt: the words for their relations. "" for an ordinary run. */
+    static String extractionRule(LibraryStore store, Set<String> fields) {
+        StringBuilder b = new StringBuilder();
+        for (Profile p : Fields.enabled(store)) if (fields.contains(p.name()) && !p.extractionRule().isBlank()) b.append(' ').append(p.extractionRule().strip());
+        return b.toString().strip();
+    }
+
+    static String extractPrompt(String investigationBody) { return extractPrompt(investigationBody, ""); }
+
+    /** {@code rule}: what the run's fields add, the words for their relations ({@link #extractionRule}). */
+    static String extractPrompt(String investigationBody, String rule) {
         List<String> locators = Acquisitions.urls(investigationBody);
         StringBuilder list = new StringBuilder();
         for (int i = 0; i < locators.size() && i < 60; i++) {
@@ -386,10 +539,13 @@ public final class LibrarianReview {
                 + "self-contained\", \"claim_type\": \"extraction|synthesis|interpretation|"
                 + "speculation\", \"confidence\": \"low|medium|high\", \"volatility\": "
                 + "\"fast|slow|stable\", \"sources\": [\"S3\", \"S7\"], "
-                + "\"triple\": {\"subject\": \"what the claim is about\", \"predicate\": \"the relation\", \"object\": \"the value\"}}]\n\n"
+                + "\"triple\": {\"subject\": \"what the claim is about\", \"predicate\": \"the relation\", \"object\": \"the value\"}, \"found\": true}]\n\n"
+                + "found: true when the claim says what a source says. found: false when the claim says that something was looked for and did not turn up "
+                + "(no record, no publication, no patent, no mention): write in the claim what was looked for and where, and name in the triple's subject whom or what it was about. "
+                + "Such a claim is kept with its date as a place somebody has looked.\n"
                 + "The triple is the claim as subject–predicate–object when it has that shape (e.g. keigo | has direct "
                 + "English equivalent | none) — omit it when it does not. Use the same subject and predicate wording "
-                + "for claims about the same thing, so contradictions line up.\n"
+                + "for claims about the same thing, so contradictions line up." + (rule == null || rule.isBlank() ? "" : " " + rule.strip()) + "\n"
                 + "Rules: " + sectionRule(investigationBody) + " Each claim stands alone. For sources, use ONLY the "
                 + "labels from the SOURCE LIST below (S1, S2, …), copied exactly — a claim whose "
                 + "sources are not on the list cannot be shelved. claim_type: extraction = read "
@@ -420,6 +576,10 @@ public final class LibrarianReview {
                 b = b.substring(0, i) + (refs >= 0 ? "\n" + b.substring(refs + 1) : "");
             }
         }
+        // the library's own Declined section says what the model declined and in which words: none of it is a claim of the report, and a
+        // declined sub-question read as one came back as a "not found" finding
+        int declined = b.indexOf("\n## Declined\n");
+        if (declined >= 0) { int next = b.indexOf("\n## ", declined + 1); b = b.substring(0, declined) + (next >= 0 ? b.substring(next) : ""); }
         // What fits beside the reply: the window less the reply's budget (EXTRACT_TOKENS) and the prompt's own words,
         // at 2.8 chars a token — a record dense with URLs and Japanese runs near 3. A 20,000-character floor used to
         // fill an 8,192-token slot to the last 39 tokens and the extraction was cut off at once (a 9B, 2026-09-10).
@@ -429,7 +589,7 @@ public final class LibrarianReview {
         return b.substring(0, half) + "\n\n…[" + (b.length() - cap) + " characters cut from the middle of the record]…\n\n" + b.substring(b.length() - half);
     }
 
-    private final java.util.Set<String> knownHosts = new java.util.HashSet<>();
+    private final Set<String> knownHosts = new HashSet<>();
     private boolean knownHostsLoaded;
     private int sidewaysLeft = 5;
 
@@ -453,25 +613,35 @@ public final class LibrarianReview {
             if (tier == SourceTier.scholarly || tier == SourceTier.reference || tier == SourceTier.primary || tier == SourceTier.personal) { knownHosts.add(host); continue; }
             knownHosts.add(host); sidewaysLeft--;
             String found;
-            try { found = searcher.search("\"" + host + "\" site OR publisher OR about"); } catch (Exception e) { found = ""; }
+            // a stop ends the review here; a search that failed for any other reason is said as that, never as one that found nothing
+            try { found = searcher.search("\"" + host + "\" site OR publisher OR about"); }
+            catch (Stopping.Requested stop) { throw stop; }
+            catch (Exception e) { found = null; }
+            boolean answered = found != null && (found.startsWith("results") || found.startsWith("no results"));
             List<String> lines = new ArrayList<>();
-            if (found != null) for (String line : found.split("\n")) {
+            if (answered) for (String line : found.split("\n")) {
                 String t = line.strip();
                 if (t.matches("^\\d+\\. .*")) { lines.add(t.substring(t.indexOf(' ') + 1)); if (lines.size() == 3) break; }
             }
             String text = "first time this library cites " + host + " (" + tier + "). "
-                    + (lines.isEmpty() ? "A search about the site found nothing that names it — nothing else on the web refers to it yet." : "A search about the site finds: " + String.join(" · ", lines) + ".");
+                    + (!answered ? "The search about the site could not be made this time, so the library cannot say yet what else on the web refers to it."
+                    : lines.isEmpty() ? "A search about the site found nothing that names it — nothing else on the web refers to it yet." : "A search about the site finds: " + String.join(" · ", lines) + ".");
             out.add(new Finding.Note("source-check", reviewerName, LocalDate.now().toString(), text));
         }
         return out;
     }
 
-    public static Judge driveJudge(org.researchzosho.drive.DriveClient drive) {
+    public static Judge driveJudge(DriveClient drive) {
+        DeclineJudge declines = DeclineJudge.of(drive);   // a reply with no JSON where JSON was asked is read for a decline
         return new Judge() {
-            @Override public String extract(String investigationBody) {
+            @Override public String extract(String investigationBody) { return extract(investigationBody, ""); }
+            @Override public String extract(String investigationBody, String rule) {
                 var msgs = M.createArrayNode();
-                msgs.addObject().put("role", "user").put("content", extractPrompt(forExtraction(investigationBody, drive.contextWindow())));
-                return drive.classify(msgs, EXTRACT_TOKENS);
+                String prompt = extractPrompt(forExtraction(investigationBody, drive.contextWindow()), rule);
+                msgs.addObject().put("role", "user").put("content", prompt);
+                String out = drive.classify(msgs, EXTRACT_TOKENS);
+                if (!Declines.hasJson(out)) declines.raise(drive.model(), "list the claims a research report makes, as JSON", out);
+                return out;
             }
             @Override public String compare(String candidate, String neighbors) {
                 var msgs = M.createArrayNode();
@@ -483,7 +653,9 @@ public final class LibrarianReview {
                         + "independent\", \"id\": \"the existing entry id it duplicates or "
                         + "contradicts\"}\nduplicate = the same claim in substance; contradicts = "
                         + "they cannot both be true; independent = a different claim (omit id).");
-                return drive.classify(msgs, 300);
+                String out = drive.classify(msgs, 300);
+                if (!Declines.hasJson(out)) declines.raise(drive.model(), "compare a claim with similar claims already on a library's shelves, as JSON", out);
+                return out;
             }
         };
     }
@@ -495,7 +667,7 @@ public final class LibrarianReview {
     static String resolveCited(List<String> invUrls, String citedUrl) {
         if (citedUrl == null) return null;
         // the enumerated form: "S7" (or "[S7]") → the record's 7th locator
-        var lab = java.util.regex.Pattern.compile("^\\[?S(\\d{1,2})\\]?$").matcher(citedUrl.strip());
+        var lab = Pattern.compile("^\\[?S(\\d{1,2})\\]?$").matcher(citedUrl.strip());
         if (lab.matches()) {
             int i = Integer.parseInt(lab.group(1)) - 1;
             return i >= 0 && i < invUrls.size() ? invUrls.get(i) : null;
@@ -508,7 +680,7 @@ public final class LibrarianReview {
         }
         // identifier anchoring: the reviewer may cite "arXiv 2608.01913", a versioned/html
         // variant, or a doi — anchor on the identifier the record itself carries.
-        var id = java.util.regex.Pattern.compile("(\\d{4}\\.\\d{4,5})|(10\\.\\d{4,9}/[^\\s)\\]>,;\"']+)")
+        var id = Pattern.compile("(\\d{4}\\.\\d{4,5})|(10\\.\\d{4,9}/[^\\s)\\]>,;\"']+)")
                 .matcher(citedUrl);
         while (id.find()) {
             String key = id.group().toLowerCase();

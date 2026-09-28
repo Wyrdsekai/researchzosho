@@ -12,6 +12,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.net.InetAddress;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
+import java.util.HexFormat;
 /**
  * Who may read and write — the simple allow-list the operator asked for (2026-09-03), kept in
  * {@code catalog/patrons.md} so the person edits it like any other catalog file:
@@ -122,10 +128,20 @@ public final class Patrons {
                 + " this library; the person who keeps it edits catalog/patrons.md.");
     }
 
+    /** Whether this caller may read the library: the owner, and anyone the owner lets read or write. */
+    public static boolean mayRead(LibraryStore store, Patron patron) {
+        try { check(store, patron, Level.read); return true; } catch (Exception e) { return false; }
+    }
+
+    /** Whether this caller may write to the library: the owner, and anyone the owner lets write. */
+    public static boolean mayWrite(LibraryStore store, Patron patron) {
+        try { check(store, patron, Level.write); return true; } catch (Exception e) { return false; }
+    }
+
     /** The did setup gives a program on this machine: stable across runs of setup (host, user and program hashed), never random. */
     public static String localDid(String command, String user) {
         String host = System.getenv().getOrDefault("HOSTNAME", System.getenv().getOrDefault("COMPUTERNAME", ""));
-        if (host.isEmpty()) { try { host = java.net.InetAddress.getLocalHost().getHostName(); } catch (Exception e) { host = "host"; } }
+        if (host.isEmpty()) { try { host = InetAddress.getLocalHost().getHostName(); } catch (Exception e) { host = "host"; } }
         return "did:key:local-" + command + "-" + sha256(host + "\n" + user + "\n" + command).substring(0, 12);
     }
 
@@ -161,8 +177,8 @@ public final class Patrons {
         List<Entry> out = new ArrayList<>();
         Entry found = null;
         byte[] b = new byte[32];
-        new java.security.SecureRandom().nextBytes(b);
-        String token = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+        new SecureRandom().nextBytes(b);
+        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(b);
         for (Entry e : pol.listed()) {
             if (e.did().equals(did)) { found = new Entry(e.did(), e.name(), e.level(), sha256(token)); out.add(found); }
             else out.add(e);
@@ -182,8 +198,8 @@ public final class Patrons {
 
     static String sha256(String s) {
         try {
-            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)));
-        } catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
     static void write(LibraryStore store, Policy pol) throws IOException {

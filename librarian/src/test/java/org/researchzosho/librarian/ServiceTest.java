@@ -8,6 +8,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.file.Files;
 /** The three service definitions, as text: what each platform is told to run. */
 class ServiceTest {
 
@@ -15,10 +18,11 @@ class ServiceTest {
     void linuxUnit() {
         var p = Service.plan(Service.Os.linux, "/opt/codezaiku/bin/codezaiku", 4649, 3, Path.of("/home/x"));
         assertEquals(Path.of("/home/x/.config/systemd/user/researchzosho.service"), p.definition());
-        assertTrue(p.text().contains("ExecStart=/opt/codezaiku/bin/codezaiku librarian serve --port 4649 --crew-hour 3 --log /home/x/.researchzosho/logs/librarian-serve.log"));
+        assertTrue(p.text().contains("' /opt/codezaiku/bin/codezaiku librarian serve --port 4649 --crew-hour 3 --log /home/x/.researchzosho/logs/librarian-serve.log\n"), p.text());
         var z = Service.plan(Service.Os.linux, "/opt/codezaiku/bin/researchzosho", 4649, 3, Path.of("/home/x"));
-        assertTrue(z.text().contains("ExecStart=/opt/codezaiku/bin/researchzosho serve --port 4649"), "the researchzosho command needs no verb");
+        assertTrue(z.text().contains("' /opt/codezaiku/bin/researchzosho serve --port 4649"), "the researchzosho command needs no verb");
         assertTrue(p.text().contains("Restart=on-failure"));
+        assertTrue(p.text().contains("SuccessExitStatus=143"), "a stop by systemd (Java exits 143) is a clean stop, not a failure");
         assertTrue(p.text().contains("-Xmx4g"), "the daemon's heap is capped: " + p.text());
         assertEquals("systemctl --user enable --now researchzosho", String.join(" ", p.install().get(1)));
         assertEquals("systemctl --user is-active researchzosho", String.join(" ", p.status()));
@@ -29,6 +33,7 @@ class ServiceTest {
         var p = Service.plan(Service.Os.macos, "/usr/local/bin/codezaiku", 4649, 3, Path.of("/Users/x"));
         assertEquals(Path.of("/Users/x/Library/LaunchAgents/org.researchzosho.librarian.plist"), p.definition());
         assertTrue(p.text().contains("<string>/usr/local/bin/codezaiku</string><string>librarian</string><string>serve</string>"));
+        assertTrue(p.text().contains("<key>ProgramArguments</key><array>\n    <string>/bin/sh</string><string>-c</string>"), "the launcher runs behind the Java fallback: " + p.text());
         assertTrue(p.text().contains("<key>KeepAlive</key><true/>"));
         assertTrue(String.join(" ", p.install().get(1)).startsWith("launchctl bootstrap gui/"));
     }
@@ -37,10 +42,11 @@ class ServiceTest {
     void windowsTaskRunsHidden() {
         var p = Service.plan(Service.Os.windows, "C:\\codezaiku\\bin\\codezaiku.bat", 4649, 3, Path.of("C:\\Users\\x"));
         String tr = p.install().get(0).get(p.install().get(0).indexOf("/TR") + 1);
-        assertEquals("powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File " + p.definition(), tr);
+        assertEquals("powershell -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \\\"" + p.definition() + "\\\"", tr);
         assertTrue(p.definition().toString().endsWith("ResearchZosho.ps1"));
         Path log = Path.of("C:\\Users\\x").resolve(".researchzosho").resolve("logs").resolve("librarian-serve.log");
-        assertTrue(p.text().contains("& 'C:\\codezaiku\\bin\\codezaiku.bat' librarian serve --port 4649 --crew-hour 3 --log '" + log + "'"), p.text());
+        assertTrue(p.text().contains("\n$log = '" + log + "'\n"), p.text());
+        assertTrue(p.text().contains("& 'C:\\codezaiku\\bin\\codezaiku.bat' librarian serve --port 4649 --crew-hour 3 --log $log\n"), p.text());
         // install starts the script now (the task covers the next logon) through Start-Process, so the server
         // inherits none of the caller's handles — a JVM-spawned child held an ssh session open for fifteen minutes
         var now = p.install().get(1);
@@ -59,23 +65,24 @@ class ServiceTest {
     @Test
     void uninstallStopsTheRecordedServerAndLeavesAReusedPidAlone(@TempDir Path tmp) throws Exception {
         Path pid = tmp.resolve("researchzosho.pid");
-        var out = new java.io.ByteArrayOutputStream(); var ps = new java.io.PrintStream(out);
+        var out = new ByteArrayOutputStream(); var ps = new PrintStream(out);
         assertFalse(Service.stopRecorded(pid, ps), "no record, nothing to stop");
         // a JVM that is not this one: a child java that sleeps
         String jvm = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         Process child = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"), ServiceTest.class.getName() + "$Sleeper").redirectErrorStream(true).start();
-        java.nio.file.Files.writeString(pid, Long.toString(child.pid()));
+        Files.writeString(pid, Long.toString(child.pid()));
         Thread.sleep(300);
         assertTrue(child.isAlive());
         assertTrue(Service.stopRecorded(pid, ps), "the recorded JVM is stopped");
         assertFalse(child.isAlive());
-        assertFalse(java.nio.file.Files.exists(pid), "the record is cleared");
+        assertFalse(Files.exists(pid), "the record is cleared");
         assertTrue(out.toString().contains("stopped the running server"), out.toString());
         // a recorded pid that is no longer a JVM is left alone
         Process other = new ProcessBuilder("sleep", "20").start();
-        java.nio.file.Files.writeString(pid, Long.toString(other.pid()));
+        Files.writeString(pid, Long.toString(other.pid()));
         assertFalse(Service.stopRecorded(pid, ps));
         assertTrue(other.isAlive(), "not ours; not touched");
+        assertFalse(Files.exists(pid), "the stale record goes, so status no longer reports a server that is not there");
         other.destroy();
     }
 
@@ -92,5 +99,14 @@ class ServiceTest {
         assertTrue(win.text().contains("serve --host 0.0.0.0 --port 4649"), win.text());
         var local = Service.plan(Service.Os.linux, "/opt/rz/bin/researchzosho", "127.0.0.1", 4649, 3, Path.of("/home/x"));
         assertFalse(local.text().contains("--host"), "loopback is the default and leaves the unit as it was");
+    }
+
+    @Test
+    void theServiceRunsWithTheConfigAndJavaOptionsItWasInstalledWith() {
+        var keys = List.of(Service.PASSTHROUGH);
+        assertTrue(keys.contains("RESEARCHZOSHO_CONFIG"), "without it the service read the machine's own config, not the one the install was made with");
+        assertTrue(keys.contains("JAVA_OPTS"), "the installed launcher hands JAVA_OPTS to Java");
+        // systemd splits an unquoted value at its spaces and reads % as a specifier
+        assertEquals("-Xmx1g -Dname=\\\"a b\\\" 50%%", Service.systemdQuoted("-Xmx1g -Dname=\"a b\" 50%"));
     }
 }

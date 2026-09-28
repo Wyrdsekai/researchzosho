@@ -17,6 +17,10 @@ import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import org.researchzosho.tools.DocText;
 /** A Calibre library as a list of books: the database first, the OPF files when it cannot be read, then items as usual. */
 class CalibreTest {
 
@@ -86,7 +90,7 @@ class CalibreTest {
         assertEquals("Dune", Items.parse("author,title,year\nHerbert,Dune,1965\n", null).get(0).name());
         assertEquals("Herbert", Items.parse("author,title,year\nHerbert,Dune,1965\n", "author").get(0).name(), "--column still wins");
         // a bare metadata.db handed to any reader — add, items, a research run's file read — is the books, not binary fragments
-        org.researchzosho.tools.DocText.Doc doc = org.researchzosho.tools.DocText.convert(Files.readAllBytes(lib.resolve("metadata.db")), "metadata.db");
+        DocText.Doc doc = DocText.convert(Files.readAllBytes(lib.resolve("metadata.db")), "metadata.db");
         assertEquals("calibre", doc.kind()); assertEquals("Calibre library (3 books)", doc.title());
         assertTrue(doc.text().startsWith("title,authors,year,series,tags,isbn,publisher,formats\n"), doc.text());
         LibraryStore store2 = new LibraryStore(home.resolve("lib2")); store2.init();
@@ -99,14 +103,14 @@ class CalibreTest {
         // any other SQLite file is its tables and counts, not fragments
         Path other = home.resolve("other.db");
         try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + other); Statement st = c.createStatement()) { st.execute("CREATE TABLE notes (id INTEGER, body TEXT)"); st.execute("INSERT INTO notes VALUES (1, 'a'), (2, 'b')"); }
-        org.researchzosho.tools.DocText.Doc od = org.researchzosho.tools.DocText.convert(Files.readAllBytes(other), "other.db");
+        DocText.Doc od = DocText.convert(Files.readAllBytes(other), "other.db");
         assertEquals("sqlite", od.kind()); assertTrue(od.text().contains("- notes: 2 row(s)"), od.text());
-        assertFalse(org.researchzosho.tools.DocText.isSqlite("SQLite format 3 is a phrase".getBytes()), "the header is sixteen exact bytes, not the words");
+        assertFalse(DocText.isSqlite("SQLite format 3 is a phrase".getBytes()), "the header is sixteen exact bytes, not the words");
         // a question that names the database: the library reads it in before the run, and tells the run where to look
         LibraryStore store3 = new LibraryStore(home.resolve("lib3")); store3.init();
         new LibrarianIndex(store3, Embeddings.none()).rebuild();
         // an old unreadable copy, as an earlier version saved it: the readable one replaces it
-        java.nio.file.Path old = store3.rawDir().resolve("2026-09-01-" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest((lib.resolve("metadata.db").toUri().toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)), 0, 6) + ".md");
+        Path old = store3.rawDir().resolve("2026-09-01-" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest((lib.resolve("metadata.db").toUri().toString()).getBytes(StandardCharsets.UTF_8)), 0, 6) + ".md");
         Files.createDirectories(old.getParent());
         Files.writeString(old, "---\nurl: " + lib.resolve("metadata.db").toUri() + "\ntitle: metadata\n---\nSQLite format 3\u0000\u0010\u0000\u0001\u0001 binary \u0000\u0000\u0000");
         assertTrue(RawCapture.looksBinary(RawCapture.read(old)[2]), "a database saved as text is unreadable");
@@ -134,10 +138,10 @@ class CalibreTest {
         LibraryStore store4 = new LibraryStore(home.resolve("lib4")); store4.init();
         new LibrarianIndex(store4, Embeddings.none()).rebuild();
         String loc = lib.resolve("metadata.db").toUri().toString();
-        java.nio.file.Path bad = store4.rawDir().resolve("2026-09-01-" + java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256").digest(loc.getBytes(java.nio.charset.StandardCharsets.UTF_8)), 0, 6) + ".md");
+        Path bad = store4.rawDir().resolve("2026-09-01-" + HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(loc.getBytes(StandardCharsets.UTF_8)), 0, 6) + ".md");
         Files.createDirectories(bad.getParent());
         Files.writeString(bad, "---\nurl: " + loc + "\ntitle: metadata\n---\nSQLite format 3\u0000\u0010\u0000\u0001\u0001 binary \u0000\u0000\u0000");
-        java.nio.file.Path orphan = store4.rawDir().resolve("2026-09-01-aaaaaaaaaaaa.md");
+        Path orphan = store4.rawDir().resolve("2026-09-01-aaaaaaaaaaaa.md");
         Files.writeString(orphan, "---\nurl: file:///no/such/file.pdf\ntitle: gone\n---\n%PDF-1.7 \u0000\u0001\u0002 binary");
         assertEquals(2, Repairs.unreadable(store4).size());
         assertFalse(Repairs.doneFor(store4, "9.9.9"));

@@ -9,6 +9,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.io.ByteArrayOutputStream;
+import java.io.RandomAccessFile;
+import java.util.ArrayDeque;
 /**
  * The changes feed — recall notices for patrons. A patron cites "F-0412 in lib_…" and must be
  * able to learn, later, that it was retired, disputed, superseded or edited. Every write to a
@@ -97,12 +100,12 @@ public final class Changes {
         Path f = file(store);
         List<Change> out = new ArrayList<>();
         if (!Files.exists(f) || limit <= 0) return out;
-        java.util.ArrayDeque<String> lines = new java.util.ArrayDeque<>();
-        try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f.toFile(), "r")) {
+        ArrayDeque<String> lines = new ArrayDeque<>();
+        try (RandomAccessFile raf = new RandomAccessFile(f.toFile(), "r")) {
             long pos = raf.length();
             StringBuilder cur = new StringBuilder();
             byte[] buf = new byte[65536];
-            java.io.ByteArrayOutputStream pending = new java.io.ByteArrayOutputStream();
+            ByteArrayOutputStream pending = new ByteArrayOutputStream();
             while (pos > 0 && lines.size() < limit) {
                 int n = (int) Math.min(buf.length, pos);
                 pos -= n;

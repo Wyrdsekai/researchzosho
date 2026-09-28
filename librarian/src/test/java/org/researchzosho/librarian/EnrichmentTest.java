@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
+import org.researchzosho.drive.Declined;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
@@ -61,5 +62,22 @@ class EnrichmentTest {
         assertTrue(calls[0] - after2 <= 4, "at most a few calls after the stop was raised: " + (calls[0] - after2));
         var rest = Enrichment.run(store, ctx, 0, () -> false);
         assertTrue(rest.chunksSkipped() >= after2, "contexts written before the stop are kept: " + rest.chunksSkipped());
+    }
+
+    @Test
+    void aPartTheModelDeclinedToDescribeIsNotSentAgain() throws Exception {
+        // M5: the part it declined is not sent again the next night; the parts after it are
+        LibraryStore store = new LibraryStore(tmp.resolve("lib3")); store.init();
+        String filler = "Filler sentence about nothing. ".repeat(80);
+        Files.writeString(store.rawDir().resolve("2026-09-23-doc.md"),
+                "---\nurl: https://example.org/paper\ntitle: The paper\nfetched_at: t\nfetched_by: test\n---\n" + filler + "\n\nThe pivotal result concerns register loss.\n\n" + filler);
+        int[] declinedAsked = {0};
+        Enrichment.Contextualizer ctx = (title, head, chunk) -> {
+            if (chunk.contains("register loss")) { declinedAsked[0]++; throw new Declined("placeholder-model", "", Declined.How.FILTERED); }
+            return "Background filler.";
+        };
+        Enrichment.run(store, ctx, 0);
+        Enrichment.run(store, ctx, 0);
+        assertEquals(1, declinedAsked[0], "the declined part was sent once");
     }
 }

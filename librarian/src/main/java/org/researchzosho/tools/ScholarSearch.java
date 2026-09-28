@@ -15,7 +15,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.Function;
 
+import java.util.concurrent.atomic.AtomicInteger;
+import org.researchzosho.Stopping;
+import org.researchzosho.Version;
+import org.researchzosho.librarian.Fence;
+import org.researchzosho.librarian.SourceRules;
+import org.researchzosho.librarian.SourceTier;
 /**
  * The scholarly literature, with no key and no install: Crossref (the DOI registry) and OpenAlex (a scholarly index).
  * Measured 2026-09-09 from a home box on the same queries as the web engines: both answered in under a second with
@@ -30,19 +37,41 @@ public final class ScholarSearch {
 
     private static final ObjectMapper M = new ObjectMapper();
     private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
-    public static final java.util.concurrent.atomic.AtomicInteger SCHOLAR_USED = new java.util.concurrent.atomic.AtomicInteger();
-    static final String UA = "ResearchZosho/" + org.researchzosho.Version.string() + " (a research library; https://researchzosho.org; mailto:support@researchzosho.org)";
+    public static final AtomicInteger SCHOLAR_USED = new AtomicInteger();
+    static final String UA = "ResearchZosho/" + Version.string() + " (a research library; https://researchzosho.org; mailto:support@researchzosho.org)";
 
     /** One work: the title, where to read it (a DOI URL when there is one), and a line of context. */
     public record Row(String title, String url, String snippet, String doi) { }
 
     /** Both sources, merged, one row per work (by DOI, else by URL); Crossref first. Never throws; empty when nothing answers. */
-    public static List<Row> merged(String query, int limit) {
+    public static List<Row> merged(String query, int limit) { return answer(query, limit).rows(); }
+
+    /**
+     * The merged rows, how many of the two sources answered at all (none answering is not a search that found nothing), and which:
+     * "Crossref and OpenAlex", "Crossref", "OpenAlex", or "".
+     */
+    public record Answer(List<Row> rows, int answered, String by) { }
+
+    public static Answer answer(String query, int limit) {
+        List<Row> c = fromCrossref(query, limit), o = fromOpenAlex(query, limit);
         Map<String, Row> byKey = new LinkedHashMap<>();
-        for (Row r : crossref(query, limit)) byKey.putIfAbsent(key(r), r);
-        for (Row r : openalex(query, limit)) byKey.putIfAbsent(key(r), r);
+        if (c != null) for (Row r : c) byKey.putIfAbsent(key(r), r);
+        if (o != null) for (Row r : o) byKey.putIfAbsent(key(r), r);
         List<Row> out = new ArrayList<>(byKey.values());
-        return out.size() > limit ? out.subList(0, limit) : out;
+        String by = c != null && o != null ? "Crossref and OpenAlex" : c != null ? "Crossref" : o != null ? "OpenAlex" : "";
+        return new Answer(out.size() > limit ? out.subList(0, limit) : out, (c == null ? 0 : 1) + (o == null ? 0 : 1), by);
+    }
+
+    /** What {@code researchzosho search papers} says to a person, and whether either source answered (false: the command failed). */
+    public record ForAPerson(String text, boolean answered) { }
+
+    public static ForAPerson forAPerson(String query, int limit) {
+        Answer a = answer(query, limit);
+        if (a.answered() == 0) return new ForAPerson("Neither Crossref nor OpenAlex answered, so nothing was searched. Check that this computer can reach "
+                + "api.crossref.org and api.openalex.org, then give the command again.", false);
+        String one = a.answered() == 1 ? "Only " + a.by() + " answered; " + (a.by().equals("Crossref") ? "OpenAlex" : "Crossref") + " did not, so the list may be short.\n" : "";
+        if (a.rows().isEmpty()) return new ForAPerson(one + "No papers or books were found for \"" + query + "\". Try other words, such as the words a title would use.", true);
+        return new ForAPerson(one + render(query, " (scholarly literature: " + a.by() + ")", a.rows(), limit), true);
     }
 
     static String key(Row r) {
@@ -50,23 +79,36 @@ public final class ScholarSearch {
         return "url:" + r.url().replaceFirst("^https?://(www\\.)?", "").replaceAll("/+$", "").toLowerCase(Locale.ROOT);
     }
 
-    public static List<Row> crossref(String query, int limit) {
+    public static List<Row> crossref(String query, int limit) { List<Row> r = fromCrossref(query, limit); return r == null ? List.of() : r; }
+
+    public static List<Row> openalex(String query, int limit) { List<Row> r = fromOpenAlex(query, limit); return r == null ? List.of() : r; }
+
+    /** Where a test sends the two sources instead; null for the real ones. */
+    static volatile Function<String, String> reader = null;
+
+    /** Crossref's rows; null when it did not answer. */
+    static List<Row> fromCrossref(String query, int limit) {
         try {
             String body = get("https://api.crossref.org/works?rows=" + Math.min(limit, 20) + "&select=DOI,URL,title,container-title,issued,author,type&query=" + URLEncoder.encode(query, StandardCharsets.UTF_8));
-            return body == null ? List.of() : parseCrossref(body);
-        } catch (Exception e) { return List.of(); }
+            return body == null ? null : parseCrossref(body);
+        } catch (Stopping.Requested stop) { throw stop; }
+        catch (Exception e) { return null; }
     }
 
-    public static List<Row> openalex(String query, int limit) {
+    /** OpenAlex's rows; null when it did not answer. */
+    static List<Row> fromOpenAlex(String query, int limit) {
         try {
             String body = get("https://api.openalex.org/works?per-page=" + Math.min(limit, 20) + "&mailto=support@researchzosho.org&search=" + URLEncoder.encode(query, StandardCharsets.UTF_8));
-            return body == null ? List.of() : parseOpenAlex(body);
-        } catch (Exception e) { return List.of(); }
+            return body == null ? null : parseOpenAlex(body);
+        } catch (Stopping.Requested stop) { throw stop; }
+        catch (Exception e) { return null; }
     }
 
     private static String get(String url) throws Exception {
-        HttpResponse<String> r = HTTP.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20))
-                .header("User-Agent", UA).header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString());
+        Function<String, String> test = reader;
+        if (test != null) return test.apply(url);
+        HttpResponse<String> r = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20))
+                .header("User-Agent", UA).header("Accept", "application/json").GET().build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "the scholarly index at " + URI.create(url).getHost());
         return r.statusCode() == 200 ? r.body() : null;
     }
 
@@ -120,20 +162,25 @@ public final class ScholarSearch {
     }
 
     /** The rows as the model sees them, in the search-results fence, each with its source tier. */
-    public static String render(String query, String heading, List<Row> rows, int limit) {
-        StringBuilder sb = new StringBuilder("results for \"" + query + "\"" + heading + ":\n" + org.researchzosho.librarian.Fence.open("SEARCH RESULTS") + "\n");
-        int shown = 0, refused = 0;
-        var rules = org.researchzosho.librarian.SourceRules.live();
+    public static String render(String query, String heading, List<Row> rows, int limit) { return render(query, heading, rows, limit, Fetch.Policy.DEFAULT); }
+
+    /** The same, with the run's lists: a row on the person's refused list, or on the site list unless the run let it in, is left out. */
+    public static String render(String query, String heading, List<Row> rows, int limit, Fetch.Policy policy) {
+        Fetch.Policy p = policy == null ? Fetch.Policy.DEFAULT : policy;
+        StringBuilder sb = new StringBuilder("results for \"" + query + "\"" + heading + ":\n" + Fence.open("SEARCH RESULTS") + "\n");
+        int shown = 0, refused = 0, listed = 0;
+        var rules = SourceRules.live();
         for (Row r : rows) {
             if (shown >= limit) break;
-            if (rules.refused(r.url())) { refused++; continue; }
+            if (p.refused(r.url())) { refused++; continue; }
+            if (p.onSiteList(r.url())) { listed++; continue; }
             shown++;
             sb.append(shown).append(". ").append(r.title()).append('\n')
-              .append("   ").append(r.url()).append("  [").append(org.researchzosho.librarian.SourceTier.of(r.url())).append(rules.trusted(r.url()) ? ", trusted by the person" : "").append("]\n");
+              .append("   ").append(r.url()).append("  [").append(SourceTier.of(r.url())).append(rules.trusted(r.url()) ? ", trusted by the person" : "").append("]\n");
             if (!r.snippet().isEmpty()) sb.append("   ").append(r.snippet()).append('\n');
         }
-        if (refused > 0) sb.append("(").append(refused).append(" result(s) left out: on the person's refused-sources list)\n");
-        sb.append(org.researchzosho.librarian.Fence.close("SEARCH RESULTS")).append('\n').append(org.researchzosho.librarian.Fence.rule("SEARCH RESULTS")).append('\n');
+        sb.append(WebSearchTool.leftOutLines(refused, listed));
+        sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
         return sb.toString();
     }
 }

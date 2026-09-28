@@ -1,0 +1,173 @@
+# Korean names in Latin letters.
+#
+# A Korean name in Hangul is written in Latin letters by the Revised Romanization of 2000, the first way here: 김민준 is Gim Minjun. Records
+# before 2000 and outside South Korea write McCune-Reischauer (Kim Minjun, Pak Chŏng-hŭi, Ch'oe), often without its breves and apostrophes,
+# and a family keeps the spelling it chose long ago: Kim, Lee, Park, Choi, Jung, Yoon, Shin, Oh, Ahn, Rhee. These rules say how each sound is
+# written in those ways, so Gim and Kim, Bak, Pak and Park, I, Yi, Lee and Rhee compare as one name. A Hangul syllable is taken apart into
+# its letters (jamo), which have one code point for a consonant that begins a syllable and another for one that ends it.
+language: ko
+name: Korean
+scripts: Hangul
+decompose: yes
+# McCune-Reischauer's breves are written by no other way of writing a name
+marks: ŏ ŭ
+vowels: a e i o u y w ᅡ ᅢ ᅣ ᅤ ᅥ ᅦ ᅧ ᅨ ᅩ ᅪ ᅫ ᅬ ᅭ ᅮ ᅯ ᅰ ᅱ ᅲ ᅳ ᅴ ᅵ
+# left out between two letters when names are compared: MR's apostrophes (Ch'oe, Han'guk) and the hyphen of a given name (Min-jun)
+joins: ' ’ ‘ ʼ -
+drop: ' ’ ‘ ʼ
+
+# Hangul in Latin letters, the Revised Romanization. Each syllable is written as it is spelt: a name keeps its syllables apart, and the
+# romanization of names does not follow the sound changes between them. ㄹ that ends a syllable before ㄹ is ll.
+# consonants that begin a syllable
+letter ᄀ: g    # ㄱ
+letter ᄁ: kk    # ㄲ
+letter ᄂ: n    # ㄴ
+letter ᄃ: d    # ㄷ
+letter ᄄ: tt    # ㄸ
+letter ᄅ: r    # ㄹ
+letter ᄆ: m    # ㅁ
+letter ᄇ: b    # ㅂ
+letter ᄈ: pp    # ㅃ
+letter ᄉ: s    # ㅅ
+letter ᄊ: ss    # ㅆ
+letter ᄋ: _    # ㅇ
+letter ᄌ: j    # ㅈ
+letter ᄍ: jj    # ㅉ
+letter ᄎ: ch    # ㅊ
+letter ᄏ: k    # ㅋ
+letter ᄐ: t    # ㅌ
+letter ᄑ: p    # ㅍ
+letter ᄒ: h    # ㅎ
+# vowels
+letter ᅡ: a    # ㅏ
+letter ᅢ: ae    # ㅐ
+letter ᅣ: ya    # ㅑ
+letter ᅤ: yae    # ㅒ
+letter ᅥ: eo    # ㅓ
+letter ᅦ: e    # ㅔ
+letter ᅧ: yeo    # ㅕ
+letter ᅨ: ye    # ㅖ
+letter ᅩ: o    # ㅗ
+letter ᅪ: wa    # ㅘ
+letter ᅫ: wae    # ㅙ
+letter ᅬ: oe    # ㅚ
+letter ᅭ: yo    # ㅛ
+letter ᅮ: u    # ㅜ
+letter ᅯ: wo    # ㅝ
+letter ᅰ: we    # ㅞ
+letter ᅱ: wi    # ㅟ
+letter ᅲ: yu    # ㅠ
+letter ᅳ: eu    # ㅡ
+letter ᅴ: ui    # ㅢ
+letter ᅵ: i    # ㅣ
+# consonants that end a syllable
+letter ᆨ: k    # ㄱ
+letter ᆩ: k    # ㄲ
+letter ᆪ: k    # ㄳ
+letter ᆫ: n    # ㄴ
+letter ᆬ: n    # ㄵ
+letter ᆭ: n    # ㄶ
+letter ᆮ: t    # ㄷ
+letter ᆯ: l    # ㄹ
+letter ᆰ: k    # ㄺ
+letter ᆱ: m    # ㄻ
+letter ᆲ: l    # ㄼ
+letter ᆳ: l    # ㄽ
+letter ᆴ: l    # ㄾ
+letter ᆵ: p    # ㄿ
+letter ᆶ: l    # ㅀ
+letter ᆷ: m    # ㅁ
+letter ᆸ: p    # ㅂ
+letter ᆹ: p    # ㅄ
+letter ᆺ: t    # ㅅ
+letter ᆻ: t    # ㅆ
+letter ᆼ: ng    # ㅇ
+letter ᆽ: t    # ㅈ
+letter ᆾ: t    # ㅊ
+letter ᆿ: k    # ㅋ
+letter ᇀ: t    # ㅌ
+letter ᇁ: p    # ㅍ
+letter ᇂ: t    # ㅎ
+letter ᆯᄅ: ll
+
+# McCune-Reischauer: k, t, p and ch at the start of a word and g, d, b, j between voiced sounds; the aspirated consonants with an apostrophe;
+# ŏ and ŭ with a breve; s before i and wi is sh. Kim Minjun, Pak Chŏnghŭi, Ch'oe.
+letter mr ᄀ: g (after a vowel)
+letter mr ᄀ: g (after ᆫ ᆯ ᆷ ᆼ)
+letter mr ᄀ: k
+letter mr ᄃ: d (after a vowel)
+letter mr ᄃ: d (after ᆫ ᆯ ᆷ ᆼ)
+letter mr ᄃ: t
+letter mr ᄇ: b (after a vowel)
+letter mr ᄇ: b (after ᆫ ᆯ ᆷ ᆼ)
+letter mr ᄇ: p
+letter mr ᄌ: j (after a vowel)
+letter mr ᄌ: j (after ᆫ ᆯ ᆷ ᆼ)
+letter mr ᄌ: ch
+letter mr ᄎ: ch'
+letter mr ᄏ: k'
+letter mr ᄐ: t'
+letter mr ᄑ: p'
+letter mr ᄍ: tch
+letter mr ᄉ: sh (before ᅵ ᅱ)
+letter mr ᅥ: ŏ
+letter mr ᅧ: yŏ
+letter mr ᅯ: wŏ
+letter mr ᅳ: ŭ
+letter mr ᅴ: ŭi
+# McCune-Reischauer as most records write it, without the breves: Chong, Kum
+letter mrplain ᄀ: g (after a vowel)
+letter mrplain ᄀ: g (after ᆫ ᆯ ᆷ ᆼ)
+letter mrplain ᄀ: k
+letter mrplain ᄃ: d (after a vowel)
+letter mrplain ᄃ: d (after ᆫ ᆯ ᆷ ᆼ)
+letter mrplain ᄃ: t
+letter mrplain ᄇ: b (after a vowel)
+letter mrplain ᄇ: b (after ᆫ ᆯ ᆷ ᆼ)
+letter mrplain ᄇ: p
+letter mrplain ᄌ: j (after a vowel)
+letter mrplain ᄌ: j (after ᆫ ᆯ ᆷ ᆼ)
+letter mrplain ᄌ: ch
+letter mrplain ᄎ: ch'
+letter mrplain ᄏ: k'
+letter mrplain ᄐ: t'
+letter mrplain ᄑ: p'
+letter mrplain ᄍ: tch
+letter mrplain ᄉ: sh (before ᅵ ᅱ)
+letter mrplain ᅥ: o
+letter mrplain ᅧ: yo
+letter mrplain ᅯ: wo
+letter mrplain ᅳ: u
+letter mrplain ᅴ: ui
+
+# comparison. The ways share letters for different sounds, so some sounds are one here:
+#  - g and k, d and t, b and p, j and ch are one (Gim, Kim; Bak, Pak), and doubled kk, tt, pp, ss, jj or tch is the single letter.
+#  - ㅓ is eo, ŏ, or u in a family's own spelling (Jeon, Chŏn, Chun; Seong, Sung; Heo, Hur): eo is u. ㅡ is eu (Eun, Seung) and stays eu.
+#  - oo and ou are u (Yoon, Moon, Koo), ee is i (Lee, Hee), and hui, hŭi and hee are one (Chung-hee).
+#  - an h or r before no vowel is only a spelling (Oh, Ahn, Sohn, Park, Hur).
+#  - at the start of a word l and rh are r; ri and yi are i and ry is y (Lee, Rhee, Yi and I; Lim and Im; Ryu and Yu); r is n before any
+#    other vowel (Roh and No, Ra and Na), as the two Koreas write those names one way each.
+# 여 (Yeo) and 유 (Yu), 연 (Yeon) and 윤 (Yun) are one here, as records write them all Yu and Yun. MR without its breves writes ㅓ as o (Chong),
+# which this reads as ㅗ.
+fold wo: wŏ, wǒ
+fold eo: ŏ, ǒ
+fold eu: ŭ, ǔ
+fold r: rh
+fold r: l (at the start)
+fold u: oo, ou
+fold u: wu (at the start)
+fold i: ee, eui (after h), ui (after h)
+fold u: eo
+fold oe: oi
+fold ae: ai
+fold _: h (not before a vowel)
+fold _: r (not before a vowel)
+fold i: ri (at the start), yi (at the start)
+fold y: ry (at the start)
+fold n: r (at the start)
+# the g of a syllable's ending ng stays: Jung, Kang
+fold k: g (not after n), kk
+fold t: d, tt
+fold p: b, pp
+fold s: sh, ss
+fold ch: tch, jj, j

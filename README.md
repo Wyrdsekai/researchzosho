@@ -7,6 +7,10 @@
 
 研究蔵書, *the research holdings.* The Research Harness For The Rest Of Us.
 
+ResearchZosho is an open-source deep research assistant. Give it a question and it searches the web
+and scholarly papers, or only your own PDFs, and writes a report in which every claim points at a
+source. It runs on your own computer with a local LLM (llama.cpp, Ollama, LM Studio) or a hosted API.
+
 Three people, one problem.
 
 Your vet mentions a new drug for your dog's cancer. The follow-up is in three days. You want to know
@@ -39,6 +43,10 @@ This is The Research Harness For The Rest Of Us.
 
 → **[LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md)**: how to use it day to day
 → **[LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md)**: for programmers, how a program talks to it
+→ **[FAMILY_HISTORY.md](docs/FAMILY_HISTORY.md)**: researching your family, from a relative's notes to records and a family tree
+
+→ **[BEDROCK.md](docs/BEDROCK.md)**: using the models in your own AWS account (Amazon Bedrock) with your own AWS sign-in
+
 → **[MODELS.md](docs/MODELS.md)**: which model to run, by your graphics card's VRAM, from what we measured
 
 ---
@@ -140,12 +148,16 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_EMBED` | an embeddings server (OpenAI embeddings call), so search works by meaning as well as by words; `off` for words only. `researchzosho embed start` runs one with Docker (Text Embeddings Inference, about nine times faster than llama.cpp on the same model) |
 | `RESEARCHZOSHO_LIBRARY` | where the library folder is (default `~/researchzosho-library`) |
 | `research.workers` / `research.pause` / `research.window` | how research runs share the model: how many questions at once, a pause switch, the hours it may work. Set with `researchzosho research …`; they take effect at once |
+| `RESEARCHZOSHO_VISION_DRIVE` / `RESEARCHZOSHO_VISION_MODEL` | a separate model for reading pictures (a photographed page, a scanned PDF); by default your own model reads them, when it reads images |
+| `RESEARCHZOSHO_RECORDS` | `record_search` goes to research runs in genealogy mode and to software questions; `always` gives it to every run, `off` to none |
 | `RESEARCHZOSHO_BRAVE_KEY` / `RESEARCHZOSHO_SEARXNG` | the web search backend: a Brave Search API key (used first), a SearXNG address (default `http://localhost:8888`; `researchzosho search start` runs one with Docker); with neither, the built-in fallback, Wikipedia plus Crossref and OpenAlex (`RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off) |
 | `RESEARCHZOSHO_API_KEY` | the key for a hosted API; it is sent only to that server |
 | `RESEARCHZOSHO_UPDATE` | `check` (default): say when a newer release exists; `auto`: the service updates itself after the housekeeping when idle; `off` |
 | `RESEARCHZOSHO_EXPLORER_PER_NIGHT` / `RESEARCHZOSHO_EXPLORER_TYPES` | how many open questions the housekeeping researches a night (default 2), and of which types (default report, asked, person) |
 | `RESEARCHZOSHO_FETCH_PRIVATE` | `deny` to stop it fetching addresses on your own network |
 | `RESEARCHZOSHO_FETCH_MAX_BYTES` | the largest document it will download (default 25 MB) |
+| `RESEARCHZOSHO_STALL_MINUTES` | after how many minutes without progress a research run is marked "no progress since" and the service writes where the run waits into its log (default 15) |
+| `RESEARCHZOSHO_FETCH_MIN_BYTES_PER_SECOND` | the slowest a page may come, on average, before the download is given up (default 4,096 bytes a second); a page that keeps coming faster is read to its end however long it takes |
 
 ### As a service
 

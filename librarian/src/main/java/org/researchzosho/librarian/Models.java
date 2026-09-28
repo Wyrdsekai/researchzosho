@@ -24,6 +24,18 @@ public final class Models {
                 + "\n    (the file: https://huggingface.co/" + hf + "/resolve/main/" + file + ")";
     }
 
+    /**
+     * The choice for a machine whose card cannot hold the 27B but whose RAM can hold a model's experts (2026-09-18/19): a 35B that uses
+     * about 3B of its weights for each token. Measured against the rows it replaces on four questions: gpt-oss-20b answered fast and
+     * wrong with nothing cited, the 9B could not finish a write-up in its window, and this one did real research at about twice the
+     * 27B's speed, citing a little more loosely than the 27B (20% of cited sentences marked by the checker against 14%).
+     */
+    public static final Choice EXPERTS_IN_RAM = new Choice("Qwen3.6-35B-A3B at 4-bit, experts in RAM", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+            "a 35B-class model on a small card: needs 4 GB of card free and 32 GB of RAM; 22 GB file. A 16 GB card read 1,700 tokens a second and wrote 33; an 8 GB laptop card 700 and 28. "
+            + "`researchzosho model install` sets it up with the flags that matter (how many layers stay in RAM, the batch, one thread on each fast core)",
+            "researchzosho model install");
+    static final int EXPERTS_IN_RAM_GB = 32;
+
     public static final List<Tier> TIERS = List.of(
         new Tier("24 GB of VRAM or more", 24, List.of(
             new Choice("Qwen3.8-27B at 4-bit", "Qwen3.8-27B-UD-Q4_K_M.gguf", "the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file",
@@ -71,10 +83,13 @@ public final class Models {
         Tier t = gb > 0 ? tierFor(gb) : null;
         if (gb <= 0) b.append("No NVIDIA card was found on this machine (or nvidia-smi is not on the PATH).\n");
         else b.append(String.format("This machine's card has %.0f GB.%n", gb));
-        if (t == null) {
+        boolean expertsInRam = ModelServer.os != ModelServer.Os.macos && gb >= 4 && gb < 24 && ModelServer.ramGb() >= EXPERTS_IN_RAM_GB;
+        if (expertsInRam) b.append(String.format("It has %.0f GB of RAM, which changes the choice: a model that keeps its experts in RAM runs here.%n  ", ModelServer.ramGb()))
+                .append(EXPERTS_IN_RAM.model()).append(": ").append(EXPERTS_IN_RAM.note()).append("\n    ").append(EXPERTS_IN_RAM.serve()).append("\n");
+        if (t == null && !expertsInRam) {
             b.append("Nothing measured runs well in that. Use a hosted model server for the research runs (setup asks for its address and key); everything else stays on this machine.\n");
-        } else {
-            b.append("Measured choice").append(t.choices().size() > 1 ? "s" : "").append(" for this size (").append(t.card()).append("), best first:\n");
+        } else if (t != null) {
+            b.append(expertsInRam ? "With the model wholly on the card, the measured choice" : "Measured choice").append(t.choices().size() > 1 ? "s" : "").append(" for this size (").append(t.card()).append("), best first:\n");
             for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n    ").append(c.serve().replace("\n    ", "\n    ")).append("\n");
             b.append("Then give setup the address http://127.0.0.1:8080. The pages, the index and the library stay on this machine whatever drives them.\n");
         }
@@ -88,6 +103,7 @@ public final class Models {
             b.append("\n").append(t.card()).append(":\n");
             for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n");
         }
+        b.append("\nAny card with 4 GB free, and 32 GB of RAM:\n  ").append(EXPERTS_IN_RAM.model()).append(": ").append(EXPERTS_IN_RAM.note()).append("\n");
         b.append("\nMeasured and not recommended: Qwen3 14B and Mistral Small 24B (a fact wrong each; Mistral needs 19 GB), the 27B at 3-bit (slow, under-finds), Qwen3 8B and Llama 3.1 8B (thin), Granite 4.1 8B (right, but 9.4 GB in use with one 16k slot, so not an 8 GB fit, and one unit slip), Phi-4-reasoning-plus, Falcon-H1 7B, SmolLM3 3B, LFM2 8B and Granite 4.0 micro (copied the prompt, answered without sources, or got the facts wrong).\n");
         b.append("researchzosho models prints the row for this machine's card with the command that serves it.\n");
         return b.toString();

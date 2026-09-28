@@ -12,6 +12,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import java.io.IOException;
 /** Two libraries: one asks the other, the answer stays labelled as the other's, and the hop stops there. */
 class PeersTest {
 
@@ -43,7 +45,7 @@ class PeersTest {
             assertTrue(a.get("rendered").asText().contains("cut by hand"), a.get("rendered").asText());
             assertTrue(peers.get(1).has("error"), "the peer that is down is reported, not dropped: " + peers.get(1));
             assertEquals(0, r.get("entries").size(), "nothing was copied into our answer");
-            String text = Peers.render((com.fasterxml.jackson.databind.node.ArrayNode) peers);
+            String text = Peers.render((ArrayNode) peers);
             assertTrue(text.contains("== alice (alice) ==") && text.contains("== nobody ==") && text.contains("could not ask"), text);
             // one hop: alice's own answer over the wire was asked with peers=none, so her peers (none here) were not consulted;
             // and a peer's peers never appear in ours
@@ -58,8 +60,8 @@ class PeersTest {
     @Test
     void aPeerIsRefusedForAnAddressTheLibraryMustNotCall(@TempDir Path tmp) throws Exception {
         LibraryStore ours = new LibraryStore(tmp); ours.init();
-        assertThrows(java.io.IOException.class, () -> Peers.add(ours, "meta", "http://169.254.169.254/", "t", List.of()));
-        assertThrows(java.io.IOException.class, () -> Peers.add(ours, "", "http://127.0.0.1:1", "t", List.of()));
+        assertThrows(IOException.class, () -> Peers.add(ours, "meta", "http://169.254.169.254/", "t", List.of()));
+        assertThrows(IOException.class, () -> Peers.add(ours, "", "http://127.0.0.1:1", "t", List.of()));
         Peers.add(ours, "bob", "http://127.0.0.1:1/", "t", List.of("lab", "family"));
         assertEquals(1, Peers.select(ours, "lab").size());
         assertEquals(1, Peers.select(ours, "bob").size());

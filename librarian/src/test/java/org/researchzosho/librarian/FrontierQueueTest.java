@@ -1,8 +1,12 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -85,5 +89,61 @@ class FrontierQueueTest {
         assertTrue(out.startsWith("1 run(s) for 2 question(s), 1 admitted"), out);
         assertEquals(2, open(store).size(), "the two lead questions left the queue together; Titan and Japan remain");
         assertEquals("How do Titan's methane lakes form?", open(store).get(0).text());
+    }
+
+    @Test
+    void aParkedQuestionKeepsThePersonsReasonAndTheDate(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        store.frontier("person", "Who were the parents of 森田正一?");
+        assertTrue(Frontier.park(store, "Who were the parents of 森田正一?", "waits on the 戸籍 request to the town hall"));
+        String why = Frontier.whyParked(store, "Who were the parents of 森田正一?");
+        assertTrue(why.startsWith("waits on the 戸籍 request to the town hall (parked 20"), why);
+        var listed = new LibraryProtocol(store).frontierList();
+        assertEquals(why, listed.get(0).path("parked_why").asText(), "the list carries it, for the page and the command line");
+        assertTrue(Frontier.unpark(store, "Who were the parents of 森田正一?"));
+        assertEquals("", Frontier.whyParked(store, "Who were the parents of 森田正一?"), "back in the queue, the reason goes");
+        assertTrue(Frontier.park(store, "Who were the parents of 森田正一?"));
+        assertEquals("", Frontier.whyParked(store, "Who were the parents of 森田正一?"), "parked without a reason has none");
+        assertFalse(new LibraryProtocol(store).frontierList().get(0).has("parked_why"));
+    }
+
+    @Test
+    void aReasonGoesWithItsWaitAndParkingAParkedQuestionSaysSo(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        String q = "Who were the parents of 森田正一?";
+        store.frontier("person", q);
+        assertTrue(Frontier.park(store, q, "waits on the 戸籍 request to the town hall"));
+        // parked again: it stays parked, and a reason given now replaces the old one
+        assertFalse(Frontier.park(store, q, "the town hall answered that it needs a letter"));
+        assertTrue(Frontier.isParked(store, q));
+        assertTrue(Frontier.whyParked(store, q).startsWith("the town hall answered that it needs a letter (parked "), Frontier.whyParked(store, q));
+        var proto = new LibraryProtocol(store);
+        var again = proto.frontier(new ObjectMapper().createObjectNode().put("op", "park").put("question", q));
+        assertTrue(again.path("parked").asBoolean() && again.path("already").asBoolean(), again.toString());
+        // dropped, the reason goes with the question; filed again, it starts with none
+        assertTrue(Frontier.drop(store, q, "person"));
+        assertEquals("", Frontier.whyParked(store, q), "a dropped question keeps no reason");
+        assertFalse(Frontier.park(store, q, "a reason"), "a dropped question is not open: nothing to park");
+        assertEquals("", Frontier.whyParked(store, q));
+        store.frontier("person", q);
+        assertEquals("", Frontier.whyParked(store, q), "filed again, the question has no reason of the earlier one");
+        assertTrue(Frontier.park(store, q, "waits on the letter"));
+        store.frontier("person", q);
+        assertEquals("", Frontier.whyParked(store, q), "filing the question again ends the reason its parked copy had");
+        // the command says a parked question is parked already
+        String real = System.getProperty("user.home");
+        PrintStream was = System.out;
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        LibraryStore home = new LibraryStore(tmp.resolve("home").resolve("researchzosho-library")); home.init();
+        home.frontier("person", q);
+        Frontier.park(home, q, "waits on the letter");
+        System.setProperty("user.home", tmp.resolve("home").toString());
+        System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
+        int rc;
+        try { rc = LibrarianCli.run(new String[]{"researchzosho", "questions", "park", q, "--why", "the letter was sent"}, "http://127.0.0.1:1", "m"); }
+        finally { System.setOut(was); System.setProperty("user.home", real); }
+        assertEquals(0, rc);
+        assertTrue(out.toString(StandardCharsets.UTF_8).contains("This question is already parked: " + q + "\n  The reason kept with it is now: the letter was sent"), out.toString(StandardCharsets.UTF_8));
+        assertTrue(Frontier.whyParked(home, q).startsWith("the letter was sent"));
     }
 }

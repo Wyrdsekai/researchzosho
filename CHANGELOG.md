@@ -1,5 +1,112 @@
 # Changelog
 
+## 0.5.0
+
+This release adds family history: you give the library what your family already knows, and it builds a tree, checks it, and searches newspapers, archives and scanned books for each person. It also finds software projects on GitHub and the package indexes, leaves some kinds of material out of research by default, and can use the models in your own AWS account.
+
+### Added
+
+**Family history**
+
+`docs/FAMILY_HISTORY.md` walks through all of this, step by step. You do not need a family-tree file to start.
+
+- Genealogy mode. Ask for it with `research ask "…" --genealogy`, the box "Family history (genealogy mode)" on the Research page, or a yes in the chat. The run ties a record to a person only when more than the name agrees, keeps names and dates as the source wrote them, and writes down the searches that found nothing. At a terminal or in the chat, a question that looks like family history is asked "Use genealogy mode for this question? (y/N)". Enter sends it as ordinary research.
+- A family run searches record collections by name: US newspapers, the Internet Archive's scanned books, the National Diet Library, Japan Search, Gallica, Delpher, Wikidata, WikiTree and others. With a free key it also searches Europeana, CiNii Research, the European Patent Office and Google Patents. It searches Geni once you sign in with `researchzosho records login geni`. `researchzosho records` lists them, `records test <source> <name>` tries one, and `records key` saves a key. A collection of your own goes in `~/.researchzosho/record-sources.json`.
+- `researchzosho genealogy read <folder>` reads what your family has: notes, lists of web addresses, a tree file, pictures of documents and books. It reads the notes first, because they say who is who, and reads a book only where it names the family. Each relation becomes a draft claim that keeps the sentence it came from. A file is read once, so you can add to the folder and give the same command again. `genealogy read` also takes one file or a web page, and `genealogy tell "<what you know>"` takes what you type.
+- Your notes say who wrote a book ("Kimie Hale - my father's cousin - wrote community.pdf", "community.pdf is Kimie Hale's memoir") and who translated it, and "I" in the book is its writer. When nothing says who wrote a book, the library asks its first pages once. A web page is the source of what it says, and no person in its facts is the page itself. A parent and a child are filed the way the text's own words say it, whatever way round the model read them.
+- Words that speak of somebody else give nobody a parent or a name: a parent word owned by or naming a third person, a likeness ("like a father"), a step to no relative ("my mother's friend") or a party the words never write files no parent; two names under 妻： file no brother and sister; a name in a sentence about somebody else, or another spelling that is another person of the text, is not the person's. In the family's view, a parent and a sibling claim between the same two from one source are set aside as "the source is read two ways", and a parent claim between two people written as husband and wife is set aside: one of the two is wrong, and the summary says so under Not settled. A changed note beside a link replaces the facts the old note gave.
+- A parent claim whose own words say adoptive, a step-parent, a parent-in-law, a godparent or a foster parent is read as that relation in the family's view, and the person's page says so. A book's index line "Hale, Ann (mother)" files that person as the writer's mother when the writer is known.
+- Relation words count as whole words with their modifiers: "my mother's grandfather" files no parent (it is filed as "relative of", with its words); a stepfather, a father-in-law, a godfather, an adoptive or a foster parent file their own relations, never a birth parent; "her father's younger brother" files no brother of a third person.
+- A name the words give to a relative ("her husband Tom Hart", 妻ハル) is not kept as a name of the person; the relation is filed instead where the words say whose relative it is. A read keeps every date a source gives, even one an older claim contradicts: the family's view weighs them.
+- In the family's view, a parent claim that the birth years or its own words make the wrong way round, and a sex claim whose words are about somebody else, are set aside. They stay in your library, and `genealogy check` and the person's page say why.
+- Dates stay as the source wrote them, such as "about 1850", and an era date gets its year beside it: 明治40年 (1907). Old and new character forms (髙橋 and 高橋) and the romanised spellings of a name count as one name.
+- `genealogy tree <person>` draws the family into `family-tree.svg`, and the `/tree` page shows the same. Each line is a claim: green is accepted, grey is a draft and red dots are disputed. A dashed line is an adoption, and a thin dotted line rests on a clue only, such as a family account.
+- `genealogy check` finds what cannot be true, such as a death before a birth or a third birth parent. It also lists names that may be one person, and a name that may be two people. It changes nothing. `genealogy tidy` joins a person who is in twice when you say yes, `genealogy split` moves claims to a second person of the same name, and `genealogy different` writes down that two people are not one.
+- `genealogy life <person>` shows a life in order of date, marks the years nothing is known about, and says whether each line rests on a record, a publication or a clue. `--with <other>` puts two lives side by side. `genealogy related "<name>" "<name>"` says how two people are related. Disputing a fact counts at once: the check, the life and the research questions stop using it.
+- `genealogy research` writes questions for each person from what the library knows, lists the people with the least known first, and asks whom to research now. Nothing starts by itself. `genealogy research "<name>"` researches the people you name. The living are researched too, from what public sources say of their work and public life, and their names go to search services as queries. `--skip-living` keeps to those who have died. The report opens with an answer to each question, and a Life section lists what each person did, with citations.
+- Before searching for a person, the library looks the name up on the web, sorts the results into the different people who share it, and asks you which one is your relative. `genealogy who` and the Who is who page (`/who`) ask the same.
+- The library keeps a research log of every search for a person, and the next run for that person is shown it. `genealogy log "<name>"` shows it, with addresses that open a search on FamilySearch, Ancestry, MyHeritage and other sites the library cannot search itself.
+- Names over a life. A person can carry several names, each with how it came (at birth, by marriage, by adoption, as 婿養子, as heir) and the years it was used. A family, a house or a 家 is an entry of its own, with its heads and members. `genealogy names <person>`, `genealogy family [<family>]` and the `/person` and `/family` pages show them. A search looks for each part of a life under the name the person carried then. A title or an honorific with a name (Mr. Hart, Viscount Hart, 遠藤さん, 子爵 遠藤健二), a book index's "Hart, Tom", Jr. and the number of a hereditary name (初代) are ways of writing a name, not names of their own. A family name alone in Latin letters, with a title or without, is never kept as another name of anybody, so a source's "Hart" is not read as one person because of it, and `genealogy tidy` offers to take off one that an earlier read kept. A person filed under one word, such as a courtesy name, is headed by a full name of theirs.
+- The library asks you what only the family can answer, such as whether two entries are one person or how a name changed. `genealogy who` and the Decisions page (`/decide`) ask these, and each answer says what it will do. At a terminal, `genealogy read` asks them beside the reading, without stopping it, and asks the ones still open again at the end. Who is who is asked first, and a question another would settle, such as which of two fathers is the birth father, comes after it. A word of a romanised Japanese name written alone is offered as that person, because such a name is written in either order and the library does not guess which word is the family name. `genealogy who --answered` lists your answers with the command that takes each back.
+- `genealogy summary` says what your sources settle about your close family: each person under how they are related to you, nearest first, and each line with where it comes from, in words you know, such as your notes, Geni, a book's title or a Wikipedia page. After the people it lists who is easy to mix up, where your notes and a source disagree (with your answer when you gave one), and what is not settled, such as two birth dates or a grandparent no source names. `--all` adds everyone the library places in your family, and `--out` writes the summary to a file. The Family summary page (`/summary`) shows the same, each name a link to the person's page.
+- `genealogy reset` takes out what was read from your folder, so you can read it in again. What you accepted, disputed or told the library stays, and a copy is saved first. `--all` also takes out what came from Geni and web pages and prints the commands that read them again. `--from` with the name of a list of web addresses takes out what the list's pages and Geni profiles gave. A reset that was stopped before it had finished is finished by the next `genealogy` command.
+- Geni: `researchzosho records login geni` signs you in for a day, and `genealogy read <profile address> --steps 30` reads a person and walks on through their relatives.
+- GEDCOM: `genealogy import <file.ged>` reads much more of a tree file from Geni, Ancestry, MyHeritage or a desktop program, older character sets included, and keeps two people of one name apart. `--dry` shows what it would do. `genealogy export <person>` writes every name and family back out.
+- `genealogy transcript <picture>` shows what the model read in a scan, and `--accept` or `--edit` confirms or corrects it. `genealogy source <file or address>` lists every fact that rests on one source. `genealogy hold <person> <number> --until "<what it waits for>"` keeps a question out of the searches while you wait for a record you asked for. In the chat, `/family tell`, `read`, `tree` and `check` work as the commands do.
+- Names from other languages are compared, joined and searched in the ways records write them in Latin letters: Japanese, Chinese, Korean, Russian, Greek, German and the Nordic languages. The rules are plain text files, and your own in `~/.researchzosho/spellings/` add to them.
+- A question about a name can be answered "It was never a name of …". The name goes, the facts that gave it are disputed, and `genealogy who --reopen` gives them back.
+
+**Finding software projects**
+
+- A new field, `software`, for questions about projects, libraries and tools. The run searches GitHub by best match and by most recent push, so small and new projects turn up. It also searches Hugging Face, npm and crates.io. It judges a project by its last push, licence and its own README and code, and answers with a table.
+- GitHub search works without a key, at 10 searches a minute. `researchzosho records key github-repos <token>` raises that to 30 and turns on code search. The token needs no scopes.
+- `researchzosho survey --from <report id>` clones the first five repositories a report names and reads each one. `--top N` takes more. After a software run, "clone them" in the chat does the same, one project at a time. A run about a cloned repository can read its code and cite the file and the line.
+
+**Content safety**
+
+`docs/LIBRARIAN_HOWTOUSE.md` explains each check.
+
+- Research leaves out pornography, gore, and step-by-step instructions for making weapons, explosives or illegal drugs or for running exploit code. Writing about these subjects is researched as usual. Sexual content involving a child is always left out.
+- Web search asks Brave and SearXNG for moderate safe search. A list of pornography, shock and gore sites, downloaded at most once a day, takes those sites out of the results, and the library never fetches a page from them. A site you trust (`researchzosho sources trust <site>`) is never left out by the list.
+- Every page a run fetches is checked by your own model before it is read or saved. The report's Left out section lists each page left out by its address.
+- To let the material in for one question, answer yes when `research ask` or the chat asks, tick the box on the Research page, or add `--allow explicit` or `--allow howto`. The yes counts for that run only.
+- A question that reads as you asking about harming yourself first shows where to find help: helplines for several countries and findahelpline.com. Then it asks whether to research the question. Enter or no starts nothing.
+- When the model declines a task, ResearchZosho says so and does not try to get around it. A run the model declines ends as declined and files nothing. A run it declines in part has a Declined section that says what was declined.
+
+**Amazon Bedrock**
+
+- `researchzosho bedrock use <model>` makes a model in your own AWS account the library's model: Claude, Llama, Nova, Qwen, Mistral and the others Bedrock hosts. `bedrock models` lists what your account offers in a region, and `bedrock test <model>` tries one. `--embed` also uses a Bedrock embedding model.
+- It uses your own AWS sign-in through the AWS command line and saves nothing of it. When AWS refuses, the message says what AWS answered and the usual cause. `docs/BEDROCK.md` has the steps, and the policy for whoever manages the account.
+
+**Models**
+
+- `researchzosho model install` sets up Qwen3.6-35B-A3B on a Linux or Windows machine with 4 GB free on the graphics card and 32 GB of RAM. It keeps most of the model in RAM, so a machine that cannot hold the 27B gets a 35B-class model instead of a 9B. `docs/MODELS.md` has the speeds.
+- After an update, the library tells you in one line when a different model now suits your machine. Nothing is switched by itself. `researchzosho model switch` changes to it, and `model prune` removes model files no longer in use.
+- `model install` also downloads the file that lets the model read pictures, for the models that have one. Run it again to get it.
+
+**Reports, claims and searches**
+
+- Pictures are documents. `researchzosho add register.jpg` reads a picture when your model reads images, and `add <folder> --pictures` takes a folder's pictures. A PDF of scanned pages is read page by page.
+- `accept`, `dispute` and `retire` take a claim's short code, such as `F-0012`. `dispute` then lists the other facts that rest on the same source.
+- `graph merge <a> <b> --because "<why>"` keeps the reason, and `graph unmerge <a>` takes the merge back.
+- A search that found nothing is kept as a dated line, apart from the claims, and the next search on that subject is shown it. `researchzosho looked` lists them, and `looked add <subject> --where <site> --what <words>` writes down a search you made by hand.
+- A report lists the findings its answer did not use, in a section "Found and not in the answer above". Its page has a "Go deeper" section with a button for each question the report left open.
+- `questions park <n> --why "<reason>"` keeps the reason with a parked question.
+- For programs: `library_research` and the tools that file runs take `field` and `allow`, and the Java and Python clients take `field`. `library_who` answers the who-is-who questions. A step the model declined answers with the new error `declined` (JSON-RPC -32006), and a question about harming yourself with the new error `confirm` (-32007), both HTTP 422. `library_job` and `GET /v1/jobs` can show a job in the new state `offered`: a run the chat filed that waits for the person's answer to its (y/N) questions.
+
+### Changed
+
+- Who can see a library is decided by who may read it (`researchzosho reader`). Anyone who may read it sees everything, the living in a family too. `graph kind --private` now changes nothing and says so, and `genealogy export` writes everyone in full.
+- Every field is on by default. `researchzosho profile disable <name>` turns one off. `genealogy` joins a run only when you ask for genealogy mode. `research ask --field <name>` asks for a field.
+- A 0.4.6 library in which you ran `profile enable genealogy` loses the family relations that command wrote into `catalog/graph/predicates.md`, so its ordinary claims are no longer read as family relations.
+- Your refused sources are left out of every page fetch, not only of search results.
+- A page you add yourself is checked for sexual content involving a child before it is saved.
+- A review no longer files a claim again when it has the same subject, relation and object as a claim you disputed or retired. Your decision holds.
+- A relation written as a sentence is read as the relation it names: "is a fork of" is `fork-of`. A passive such as "was cited" keeps its own words.
+- `graph merge` prints what it did in sentences. A script that read "merged a → b" needs the new line.
+- A saved web page keeps only the page's own content, without menus and footers.
+
+### Fixed
+
+- The citation check called a quotation made up when it had an apostrophe, a quote mark or an ampersand in it. It now reads those characters correctly, also in pages saved before.
+- Stopping a research run did nothing while it waited for the model. A stop now ends a run within seconds.
+- A streamed answer from the model, or a site that stopped sending, could hold a run for hours. Both now have a time limit. A run with no progress for 15 minutes shows "no progress since" in `researchzosho jobs`.
+- On a model with a 16k window, the report could be cut off because the request was a few tokens too long. The request is now measured in full, and sent once more with less in it when the server refuses it.
+- The Chat page opened the owner's latest conversation for anyone who could read the library. A reader now has conversations of their own.
+- A config path that named a folder instead of a file ended every command in a Java error. The command now says so in one sentence and goes on without the file.
+- `genealogy reset --from <file>` kept the other names that file had given a person another source also speaks of, so a name an older reading misfiled stayed after the file was read again. It now goes with the file, and comes back only if the new reading gives it.
+- Two updates at once could replace each other's files, for example when CodeZaiku and another program both updated ResearchZosho. One update now runs at a time, and the other changes nothing and says so. `researchzosho update --json` and `update now --json` answer a program that keeps ResearchZosho up to date, and `update now` ends with 0 when the install is current, 75 when another update is running, 3 when it cannot update itself and 1 when it failed.
+- `GET /v1/jobs/{id}` answered anyone, even when the library was closed to them. It now asks for read access, as `library_job` does. Reading a resource over MCP now checks the caller too.
+- A webhook never received a change of state, such as a claim accepted. It does now. A webhook whose reader has lost access is no longer sent changes.
+- `graph alias` no longer turns a person into a plain concept when no claim mentions the person yet.
+- An other name that has a comma in it, such as an index entry "Hart, Tom", is kept whole. It used to be read back as two names.
+- `scholar_search` says when neither Crossref nor OpenAlex answered, instead of showing an empty result.
+- A note on a site cited for the first time said nothing else on the web referred to it when the search about the site had failed. It now says the search could not be made.
+- `update now` works on Windows. It used to fail because the running program held its own files. A 0.4.x install on Windows cannot update itself: install 0.5.0 with the one-line installer.
+- On Windows, a service installed from a terminal where Java was found only on that terminal's PATH now starts at the next logon, and when Java cannot be found the log says so. On Linux and macOS, such a service now uses the Java it was installed with when systemd or launchd finds none.
+
+Upgrade with `researchzosho update now`.
+
 ## 0.4.6
 
 This release fixes `researchzosho setup` choosing a model that cannot chat, and the read-only check for SQL Server.

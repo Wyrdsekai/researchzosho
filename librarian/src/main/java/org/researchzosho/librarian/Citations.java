@@ -34,7 +34,7 @@ public final class Citations {
     /** The month an arXiv paper was posted, read from its id: {@code 2606.09498} is 2026-06. "" when the text holds no new-style id. */
     public static String arxivPosted(String text) {
         if (text == null) return "";
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?<![\\d.])(\\d{2})(0[1-9]|1[0-2])\\.(\\d{4,5})(v\\d+)?(?![\\d.])").matcher(text);
+        Matcher m = Pattern.compile("(?<![\\d.])(\\d{2})(0[1-9]|1[0-2])\\.(\\d{4,5})(v\\d+)?(?![\\d.])").matcher(text);
         if (!m.find()) return "";
         int yy = Integer.parseInt(m.group(1));
         if (yy < 7 || yy > 40) return "";   // arXiv's new ids began 0704; nothing after 2040 is a paper id
@@ -102,7 +102,7 @@ public final class Citations {
         String ident = identify(locator);
         if (ident != null || store == null) return ident;
         try {
-            java.nio.file.Path p = RawCapture.find(store, locator);
+            Path p = RawCapture.find(store, locator);
             if (p == null) return null;
             String[] r = RawCapture.read(p);
             String head = r[2].substring(0, Math.min(6000, r[2].length()));

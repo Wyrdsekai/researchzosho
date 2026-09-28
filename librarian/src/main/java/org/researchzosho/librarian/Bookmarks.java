@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import org.researchzosho.Config;
 /**
  * A browser's bookmarks as a starting point: the Netscape bookmark file every browser exports
  * ({@code <DT><A HREF=…>title</A>} under {@code <H3>} folders), Chrome's {@code Bookmarks} JSON, or plain
@@ -20,7 +21,7 @@ public final class Bookmarks {
 
     public record Mark(String title, String url, String folder) { }
 
-    static final int MAX = org.researchzosho.Config.getInt("RESEARCHZOSHO_BOOKMARKS_MAX", 200);
+    static final int MAX = Config.getInt("RESEARCHZOSHO_BOOKMARKS_MAX", 200);
     static final Pattern A = Pattern.compile("(?is)<(H3|A)\\b([^>]*)>(.*?)</\\1>");
     static final Pattern HREF = Pattern.compile("(?i)HREF=\"([^\"]+)\"");
     private static final ObjectMapper M = new ObjectMapper();

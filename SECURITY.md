@@ -36,5 +36,12 @@ that. The command then prints its failure only to a terminal. Always pass the fl
   `RESEARCHZOSHO_FETCH_PRIVATE=deny` makes it refuse your whole private network too.
 - Public record services, when a document carries a DOI, an arXiv id or a PubMed id, to look up its
   citation.
+- `nsfw.oisd.nl`, at most once a day while the program runs, to download the OISD list of
+  pornography, shock and gore sites (`https://nsfw.oisd.nl/domainswild2`, about 8 MB). The list goes
+  into the ResearchZosho folder (`~/.researchzosho/site-list/`), not into a library. Nothing is sent
+  with the request but the program's name. When a download fails, the list already on disk goes on
+  being used and the next try is the next day. Until the first download arrives, a smaller list that
+  ships with the program is used, and a failed download is tried again after an hour.
+  `RESEARCHZOSHO_SITE_LIST=off` stops the download and keeps to the list that ships with the program.
 
 Everything it keeps is in the library folder on your disk. Nothing is sent anywhere to be stored.

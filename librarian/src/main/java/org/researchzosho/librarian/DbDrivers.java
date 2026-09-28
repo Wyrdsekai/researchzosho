@@ -13,6 +13,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.net.URI;
+import java.nio.file.StandardCopyOption;
+import java.security.NoSuchAlgorithmException;
+import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import org.researchzosho.Config;
 /**
  * The database drivers. SQLite, PostgreSQL and MySQL/MariaDB ship with the program. SQL Server, MongoDB
  * and DuckDB are fetched when the person asks for them, from Maven Central, each jar checked against a
@@ -29,7 +35,7 @@ public final class DbDrivers {
     /** A kind of database: its name, the class that drives it, whether it ships in the box, and the jars to fetch when it does not. */
     public record Kind(String name, String label, String driverClass, boolean inBox, List<Jar> jars, String sizeNote) { }
 
-    static final String CENTRAL = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVER_REPO", "https://repo1.maven.org/maven2/");
+    static final String CENTRAL = Config.get("RESEARCHZOSHO_DRIVER_REPO", "https://repo1.maven.org/maven2/");
 
     public static final Map<String, Kind> KINDS = new LinkedHashMap<>();
     static {
@@ -46,13 +52,13 @@ public final class DbDrivers {
                 List.of(new Jar("org/duckdb/duckdb_jdbc/1.5.5.1/duckdb_jdbc-1.5.5.1.jar", "22343dd258db1b0b51d37afc776c8dff5b19282829fa5b47f7d5d6fe02b3377a")), "82 MB"));
     }
 
-    private static final Map<String, ClassLoader> LOADERS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<String, ClassLoader> LOADERS = new ConcurrentHashMap<>();
 
     private DbDrivers() { }
 
-    public static Path dir() { return org.researchzosho.Config.userConfigPath().toAbsolutePath().resolveSibling("drivers"); }
+    public static Path dir() { return Config.userConfigPath().toAbsolutePath().resolveSibling("drivers"); }
 
-    public static Kind kind(String name) { return KINDS.get(name == null ? "" : name.toLowerCase(java.util.Locale.ROOT)); }
+    public static Kind kind(String name) { return KINDS.get(name == null ? "" : name.toLowerCase(Locale.ROOT)); }
 
     /** Whether the kind's driver can be loaded now. */
     public static boolean installed(Kind k) {
@@ -70,11 +76,11 @@ public final class DbDrivers {
             Path to = dir().resolve(j.file());
             if (Files.isRegularFile(to) && sha256(to).equals(j.sha256())) { done.add(j.file() + " (already there)"); continue; }
             Path tmp = Files.createTempFile(dir(), "fetch-", ".part");
-            try (InputStream in = java.net.URI.create(CENTRAL + j.path()).toURL().openStream()) { Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING); }
+            try (InputStream in = URI.create(CENTRAL + j.path()).toURL().openStream()) { Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING); }
             catch (IOException e) { Files.deleteIfExists(tmp); throw new IOException("Could not download " + j.file() + ": " + e.getMessage()); }
             String got = sha256(tmp);
             if (!got.equals(j.sha256())) { Files.deleteIfExists(tmp); throw new IOException("The downloaded " + j.file() + " does not match its expected checksum. It was not kept."); }
-            Files.move(tmp, to, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            Files.move(tmp, to, StandardCopyOption.REPLACE_EXISTING);
             done.add(j.file());
         }
         LOADERS.remove(k.name());
@@ -100,6 +106,6 @@ public final class DbDrivers {
             byte[] buf = new byte[1 << 16]; int n;
             while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
             return HexFormat.of().formatHex(md.digest());
-        } catch (java.security.NoSuchAlgorithmException e) { throw new IOException(e); }
+        } catch (NoSuchAlgorithmException e) { throw new IOException(e); }
     }
 }

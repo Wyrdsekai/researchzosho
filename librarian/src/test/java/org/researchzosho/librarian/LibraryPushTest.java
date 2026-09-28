@@ -106,4 +106,16 @@ class LibraryPushTest {
         assertTrue(pkg.contains("OPEN THREADS"), pkg);
         assertTrue(pkg.contains("[trajectory]"), pkg);
     }
+
+    @Test
+    void aReportNamedInTheQuestionIsHandedToTheRunWhole(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        new LibrarianIndex(store, Embeddings.none()).rebuild();
+        store.write(new Investigation("I-0010-best-practices-for-small-teams", "What are the best practices for small teams?", Finding.State.accepted, "w", "2026-09-22T00:00:00Z", List.of(), List.of("Which practices were tested?"),
+                "## Answer\n\nPair on the hard parts. Ship daily.\n\n## Evidence\n\n| noise |\n"));
+        String pushed = LibraryPush.block(store, "Follow-up to I-0010-best-practices-for-small-teams (What are the best practices for small teams?): which of these practices have been tested?", 6);
+        assertTrue(pushed.startsWith("THE EARLIER REPORT THIS QUESTION FOLLOWS (I-0010-best-practices-for-small-teams"), pushed);
+        assertTrue(pushed.contains("Pair on the hard parts.") && !pushed.contains("| noise |"), "the answer, not the evidence: " + pushed);
+        assertEquals("", LibraryPush.block(store, "Follow-up to I-0099-nothing (gone): anything?", 6), "a report that is not there is nothing");
+    }
 }

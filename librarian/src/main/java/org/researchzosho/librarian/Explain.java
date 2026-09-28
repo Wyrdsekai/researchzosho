@@ -18,6 +18,14 @@ import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Supplier;
+import org.researchzosho.Config;
+import org.researchzosho.drive.Declined;
 /**
  * A reading aid, never a record. An entry re-explained at a rung the reader picks — {@code beginner} for
  * anyone, {@code familiar} for someone who knows the field but not this work, {@code written} for the
@@ -85,8 +93,8 @@ public final class Explain {
         o.put("quick", true); o.put("max_turns", QUICK_TURNS); o.put("max_minutes", QUICK_MINUTES);
         return o;
     }
-    static final int QUICK_TURNS = org.researchzosho.Config.getInt("RESEARCHZOSHO_QUICK_TURNS", 12);
-    static final int QUICK_MINUTES = org.researchzosho.Config.getInt("RESEARCHZOSHO_QUICK_MINUTES", 6);
+    static final int QUICK_TURNS = Config.getInt("RESEARCHZOSHO_QUICK_TURNS", 12);
+    static final int QUICK_MINUTES = Config.getInt("RESEARCHZOSHO_QUICK_MINUTES", 6);
 
     static final int MATERIAL_CAP = 12_000;
     static final String UNSUPPORTED_MARK = "(the sources do not say this)";
@@ -179,11 +187,11 @@ public final class Explain {
 
     // ---- material ----
 
-    record Material(String text, String hash, java.util.Map<String, String> byId) { }
+    record Material(String text, String hash, Map<String, String> byId) { }
 
     private static Material material(LibraryStore store, LibraryProtocol p, ObjectNode e) throws IOException {
         StringBuilder sb = new StringBuilder();
-        java.util.Map<String, String> byId = new java.util.LinkedHashMap<>();
+        Map<String, String> byId = new LinkedHashMap<>();
         String id = e.path("id").asText();
         String head = "[" + id + "] " + e.path("kind").asText() + " · " + e.path("state").asText() + " · " + e.path("title").asText() + "\n" + cap(substance(e.path("body").asText()), 9_000);
         byId.put(id, head);
@@ -218,7 +226,7 @@ public final class Explain {
     static final String MATERIAL_VERSION = "sections-1";
 
     /** The sections of a write-up that are not the substance: the question asked, the run's own bookkeeping, the sources. A rewrite shows the answer and the body sections, structured as the original. */
-    static final java.util.Set<String> APPARATUS = java.util.Set.of("question", "conflicts and uncertainty", "sources", "caveats", "checks", "cite-check", "evidence", "references");
+    static final Set<String> APPARATUS = Set.of("question", "conflicts and uncertainty", "sources", "caveats", "checks", "cite-check", "evidence", "references");
 
     /**
      * What a rewrite is made from: for a write-up, the final "## Answer" and the body sections after it, up to the
@@ -245,7 +253,7 @@ public final class Explain {
 
     private static Material termMaterial(LibraryStore store, LibraryProtocol p, String term, ObjectNode ctx) throws IOException {
         StringBuilder sb = new StringBuilder();
-        java.util.Map<String, String> byId = new java.util.LinkedHashMap<>();
+        Map<String, String> byId = new LinkedHashMap<>();
         if (ctx != null) {
             String id = ctx.path("id").asText();
             String around = around(ctx.path("body").asText(), term, 900);
@@ -288,7 +296,7 @@ public final class Explain {
         String t = term.toLowerCase(Locale.ROOT).strip();
         List<Pattern> tries = new ArrayList<>();
         tries.add(Pattern.compile(Pattern.quote(t)));
-        tries.add(Pattern.compile(String.join("[\\s-]+", java.util.Arrays.stream(t.split("[\\s-]+")).map(Pattern::quote).toList())));
+        tries.add(Pattern.compile(String.join("[\\s-]+", Arrays.stream(t.split("[\\s-]+")).map(Pattern::quote).toList())));
         String[] words = t.split("[\\s-]+");
         if (words.length > 2) tries.add(Pattern.compile(Pattern.quote(words[0]) + "[\\s-]+" + Pattern.quote(words[1])));
         String lower = text.toLowerCase(Locale.ROOT);
@@ -328,12 +336,14 @@ public final class Explain {
     // ---- generation and the check ----
 
     private static Reading generate(Researcher.Drive drive, String prompt, Material mat, String of, String term, Rung rung, Progress progress) {
-        if (org.researchzosho.Config.isOn("RESEARCHZOSHO_EXPLAIN_DEBUG", false)) System.err.println("---- explain prompt ----\n" + prompt + "\n---- end ----");
+        if (Config.isOn("RESEARCHZOSHO_EXPLAIN_DEBUG", false)) System.err.println("---- explain prompt ----\n" + prompt + "\n---- end ----");
         progress.at(term.isEmpty() ? "writing it for " + (rung == Rung.familiar ? "someone who knows the field" : "a beginner") : "writing what the library says about \"" + term + "\"");
         ArrayNode msgs = M.createArrayNode();
         msgs.addObject().put("role", "user").put("content", prompt);
-        String raw = drive.classify(msgs, 1_200);
-        if (org.researchzosho.Config.isOn("RESEARCHZOSHO_EXPLAIN_DEBUG", false)) System.err.println("---- explain reply ----\n" + raw + "\n---- end ----");
+        String raw;
+        try (var step = Declines.step(term.isEmpty() ? "explain an entry of a research library for a reader, from the library's own material" : "explain the term \"" + Acquisitions.compress(term, 100) + "\" for a reader, from a research library's own material")) { raw = drive.prose(msgs, 1_200); }   // the reading is the work: a watched seat reads it for a decline
+        catch (Declined d) { throw d.at(term.isEmpty() ? "to write this reading" : "to explain \"" + term + "\""); }
+        if (Config.isOn("RESEARCHZOSHO_EXPLAIN_DEBUG", false)) System.err.println("---- explain reply ----\n" + raw + "\n---- end ----");
         if (raw == null || raw.isBlank()) throw ProtocolError.unavailable("The model returned nothing for this reading.");
         if (raw.strip().toUpperCase(Locale.ROOT).startsWith(NOT_ON_SHELVES) || raw.strip().toUpperCase(Locale.ROOT).contains("\n" + NOT_ON_SHELVES)) {
             return new Reading(of, term, rung, "", List.of(), "none", 0, 0, Instant.now().toString(), false, null);
@@ -410,7 +420,7 @@ public final class Explain {
         if (!all.startsWith("---\n")) return null;
         int end = all.indexOf("\n---\n", 4);
         if (end < 0) return null;
-        java.util.Map<String, String> head = new java.util.HashMap<>();
+        Map<String, String> head = new HashMap<>();
         for (String line : all.substring(4, end).split("\n")) { int c = line.indexOf(':'); if (c > 0) head.put(line.substring(0, c).strip(), line.substring(c + 1).strip()); }
         if (!basis.equals(head.get("basis"))) return null;   // the material changed under it
         String body = all.substring(end + 5);
@@ -440,12 +450,13 @@ public final class Explain {
     }
 
     /** The drive the library's readings use: the configured one, when it answers. Tests point this elsewhere. */
-    static volatile java.util.function.Supplier<Researcher.Drive> DRIVES = Explain::configuredDrive;
+    static volatile Supplier<Researcher.Drive> DRIVES = Explain::configuredDrive;
     public static Researcher.Drive drive() { return DRIVES.get(); }
 
     static Researcher.Drive configuredDrive() {
-        String driveUrl = org.researchzosho.Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
-        String model = org.researchzosho.Config.get("RESEARCHZOSHO_MODEL", "local-model");
-        return Crews.driveAnswers(driveUrl) ? Researcher.judgeDrive(driveUrl, model) : null;
+        String driveUrl = Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
+        String model = Config.get("RESEARCHZOSHO_MODEL", "local-model");
+        // watched: a model that declines is said, not worked around; what the judge was unsure of goes on the library's crews log
+        return Crews.driveAnswers(driveUrl) ? Researcher.watchedJudge(driveUrl, model, Declines.toCrewsLog(null, "declines")) : null;
     }
 }

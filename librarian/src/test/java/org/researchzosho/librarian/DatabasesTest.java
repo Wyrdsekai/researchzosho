@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
 /** A database the owner gives read access to: the statement guard, the registry, the schema, a query, hidden columns, the saved result, who may use it. */
 class DatabasesTest {
 
@@ -66,8 +67,8 @@ class DatabasesTest {
         LibraryStore store = new LibraryStore(home.resolve("lib")); store.init();
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         // a path to a SQLite file is enough; the kind is read from it; a wrong address is refused before anything is saved
-        assertThrows(java.io.IOException.class, () -> Databases.add("nope", home.resolve("missing.db").toString(), List.of()));
-        assertThrows(java.io.IOException.class, () -> Databases.add("bad name!", file.toString(), List.of()));
+        assertThrows(IOException.class, () -> Databases.add("nope", home.resolve("missing.db").toString(), List.of()));
+        assertThrows(IOException.class, () -> Databases.add("bad name!", file.toString(), List.of()));
         Databases.Db db = Databases.add("shop", file.toString(), List.of("email"));
         assertEquals("sqlite", db.kind());
         assertEquals(1, Databases.list().size()); assertNotNull(Databases.get("SHOP")); assertTrue(Databases.any());
@@ -87,9 +88,9 @@ class DatabasesTest {
         Databases.Result capped = Databases.query(store, db, "SELECT id FROM orders ORDER BY id", 2);
         assertEquals(2, capped.rows().size()); assertTrue(capped.more()); assertTrue(capped.text().contains("more exist"));
         // writes are refused in plain words, and the data is untouched
-        java.io.IOException e = assertThrows(java.io.IOException.class, () -> Databases.query(store, db, "DELETE FROM orders", 0));
+        IOException e = assertThrows(IOException.class, () -> Databases.query(store, db, "DELETE FROM orders", 0));
         assertTrue(e.getMessage().contains("Only queries that read"), e.getMessage());
-        assertThrows(java.io.IOException.class, () -> Databases.query(store, db, "SELECT 1; DELETE FROM orders", 0));
+        assertThrows(IOException.class, () -> Databases.query(store, db, "SELECT 1; DELETE FROM orders", 0));
         assertEquals("3", Databases.query(store, db, "SELECT COUNT(*) FROM orders", 0).rows().get(0).get(0));
         // and the connection itself cannot write, whatever reaches it
         try (Connection c = Databases.connect(db); Statement st = c.createStatement()) { assertThrows(Exception.class, () -> st.executeUpdate("DELETE FROM orders")); }

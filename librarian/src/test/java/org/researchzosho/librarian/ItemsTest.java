@@ -11,6 +11,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import org.researchzosho.mcp.McpServer;
 /** A list of things as a starting point: shelved, checked against the shelves, a question per item or a lane per item. */
 class ItemsTest {
 
@@ -113,7 +114,7 @@ class ItemsTest {
         empty.putObject("patron").put("did", "did:key:zFriend").put("name", "f").put("runtime", "mcp");
         assertTrue(assertThrows(ProtocolError.class, () -> p.items(empty)).getMessage().contains("No items"));
         assertTrue(Librarian.TOOLS.contains("library_items"));
-        boolean served = false; for (var t : org.researchzosho.mcp.McpServer.allTools()) if (t.path("name").asText().equals("library_items")) served = true;
+        boolean served = false; for (var t : McpServer.allTools()) if (t.path("name").asText().equals("library_items")) served = true;
         assertTrue(served);
     }
 }

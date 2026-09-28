@@ -27,6 +27,7 @@ class SourceTierTest {
         assertEquals(SourceTier.forum, SourceTier.of("https://japanese.stackexchange.com/q/1"),
                 "a stackexchange subdomain is a forum, not reference");
         assertEquals(SourceTier.personal, SourceTier.of("file:///home/me/paper.pdf"));
+        assertEquals(SourceTier.code, SourceTier.of("raw/repos/tidebook/src/cache.rs:12-14"), "a cloned repository's file is the code, not the person's document");
         assertEquals(SourceTier.web, SourceTier.of("https://veqta.com/honorific-overload"));
         assertEquals(SourceTier.web, SourceTier.of(""));
         assertEquals(SourceTier.web, SourceTier.of("not a url"));
@@ -39,6 +40,8 @@ class SourceTierTest {
                 new Finding.Source("https://www.jstage.jst.go.jp/x", "n/a", "s"));
         assertEquals(SourceTier.scholarly, SourceTier.strongest(sources));
         assertEquals(SourceTier.web, SourceTier.strongest(List.of()));
+        assertEquals(SourceTier.code, SourceTier.strongest(List.of(new Finding.Source("https://note.com/x", "n/a", "s"), new Finding.Source("raw/repos/tidebook/src/cache.rs:12", "n/a", "s"))),
+                "the code and a blog: the claim rests on the code, as it would on the repository's page");
     }
 
     @Test
@@ -47,6 +50,7 @@ class SourceTierTest {
         assertTrue(SourceTier.reference.autoPromotes());
         assertTrue(SourceTier.primary.autoPromotes());
         assertTrue(SourceTier.personal.autoPromotes());
+        assertTrue(SourceTier.code.autoPromotes(), "with a second, independent source; one file alone is not enough (CodeCitationTierTest)");
         assertFalse(SourceTier.blog.autoPromotes());
         assertFalse(SourceTier.forum.autoPromotes());
         assertFalse(SourceTier.web.autoPromotes());
