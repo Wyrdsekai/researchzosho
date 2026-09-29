@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.5.1
+
+This release fixes removing a report, which could delete claims you had added yourself, and filing under subjects, which asked the model about every claim in the library after each run. It adds a way to start a subject list, gives the help for a question about harming oneself in the person's language, keeps family claims out of subjects, and keeps what the library searched for and a check it makes of the model server out of your terminal and its log.
+
+### Added
+
+- A program can send the person's language and country with a question, as `locale` (`es-MX`, `ja-JP`). When the question reads as a person asking about harming themselves, where to find help then comes in English, Spanish or Japanese, with that country's services first, and also as data the program can show its own way: the `confirm` error carries `language` and `helplines`, each service with its countries, name, how to reach it, hours, whether it is free, and its page. The help now also lists Spain (024) and Argentina (Centro de Asistencia al Suicida), and says that 988 in the United States answers in Spanish.
+- `researchzosho catalog seed` starts a subject list from the claims themselves. It asks which subjects fit each claim once, adds the subjects two or more claims were given (`--min N` for more), then files the claims under them.
+
+### Changed
+
+- Family claims are no longer filed under subjects. They are organised by person and relation, so the model is not asked about them.
+
+### Fixed
+
+- After every research run, and again every night, the library asked the model which subjects fit every claim that had none, one question each. With an empty subject list that was every claim in the library, about an hour each time, and nothing was filed, because the model can only propose a subject the list does not have. Now a run files only its own claims, the nightly housekeeping takes the rest 200 at a time, and a claim that came back with proposals only is not asked about again until the claim or the subject list changes.
+- Removing a report also deleted claims that were in the library before the run and that the run had only confirmed, such as a claim you added yourself or one read in from a file, because the report lists every claim it confirmed. Now only claims a run made go with its report, and only when no other report cites them. The preview names the claims that stay because they were in the library before the run.
+- The service log recorded the text of a web search whenever the library steered a research run away from repeating itself. It now notes only that the search was steered.
+- The first time a command used the model, the library asked the model server how many requests it takes at once, and printed what it found in your terminal: "the model server … serves 4 requests at once", or, while a proxy was still starting its model, a warning that the server "gave no answer within 2 seconds, so the request was given up". Neither was about your request, which went ahead as usual. Both now stay out of the terminal.
+
 ## 0.5.0
 
 This release adds family history: you give the library what your family already knows, and it builds a tree, checks it, and searches newspapers, archives and scanned books for each person. It also finds software projects on GitHub and the package indexes, leaves some kinds of material out of research by default, and can use the models in your own AWS account.

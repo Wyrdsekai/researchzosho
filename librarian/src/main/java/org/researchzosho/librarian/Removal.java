@@ -25,7 +25,11 @@ public final class Removal {
     public enum What { all, report, claims }
 
     /** What a removal would do, before it does it. */
-    public record Plan(String id, String kind, String title, What what, boolean reportGoes, List<String> claimsGo, List<String> claimsStay, List<String> titles) {
+    /** {@code notFromARun}: of the claims that stay, those no run made (added by hand, absorbed, read from a file), which the run only confirmed or met again. */
+    public record Plan(String id, String kind, String title, What what, boolean reportGoes, List<String> claimsGo, List<String> claimsStay, List<String> titles, List<String> notFromARun) {
+        public Plan(String id, String kind, String title, What what, boolean reportGoes, List<String> claimsGo, List<String> claimsStay, List<String> titles) {
+            this(id, kind, title, what, reportGoes, claimsGo, claimsStay, titles, List.of());
+        }
         public int count() { return claimsGo.size() + (reportGoes ? 1 : 0); }
     }
 
@@ -42,21 +46,31 @@ public final class Removal {
             Set<String> mine = new LinkedHashSet<>(inv.findings());
             List<Finding> all = store.scanFindings().findings();
             for (Finding f : all) if (citesRun(f, inv.id())) mine.add(f.id());
-            List<String> go = new ArrayList<>(), stay = new ArrayList<>(), titles = new ArrayList<>();
+            List<String> go = new ArrayList<>(), stay = new ArrayList<>(), titles = new ArrayList<>(), notFromARun = new ArrayList<>();
             for (String fid : mine) {
                 Finding f = store.finding(fid);
                 if (f == null) continue;
-                if (what == What.report || citedByAnother(store, f, inv.id())) stay.add(fid);
+                // a report lists the claims it confirmed or met again as well as the ones it made: a claim no run made (added by hand,
+                // absorbed, read from a file) was in the library on its own and never goes with a report
+                if (what != What.report && !madeByARun(f)) { stay.add(fid); notFromARun.add(fid); }
+                else if (what == What.report || citedByAnother(store, f, inv.id())) stay.add(fid);
                 else { go.add(fid); titles.add(f.title()); }
             }
-            return new Plan(inv.id(), "investigation", inv.title(), what, what != What.claims, go, stay, titles);
+            return new Plan(inv.id(), "investigation", inv.title(), what, what != What.claims, go, stay, titles, notFromARun);
         }
         Finding f = store.finding(id);
         if (f != null) return new Plan(f.id(), "finding", f.title(), What.all, false, List.of(f.id()), List.of(), List.of(f.title()));
         throw new IOException("no report or claim " + id);
     }
 
-    /** Whether a claim's sources say it came out of a run. */
+    /** Whether a run made the claim: a source says "cited by I-…", which the review writes when a run files a new claim. A run that
+     *  confirmed a claim already held writes "corroborates, from I-…", and one that met it again "met again in"/"said again in". */
+    static boolean madeByARun(Finding f) {
+        for (Finding.Source s : f.sources()) if (s.whyItMatters() != null && Cataloger.MADE_BY.matcher(s.whyItMatters()).find()) return true;
+        return false;
+    }
+
+    /** Whether a claim's sources name the run at all: made, confirmed or met again by it. */
     static boolean citesRun(Finding f, String invId) {
         for (Finding.Source s : f.sources()) { Matcher m = Cataloger.FROM_RUN.matcher(s.whyItMatters()); while (m.find()) if (m.group(1).equals(invId)) return true; }
         return false;
@@ -119,7 +133,9 @@ public final class Removal {
         else {
             sb.append("Delete ").append(p.claimsGo().size()).append(" claim(s):\n");
             for (int i = 0; i < p.claimsGo().size(); i++) sb.append("  ").append(p.claimsGo().get(i)).append("  ").append(Acquisitions.compress(p.titles().get(i), 80)).append('\n');
-            if (!p.claimsStay().isEmpty()) sb.append("Keep ").append(p.claimsStay().size()).append(" claim(s) that another report also cites: ").append(String.join(", ", p.claimsStay())).append('\n');
+            List<String> cited = p.claimsStay().stream().filter(c -> !p.notFromARun().contains(c)).toList();
+            if (!cited.isEmpty()) sb.append("Keep ").append(cited.size()).append(" claim(s) that another report also cites: ").append(String.join(", ", cited)).append('\n');
+            if (!p.notFromARun().isEmpty()) sb.append("Keep ").append(p.notFromARun().size()).append(" claim(s) that were in the library before this run, which only confirmed them: ").append(String.join(", ", p.notFromARun())).append('\n');
         }
         sb.append("Pages saved from the web during the run are kept.");
         return sb.toString();

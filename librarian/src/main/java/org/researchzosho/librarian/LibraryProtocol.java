@@ -757,7 +757,7 @@ public final class LibraryProtocol {
             ask.put("question", Conversations.verifyQuestion(firstTitle, allClaims)); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
             if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
-            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy()); if (args.hasNonNull("locale")) ask.put("locale", args.path("locale").asText());   // what the person let in for these runs, as they named it
             ObjectNode job = fileRun(ask, r);
             if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
             else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
@@ -875,7 +875,7 @@ public final class LibraryProtocol {
                 ask.put("mode", "broad"); ask.put("sources", args.path("sources").asText("both"));
                 ask.set("patron", args.path("patron").deepCopy());
                 if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());
-                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy()); if (args.hasNonNull("locale")) ask.put("locale", args.path("locale").asText());   // what the person let in for these runs, as they named it
                 ObjectNode run = fileRun(ask, r);
                 if (filed(run)) jobsOut.add(run.path("job_id").asText());
                 else (r.has("not_started") ? (ArrayNode) r.get("not_started") : r.putArray("not_started")).addObject().put("question", ask.path("question").asText("")).put("help", run.path("help").asText());
@@ -984,7 +984,7 @@ public final class LibraryProtocol {
             ask.put("question", Drafts.verifyQuestion(title, o.claims())); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
             if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
-            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy()); if (args.hasNonNull("locale")) ask.put("locale", args.path("locale").asText());   // what the person let in for these runs, as they named it
             ObjectNode job = fileRun(ask, r);
             if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
             else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
@@ -1069,7 +1069,7 @@ public final class LibraryProtocol {
             if (as.equals("runs") && jobs.size() + notStarted < Questions.MAX_RUNS) {
                 ObjectNode ask = M.createObjectNode(); ask.put("question", q); ask.put("mode", "broad"); ask.put("sources", args.path("sources").asText("both")); ask.set("patron", args.path("patron").deepCopy());
                 if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());
-                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+                if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy()); if (args.hasNonNull("locale")) ask.put("locale", args.path("locale").asText());   // what the person let in for these runs, as they named it
                 ObjectNode run = fileRun(ask, r);
                 if (filed(run)) { String id = run.path("job_id").asText(); jobs.add(id); n.put("job_id", id); }
                 else { n.put("state", "not_started"); n.put("help", run.path("help").asText()); notStarted++; }   // not filed, and not put on the open questions either
@@ -1156,7 +1156,7 @@ public final class LibraryProtocol {
             ask.put("question", Meetings.verifyQuestion(title, o.claims())); ask.put("mode", "depth"); ask.put("sources", "both");
             ask.set("patron", args.path("patron").deepCopy());
             if (args.hasNonNull("field")) ask.put("field", args.path("field").asText());   // the checking run in the field the person asked for
-            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy());   // what the person let in for these runs, as they named it
+            if (args.hasNonNull("allow")) ask.set("allow", args.get("allow").deepCopy()); if (args.hasNonNull("locale")) ask.put("locale", args.path("locale").asText());   // what the person let in for these runs, as they named it
             ObjectNode job = fileRun(ask, r);
             if (filed(job)) r.put("verify_job_id", job.path("job_id").asText());
             else r.putArray("not_started").addObject().put("question", ask.path("question").asText("")).put("help", job.path("help").asText());
@@ -1560,7 +1560,7 @@ public final class LibraryProtocol {
         if (!Way.PROGRAM.where().equals(way.where())) return;   // the terminal, the web page and the chat ask the person themselves
         String question = args.path("question").asText("").strip();
         if (question.isEmpty() || question.length() >= 12 || allowOf(args).contains(ContentPolicy.SELF_HARM)) return;
-        if (ContentOffer.harm(question, null) == ContentOffer.Harm.SURE) throw ProtocolError.confirm(ContentOffer.confirmMessage());
+        if (ContentOffer.harm(question, null) == ContentOffer.Harm.SURE) throw ProtocolError.confirm(ContentOffer.confirmMessage(localeOf(args)), helpData(args));
     }
 
     /** The argument checks, separately so a transport can run them before its own drive check. */
@@ -1608,6 +1608,24 @@ public final class LibraryProtocol {
      * What a job's arguments let in for its run: {@code allow}, the names in {@link ContentPolicy#ALLOW_NAMES} (a job filed before 0.5.0
      * carries none, and a nightly one never does).
      */
+    /**
+     * The person's language and country, as a language tag a program sends with a question ({@code locale}: "es-MX", "ja-JP", "en"):
+     * the help for a question about harming oneself comes in that language, with that country's services first. Null when there is
+     * none, or it is not a language tag, and the machine's own locale is used.
+     */
+    static Locale localeOf(JsonNode args) {
+        String t = args == null ? "" : args.path("locale").asText("").strip().replace('_', '-');
+        if (t.isEmpty()) return null;
+        Locale l = Locale.forLanguageTag(t);
+        return l.getLanguage().isEmpty() ? null : l;
+    }
+
+    /** Where to find help as data, for the locale a program sent; the machine's own locale without one. */
+    static ObjectNode helpData(JsonNode args) {
+        Locale l = localeOf(args);
+        return CrisisHelp.data(l == null ? Locale.getDefault() : l);
+    }
+
     public static List<String> allowOf(JsonNode args) {
         List<String> out = new ArrayList<>();
         if (args != null) for (String a : ContentOffer.names(args.path("allow"))) if (ContentPolicy.ALLOW_NAMES.contains(a) && !out.contains(a)) out.add(a);
@@ -1677,7 +1695,7 @@ public final class LibraryProtocol {
         ContentOffer.Detected detected = null;
         if (Way.PROGRAM.where().equals(way.where()) && offer == null) {
             detected = ContentOffer.detect(question, null);
-            if (detected.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) throw ProtocolError.confirm(ContentOffer.confirmMessage());
+            if (detected.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) throw ProtocolError.confirm(ContentOffer.confirmMessage(localeOf(args)), helpData(args));
         }
         // a run cannot open files on this machine: it reads the web and the library. So when the library owner's question
         // names a file that exists, the library reads it in first and tells the run where to look.
@@ -1725,7 +1743,10 @@ public final class LibraryProtocol {
         if (told != null) r.putObject("suggestion").put("field", told.field()).put("why", told.offer()).put("how", told.how());
         if (!needs.isEmpty()) r.set("content_suggestion", ContentOffer.suggestion(needs));
         // the judge could not tell whether the question is a person asking about harming themselves: the help is shown anyway, it costs nothing
-        if (detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !allow.contains(ContentPolicy.SELF_HARM)) r.putObject("help").put("text", CrisisHelp.text());
+        if (detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !allow.contains(ContentPolicy.SELF_HARM)) {
+            Locale l = localeOf(args);
+            r.putObject("help").put("text", l == null ? CrisisHelp.text() : CrisisHelp.text(l)).setAll(helpData(args));
+        }
         return r;
     }
 
@@ -1749,8 +1770,9 @@ public final class LibraryProtocol {
             // question, with where to find help; the batch's result carries the help once, for the first such question
             ObjectNode n = M.createObjectNode();
             n.put("state", "not_started");
-            n.put("help", ContentOffer.confirmOne());
-            if (!batch.has("help")) batch.putObject("help").put("text", CrisisHelp.text()).put("how", ContentOffer.CONFIRM_ONE).put("question", ask.path("question").asText(""));
+            Locale l = localeOf(ask);
+            n.put("help", ContentOffer.confirmOne(l));
+            if (!batch.has("help")) batch.putObject("help").put("text", l == null ? CrisisHelp.text() : CrisisHelp.text(l)).put("how", ContentOffer.CONFIRM_ONE).put("question", ask.path("question").asText("")).setAll(helpData(ask));
             return n;
         }
         if (r.has("suggestion") && !batch.has("suggestion")) { ObjectNode s = r.get("suggestion").deepCopy(); batch.set("suggestion", s.put("question", ask.path("question").asText(""))); }

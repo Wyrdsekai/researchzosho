@@ -139,7 +139,7 @@ public final class Crews {
             steps.add(step(store, "review", () -> reviewDrafts(store, new LibrarianReview(store, new LibrarianIndex(store),
                     LibrarianReview.driveJudge(new DriveClient(driveUrl, model)), "librarian:" + model).searcher(LibrarianReview.liveSearcher()))));
             steps.add(step(store, "catalog", () -> {
-                var o = Cataloger.run(store, Cataloger.driveJudge(new DriveClient(driveUrl, model)), false);
+                var o = Cataloger.run(store, Cataloger.driveJudge(new DriveClient(driveUrl, model)), false, null, Cataloger.PER_NIGHT);
                 return o.grounded() + " claim(s) filed under subjects, " + o.proposals() + " new subject(s) proposed" + (o.problems().isEmpty() ? "" : "; " + o.problems().size() + " problem(s)");
             }));
             steps.add(step(store, "triples", () -> {

@@ -172,6 +172,7 @@ public final class LibrarianCli {
               looked [<words>] | looked move <claim id…> | looked add <person> --where <site> --what <words>   what earlier searches looked for and did not find, each with its date and where it looked; move puts an old "nothing was found" claim there and retires the claim; add writes down a search you made yourself
               accept <id…>|--all|--report I-… · dispute <id> <why> · retire <id…>|--report I-…   your decisions on claims
               catalog [drive] [--accept-all]   file claims under the known subjects. Propose new subjects
+              catalog seed [--min N]       start the subject list from the claims: the subjects N or more claims (default 2) were given
               shelf add <name> <query> [days] · list · every <name> <days> · park|unpark <name> · remove <name>   the saved searches nightly maintenance runs again
               serials                      check the saved searches for new sources. List overdue reviews
               tonight                      what nightly maintenance will do at its next run: searches due, questions it will research
@@ -900,7 +901,7 @@ public final class LibrarianCli {
                         System.out.println(id + ": " + out.accepted().size() + " claim(s) accepted, " + out.disputed().size() + " disputed, " + out.keptDraft().size() + " kept as draft"
                                 + (out.problems().isEmpty() ? "" : "; " + String.join("; ", out.problems())));
                     }
-                    long lacking = store.scanFindings().findings().stream().filter(f -> f.subjects().isEmpty() && f.state() != Finding.State.retired).count();
+                    long lacking = Cataloger.waiting(store);   // family claims are not filed under subjects, and a claim answered for this list is not asked again
                     if (lacking > 0) System.out.println("filing " + lacking + " claim(s) under subjects — one model call each, about " + Math.max(1, lacking * 3 / 60) + " minute(s)…");
                     var cat = Cataloger.run(store, Cataloger.driveJudge(client), false);
                     System.out.println("subjects: " + cat.grounded() + " claim(s) filed under known subjects" + (cat.proposals() > 0 ? ", " + cat.proposals() + " new subject(s) proposed for you (catalog/subjects.proposed.md)" : ""));

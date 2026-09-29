@@ -208,6 +208,12 @@ public interface Profile {
     /** The writers whose claims are this field's own work (a family account, a GEDCOM import); see {@link Fields#ofClaim}. */
     default List<String> ownWriters() { return List.of(); }
 
+    /**
+     * Whether this field's own claims are filed under subjects from the library's subject list. A field whose claims are organised
+     * another way (a family's, by person and relation) says no, and the cataloger leaves them alone; everything else is filed as before.
+     */
+    default boolean filesUnderSubjects() { return true; }
+
     /** How this field splits a question into sub-questions; added to the planner's instruction. */
     default String planRules() { return ""; }
 

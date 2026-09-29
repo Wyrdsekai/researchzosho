@@ -90,7 +90,7 @@ public final class McpServer {
         try {
             env.set("result", handle(method, req.path("params")));
         } catch (RpcError e) {
-            env.set("error", rpcError(e.code, e.getMessage(), e.data));
+            env.set("error", rpcError(e.code, e.getMessage(), e.data, e.extra));
         } catch (Exception e) {
             env.set("error", rpcError(-32603, "internal error: " + e));
         }
@@ -234,6 +234,7 @@ public final class McpServer {
                         prop("limit", "integer", "How many conversations of an export to take (default 25)."),
                         prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
                         allowProp(),
+                        localeProp(),
                         patronProp())));
         tools.add(tool("library_survey",
                 "A thing the person already has, read as a starting point for research: a code repository (a folder, or a git url "
@@ -268,6 +269,7 @@ public final class McpServer {
                         prop("as", "string", "frontier | runs | none (default frontier)."),
                         prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
                         allowProp(),
+                        localeProp(),
                         prop("title", "string", "A name for the list (default: the file name)."),
                         prop("column", "string", "For a CSV: the column that holds the items (default: a column named title, name, item or book, else the first)."),
                         prop("collection", "string", "Where the list is shelved (default lists)."),
@@ -337,6 +339,7 @@ public final class McpServer {
                         prop("verify", "boolean", "File one research run that checks the claims."),
                         prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
                         allowProp(),
+                        localeProp(),
                         patronProp())));
         tools.add(tool("library_reading",
                 "A reading list as a starting point: BibTeX, RIS (Zotero, EndNote), a CSV export, or lines of DOIs, urls and titles. Every entry "
@@ -363,6 +366,7 @@ public final class McpServer {
                         prop("as", "string", "frontier | runs (default frontier)."),
                         prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
                         allowProp(),
+                        localeProp(),
                         prop("title", "string", "A name for the list."),
                         prop("limit", "integer", "How many questions to take (default all, up to 200)."),
                         patronProp())));
@@ -392,6 +396,7 @@ public final class McpServer {
                         prop("verify", "boolean", "File one research run that checks the claims."),
                         prop("field", "string", "Optional, with verify=true: the field the checking run is to be, one of the library's fields by name."),
                         allowProp(),
+                        localeProp(),
                         patronProp())));
         tools.add(tool("library_bridges",
                 "Discovery by combination: two areas of the library that no source read together, joined by specific terms both "
@@ -521,6 +526,7 @@ public final class McpServer {
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
                         prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
                         allowProp(),
+                        localeProp(),
                         patronProp())));
         tools.add(tool("library_job",
                 "One job from the ledger ({job}: state queued|running|done|failed|stopped, elapsed_s, result when finished), or "
@@ -659,7 +665,7 @@ public final class McpServer {
             r.put("isError", false);
             return r;
         } catch (ProtocolError e) {
-            throw new RpcError(e.rpc, e.getMessage(), e.code);
+            throw new RpcError(e.rpc, e.getMessage(), e.code, e.extra);
         } catch (RpcError e) {
             throw e;
         } catch (Declined d) {
@@ -690,6 +696,13 @@ public final class McpServer {
      * {@code allow}: what the caller lets into this run that the library leaves out by default, for this run only. The person's to give:
      * the chat never offers it to its model, and strips it from any call its model makes.
      */
+    private static ObjectNode localeProp() {
+        return prop("locale", "string", "Optional: the person's language and country as a language tag, such as en-US, es-MX or ja-JP. When a "
+                + "question reads as a person asking about harming themselves, where to find help comes in that language (English, Spanish or "
+                + "Japanese; English otherwise) with that country's services first, in the message and as data (error.data.helplines, or "
+                + "help.helplines beside a run).");
+    }
+
     private static ObjectNode allowProp() {
         return arrayProp("allow", "Optional: what to let into this run that the library leaves out by default, for this run only: \"explicit\" "
                 + "(pornography, and gore) and \"howto\" (step-by-step instructions for making a weapon or an explosive, "
@@ -740,18 +753,27 @@ public final class McpServer {
 
     private static ObjectNode rpcError(int code, String message) { return rpcError(code, message, null); }
 
-    private static ObjectNode rpcError(int code, String message, String dataCode) {
+    private static ObjectNode rpcError(int code, String message, String dataCode) { return rpcError(code, message, dataCode, null); }
+
+    /** {@code extra}: fields beside the code in {@code data}, such as the helplines of a {@code confirm}. */
+    private static ObjectNode rpcError(int code, String message, String dataCode, ObjectNode extra) {
         ObjectNode e = M.createObjectNode();
         e.put("code", code);
         e.put("message", message);
-        if (dataCode != null) e.putObject("data").put("code", dataCode);
+        if (dataCode != null || extra != null) {
+            ObjectNode d = e.putObject("data");
+            if (dataCode != null) d.put("code", dataCode);
+            if (extra != null) d.setAll(extra.deepCopy());
+        }
         return e;
     }
 
     static final class RpcError extends RuntimeException {
         final int code;
         final String data;
+        final ObjectNode extra;
         RpcError(int code, String msg) { this(code, msg, null); }
-        RpcError(int code, String msg, String data) { super(msg); this.code = code; this.data = data; }
+        RpcError(int code, String msg, String data) { this(code, msg, data, null); }
+        RpcError(int code, String msg, String data, ObjectNode extra) { super(msg); this.code = code; this.data = data; this.extra = extra; }
     }
 }

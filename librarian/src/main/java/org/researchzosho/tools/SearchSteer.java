@@ -125,8 +125,9 @@ public final class SearchSteer {
         StringBuilder note = new StringBuilder();
         if (repeatOf != null || mostlySeen) {
             STEER_EVENTS.incrementAndGet();
-            log.info("steer: near-repeat ({}) for \"{}\" → axis: {}",
-                    repeatOf != null ? "terms" : "hosts", query, axis());
+            // what was searched stays out of the service log: a research question can be private, and the log is kept
+            log.info("steer: near-repeat ({}) → axis: {}", repeatOf != null ? "terms" : "hosts", axis());
+            log.debug("steer: the query was \"{}\"", query);
             note.append("\nSTEER: this query ");
             if (repeatOf != null) note.append("overlaps an earlier one (\"").append(repeatOf).append("\")");
             if (repeatOf != null && mostlySeen) note.append(" and ");

@@ -1096,7 +1096,7 @@ The housekeeping runs at three each morning, or when you run `researchzosho crew
 | serials | Runs the searches you keep (`researchzosho shelf add <name> <query>`) and lists anything new. Lists reviews that are overdue. |
 | explorer | Researches a few of the open questions. |
 | review | Reads new write-ups and extracts the claims, each with its source, as drafts for your inbox. |
-| catalog | Files each new claim under subjects from your list. When none fits, it proposes a new subject. |
+| catalog | Files claims under subjects from your list, up to 200 a night. When none fits, it proposes a new subject, and the claim is not asked about again until it or the list changes. Family claims are not filed under subjects: they are organised by person and relation. |
 | triples | Records the connections between people, places and things that claims describe, for the map. |
 | inventory | Re-reads a few accepted claims against their sources and disputes any the source does not support. |
 | preprints | Checks for newer versions of preprints you cite and notes them on the claims. |
@@ -1201,7 +1201,8 @@ SoloMD user can find them. The vault itself is a view. Editing it changes nothin
 stays in the file, marked dropped, so it is not filed again.
 
 The review, catalog, triples and abstracts steps also run as soon as a write-up arrives, so you do not
-have to wait for the night. `researchzosho settle` runs them by hand for any write-ups still waiting.
+have to wait for the night. Filing under subjects then takes only that write-up's own claims; the rest
+of the library is the night's. `researchzosho settle` runs them by hand for any write-ups still waiting.
 
 ### Proposed subjects
 
@@ -1210,9 +1211,13 @@ researchzosho subjects proposed          # the proposals, numbered
 researchzosho subjects accept 3 7        # accept by number or by slug; "all" accepts every one
 researchzosho subjects drop 12           # "all" clears the list
 researchzosho settle                     # then file the waiting claims under the new subjects
+researchzosho catalog seed               # start a list from the claims: the subjects two or more claims were given
+researchzosho catalog seed --min 5       # only the subjects five or more claims were given
 ```
 
-You can also edit `catalog/subjects.md` directly.
+You can also edit `catalog/subjects.md` directly. A library that has never had a subject list files
+nothing under subjects: the model can only propose. `catalog seed` asks which subjects fit each claim
+once, adds the ones several claims share, and files the claims under them.
 
 Everything the housekeeping does is logged in `catalog/crews.log`. Steps that need a model are
 skipped when no model is available. When a write-up arrives with no claims, or fewer than you
@@ -1913,7 +1918,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.0 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.1 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

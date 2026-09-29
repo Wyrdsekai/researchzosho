@@ -718,7 +718,7 @@ public final class DriveClient {
             JsonNode props = pageOf("/props");
             s = new Served(props == null ? 0 : props.path("total_slots").asInt(0));
             SERVED.put(key, s);
-            if (s.slots() > 0) log.info("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
+            if (s.slots() > 0) log.debug("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
             return s;
         } catch (Stopping.Requested stop) {
             throw stop;
@@ -730,11 +730,20 @@ public final class DriveClient {
 
     /** A llama.cpp page as JSON: the server's own, or behind llama-swap its upstream's for this model; null when neither is there (another kind of server). */
     private JsonNode pageOf(String path) throws Exception {
-        HttpResponse<String> r = send(auth(HttpRequest.newBuilder(URI.create(baseUrl + path))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE);
+        HttpResponse<String> r = look(baseUrl + path);
         if (r.statusCode() == 200) return json.readTree(r.body());
         if (model == null || model.isBlank()) return null;
-        r = send(auth(HttpRequest.newBuilder(URI.create(baseUrl + "/upstream/" + URLEncoder.encode(model, StandardCharsets.UTF_8).replace("+", "%20") + path))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE);
+        r = look(baseUrl + "/upstream/" + URLEncoder.encode(model, StandardCharsets.UTF_8).replace("+", "%20") + path);
         return r.statusCode() == 200 ? json.readTree(r.body()) : null;
+    }
+
+    /**
+     * One look at what the server is, under its own short limit. A server that does not answer in time (a proxy still starting its
+     * model) is asked again later, and nothing is said on the person's console: it is not their request that went unanswered.
+     */
+    private HttpResponse<String> look(String url) throws IOException, InterruptedException {
+        try { return Stopping.send(http, auth(HttpRequest.newBuilder(URI.create(url))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE, who()); }
+        catch (HttpTimeoutException t) { log.debug("drive ← {} (a look at what the server is; asked again in a minute)", t.getMessage()); throw t; }
     }
 
     /**

@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 /**
  * A library-protocol error: a stable string {@code code} a patron's runtime can branch on, and a
  * message written as a sentence, because the patron will say it to a person. The JSON-RPC number
@@ -8,11 +10,18 @@ package org.researchzosho.librarian;
 public final class ProtocolError extends RuntimeException {
     public final String code;
     public final int rpc;
+    /** Fields a program can read beside the message (the helplines of a {@code confirm}); null for most errors. */
+    public final ObjectNode extra;
 
-    private ProtocolError(String code, int rpc, String message) {
+    private ProtocolError(String code, int rpc, String message, ObjectNode extra) {
         super(message);
         this.code = code;
         this.rpc = rpc;
+        this.extra = extra;
+    }
+
+    private ProtocolError(String code, int rpc, String message) {
+        this(code, rpc, message, null);
     }
 
     public static ProtocolError notFound(String what) {
@@ -60,6 +69,10 @@ public final class ProtocolError extends RuntimeException {
      */
     public static ProtocolError confirm(String message) {
         return new ProtocolError(CONFIRM, -32007, message);
+    }
+    /** The same, with where to find help as data too ({@link CrisisHelp#data}): the language, and each service. */
+    public static ProtocolError confirm(String message, ObjectNode help) {
+        return new ProtocolError(CONFIRM, -32007, message, help);
     }
     /** The code of {@link #confirm}. */
     public static final String CONFIRM = "confirm";

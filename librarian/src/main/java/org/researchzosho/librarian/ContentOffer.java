@@ -107,8 +107,13 @@ public final class ContentOffer {
     /** The message of the {@code confirm} error: where to find help, then {@link #CONFIRM}. */
     public static String confirmMessage() { return CrisisHelp.text() + "\n\n" + CONFIRM; }
 
+    /** The same, in the language of the person's {@code locale} and with their country's line first; null: the machine's locale. */
+    public static String confirmMessage(Locale locale) { return (locale == null ? CrisisHelp.text() : CrisisHelp.text(locale)) + "\n\n" + CONFIRM; }
+
     /** What a batch tool says of one of its questions it did not file: where to find help, then {@link #CONFIRM_ONE}. */
     public static String confirmOne() { return CrisisHelp.text() + "\n\n" + CONFIRM_ONE; }
+
+    public static String confirmOne(Locale locale) { return (locale == null ? CrisisHelp.text() : CrisisHelp.text(locale)) + "\n\n" + CONFIRM_ONE; }
 
     /** What a category is, in words a person reads. */
     public static String described(String category) {

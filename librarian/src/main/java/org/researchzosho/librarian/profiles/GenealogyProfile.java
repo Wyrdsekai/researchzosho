@@ -541,6 +541,9 @@ public final class GenealogyProfile implements Profile {
 
     @Override public List<String> ownWriters() { return List.of("family-account", "gedcom-import"); }
 
+    /** A family's claims are organised by person and relation in the graph; subject headings add nothing to them. */
+    @Override public boolean filesUnderSubjects() { return false; }
+
     @Override public String planRules() {
         return "This is a family-history question. Split it by person and by kind of record: for each person, the records that "
                 + "establish who they were in their place and time (civil or family registers, census, church or temple registers, graves), "

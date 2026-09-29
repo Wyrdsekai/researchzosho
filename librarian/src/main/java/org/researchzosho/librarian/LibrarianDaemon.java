@@ -253,7 +253,9 @@ public final class LibrarianDaemon {
             // ends the settling at the next step, and the nightly housekeeping does the rest (a stopped run once sat here for minutes, J-0024)
             var out = new LibrarianReview(store, idx, LibrarianReview.driveJudge(client), "librarian:" + model).searcher(LibrarianReview.liveSearcher()).review(inv);
             if (settleStopped(jobId, investigationId, "review", t0)) return;
-            var cat = Cataloger.run(store, Cataloger.driveJudge(client), false);   // subjects from the vocabulary; new ones are proposals for the person
+            // subjects from the list for this run's own claims only; the rest of the library is the nightly housekeeping's, a few at a time
+            Investigation filed = store.investigation(investigationId);
+            var cat = Cataloger.run(store, Cataloger.driveJudge(client), false, filed == null ? List.of() : filed.findings(), 0);
             if (settleStopped(jobId, investigationId, "subjects", t0)) return;
             var triples = Triples.fill(store, Triples.driveExtractor(client), 40);
             if (settleStopped(jobId, investigationId, "triples", t0)) return;
@@ -473,7 +475,9 @@ public final class LibrarianDaemon {
             }
             reply(x, 200, out);
         } catch (ProtocolError e) {
-            reply(x, status(e.code), error(e.code, e.getMessage()));
+            ObjectNode body = error(e.code, e.getMessage());
+            if (e.extra != null) ((ObjectNode) body.get("error")).setAll(e.extra.deepCopy());   // a confirm's helplines, beside the message
+            reply(x, status(e.code), body);
         } catch (JacksonException e) {
             reply(x, 400, error("invalid_args", "The request body is not JSON."));
         } catch (Declined d) {

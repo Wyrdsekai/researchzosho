@@ -72,7 +72,7 @@ class SelfHarmHelpTest {
     void theHelpIsPlainTheOwnCountryFirstThenTheDirectory() {
         String us = CrisisHelp.text(Locale.US);
         assertTrue(us.startsWith(HELP_START + "\n- In the United States and Canada: call or text 988, free, at any hour.\n- Anywhere in the world: findahelpline.com"), us);
-        String jp = CrisisHelp.text(Locale.JAPAN);
+        String jp = CrisisHelp.text(Locale.forLanguageTag("en-JP"));   // English, in Japan: Japan's lines first (ja-JP is the help in Japanese, HelplinesLocaleTest)
         assertTrue(jp.startsWith(HELP_START + "\n- In Japan: よりそいホットライン 0120-279-338, free, at any hour; or いのちの電話 0120-783-556, free, every day from 16:00 to 21:00.\n- Anywhere in the world"), jp);
         String unknown = CrisisHelp.text(Locale.FRANCE);
         assertTrue(unknown.startsWith(HELP_START + "\n- Anywhere in the world: findahelpline.com lists free helplines in more than 175 countries."), "no line for the country: the directory first: " + unknown);

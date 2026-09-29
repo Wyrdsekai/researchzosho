@@ -99,6 +99,30 @@ class RemovalTest {
         assertThrows(ProtocolError.class, () -> p.remove(reader), "a reader may not remove");
     }
 
+    @Test
+    void aClaimNoRunMadeStaysWhenTheReportThatOnlyConfirmedItIsRemoved(@TempDir Path home) throws Exception {
+        LibraryStore store = seeded(home);
+        // a claim the person added by hand; a later run confirmed it, so the review added its source and listed it in the report
+        Finding own = new Finding("F-0005-own", "Harbour E floods at spring tides", List.of("tides--tables"), Finding.State.accepted, Finding.ClaimType.extraction,
+                Finding.Confidence.high, "patron:person", Instant.now().toString(), "2026-09-17", Finding.Volatility.stable, "",
+                List.of(new Finding.Source("https://example.org/own", "n/a", "the harbour master's notice"),
+                        new Finding.Source("https://example.org/again", "n/a", "corroborates, from I-0003-floods")), List.of(), null, "Harbour E floods.\n");
+        store.write(own);
+        store.write(claim("F-0006-made", "Harbour E's wall was raised in 1998", "I-0003-floods"));
+        store.write(new Investigation("I-0003-floods", "Which harbours flood?", Finding.State.accepted, "model:t", Instant.now().toString(),
+                List.of("F-0006-made", "F-0005-own"), List.of(), "E floods [F-0005-own]; its wall was raised [F-0006-made].\n"));
+        Removal.Plan plan = Removal.plan(store, "I-0003-floods", Removal.What.all);
+        assertEquals(List.of("F-0006-made"), plan.claimsGo(), "only the claim the run made");
+        assertTrue(plan.claimsStay().contains("F-0005-own") && plan.notFromARun().contains("F-0005-own"), plan.toString());
+        assertTrue(Removal.describe(plan).contains("Keep 1 claim(s) that were in the library before this run, which only confirmed them: F-0005-own"), Removal.describe(plan));
+        Removal.apply(store, plan, "person");
+        assertNull(store.investigation("I-0003-floods")); assertNull(store.finding("F-0006-made"));
+        assertNotNull(store.finding("F-0005-own"), "the person's own claim is still there");
+        // and a claim's origin is the run that made it, not one that only confirmed it
+        assertEquals("", Cataloger.origin(store.finding("F-0005-own")));
+        assertEquals("I-0001-tides", Cataloger.origin(store.finding("F-0001-a")));
+    }
+
     static HttpResponse<String> get(HttpClient c, String url, String cookie) throws Exception {
         var b = HttpRequest.newBuilder(URI.create(url)).GET(); if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());

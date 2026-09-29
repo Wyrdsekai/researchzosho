@@ -4,7 +4,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.sun.net.httpserver.HttpServer;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.Test;
+import org.researchzosho.HangingServer;
+import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -85,6 +91,25 @@ class DriveSharedServerTest {
             assertTrue(f.most().get() > 1, "three at once on four slots: " + f.most().get());
             for (JsonNode b : f.bodies()) assertFalse(b.has("lora"), b.toString());
         } finally { f.server().stop(0); }
+    }
+
+    @Test
+    void aServerThatDoesNotAnswerTheLookInTimeIsAnsweredQuietly() throws Exception {
+        // a proxy still starting its model: the look at /props hangs, the chat is answered. The person's console hears nothing of the look.
+        Logger logger = (Logger) LoggerFactory.getLogger(DriveClient.class);
+        ListAppender<ILoggingEvent> heard = new ListAppender<>();
+        heard.start();
+        logger.addAppender(heard);
+        try (HangingServer s = new HangingServer(HangingServer.Mode.SILENT, r -> r.line().startsWith("POST"),
+                "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ready\"}}]}")) {
+            ArrayNode msgs = M.createArrayNode();
+            msgs.addObject().put("role", "user").put("content", "hello");
+            assertEquals("ready", new DriveClient(s.url(), "quiet-look").chat(msgs, null, 8, "auto").path("content").asText());
+            for (ILoggingEvent e : heard.list)
+                assertFalse(e.getLevel().isGreaterOrEqual(Level.INFO) && e.getFormattedMessage().contains("gave no answer"), "said on the console: " + e.getFormattedMessage());
+        } finally {
+            logger.detachAppender(heard);
+        }
     }
 
     @Test
