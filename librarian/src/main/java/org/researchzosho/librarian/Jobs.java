@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.NoSuchFileException;
@@ -69,7 +70,8 @@ public final class Jobs {
     private final LibraryStore store;
     private final LinkedBlockingDeque<String> queue = new LinkedBlockingDeque<>();
     private final Runner runner;
-    private final List<String> drives;
+    /** The drives, read again for every job: `model use` switches the library's model while the service runs. */
+    private final Supplier<List<String>> drives;
     private final int workers;
     private final Set<String> running = ConcurrentHashMap.newKeySet();
     private final List<Thread> threads = new ArrayList<>();
@@ -80,12 +82,28 @@ public final class Jobs {
     }
 
     public Jobs(LibraryStore store, Runner runner, List<String> drives, int workers) {
+        this(store, runner, fixed(drives), workers);
+    }
+
+    /** {@code drives} is asked at the start of every job, so a job takes the model the library is set to when it starts. */
+    public Jobs(LibraryStore store, Runner runner, Supplier<List<String>> drives, int workers) {
         this.store = store; this.runner = runner;
-        this.drives = drives == null || drives.isEmpty() ? List.of("") : List.copyOf(drives);
+        this.drives = drives;
         this.workers = Math.max(1, workers);
     }
 
-    public List<String> drives() { return drives; }
+    private static Supplier<List<String>> fixed(List<String> drives) {
+        List<String> d = drives == null || drives.isEmpty() ? List.of("") : List.copyOf(drives);
+        return () -> d;
+    }
+
+    public List<String> drives() {
+        List<String> d = drives.get();
+        return d == null || d.isEmpty() ? List.of("") : List.copyOf(d);
+    }
+
+    /** The drive worker {@code index} takes now: i mod the number of drives. */
+    String driveOf(int index) { List<String> d = drives(); return d.get(index % d.size()); }
     public int workers() { return workers; }
 
     public Path dir() { return store.root().resolve("catalog").resolve("jobs"); }
@@ -542,9 +560,8 @@ public final class Jobs {
             }
         }
         for (int i = 0; i < workers; i++) {
-            String drive = drives.get(i % drives.size());
             final int index = i;
-            Thread t = new Thread(() -> loop(drive, index), "librarian-jobs-" + i);
+            Thread t = new Thread(() -> loop(index), "librarian-jobs-" + i);
             t.setDaemon(true);
             t.start();
             threads.add(t);
@@ -669,13 +686,14 @@ public final class Jobs {
      * regardless — serials, refresh and the backup need no model, and the model steps skip
      * themselves (two nights' crews had sat queued behind a released GPU with no backup taken).
      */
-    private void loop(String drive, int index) {
+    private void loop(int index) {
         while (!Thread.currentThread().isInterrupted()) {
             String id;
             try {
                 id = queue.poll(10, TimeUnit.SECONDS);
                 if (id == null) { pickUpFiled(); continue; }
             } catch (InterruptedException e) { return; }
+            String drive = driveOf(index);   // the model the library is set to now: a job started after `model use` takes the new one
             long wait = 0;
             try {
                 ObjectNode j;

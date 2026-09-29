@@ -70,12 +70,29 @@ public final class LibrarianDaemon {
 
     private LibrarianDaemon(LibraryStore store, HttpServer server, String driveUrl, String model) {
         this.store = store; this.server = server; this.driveUrl = driveUrl; this.model = model;
-        this.jobs = new Jobs(store, this::runJob, Jobs.drives(driveUrl), Jobs.WORKERS);
+        this.jobs = new Jobs(store, this::runJob, () -> Jobs.drives(driveNow()), Jobs.WORKERS);
+    }
+
+    /** The model server the library is set to now (`model use` changes it while the service runs); the one it started with otherwise. */
+    String driveNow() {
+        String d = Config.get("RESEARCHZOSHO_DRIVE");
+        return d == null || d.isBlank() ? driveUrl : d;
+    }
+
+    /** The model a job asks for, fixed when the job starts so that one run never changes models halfway. */
+    private static final ThreadLocal<String> JOB_MODEL = new ThreadLocal<>();
+
+    /** The model: the job's own while one runs on this thread, else the one the library is set to now, else the one it started with. */
+    String model() {
+        String m = JOB_MODEL.get();
+        if (m != null) return m;
+        String c = Config.get("RESEARCHZOSHO_MODEL");
+        return c == null || c.isBlank() ? model : c;
     }
 
     /**
      * A worker's dispatch, on its own drive: research asks and crews runs. A research run works under its stop ({@link Stopping}): when a
-     * person asks for it, a request to the model, a page fetch or a search in flight ends within a second, its connection closed. The
+     * person asks for it, a request to the model(), a page fetch or a search in flight ends within a second, its connection closed. The
      * nightly tasks stop between their steps, as before: a step given up in the middle would write down the rest of its work as unanswered.
      */
     private String runJob(ObjectNode job, String drive) {
@@ -129,10 +146,18 @@ public final class LibrarianDaemon {
         stallWatch = t;
     }
 
+    /** One job, on the model the library is set to when it starts: `model use` meanwhile changes the next job's, never this one's halfway. */
     private String dispatch(ObjectNode job, String drive) {
+        JOB_MODEL.remove();
+        JOB_MODEL.set(model());
+        try { return dispatchNow(job, drive); }
+        finally { JOB_MODEL.remove(); }
+    }
+
+    private String dispatchNow(ObjectNode job, String drive) {
         String kind = job.path("kind").asText();
         ObjectNode a = (ObjectNode) job.path("args");
-        String d = drive == null || drive.isEmpty() ? driveUrl : drive;
+        String d = drive == null || drive.isEmpty() ? driveNow() : drive;
         switch (kind) {
             case "research" -> {
                 if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The question was saved but cannot run. Send it again when a model is up.");
@@ -145,7 +170,7 @@ public final class LibrarianDaemon {
             }
             case "crews" -> {
                 String crewId = job.path("job_id").asText("");
-                var steps = Crews.runAll(store, d, model, () -> !crewId.isEmpty() && jobs.stopRequested(crewId));
+                var steps = Crews.runAll(store, d, model(), () -> !crewId.isEmpty() && jobs.stopRequested(crewId));
                 StringBuilder sb = new StringBuilder();
                 for (var s : steps) sb.append(s.name()).append(": ").append(s.outcome()).append(" (").append(s.ms()).append("ms)\n");
                 return sb.toString();
@@ -175,7 +200,7 @@ public final class LibrarianDaemon {
         Researcher researcher = researcher(drive, trace);
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
         try {
-            var later = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(drive, model)), UncheckedPages.PER_COMMAND);
+            var later = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(drive, model())), UncheckedPages.PER_COMMAND);
             if (!later.sentence().isEmpty()) Crews.log(store, "research " + jobId, later.sentence(), 0);
         } catch (Exception ignored) { }
         String asker = job.path("patron").asText("");
@@ -202,7 +227,7 @@ public final class LibrarianDaemon {
         if (declined != null) { try { jobs.declined(jobId, declined); } catch (IOException ignored) { } }
         // the ledger row: what this run cost and produced, beside every earlier run's
         ObjectNode row = RunLedger.row(jobId, ask, filed.result(), filed.admitted() ? "filed " + filed.investigationId() : filed.declined() ? "declined by the model" : "refused: " + filed.reason(),
-                System.currentTimeMillis() - t0, drive, model, trace.totals());
+                System.currentTimeMillis() - t0, drive, model(), trace.totals());
         row.put("fetches_total", RunLedger.fetchCalls(store, jobId));
         RunLedger.record(store, row);
         if (filed.admitted()) settle(filed.investigationId(), drive, jobId);
@@ -247,11 +272,11 @@ public final class LibrarianDaemon {
         try {
             Investigation inv = store.investigation(investigationId);
             if (inv == null) return;
-            var client = new DriveClient(drive, model);
+            var client = new DriveClient(drive, model());
             var idx = new LibrarianIndex(store);
             // each step is model calls of up to RESEARCHZOSHO_DRIVE_TIMEOUT each; a stop asked meanwhile gives up the call in flight and
             // ends the settling at the next step, and the nightly housekeeping does the rest (a stopped run once sat here for minutes, J-0024)
-            var out = new LibrarianReview(store, idx, LibrarianReview.driveJudge(client), "librarian:" + model).searcher(LibrarianReview.liveSearcher()).review(inv);
+            var out = new LibrarianReview(store, idx, LibrarianReview.driveJudge(client), "librarian:" + model()).searcher(LibrarianReview.liveSearcher()).review(inv);
             if (settleStopped(jobId, investigationId, "review", t0)) return;
             // subjects from the list for this run's own claims only; the rest of the library is the nightly housekeeping's, a few at a time
             Investigation filed = store.investigation(investigationId);
@@ -295,16 +320,16 @@ public final class LibrarianDaemon {
     private Researcher researcher(String drive) { return researcher(drive, null); }
 
     /** The seat the Librarian talks from: the judge drive when one is set, else the workers' drive. */
-    Researcher.Drive chatDrive() { return Researcher.watchedChat(driveUrl, model); }   // watched: when the model declines, the chat says so
+    Researcher.Drive chatDrive() { return Researcher.watchedChat(driveNow(), model()); }   // watched: when the model declines, the chat says so
 
     /** The runner for a job, its drives seen through the job's trace when there is one. */
     private Researcher researcher(String drive, RunTrace trace) {
         if (researcherFactory != null) { Researcher r = researcherFactory.apply(drive); if (trace != null) r.trace(trace); return r; }
         // both seats watched for a model that declines: it is said, never worked around (see Declines)
-        Researcher.Drive workers = Researcher.watched(drive, model, "workers", trace), judge = Researcher.watchedJudge(drive, model, trace);
+        Researcher.Drive workers = Researcher.watched(drive, model(), "workers", trace), judge = Researcher.watchedJudge(drive, model(), trace);
         if (trace != null) { workers = trace.wrap(workers, "workers"); judge = trace.wrap(judge, "judge"); }
         Researcher r = new Researcher(workers, judge, Researcher.webTools(), line -> Crews.log(store, "research", line, 0), store);
-        r.contentJudge(ContentJudge.of(new DriveClient(drive, model)));   // the run's own model checks the pages it fetches
+        r.contentJudge(ContentJudge.of(new DriveClient(drive, model())));   // the run's own model checks the pages it fetches
         if (trace != null) r.trace(trace);
         return r;
     }
@@ -344,7 +369,7 @@ public final class LibrarianDaemon {
     public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
-        return jobs.workers() + " worker(s) on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveUrl : d).toList());
+        return jobs.workers() + " worker(s) on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
     }
     public void join() throws InterruptedException { Thread.currentThread().join(); }
 
@@ -496,7 +521,7 @@ public final class LibrarianDaemon {
         LibraryProtocol.helpBeforeTooShort(body, way);   // a short question about harming oneself gets the help, not "too short"
         LibraryProtocol.validateResearch(body);
         boolean any = false;
-        for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveUrl : d)) { any = true; break; }
+        for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveNow() : d)) { any = true; break; }
         if (!any) throw ProtocolError.unavailable("No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
         ObjectNode r = new LibraryProtocol(store).research(body, way);
         jobs.pickUp();

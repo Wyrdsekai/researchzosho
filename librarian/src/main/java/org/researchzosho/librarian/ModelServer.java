@@ -995,6 +995,38 @@ public final class ModelServer {
         } catch (Exception e) { return "!" + e.getMessage(); }
     }
 
+    /**
+     * `model use <address> [<model>]`: point the library at another model server now. The server is asked what it serves and the model
+     * is asked to reply before anything is changed; then the settings are written, and the running service takes the new model for its
+     * next run and its next question (a run going now finishes on the model it started with). Nothing to restart.
+     */
+    static int use(String address, String name, Setup.Probe probe, PrintStream out) throws IOException {
+        if (address == null || address.isBlank()) { out.println("usage: researchzosho model use <address> [<model>]   for example: researchzosho model use http://192.168.1.20:8080 qwen3.8-27b"); return 2; }
+        String base = Config.driveBase(address.strip());
+        String key = Setup.local(base) ? null : Config.get("RESEARCHZOSHO_API_KEY");
+        List<String> ids = probe.models(base, key);
+        if (ids == null) { out.println("  No model server answers at " + base + ". Nothing was changed."); return 1; }
+        String model = name == null || name.isBlank() ? null : name.strip();
+        if (model == null) {
+            if (ids.size() == 1) model = ids.get(0);
+            else if (!ids.isEmpty()) {
+                out.println("  The server at " + base + " serves " + ids.size() + " models. Name the one to use:");
+                for (String id : ids) out.println("    researchzosho model use " + base + " " + id);
+                out.println("  Nothing was changed.");
+                return 2;
+            }
+        } else if (!ids.isEmpty() && !ids.contains(model)) {
+            out.println("  The server at " + base + " does not serve a model called " + model + ". It serves: " + String.join(", ", ids) + ". Nothing was changed.");
+            return 1;
+        }
+        String hello = probe.chat(base, model == null ? "local-model" : model, key);
+        if (hello.startsWith("!")) { out.println("  The server answered, but the model did not reply (" + hello.substring(1) + "). Nothing was changed."); return 1; }
+        Config.set("RESEARCHZOSHO_DRIVE", base);
+        if (model != null) Config.set("RESEARCHZOSHO_MODEL", model);
+        out.println("  The library now uses " + (model == null ? "the model" : model) + " at " + base + ". The service takes it for its next research run and its next question; a run going now finishes on the model it started with.");
+        return 0;
+    }
+
     /** `model …` from the command line: install [--file F] [--gpu N] [--idle-minutes N] [--share] | status | stop | uninstall. */
     public static int command(String[] a, int from, PrintStream out) {
         String op = a.length > from ? a[from] : "status";
@@ -1026,8 +1058,12 @@ public final class ModelServer {
                 out.println("  The library now uses the model " + r + " at " + URL + ". The one it used before stays on the disk; researchzosho model prune removes models that are not in use.");
                 return 0;
             }
+            case "use" -> {
+                try { return use(a.length > from + 1 ? a[from + 1] : null, a.length > from + 2 ? a[from + 2] : null, Setup.liveProbe(), out); }
+                catch (IOException e) { out.println("  The settings could not be written: " + e.getMessage() + ". Nothing was changed."); return 1; }
+            }
             case "prune" -> { String r = prune(a.length > from + 1 && a[from + 1].equals("--yes"), out); out.println("  " + (r.startsWith("!") ? r.substring(1) : r)); return r.startsWith("!") ? 1 : 0; }
-            default -> { out.println("usage: researchzosho model install|status|switch [<name>]|prune [--yes]|stop|uninstall [--force]|check"); return 2; }
+            default -> { out.println("usage: researchzosho model install|status|use <address> [<model>]|switch [<name>]|prune [--yes]|stop|uninstall [--force]|check"); return 2; }
         }
     }
 }

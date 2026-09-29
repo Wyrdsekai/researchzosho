@@ -2,10 +2,12 @@
 
 ## 0.5.1
 
-This release fixes removing a report, which could delete claims you had added yourself, and filing under subjects, which asked the model about every claim in the library after each run. It adds a way to start a subject list, gives the help for a question about harming oneself in the person's language, keeps family claims out of subjects, and keeps what the library searched for and a check it makes of the model server out of your terminal and its log.
+This release fixes removing a report, which could delete claims you had added yourself, and filing under subjects, which asked the model about every claim in the library after each run. It adds `model use` to switch models while the service runs, `service restart`, a way to start a subject list, gives the help for a question about harming oneself in the person's language, keeps family claims out of subjects, and keeps what the library searched for and a check it makes of the model server out of your terminal and its log.
 
 ### Added
 
+- `researchzosho model use <address> [<model>]` switches the library to another model server while it runs. It checks that the server answers and the model replies before it changes anything, and the service takes the new model for its next research run and its next question, with no restart. A run going at that moment finishes on the model it started with.
+- `researchzosho service restart` restarts the service on Linux, macOS and Windows. When a research run is going it says so and asks first, because a restart starts that run over; `--yes` skips the question.
 - A program can send the person's language and country with a question, as `locale` (`es-MX`, `ja-JP`). When the question reads as a person asking about harming themselves, where to find help then comes in English, Spanish or Japanese, with that country's services first, and also as data the program can show its own way: the `confirm` error carries `language` and `helplines`, each service with its countries, name, how to reach it, hours, whether it is free, and its page. The help now also lists Spain (024) and Argentina (Centro de Asistencia al Suicida), and says that 988 in the United States answers in Spanish.
 - `researchzosho catalog seed` starts a subject list from the claims themselves. It asks which subjects fit each claim once, adds the subjects two or more claims were given (`--min N` for more), then files the claims under them.
 

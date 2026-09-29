@@ -141,6 +141,11 @@ Check "the service came back serving $Next" (Within 90 { (ServedVersion 4649) -e
 $after = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
 Show 'port 4649 /v1/status after the update:' ("version " + (ServedVersion 4649) + ", server pid $after (was $before)")
 if (Test-Path "$State\logs\update.log") { Show 'update.log:' (Get-Content "$State\logs\update.log" -Raw) }
+# a restart: a new server process, serving again
+$old = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
+Expect 'service restart' 'Restarted the service' { & $Z service restart --yes }
+Check "the restart started a new server (was pid $old)" (Within 90 { (Test-Path "$State\researchzosho.pid") -and ([int](Get-Content "$State\researchzosho.pid") -ne $old) -and ((ServedVersion 4649) -eq $Next) }) "pid file says '$(Get-Content "$State\researchzosho.pid" -ErrorAction SilentlyContinue)', port 4649 says '$(ServedVersion 4649)'"
+$after = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
 Expect 'service uninstall' 'removed' { & $Z service uninstall }
 Check "the service's server stopped" (Within 20 { -not (Answers 4649) -and -not ($after -gt 0 -and (Get-Process -Id $after -ErrorAction SilentlyContinue)) }) "port 4649 or java pid $after still there"
 }

@@ -401,6 +401,23 @@ public final class Service {
                 stopRecorded(pidFile(), out);
                 return 0;
             }
+            case "restart" -> {
+                if (!Files.exists(plan.definition())) { out.println("The service is not installed, so there is nothing to restart. To install it: researchzosho service install"); return 1; }
+                int rc = 0;
+                switch (plan.os()) {
+                    case linux -> rc = exec(List.of("systemctl", "--user", "restart", NAME), out);
+                    case macos -> rc = exec(List.of("launchctl", "kickstart", "-k", "gui/" + uid() + "/" + MAC_LABEL), out);
+                    default -> {
+                        // the running server is not the task's own process (install starts it through Start-Process): stop it by its
+                        // recorded pid, end the task, and start it again the way install does, which works from any session
+                        stopRecorded(pidFile(), out);
+                        exec(List.of("schtasks", "/End", "/TN", WIN_TASK), out);   // not running is fine
+                        rc = exec(windowsStartNow(plan.definition()), out);
+                    }
+                }
+                out.println(rc == 0 ? "Restarted the service. It answers again in a few seconds." : "The service could not be restarted (exit " + rc + "). researchzosho service status says how it stands.");
+                return rc;
+            }
             case "status" -> {
                 out.println(describe(plan));
                 int rc = exec(plan.status(), out);
@@ -408,7 +425,7 @@ public final class Service {
                 if (pid != null) out.println(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) ? "  server running (pid " + pid + ")" : "  server not running (stale pid " + pid + ")");
                 return rc;
             }
-            default -> { out.println("usage: researchzosho service install|uninstall|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H]"); return 2; }
+            default -> { out.println("usage: researchzosho service install|uninstall|restart|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H]"); return 2; }
         }
     }
 

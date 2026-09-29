@@ -1295,7 +1295,13 @@ researchzosho model status                  # the proxy, the model, the embeddin
 researchzosho model stop                    # unload now; the next request starts it again
 researchzosho model uninstall               # remove the service; the model files in ~/models stay; the drive goes back
 researchzosho model check                   # every model file and pinned build still resolves where the rows say
+researchzosho model use http://192.168.1.20:8080 qwen3.8-27b   # use another model server, now
 ```
+
+`model use` asks the server what it serves and asks the model to reply before it changes anything. The
+running service takes the new model for its next research run and its next question, with no restart;
+a run going at that moment finishes on the model it started with. With one model on the server, you can
+leave out its name; with several, `model use` lists them.
 
 The embeddings server runs beside the model at the same address, under the model name `embed`. It is
 in its own group, so neither evicts the other. It never idles out, because it is small and every
@@ -1772,6 +1778,7 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
 ```
 researchzosho service install            # Linux, macOS or Windows; a user service, no administrator rights
 researchzosho service status
+researchzosho service restart            # asks first when a research run is going: a restart starts it over
 researchzosho service uninstall
 ```
 

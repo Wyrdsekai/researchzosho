@@ -154,7 +154,7 @@ public final class LibrarianCli {
               models [--all]               which model fits this machine's graphics card, measured, with the command that runs it
               bedrock models|test <model>|use <model> [--region r] [--profile p] [--embed]
                                            the models of your own AWS account (Amazon Bedrock) as this library's model. Sign in to AWS first
-              model install|status|switch [<name>]|prune|stop|uninstall
+              model install|status|use <address> [<model>]|switch [<name>]|prune|stop|uninstall
                                            the model on this machine, on demand: it starts when a research run needs it and stops after 20 idle
                                            minutes (install [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share])
               embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured. Text Embeddings Inference through Docker
@@ -194,7 +194,7 @@ public final class LibrarianCli {
               crews [--weekly] [--monthly]  run nightly maintenance once, now (source re-checks · nightly research · review · inventory · summaries · enrich · heat ·
                                            [weekly: duplicates · orphans] · refresh|rebuild · backup)
               raw prune                    delete the saved pages the weekly orphans report listed (catalog/orphans.md)
-              service install|uninstall|status [--exec <launcher>] [--host H] [--port P] [--crew-hour H]
+              service install|uninstall|restart [--yes]|status [--exec <launcher>] [--host H] [--port P] [--crew-hour H]
                                            run the service in the background: systemd (Linux), LaunchAgent (macOS), logon task (Windows)
               mcp                          MCP over stdio with ONLY the library tools (for Claude Code and other hosts)
               probe <query…>               why ask answered as it did: each search method's raw scores and the cutoff
@@ -1070,9 +1070,11 @@ public final class LibrarianCli {
                 case "service" -> {
                     String op = args.length > 2 ? args[2] : "status";
                     String exec = null, host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT, hour = 3;
+                    boolean yes = false;
                     try {
                         for (int i = 3; i < args.length; i++) {
                             switch (args[i]) {
+                                case "--yes", "-y" -> yes = true;
                                 case "--exec" -> exec = flagValue(args, i++);
                                 case "--host" -> host = flagValue(args, i++);   // 0.0.0.0: the LAN may reach it; the reader list decides who may do what
                                 case "--port" -> port = flagInt(args, i++);
@@ -1081,7 +1083,15 @@ public final class LibrarianCli {
                             }
                         }
                     } catch (IllegalArgumentException e) {
-                        System.err.println("usage: researchzosho service install|uninstall|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H] — " + e.getMessage()); return 2;
+                        System.err.println("usage: researchzosho service install|uninstall|restart [--yes]|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H] — " + e.getMessage()); return 2;
+                    }
+                    if (op.equals("restart") && !yes) {
+                        // a restart starts a run that is going over from the beginning (a second restart fails it): say so first
+                        String going = runningResearch();
+                        if (going != null) {
+                            System.out.println("A research run is going: " + going + ". A restart stops it, and it starts again from the beginning.");
+                            if (!Interaction.yes("Restart the service anyway? (y/N)")) { System.out.println("Nothing was restarted."); return 1; }
+                        }
                     }
                     var plan = Service.plan(Service.os(), op.equals("install") ? Service.resolveExec(exec) : (exec == null ? "researchzosho" : exec),
                             host, port, hour, Path.of(System.getProperty("user.home")));
@@ -2392,5 +2402,20 @@ public final class LibrarianCli {
             default -> { return 2; }
         }
         return 0;
+    }
+
+    /** The research run going in this machine's library, as "J-0042, 12 min in"; null when none is going or there is no library. */
+    static String runningResearch() {
+        try {
+            LibraryStore store = LibraryStore.open();   // the setting, else the default folder, as the service finds it
+            if (!Files.isDirectory(store.root().resolve("catalog"))) return null;
+            for (var j : new Jobs(store, x -> "").active()) {
+                if (!"running".equals(j.path("state").asText()) || !"research".equals(j.path("kind").asText())) continue;
+                String started = j.path("started_at").asText("");
+                long min = started.isEmpty() ? -1 : Duration.between(Instant.parse(started), Instant.now()).toMinutes();
+                return j.path("job_id").asText() + (min >= 0 ? ", " + min + " min in" : "");
+            }
+        } catch (Exception ignored) { }
+        return null;
     }
 }
