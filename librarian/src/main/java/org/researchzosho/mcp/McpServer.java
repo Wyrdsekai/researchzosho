@@ -195,9 +195,9 @@ public final class McpServer {
                 + "with write access.",
                 schema(new String[]{"claim", "sources"},
                         prop("claim", "string", "The claim itself, one to three self-contained sentences."),
-                        prop("claim_type", "string", "extraction | synthesis | interpretation | speculation (default synthesis)."),
+                        enumProp("claim_type", "extraction | synthesis | interpretation | speculation (default synthesis).", "extraction", "synthesis", "interpretation", "speculation"),
                         arrayProp("sources", "Where it comes from: URLs, edition citations, or {locator, edition, why} objects."),
-                        prop("confidence", "string", "low | medium | high (default medium)."),
+                        enumProp("confidence", "low | medium | high (default medium).", "low", "medium", "high"),
                         prop("title", "string", "Optional short title (default: the claim's first words)."),
                         prop("triple", "object", "Optional {subject, predicate, object}: the claim as an edge of the graph (library_map). Without it the nightly triples crew derives one."),
                         patronProp())));
@@ -214,7 +214,7 @@ public final class McpServer {
                         prop("path", "string", "A file or a folder on this machine (absolute path; a mounted share is a path)."),
                         prop("url", "string", "A page or document on the web; always kept."),
                         prop("collection", "string", "The collection to shelve under (default: the folder's name; none for a single file or url)."),
-                        prop("mode", "string", "keep | link | survey (default keep)."),
+                        enumProp("mode", "keep | link | survey (default keep).", "keep", "link", "survey"),
                         prop("register", "boolean", "For a folder: the housekeeping rescans it for new and changed files."),
                         patronProp())));
         tools.add(tool("library_absorb",
@@ -246,7 +246,7 @@ public final class McpServer {
                 + "run for each direction named; op=do with question files the person's own direction and its run. pick and do take "
                 + "the thing by name (as surveyed).",
                 schema(new String[]{},
-                        prop("op", "string", "survey (default), pick, or do."),
+                        enumProp("op", "survey (default), pick, or do.", "survey", "pick", "do"),
                         prop("path", "string", "A folder or a file on this machine (absolute path). Keeper only."),
                         prop("url", "string", "A url: a git repository, a paper, a page, or a GitHub issues page."),
                         prop("kind", "string", "repo, paper, site or issues; detected from the thing when not given."),
@@ -266,7 +266,7 @@ public final class McpServer {
                         prop("url", "string", "A list on the web."),
                         prop("text", "string", "The list itself, pasted."),
                         prop("lens", "string", "What to find out about each item; {item} marks where the item goes (default: what it is, who made it, what it is for)."),
-                        prop("as", "string", "frontier | runs | none (default frontier)."),
+                        enumProp("as", "frontier | runs | none (default frontier).", "frontier", "runs", "none"),
                         prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
                         allowProp(),
                         localeProp(),
@@ -283,7 +283,7 @@ public final class McpServer {
                 + "op=query runs ONE reading statement: `sql` (a single SELECT or WITH), or for MongoDB a `collection` with a `filter` or a `pipeline` as JSON. "
                 + "Rows are capped, so count and group in the query. The result is saved as a page; cite its locator. Only the owner may use this, and connections are added from the command line.",
                 schema(new String[]{},
-                        prop("op", "string", "list (default), schema, or query."),
+                        enumProp("op", "list (default), schema, or query.", "list", "schema", "query"),
                         prop("database", "string", "The database's name, from op=list."),
                         prop("sql", "string", "For query: one SELECT or WITH statement."),
                         prop("collection", "string", "For a MongoDB query: the collection."),
@@ -306,7 +306,7 @@ public final class McpServer {
                 + "op=tell: something said of the person, kept in those words for their search. op=find: look one person up now (about half a minute). "
                 + "The answer is the family's own word: show the entries and ask.",
                 schema(new String[]{"op"},
-                        prop("op", "string", "list, show, answer, tell or find."),
+                        enumProp("op", "list, show, answer, tell or find.", "list", "show", "answer", "tell", "find"),
                         prop("person", "string", "The person in the family, as the library writes the name. For show: empty takes the first who waits."),
                         prop("is", "string", "For answer: the numbers of the entries who ARE the person, as \"1\" or \"1,3\" when two entries are the same person."),
                         prop("none", "boolean", "For answer: none of the entries is the person."),
@@ -321,7 +321,7 @@ public final class McpServer {
                 + "gentler thing for a claim.",
                 schema(new String[]{"id"},
                         prop("id", "string", "A report id (I-…) or a claim id (F-…)."),
-                        prop("what", "string", "For a report: all (default), report, or claims."),
+                        enumProp("what", "For a report: all (default), report, or claims.", "all", "report", "claims"),
                         prop("dry", "boolean", "Show the plan only."),
                         patronProp())));
         tools.add(tool("library_check",
@@ -363,7 +363,7 @@ public final class McpServer {
                         prop("path", "string", "The file on this machine (absolute path)."),
                         prop("url", "string", "The list on the web."),
                         prop("text", "string", "The questions, pasted, one per line."),
-                        prop("as", "string", "frontier | runs (default frontier)."),
+                        enumProp("as", "frontier | runs (default frontier).", "frontier", "runs"),
                         prop("field", "string", "Optional, with as=runs: the field every run is to be, one of the library's fields by name."),
                         allowProp(),
                         localeProp(),
@@ -406,17 +406,17 @@ public final class McpServer {
                 + "op=dismiss drops it; op=settings reads or sets an area's dials (sources, reach, strict, toward, away, since, per_night); "
                 + "op=measure reads the ledger: proposed, kept, dismissed, corroborated.",
                 schema(new String[]{},
-                        prop("op", "string", "run | list | accept | dismiss | settings | measure | distance (default list)."),
+                        enumProp("op", "run | list | accept | dismiss | settings | measure | distance (default list).", "run", "list", "accept", "dismiss", "settings", "measure", "distance"),
                         prop("area", "string", "For run and settings: the subject to start from (default: the hottest areas); for distance: one of the two areas."),
                         prop("other", "string", "For distance: the other area — returns hops on the map, shared terms, paths, sources naming both, and the nearest concepts by embedding with their cosine."),
                         prop("question", "string", "For accept and dismiss: the proposal, as listed."),
                         prop("sources", "string", "For run and settings: library, peers, web — comma-separated (default library). With web, a pair the shelves do not join is taken outside: the model names what could bear on both, and a web search has to carry each candidate together with EACH area before it is proposed."),
-                        prop("reach", "string", "For run and settings: low (neighbours) | medium (a few hops, a tenth random) | high (any distance, a third random)."),
+                        enumProp("reach", "For run and settings: low (neighbours) | medium (a few hops, a tenth random) | high (any distance, a third random).", "low", "medium", "high"),
                         prop("strict", "boolean", "For run and settings: three shared terms and no source naming both (true, default), or one term and no claim joining them (false)."),
                         prop("toward", "string", "For run and settings: measure distance toward this area instead of outward."),
                         prop("away", "string", "For run and settings: words that rule an area out, comma-separated."),
                         prop("since", "string", "For run and settings: only areas with a finding dated on or after this (YYYY-MM-DD)."),
-                        prop("via", "string", "For run and settings: terms (words both areas' claims are about) | graph (paths on the map through concepts in between) | both (default)."),
+                        enumProp("via", "For run and settings: terms (words both areas' claims are about) | graph (paths on the map through concepts in between) | both (default).", "terms", "graph", "both"),
                         prop("propose", "integer", "For run: proposals to file this time (default the area's per_night, 3)."),
                         prop("per_night", "integer", "For settings: proposals a night for the crew (0 turns it off)."),
                         prop("dry", "boolean", "For run: show the pairs and questions, file nothing."),
@@ -428,13 +428,13 @@ public final class McpServer {
                 + "op=add queues one attributed to the patron; op=next moves one to the head; op=later to the tail; op=park keeps one out of the explorer's reach, with why (the reason, listed back as parked_why with the date); op=unpark returns it; "
                 + "op=drop closes one without researching it; op=tidy removes duplicate lines (write access). A report's leftover questions are filed parked.",
                 schema(new String[]{},
-                        prop("op", "string", "list (default) | add | next | later | park | unpark | drop | tidy."),
+                        enumProp("op", "list (default) | add | next | later | park | unpark | drop | tidy.", "list", "add", "next", "later", "park", "unpark", "drop", "tidy"),
                         prop("question", "string", "For add, next, later, park, unpark, drop: the question, exactly as listed."),
                         prop("why", "string", "For park: why it waits, for example: waits on the record office's answer."),
-                        prop("type", "string", "For list: report | asked | person | dispute | check."),
-                        prop("show", "string", "For list: queued | parked | all (default all)."),
+                        enumProp("type", "For list: report | asked | person | dispute | check.", "report", "asked", "person", "dispute", "check"),
+                        enumProp("show", "For list: queued | parked | all (default all).", "queued", "parked", "all"),
                         prop("report", "string", "For list: only questions left by this investigation (an id, or its prefix such as I-0016)."),
-                        prop("fate", "string", "For list: kept | waiting | disputed | retired | none — what became of the report that left the question."),
+                        enumProp("fate", "For list: kept | waiting | disputed | retired | none — what became of the report that left the question.", "kept", "waiting", "disputed", "retired", "none"),
                         prop("who", "string", "For list: the perspective the question was asked from, matched as text."),
                         prop("subject", "string", "For list: a subject slug."),
                         prop("language", "string", "For list: english, japanese, … — the language a question is in or asks for."),
@@ -446,17 +446,17 @@ public final class McpServer {
                 + "oldest first, with filters report (an investigation id or its prefix), subject, kind (extraction | synthesis | interpretation | speculation), tier, confidence, writer, state (draft | stale), language, q (words in the title). "
                 + "op=accept puts claims into every answer from now on; op=dispute files why; op=retire keeps them on disk and out of every answer — each takes ids[] (or id), or report for every waiting claim of one investigation (write access).",
                 schema(new String[]{},
-                        prop("op", "string", "list (default) | accept | dispute | retire."),
+                        enumProp("op", "list (default) | accept | dispute | retire.", "list", "accept", "dispute", "retire"),
                         arrayProp("ids", "For accept, dispute, retire: the claim ids."),
                         prop("id", "string", "One claim id, instead of ids."),
                         prop("report", "string", "For list: only claims from this investigation; for a decision: every waiting claim of it."),
                         prop("why", "string", "For dispute: the reason (required)."),
                         prop("subject", "string", "For list: a subject slug."),
-                        prop("kind", "string", "For list: the claim type — extraction | synthesis | interpretation | speculation."),
+                        enumProp("kind", "For list: the claim type — extraction | synthesis | interpretation | speculation.", "extraction", "synthesis", "interpretation", "speculation"),
                         prop("tier", "string", "For list: the strongest source's tier."),
-                        prop("confidence", "string", "For list: low | medium | high."),
+                        enumProp("confidence", "For list: low | medium | high.", "low", "medium", "high"),
                         prop("writer", "string", "For list: who wrote the claim, matched as text (crew:explorer, person, …)."),
-                        prop("state", "string", "For list: draft | stale."),
+                        enumProp("state", "For list: draft | stale.", "draft", "stale"),
                         prop("language", "string", "For list: the language of the claim's title."),
                         prop("q", "string", "For list: words that must all appear in the title."),
                         patronProp())));
@@ -464,7 +464,7 @@ public final class McpServer {
                 "The searches the housekeeping keeps running on a cadence and reports what is new from — op=list (each with parked and due); op=add {name, query, every_days} keeps one; "
                 + "op=every {name, every_days} changes its cadence; op=park {name} keeps it without running it, op=unpark {name} puts it back in the rotation; op=remove {name} stops keeping it (write access).",
                 schema(new String[]{},
-                        prop("op", "string", "list (default) | add | every | park | unpark | remove."),
+                        enumProp("op", "list (default) | add | every | park | unpark | remove.", "list", "add", "every", "park", "unpark", "remove"),
                         prop("name", "string", "A short name for the search (letters, digits, dashes)."),
                         prop("query", "string", "For add: the search query."),
                         prop("every_days", "integer", "For add: how often to re-run it (default 7)."),
@@ -517,11 +517,11 @@ public final class McpServer {
                 + "suggestion {field, why, how}: what the field's mode does and how to ask for it.",
                 schema(new String[]{"question"},
                         prop("question", "string", "The research question, as you would put it to a librarian."),
-                        prop("mode", "string", "broad (survey the landscape, default) | depth (deep-read a narrow question)."),
+                        enumProp("mode", "broad (survey the landscape, default) | depth (deep-read a narrow question).", "broad", "depth"),
                         prop("max_turns", "integer", "Optional ceiling: the most model turns the WHOLE run may spend (workers, critic, synthesis and cite-check together). Absent or 0 = no ceiling, the run goes until the work is done."),
                         prop("max_minutes", "integer", "Optional ceiling: the most wall-clock minutes the run may take ('two hours tops' = 120). The workers stop early enough for the write-up to fit. Absent or 0 = no ceiling."),
                         arrayProp("sub_questions", "Optional plan: up to 8 self-contained sub-questions, each researched by its own worker instead of a decompose step."),
-                        prop("sources", "string", "both (the shelves first, then the web — default) | shelves (the person's own corpus only, no web) | web."),
+                        enumProp("sources", "both (the shelves first, then the web — default) | shelves (the person's own corpus only, no web) | web.", "both", "shelves", "web"),
                         arrayProp("collections", "Optional: names of the person's collections (folders shelved with `researchzosho add <dir>`) to search."),
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
                         prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
@@ -533,7 +533,7 @@ public final class McpServer {
                 + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends at its next turn. "
                 + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access).",
                 schema(new String[]{},
-                        prop("op", "string", "read (default) | stop | pause | resume."),
+                        enumProp("op", "read (default) | stop | pause | resume.", "read", "stop", "pause", "resume"),
                         prop("job_id", "string", "The job to read or stop, e.g. J-0007."),
                         patronProp())));
         tools.add(tool("library_status",
@@ -560,7 +560,7 @@ public final class McpServer {
                         prop("id", "string", "The entry to explain (F-…, I-…, A-…)."),
                         prop("term", "string", "A term to explain instead; with in, as it is used in that entry."),
                         prop("in", "string", "The entry id a term appears in."),
-                        prop("rung", "string", "beginner (default) | familiar | written."),
+                        enumProp("rung", "beginner (default) | familiar | written.", "beginner", "familiar", "written"),
                         prop("fresh", "boolean", "Regenerate instead of using the cached reading."),
                         patronProp())));
         tools.add(tool("library_perspectives",
@@ -740,6 +740,20 @@ public final class McpServer {
         for (String r : required) req.add(r);
         s.set("required", req);
         return s;
+    }
+
+    /**
+     * A string field with a fixed set of values, declared as a JSON-schema {@code enum}. The description still says what each value
+     * means; the enum says which values exist. A description is advice to a model, an enum is a rule: a model called through a
+     * grammar cannot write a value outside it, and a client that checks the schema refuses one before the call is sent. On 2026-10-01
+     * a companion model filled {@code sources} with "community forums, bug trackers, news articles" and got a refusal in place of a
+     * research run.
+     */
+    private static ObjectNode enumProp(String name, String description, String... values) {
+        ObjectNode wrap = prop(name, "string", description);
+        ArrayNode allowed = ((ObjectNode) wrap.get(name)).putArray("enum");
+        for (String v : values) allowed.add(v);
+        return wrap;
     }
 
     private static ObjectNode prop(String name, String type, String description) {

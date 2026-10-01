@@ -537,10 +537,25 @@ public final class Jobs {
         }
     }
 
+    /**
+     * The lock files of jobs that are no longer active go. A stop takes the job's lock ({@link #underFilingLock}), and only a job a worker
+     * ran had its lock removed at the end, so a stop that came before the job started, or after it ended, left an empty file here for good.
+     */
+    private void sweepLocks() throws IOException {
+        if (!Files.isDirectory(activeDir())) return;
+        List<Path> locks;
+        try (var s = Files.list(activeDir())) { locks = s.filter(p -> p.getFileName().toString().endsWith(".lock")).toList(); }
+        for (Path lock : locks) {
+            String id = lock.getFileName().toString().replaceFirst("\\.lock$", "");
+            if (!Files.exists(activeDir().resolve(id + ".json"))) Files.deleteIfExists(lock);
+        }
+    }
+
     // ---- the worker ----
 
     public synchronized void start() throws IOException {
         migrate();
+        sweepLocks();
         for (ObjectNode j : active()) {
             String st = j.path("state").asText();
             if ("queued".equals(st)) {
@@ -665,6 +680,7 @@ public final class Jobs {
         synchronized (this) {
             try {
                 migrate();
+                sweepLocks();
                 long now = System.currentTimeMillis();
                 for (ObjectNode j : active()) {
                     String id = j.path("job_id").asText();

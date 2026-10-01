@@ -1085,16 +1085,18 @@ public final class LibrarianCli {
                     } catch (IllegalArgumentException e) {
                         System.err.println("usage: researchzosho service install|uninstall|restart [--yes]|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H] — " + e.getMessage()); return 2;
                     }
-                    if (op.equals("restart") && !yes) {
-                        // a restart starts a run that is going over from the beginning (a second restart fails it): say so first
+                    var plan = Service.plan(Service.os(), op.equals("install") ? Service.resolveExec(exec) : (exec == null ? "researchzosho" : exec),
+                            host, port, hour, Path.of(System.getProperty("user.home")));
+                    // a restart, or an install that changes a running service's settings, starts a run that is going over from the
+                    // beginning (a second restart fails it): say so first
+                    boolean restarts = op.equals("restart") || (op.equals("install") && Service.changes(plan));
+                    if (restarts && !yes) {
                         String going = runningResearch();
                         if (going != null) {
                             System.out.println("A research run is going: " + going + ". A restart stops it, and it starts again from the beginning.");
-                            if (!Interaction.yes("Restart the service anyway? (y/N)")) { System.out.println("Nothing was restarted."); return 1; }
+                            if (!Interaction.yes("Restart the service anyway? (y/N)")) { System.out.println("Nothing was " + (op.equals("install") ? "changed." : "restarted.")); return 1; }
                         }
                     }
-                    var plan = Service.plan(Service.os(), op.equals("install") ? Service.resolveExec(exec) : (exec == null ? "researchzosho" : exec),
-                            host, port, hour, Path.of(System.getProperty("user.home")));
                     int rc = Service.run(op, plan, System.out);
                     if (rc == 0 && op.equals("install") && !Service.hostFlag(host, "x", "").isEmpty()) {
                         System.out.println("  the pages answer on this computer's network address too. " + (WebAccess.signInRequired() ? "A browser needs a reader token to send questions." : WebAccess.OPEN_NOTICE + " " + WebAccess.OPEN_HOWTO));

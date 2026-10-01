@@ -368,19 +368,24 @@ public final class Service {
     public static int run(String op, Plan plan, PrintStream out) throws IOException, InterruptedException {
         switch (op) {
             case "install" -> {
+                boolean changed = changes(plan);
                 Files.createDirectories(plan.definition().getParent());
                 Files.createDirectories(Config.home().resolve("logs"));
                 Files.writeString(plan.definition(), plan.text(), StandardCharsets.UTF_8);
                 out.println("wrote " + plan.definition());
+                // a server already running keeps the settings it started with: on Windows, stop it so the start below uses the new ones
+                if (changed && plan.os() == Os.windows) stopRecorded(pidFile(), out);
                 int rc = 0;
-                for (int i = 0; i < plan.install().size(); i++) {
-                    var cmd = plan.install().get(i);
+                List<List<String>> steps = installSteps(plan, changed);
+                for (int i = 0; i < steps.size(); i++) {
+                    var cmd = steps.get(i);
                     int r = exec(cmd, out);
                     boolean optional = plan.os() == Os.macos && i == 0;   // bootout of a not-yet-loaded agent fails harmlessly
                     if (r != 0 && !optional) rc = r;
                 }
                 if (rc == 0) {
                     out.println("installed: " + describe(plan));
+                    if (changed) out.println("  The settings changed, so the service was restarted onto them.");
                     if (plan.os() == Os.linux) out.println("  (to keep it running while you are logged out: loginctl enable-linger " + System.getProperty("user.name") + ")");
                     if (plan.os() == Os.windows) {
                         // the script always carries the fallback; say so when a logon would need it
@@ -427,6 +432,27 @@ public final class Service {
             }
             default -> { out.println("usage: researchzosho service install|uninstall|restart|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H]"); return 2; }
         }
+    }
+
+    /** Whether installing {@code plan} changes a service that is already installed: its definition exists and says something else. */
+    public static boolean changes(Plan plan) {
+        try {
+            return Files.exists(plan.definition()) && !Files.readString(plan.definition(), StandardCharsets.UTF_8).equals(plan.text());
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    /**
+     * The commands install runs. On Linux {@code enable --now} starts the service only when it is not running, so a changed unit
+     * would wait for the next reboot: a change restarts it. macOS unloads and loads the agent anyway; Windows stops the old server
+     * before starting (in {@link #run}).
+     */
+    static List<List<String>> installSteps(Plan plan, boolean changed) {
+        if (plan.os() != Os.linux || !changed) return plan.install();
+        List<List<String>> steps = new ArrayList<>(plan.install());
+        steps.add(List.of("systemctl", "--user", "restart", NAME));
+        return steps;
     }
 
     /** Where a running server records its pid: the state dir, beside the logs. */

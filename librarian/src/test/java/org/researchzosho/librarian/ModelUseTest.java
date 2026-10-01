@@ -123,4 +123,21 @@ class ModelUseTest {
             Config.invalidate();
         }
     }
+
+    @Test
+    void anInstallThatChangesTheSettingsRestartsTheServiceOntoThem(@TempDir Path home) throws Exception {
+        // a second Linux box, 2026-09-29: reinstalled with --host 0.0.0.0, the unit said so, and the running server kept listening on 127.0.0.1
+        var loopback = Service.plan(Service.Os.linux, "researchzosho", "127.0.0.1", LibrarianDaemon.DEFAULT_PORT, 3, home);
+        var lan = Service.plan(Service.Os.linux, "researchzosho", "0.0.0.0", LibrarianDaemon.DEFAULT_PORT, 3, home);
+        assertFalse(Service.changes(loopback), "nothing installed yet");
+        Files.createDirectories(loopback.definition().getParent());
+        Files.writeString(loopback.definition(), loopback.text());
+        assertFalse(Service.changes(loopback), "the same settings again");
+        assertEquals(loopback.install(), Service.installSteps(loopback, false), "unchanged: enable --now, which leaves a running service alone");
+        assertTrue(Service.changes(lan), "another host");
+        var steps = Service.installSteps(lan, true);
+        assertEquals(List.of("systemctl", "--user", "restart", "researchzosho"), steps.get(steps.size() - 1), "changed: restarted onto the new unit");
+        var mac = Service.plan(Service.Os.macos, "researchzosho", "0.0.0.0", LibrarianDaemon.DEFAULT_PORT, 3, home);
+        assertEquals(mac.install(), Service.installSteps(mac, true), "macOS unloads and loads the agent anyway");
+    }
 }

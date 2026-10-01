@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.2
+
+### Fixed
+
+- Every MCP tool field with a fixed set of values (`sources`, `mode`, `op`, `confidence`, `reach` and the rest, 25 in all) now declares
+  those values in its schema as an enum, where before they were named only in the field's description. A model fills a field from
+  the schema: one asked about forums and bug trackers wrote `sources: "community forums, bug trackers, news articles"` into
+  `library_research` and got a refusal instead of a research run. With the enum a model called through llama.cpp cannot write a
+  value outside the list, and a client that checks schemas refuses one before the call is sent. The descriptions still say what each
+  value means.
+- `researchzosho service install` run again with other settings (another `--host` or `--port`) wrote the new service definition but
+  left the running server on the old ones until the next reboot, while it said the pages now answered on the network. On Linux and
+  Windows it now restarts the service onto the new settings, as macOS already did, and says so; when a research run is going it asks
+  first, because a restart starts that run over (`--yes` skips the question).
+- A research run stopped before it started left an empty `.lock` file in `catalog/jobs/active`, one for each stopped run, and so did a stop sent for a run that had already ended. The service now removes the lock file of any job that is no longer active, including the ones earlier versions left.
+
 ## 0.5.1
 
 This release fixes removing a report, which could delete claims you had added yourself, and filing under subjects, which asked the model about every claim in the library after each run. It adds `model use` to switch models while the service runs, `service restart`, a way to start a subject list, gives the help for a question about harming oneself in the person's language, keeps family claims out of subjects, and keeps what the library searched for and a check it makes of the model server out of your terminal and its log.
