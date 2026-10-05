@@ -113,6 +113,7 @@ public final class RetrievalBench {
         int k = args.length > 2 && args[2].matches("\\d+") ? Integer.parseInt(args[2]) : 10;
         List<Case> cases = cases(store);
         if (cases.isEmpty()) { System.out.println("no cases — needs investigations that produced findings"); return; }
+        System.out.println("desk rule RESEARCHZOSHO_DESK_MSM=" + LibrarianIndex.DESK_MSM);
         Result sparse = run(new LibrarianIndex(store, Embeddings.none()), cases, k);
         Embeddings.Embedder emb = Embeddings.configured();
         System.out.println(cases.size() + " agent queries from " + cases.stream().map(Case::investigationId).distinct().count()
@@ -136,9 +137,46 @@ public final class RetrievalBench {
                 hybrid = reranked;
             }
             for (String m : hybrid.misses()) System.out.println("    miss: " + m);
+            junk(store, emb, k);
         } else {
+            junk(store, null, k);
             System.out.println("  (no embedder configured — set RESEARCHZOSHO_EMBED to measure hybrid)");
             for (String m : sparse.misses()) System.out.println("    miss: " + m);
         }
+    }
+
+    /**
+     * Long questions about things no research library of this kind holds — the other side of the desk's floor. The gold cases
+     * above say what the floor costs in recall; these say whether "holds nothing" is ever said to a 25-word question. A long
+     * question shares three common words with something on any shelf.
+     */
+    static final List<String> JUNK = List.of(
+            "What is the most accurate open-source method for estimating the moisture content of hay bales from drone photographs taken over a farm in fog, and how does it perform on round bales?",
+            "How do deep-sea anglerfish regulate the bacteria in their light organs across the seasons, and what is the best evidence for the timing of the first bioluminescent ancestor?",
+            "Which tuning systems were used for the harpsichord in Naples between 1690 and 1740, and how would a modern player decide between them for a recording of a trio sonata?",
+            "What is the practical best way to keep a sourdough starter alive through a three-week holiday without a refrigerator, and how does the flour's protein content change the outcome?",
+            "How did the municipal tram network of Lisbon decide on its gauge in the nineteenth century, and what did the choice cost the city when the lines were electrified?",
+            "What is the most reliable way to tell a wild boar's age from a photograph of its tusks, and how much does the method's accuracy fall when the animal is seen from the side?",
+            "How are the orbital periods of the moons of Uranus measured today from the ground, and which amateur telescope would be the smallest that still shows Miranda on a clear night?",
+            "Which knots do commercial fishermen on the north coast of Norway prefer for joining two lines of different thickness, and why did the older knots fall out of use after the 1970s?",
+            "What is the best procedure for re-plastering a lime-washed wall in a nineteenth-century farmhouse so that the new coat does not crack in the first winter, and which sand should be used?",
+            "How do competition rules for sheepdog trials in Wales differ from the ones in New Zealand, and what does the difference mean for a dog trained in one country and run in the other?");
+
+    /** The desk's answer to questions nothing on the shelf is about: how often it still returns an entry. */
+    static void junk(LibraryStore store, Embeddings.Embedder emb, int k) throws IOException {
+        LibrarianIndex sparse = new LibrarianIndex(store, Embeddings.none());
+        int sparseHits = 0, hybridHits = 0;
+        List<String> said = new ArrayList<>();
+        for (String q : JUNK) {
+            var s = sparse.searchStrict(q, k, null, null);
+            if (!s.isEmpty()) { sparseHits++; said.add("BM25 desk: " + s.get(0).id() + " for \"" + q.substring(0, 60) + "…\""); }
+            if (emb != null) {
+                var h = new LibrarianIndex(store, emb).searchStrict(q, k, null, null);
+                if (!h.isEmpty()) { hybridHits++; said.add("hybrid desk: " + h.get(0).id() + " for \"" + q.substring(0, 60) + "…\""); }
+            }
+        }
+        System.out.printf("  junk (%d long questions about nothing on the shelf): BM25 desk returns something on %d, hybrid desk on %s%n",
+                JUNK.size(), sparseHits, emb == null ? "-" : String.valueOf(hybridHits));
+        for (String x : said) System.out.println("    " + x);
     }
 }

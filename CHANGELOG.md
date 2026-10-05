@@ -1,20 +1,83 @@
 # Changelog
 
+## 0.5.3
+
+### New
+
+- YouTube research. A research run can search YouTube for channels and videos, check whether a channel still posts, read what a
+  video says with the time of each line, and cite the moment a claim comes from. It needs the video helper,
+  `researchzosho video install` (Docker and Python 3; no YouTube account or API key).
+- Channels like this one: `researchzosho youtube like <channel>` finds channels that make the same kind of videos, small ones
+  included.
+- YouTube from the terminal: `researchzosho youtube search|channels|uploads|video|like`.
+- `researchzosho status` says whether search by meaning is working.
+
+### Added
+
+- Video helper: `researchzosho video install|start|stop|status|test`. Reads YouTube without an API key, with yt-dlp, through a
+  Cloudflare WARP tunnel (gluetun, a WireGuard device registered at install, no account) and a proof-of-origin token provider, both
+  containers that restart with the machine. wgcf and Deno (MIT) are downloaded into the library's state folder; yt-dlp runs in its
+  own Python environment. One request every 12 seconds, held across processes through a locked file in the helper's folder. The
+  helper refuses to run without the tunnel and reports YouTube's refusals in words. This is against YouTube's terms of service and
+  breaks when YouTube changes its pages. Only text and data are kept, never media.
+- Research tools, available when the helper is installed: `video_search` (videos or channels, with pages), `channel_uploads`
+  (latest uploads with dates, from the channel's feed), `video_details` (details, chapters, caption languages and, on request, the
+  transcript as timed lines in windows — from the captions, else from the library's own transcription with faster-whisper in a
+  third container; the audio is deleted afterwards), and `channels_like` (below). Subscriber and view counts are shown with their
+  date and never used for ranking. YouTube's text is fenced.
+- The `youtube` field, shaped like `software`. Rules: a channel is judged by what it makes and whether it still posts; channels are
+  searched as well as videos, in the subject's languages; a claim about what is shown or said cites the moment
+  (`watch?v=…&t=312s`); who is on screen comes from a name shown or said, never from a face. Relations: uploaded by, shows,
+  explains, appears in, practitioner of, channel about. `--youtube` selects the field; its words also select it. Without the helper
+  the field still applies: its rules then name web search instead of the video tools, the run's log says so, and `research ask`
+  tells the person how to add them.
+- Moment citations are checked. `video_details` stores the details and the full transcript in the raw tier under the video's
+  address. A cited `&t=Ns` is checked against the transcript within 90 seconds of that moment and settles without a model call when
+  the words are there. URLs in a sentence no longer count toward its numbers.
+- `channels_like`, and `researchzosho youtube like <channel>`: channels that make what a given channel makes. The model writes six
+  search phrasings from the channel's description and newest titles (never its name); each runs as a channel search (two pages) and
+  a video search; results are ranked by how many phrasings found them, then by text similarity. Subscribers are shown, not ranked
+  on. Measured on a held-out list of 21 channels of one kind, with each as the seed: top-20 recall of the other 20 averages 2.8
+  (every seed finds at least one; 11 of 21 find three or more). A first version with mechanical phrasings found 0.2. About 2.5
+  minutes a run.
+- `researchzosho youtube search|channels|uploads|video [--transcript]|like`: the same lookups for a person at the terminal.
+  `docs/YOUTUBE.md` documents the field; `researchzosho setup` mentions `video install`.
+
+### Fixed
+
+- The sign-in page's two commands for making a token are the ones the program takes: `researchzosho reader allow <did> write "<name>"`,
+  then `researchzosho reader token <did>`. It showed `reader add <did> "<name>" write`, which did not exist. `reader add` and either
+  order of name and level are now accepted. The messages under `reader` name the command as it is spelled (`researchzosho reader …`,
+  not `librarian patron …`) and the usage lists every subcommand. A test runs the page's commands word for word.
+- The limit on requests sent to a model server at once (its `total_slots`) now also takes hold behind llama-swap when the model was
+  not loaded at the service's start. The server was asked once and "no page yet" was remembered as "says nothing" for the life of the
+  process; a seven-hour research run then had about 39 requests in flight on a four-slot server. A server with no page yet is asked
+  again a minute later. The log says when the limit takes hold.
+- `researchzosho status` reports whether search by meaning is on (`on`, `not answering`, `off`), and the service's status carries
+  the same under `search_by_meaning`. An embeddings server that is configured but not answering used to degrade every search to
+  words only without any notice. Probed at most once a minute.
+- The desk's "holds nothing" works for long questions. A long question shares three common words with something on any shelf, so
+  the old floor (half the question's terms, capped at three) never said "holds nothing". Long entries (captured pages and their
+  chunks, investigations, articles) must now also carry 0.4 of the question's idf-weighted terms; findings keep the old rule.
+  Measured on the live shelf (303 of its own questions, 10 off-topic long questions): before, 108/303 found and 10/10 junk
+  answered; after, 123/303 and 0/10. Settings: `RESEARCHZOSHO_DESK_COVER` (0 disables), `RESEARCHZOSHO_DESK_COVER_KINDS`.
+  `researchzosho bench` prints the junk arm beside the recall.
+- A push's "open threads" list contains only threads that share two or more words with the question (one for a one- or two-word
+  question), most shared first, at most 8 lines or 1,200 characters. Before, any thread containing any four-letter word of the
+  question was listed; one push carried 84,748 characters of threads.
+
 ## 0.5.2
 
 ### Fixed
 
-- Every MCP tool field with a fixed set of values (`sources`, `mode`, `op`, `confidence`, `reach` and the rest, 25 in all) now declares
-  those values in its schema as an enum, where before they were named only in the field's description. A model fills a field from
-  the schema: one asked about forums and bug trackers wrote `sources: "community forums, bug trackers, news articles"` into
-  `library_research` and got a refusal instead of a research run. With the enum a model called through llama.cpp cannot write a
-  value outside the list, and a client that checks schemas refuses one before the call is sent. The descriptions still say what each
-  value means.
-- `researchzosho service install` run again with other settings (another `--host` or `--port`) wrote the new service definition but
-  left the running server on the old ones until the next reboot, while it said the pages now answered on the network. On Linux and
-  Windows it now restarts the service onto the new settings, as macOS already did, and says so; when a research run is going it asks
-  first, because a restart starts that run over (`--yes` skips the question).
-- A research run stopped before it started left an empty `.lock` file in `catalog/jobs/active`, one for each stopped run, and so did a stop sent for a run that had already ended. The service now removes the lock file of any job that is no longer active, including the ones earlier versions left.
+- MCP tool fields with a fixed set of values (`sources`, `mode`, `op`, `confidence`, `reach` and the rest, 25 in all) declare them
+  as an enum in the schema; before, the values were only named in the description, and a model could write a free-text value and get
+  a refusal instead of a run.
+- `researchzosho service install` run again with another `--host` or `--port` wrote the new definition but left the running service
+  on the old settings until reboot. Linux and Windows now restart the service onto the new settings (macOS already did). If a
+  research run is in progress it asks first, since a restart restarts the run; `--yes` skips the question.
+- A research run stopped before it started, or a stop sent to a run that had already ended, left an empty `.lock` file in
+  `catalog/jobs/active`. The service removes lock files of jobs that are no longer active, including ones left by earlier versions.
 
 ## 0.5.1
 

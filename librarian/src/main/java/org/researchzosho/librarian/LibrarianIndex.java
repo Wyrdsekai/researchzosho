@@ -11,6 +11,8 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.search.MatchNoDocsQuery;
+import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.StoredFields;
@@ -35,6 +37,7 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.regex.Pattern;
 import org.apache.lucene.document.StoredField;
@@ -210,6 +213,88 @@ public final class LibrarianIndex {
      */
     static final String DESK_MSM = Config.get("RESEARCHZOSHO_DESK_MSM", "cap:3");
 
+    /**
+     * The strict rule with the index at hand: {@code rare:N[:P]} keeps the minimum of N (half, capped) AND requires at least one
+     * matched term to be rare on this shelf — in at most P percent of its documents (default 10). Three common words of a
+     * 25-word question ("model", "video", "human") are enough for {@code cap:3}, so the desk never said "holds nothing" to a
+     * long question (2026-10-03); a rare word shared is what makes a document about the question.
+     */
+    static Query atLeastHalf(Query parsed, IndexReader reader) throws IOException {
+        String rule = DESK_MSM.toLowerCase(Locale.ROOT).strip();
+        if (!rule.startsWith("rare:") || !(parsed instanceof BooleanQuery bq)) return atLeastHalf(parsed);
+        String[] parts = rule.split(":");
+        int cap = Integer.parseInt(parts[1]);
+        double pct = parts.length > 2 ? Integer.parseInt(parts[2]) : 10;
+        int should = 0;
+        var rare = new BooleanQuery.Builder();
+        int rareTerms = 0, maxDoc = Math.max(1, reader.maxDoc());
+        for (var c : bq.clauses()) {
+            if (c.occur() != BooleanClause.Occur.SHOULD) continue;
+            should++;
+            if (c.query() instanceof TermQuery tq) {
+                int df = reader.docFreq(tq.getTerm());
+                if (df >= 1 && 100.0 * df / maxDoc <= pct) { rare.add(tq, BooleanClause.Occur.SHOULD); rareTerms++; }
+            }
+        }
+        if (should <= 1) return parsed;
+        var b = new BooleanQuery.Builder();
+        for (var c : bq.clauses()) b.add(c);
+        b.setMinimumNumberShouldMatch(Math.min(should, Math.min(cap, (should + 1) / 2)));
+        if (rareTerms == 0) return new MatchNoDocsQuery("no rare term of the question is on this shelf");
+        b.add(rare.setMinimumNumberShouldMatch(1).build(), BooleanClause.Occur.MUST);
+        return b.build();
+    }
+
+    /**
+     * The desk's COVERAGE floor: the share of a question's rarity-weighted words (BM25 idf mass) a document must carry to count
+     * as a holding; 0 turns it off. A minimum number of matched words cannot tell a holding from a long captured page that
+     * has three common words of a 25-word question, nor can "one rare word shared" — a long page has nearly any word once
+     * (measured 2026-10-03 on 303 agent questions and 10 long questions about nothing on the shelf: cap:3 108 hits and 10 of 10
+     * junk answered; rare:3:5 117 hits and 10 of 10). Words the shelf lacks entirely count toward the mass a document must
+     * carry: a question about things the shelf holds nothing on is covered by nothing. RESEARCHZOSHO_DESK_COVER.
+     */
+    static final double DESK_COVER = Double.parseDouble(Config.get("RESEARCHZOSHO_DESK_COVER", "0.4"));
+
+    /**
+     * The kinds the coverage floor applies to: the long texts — captured documents and their chunks, investigations, articles —
+     * which have most words once; a finding is one claim and is judged by the minimum-match rule alone. RESEARCHZOSHO_DESK_COVER_KINDS.
+     */
+    private static final Set<String> COVERED_KINDS = Set.of(Config.get("RESEARCHZOSHO_DESK_COVER_KINDS", "raw,chunk,investigation,article").split("\\s*,\\s*"));
+
+    /**
+     * The sparse hits that count: a shelf entry (finding, investigation, article — a short text about one thing) on the
+     * minimum-match rule alone; a captured document or its chunk only when it carries at least {@link #DESK_COVER} of the
+     * question's idf mass. Measured 2026-10-03 on the live shelf: the floor on everything at 0.4 took the shelf's own
+     * questions from 108 to 28 hits of 303; on captured pages alone it leaves them at 108 and answers 0 of 10 junk questions.
+     */
+    private static ScoreDoc[] covered(IndexSearcher searcher, IndexReader reader, Query asked, ScoreDoc[] hits) throws IOException {
+        StoredFields stored = searcher.storedFields();
+        List<Term> terms = new ArrayList<>();
+        if (asked instanceof TermQuery tq) terms.add(tq.getTerm());
+        else if (asked instanceof BooleanQuery bq) for (var c : bq.clauses()) if (c.query() instanceof TermQuery tq) terms.add(tq.getTerm());
+        if (terms.isEmpty()) return hits;
+        int n = Math.max(1, reader.maxDoc());
+        double all = 0;
+        double[] idf = new double[terms.size()];
+        int[] df = new int[terms.size()];
+        for (int i = 0; i < terms.size(); i++) {
+            df[i] = reader.docFreq(terms.get(i));
+            idf[i] = Math.log(1 + (n - df[i] + 0.5) / (df[i] + 0.5));
+            all += idf[i];
+        }
+        if (all == 0) return hits;
+        List<ScoreDoc> keep = new ArrayList<>();
+        for (ScoreDoc sd : hits) {
+            if (!COVERED_KINDS.contains(stored.document(sd.doc).get(F_KIND))) { keep.add(sd); continue; }
+            double have = 0;
+            for (int i = 0; i < terms.size(); i++) {
+                if (df[i] > 0 && searcher.explain(new TermQuery(terms.get(i)), sd.doc).isMatch()) have += idf[i];
+            }
+            if (have / all >= DESK_COVER) keep.add(sd);
+        }
+        return keep.toArray(ScoreDoc[]::new);
+    }
+
     /** A parsed OR-of-terms query rewritten to require a minimum number of its clauses. */
     static Query atLeastHalf(Query parsed) {
         if (!(parsed instanceof BooleanQuery bq)) return parsed;
@@ -228,6 +313,7 @@ public final class LibrarianIndex {
         if (rule.equals("half")) return (terms + 1) / 2;
         if (rule.startsWith("pct:")) return Math.max(1, (int) Math.ceil(terms * Integer.parseInt(rule.substring(4)) / 100.0));
         if (rule.startsWith("cap:")) return Math.min(Integer.parseInt(rule.substring(4)), (terms + 1) / 2);   // half, capped
+        if (rule.startsWith("rare:")) return Math.min(Integer.parseInt(rule.split(":")[1]), (terms + 1) / 2);   // half, capped; the rarity needs the index
         try { return Math.max(1, Integer.parseInt(rule)); } catch (NumberFormatException e) { return (terms + 1) / 2; }
     }
 
@@ -670,8 +756,10 @@ public final class LibrarianIndex {
      * exactly like a perfect hit, so {@code library_ask} could never say holds_nothing on a
      * non-empty shelf (Wyrdsekai's conformance suite, 2026-09-03: "zebra crossings on the moon
      * in 1740" returned two entries). Strict = the sparse arm must match a minimum of the query's
-     * terms ({@link #DESK_MSM}: half, capped at three — measured) and the dense arm clears the
-     * desk's cosine floor. Plain search keeps weak hits — scores are comparable within one call.
+     * terms ({@link #DESK_MSM}: half, capped at three — measured), a long text (a captured page, an
+     * investigation, an article) carries {@link #DESK_COVER} of the question's rarity-weighted words
+     * besides, and the dense arm clears the desk's cosine floor. Plain search keeps weak hits — scores
+     * are comparable within one call.
      */
     public List<Hit> searchStrict(String query, int k, String subject, String kind) throws IOException {
         return search(query, k, subject, kind, true);
@@ -694,7 +782,8 @@ public final class LibrarianIndex {
             try (DirectoryReader r = DirectoryReader.open(dir)) {
                 IndexSearcher searcher = new IndexSearcher(r);
                 Query text = new QueryParser(F_TEXT, analyzer).parse(QueryParser.escape(query));
-                if (strict) text = atLeastHalf(text);
+                Query asked = text;
+                if (strict) text = atLeastHalf(text, r);
                 Query filter = null;
                 {
                     var fb = new BooleanQuery.Builder();
@@ -718,6 +807,7 @@ public final class LibrarianIndex {
                 Map<Integer, Double> fused = new LinkedHashMap<>();
                 StoredFields stored = searcher.storedFields();
                 ScoreDoc[] sparse = searcher.search(text, want * 3).scoreDocs;
+                if (strict && DESK_COVER > 0) sparse = covered(searcher, r, asked, sparse);
                 for (int i = 0; i < sparse.length; i++) {
                     fused.merge(sparse[i].doc, kindWeight(stored.document(sparse[i].doc).get(F_KIND)) / (60 + i + 1), Double::sum);
                 }

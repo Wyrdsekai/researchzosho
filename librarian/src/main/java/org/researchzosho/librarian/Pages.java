@@ -1283,7 +1283,7 @@ final class Pages {
                 .append(esc(WebAccess.OPEN_HOWTO).replace("run: ", "Run <code>")).append("</code> on the computer where the library lives to change that.</p>");
         else b.append("<p class=\"k\">You can read without signing in, if the library allows it. To ask for research you need to sign in. Paste your token; it stays in this browser only.</p>");
         b.append("<form method=\"post\" action=\"/login\" class=\"stack\"><label>Token<br><input name=\"token\" size=\"60\" autofocus></label><button>Sign in</button></form>");
-        b.append("<p class=\"k\">To make a token, on the computer where the library lives:</p><pre>researchzosho reader add did:key:me \"Me\" write\nresearchzosho reader token did:key:me</pre>");
+        b.append("<p class=\"k\">To make a token, on the computer where the library lives:</p><pre>").append(esc(Patrons.TOKEN_HOWTO)).append("</pre>");
         return page(store, Patrons.Patron.ANONYMOUS, "Sign in", b.toString());
     }
 

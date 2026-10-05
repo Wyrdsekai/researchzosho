@@ -58,6 +58,35 @@ class CiteMapTest {
         assertEquals(1, out.checked(), "one clause, checked once, and no exception: " + out.problems());
     }
 
+    /** A cited moment in a video is read against the video's captured transcript, at the lines around that moment. */
+    @Test
+    void aMomentInAVideoIsCheckedAgainstTheTranscriptAroundIt(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        RawCapture.capture(store, "https://www.youtube.com/watch?v=Q_ZtgMnPsvw", "title: Iaido vs Iaijutsu\ntranscript (en, from YouTube's automatic captions):\n"
+                + "[0:05] welcome to the channel\n[5:12] in iaijutsu the sword is drawn and the cut made in one motion\n[5:30] and then returned\n"
+                + "[12:00] battodo was founded in the twentieth century by Hoshikawa Renji\n", "Iaido vs Iaijutsu", "researchzosho-video", "", "2021-06-15");
+        List<CiteCheck.Ref> refs = List.of(new CiteCheck.Ref(1, "https://www.youtube.com/watch?v=Q_ZtgMnPsvw&t=0s", "", "Iaido vs Iaijutsu"));
+        List<String> prompts = new ArrayList<>();   // what the judge was shown, source and all
+        Researcher.Drive judge = new Researcher.Drive() {
+            @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int max, String choice) { return null; }
+            @Override public String classify(ArrayNode m, int max) {
+                String q = m.get(0).path("content").asText();
+                if (q.contains("\"quote\"")) return "{\"quote\": \"none\"}";
+                prompts.add(q);
+                return "{\"verdict\": \"cannot-tell\"}";
+            }
+            @Override public int contextWindow() { return 8000; }
+        };
+        String text = "In iaijutsu the sword is drawn and the cut made in one motion (https://www.youtube.com/watch?v=Q_ZtgMnPsvw&t=312s). "
+                + "Battodo was founded in the twentieth century by Hoshikawa Renji (https://www.youtube.com/watch?v=Q_ZtgMnPsvw&t=312s).";
+        var out = CiteCheck.run(store, text, refs, judge, new Researcher.Budget(50));
+        assertEquals(2, out.checked(), "both moments map to the video's capture: " + out.problems());
+        assertEquals(1, prompts.size(), "the first is said at that moment and settles at no cost; the second is said elsewhere in the video, so the judge is asked: " + prompts);
+        String source = prompts.get(0).substring(prompts.get(0).indexOf("SOURCE"));
+        assertTrue(source.contains("[5:12] in iaijutsu the sword is drawn"), "the judge reads the lines around the cited moment: " + source);
+        assertFalse(source.contains("[12:00]") || source.contains("[0:05]"), "and not the rest of the video: " + source);
+    }
+
     @Test
     void theClauseACitationClosesIsWhatIsRead(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();

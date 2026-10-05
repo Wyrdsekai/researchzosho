@@ -1,6 +1,6 @@
 {
   "name": "@wyrdsekai/researchzosho-mcp",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "description": "Deep research MCP server with citations and memory. Starts ResearchZosho for Claude Code, Codex, Gemini CLI or any MCP client that can run npx, and fetches the release if it is not installed.",
   "mcpName": "io.github.Wyrdsekai/researchzosho",
   "bin": {

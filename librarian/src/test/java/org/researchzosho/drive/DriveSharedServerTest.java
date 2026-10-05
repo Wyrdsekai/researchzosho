@@ -83,6 +83,44 @@ class DriveSharedServerTest {
         } finally { f.server().stop(0); }
     }
 
+    /** Behind llama-swap, a model not loaded yet has no upstream /props: the gate is not given up for the process, it is asked again. */
+    @Test
+    void aProxyWhoseModelIsNotLoadedYetIsAskedAgainAndThenGated() throws Exception {
+        HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        s.setExecutor(Executors.newFixedThreadPool(8));
+        AtomicInteger now = new AtomicInteger(), most = new AtomicInteger(), chats = new AtomicInteger();
+        s.createContext("/", ex -> {
+            String path = ex.getRequestURI().getPath();
+            byte[] out; int code = 200;
+            if (path.equals("/props")) { code = 404; out = "{\"src\":\"llama-swap\",\"error\":{\"message\":\"no model id could be identified\"}}".getBytes(StandardCharsets.UTF_8); }
+            else if (path.equals("/upstream/one-slot/props")) {
+                if (chats.get() == 0) { code = 502; out = "{\"error\":\"upstream not running\"}".getBytes(StandardCharsets.UTF_8); }
+                else out = "{\"default_generation_settings\":{\"n_ctx\":32768},\"total_slots\":1}".getBytes(StandardCharsets.UTF_8);
+            } else if (path.equals("/v1/chat/completions")) {
+                chats.incrementAndGet();
+                most.accumulateAndGet(now.incrementAndGet(), Math::max);
+                try { Thread.sleep(200); } catch (InterruptedException ignored) { }
+                now.decrementAndGet();
+                out = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ready\"},\"finish_reason\":\"stop\"}]}".getBytes(StandardCharsets.UTF_8);
+            } else { code = 404; out = "{}".getBytes(StandardCharsets.UTF_8); }
+            ex.sendResponseHeaders(code, out.length); ex.getResponseBody().write(out); ex.close();
+        });
+        s.start();
+        String base = "http://127.0.0.1:" + s.getAddress().getPort();
+        try {
+            DriveClient.forgetServed();
+            DriveClient c = new DriveClient(base, "one-slot");
+            assertEquals(0, c.served().slots(), "nothing known while the model is not loaded");
+            ArrayNode msgs = M.createArrayNode(); msgs.addObject().put("role", "user").put("content", "hello");
+            c.chat(msgs, null, 8, "auto");                       // the first request loads the model
+            DriveClient.forgetServed();                           // stands in for the minute before the server is asked again
+            assertEquals(1, c.served().slots(), "asked again, the upstream says one slot");
+            most.set(0);
+            askThreeAtOnce(base, "one-slot");
+            assertEquals(1, most.get(), "three requests on one slot go one at a time: " + most.get());
+        } finally { s.stop(0); DriveClient.forgetServed(); }
+    }
+
     @Test
     void aServerWithoutAdaptersGetsNoAdapterFieldAndAsManyAtOnceAsItsSlots() throws Exception {
         Fake f = fake(4, false);

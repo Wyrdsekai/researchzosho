@@ -50,6 +50,10 @@ import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Fetch;
 import org.researchzosho.tools.PageCheck;
 import org.researchzosho.tools.ScholarSearch;
+import org.researchzosho.tools.VideoSearchTool;
+import org.researchzosho.tools.ChannelUploadsTool;
+import org.researchzosho.tools.VideoDetailsTool;
+import org.researchzosho.tools.ChannelsLikeTool;
 import org.researchzosho.tools.WebSearchTool;
 import org.slf4j.LoggerFactory;
 import org.researchzosho.drive.Declined;
@@ -151,6 +155,8 @@ public final class LibrarianCli {
                                            an entry, or its Simple or Familiar version, as a Markdown or PDF file
               sharpen <question…>          refine a rough question into a better one: the question to run, what it assumed, what you already have. Runs nothing
               search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
+              video [status|install|start|stop|test <query>]   the keyless YouTube route: a WARP tunnel and a token provider through Docker, yt-dlp in the library's own environment
+              youtube [search|channels <words…>|uploads <channel>|video <address> [--transcript]|like <channel>]   YouTube for a person: search, a channel's uploads, a video with its transcript, channels like one
               models [--all]               which model fits this machine's graphics card, measured, with the command that runs it
               bedrock models|test <model>|use <model> [--region r] [--profile p] [--embed]
                                            the models of your own AWS account (Amazon Bedrock) as this library's model. Sign in to AWS first
@@ -185,7 +191,7 @@ public final class LibrarianCli {
               subjects drop <n|slug>…      throw proposals away. `all` clears the list
               abstract [drive] [subject…]  write or rewrite the summary of each subject
               enrich [drive] [N]           add model-written context to saved pages (N files, 0=all)
-              reader [list|allow <did> <level> [name]|deny <did>|remove <did>|default <level>|token <did>|webhook …]
+              reader [list|allow <did> <deny|read|write> [name…]|deny <did>|remove <did>|default <level>|token <did>|webhook …]
               reader requests · approve <R-id> [read|write] · deny <R-id> [why]     access requests, and your answer
                                            who may read and write (deny|read|write); `token` makes a bearer token for a program (`patron` is the same verb)
               serve [--host H] [--port P] [--crew-hour H|--no-crews]
@@ -200,7 +206,7 @@ public final class LibrarianCli {
               probe <query…>               why ask answered as it did: each search method's raw scores and the cutoff
             """;
 
-    /** `librarian patron …` — the allow-list in catalog/patrons.md, and this library's identity. */
+    /** `researchzosho reader …` (`patron` is the older spelling, still accepted) — the readers list in catalog/patrons.md, and this library's identity. */
     static int patron(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2] : "list";
         switch (op) {
@@ -212,16 +218,21 @@ public final class LibrarianCli {
                 for (var e : pol.listed()) System.out.println("- " + e.did() + " — " + (e.name().isEmpty() ? "(unnamed)" : e.name()) + " — " + e.level());
                 if (pol.listed().isEmpty()) System.out.println("(no users listed — " + Patrons.file(store) + ")");
             }
-            case "allow" -> {
-                if (args.length < 5) { System.err.println("usage: researchzosho patron allow <did> <deny|read|write> [name…]"); return 2; }
-                Patrons.Level lvl;
-                try { lvl = Patrons.Level.valueOf(args[4]); } catch (IllegalArgumentException e) { System.err.println("level must be deny, read or write"); return 2; }
-                String name = args.length > 5 ? String.join(" ", Arrays.copyOfRange(args, 5, args.length)) : "";
-                Patrons.set(store, args[3], name, lvl);
-                System.out.println(args[3] + " → " + lvl);
+            case "allow", "add" -> {
+                // `allow <did> write "Me"` and `add <did> "Me" write` are the same command: the level is the one word that names one, the rest is the name
+                if (args.length < 5) { System.err.println("usage: researchzosho reader allow <did> <deny|read|write> [name…]   for example: researchzosho reader allow did:key:me write \"Me\""); return 2; }
+                Patrons.Level lvl = null;
+                List<String> name = new ArrayList<>();
+                for (int i = 4; i < args.length; i++) {
+                    Patrons.Level l = Patrons.levelOf(args[i]);
+                    if (l != null && lvl == null) lvl = l; else name.add(args[i]);
+                }
+                if (lvl == null) { System.err.println("Say what " + args[3] + " may do: deny, read or write. For example: researchzosho reader allow " + args[3] + " write \"a name\""); return 2; }
+                Patrons.set(store, args[3], String.join(" ", name), lvl);
+                System.out.println(args[3] + (name.isEmpty() ? "" : " (" + String.join(" ", name) + ")") + (lvl == Patrons.Level.deny ? " is denied." : " may " + lvl + ". To make their token: researchzosho reader token " + args[3]));
             }
             case "remove" -> {
-                if (args.length < 4) { System.err.println("usage: researchzosho patron remove <did>"); return 2; }
+                if (args.length < 4) { System.err.println("usage: researchzosho reader remove <did>"); return 2; }
                 Patrons.remove(store, args[3]);
                 System.out.println(args[3] + " removed (falls back to default)");
             }
@@ -232,7 +243,7 @@ public final class LibrarianCli {
                 System.out.println(token);
             }
             case "default" -> {
-                if (args.length < 4) { System.err.println("usage: researchzosho patron default <deny|read|write>"); return 2; }
+                if (args.length < 4) { System.err.println("usage: researchzosho reader default <deny|read|write>"); return 2; }
                 try { Patrons.setDefault(store, Patrons.Level.valueOf(args[3])); } catch (IllegalArgumentException e) { System.err.println("level must be deny, read or write"); return 2; }
                 System.out.println("default → " + args[3]);
             }
@@ -282,7 +293,7 @@ public final class LibrarianCli {
                     default -> { System.err.println("usage: researchzosho reader webhook list | add <did> <url> [--secret s] [--events a,b] | remove <did> <url>"); return 2; }
                 }
             }
-            default -> { System.err.println("usage: researchzosho reader [list|allow|deny|remove|default|token|webhook]"); return 2; }
+            default -> { System.err.println("usage: researchzosho reader list | allow <did> <deny|read|write> [name…] | remove <did> | default <deny|read|write> | token <did> | requests | approve <R-id> [read|write] | deny <did>|<R-id> [why] | webhook …"); return 2; }
         }
         return 0;
     }
@@ -660,6 +671,7 @@ public final class LibrarianCli {
                             String r = Embed.start(port, cpu);
                             if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
                             Config.set("RESEARCHZOSHO_EMBED", r);
+                            SearchByMeaning.reprobe();
                             System.out.println("it answers at " + r + " (saved as RESEARCHZOSHO_EMBED; the container restarts with the machine). Search by meaning is on; researchzosho rebuild indexes the library with it.");
                             return 0;
                         }
@@ -730,6 +742,56 @@ public final class LibrarianCli {
                             return 0;
                         }
                         default -> { System.err.println("usage: researchzosho search [status | start [port] [--fresh] | stop | test <query…> | papers <query…>]"); return 2; }
+                    }
+                }
+                case "youtube" -> {
+                    // the field's own commands for a person: a search, a channel's uploads, a video, channels like one
+                    String op = args.length > 2 ? args[2] : "";
+                    if (!Video.installed()) { System.err.println("The video helper is not installed: researchzosho video install"); return 1; }
+                    var M = new ObjectMapper();
+                    String rest = args.length > 3 ? String.join(" ", Arrays.copyOfRange(args, 3, args.length)) : "";
+                    switch (op) {
+                        case "search" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube search <words…>"); return 2; } System.out.println(forPerson(new VideoSearchTool().execute(M.createObjectNode().put("query", rest).put("limit", 10)))); return 0; }
+                        case "channels" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube channels <words…>"); return 2; } System.out.println(forPerson(new VideoSearchTool().execute(M.createObjectNode().put("query", rest).put("kind", "channels").put("limit", 10)))); return 0; }
+                        case "uploads" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube uploads <channel>"); return 2; } System.out.println(forPerson(new ChannelUploadsTool().execute(M.createObjectNode().put("channel", rest)))); return 0; }
+                        case "video" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube video <address> [--transcript]"); return 2; }
+                            boolean t = rest.contains("--transcript"); System.out.println(forPerson(new VideoDetailsTool().execute(M.createObjectNode().put("video", rest.replace("--transcript", "").strip()).put("transcript", t)))); return 0; }
+                        case "like" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube like <channel>"); return 2; } System.out.println(forPerson(new ChannelsLikeTool().execute(M.createObjectNode().put("channel", rest).put("limit", 15)))); return 0; }
+                        default -> { System.err.println("usage: researchzosho youtube [search <words…> | channels <words…> | uploads <channel> | video <address> [--transcript] | like <channel>]"); return 2; }
+                    }
+                }
+                case "video" -> {
+                    // the keyless YouTube route: a WARP tunnel and a token provider through Docker, yt-dlp beside them
+                    String op = args.length > 2 ? args[2] : "status";
+                    switch (op) {
+                        case "status" -> { System.out.print(Video.status()); return 0; }
+                        case "install" -> {
+                            System.out.println("Setting up the video helper: wgcf and Deno (both MIT) are downloaded, a Cloudflare WARP device is registered (no account), yt-dlp is installed into " + Video.dir().resolve("venv") + ", and the two containers are started.");
+                            System.out.println("YouTube is read the way a browser reads it, through the tunnel only. This is against YouTube's terms and breaks when YouTube changes its pages; the helper paces itself and says so when it is refused.");
+                            System.out.print("working… "); System.out.flush();
+                            String r = Video.install();
+                            if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
+                            System.out.println("done. YouTube answers through " + r + " (the containers restart with the machine). `researchzosho video test <words>` runs one search.");
+                            return 0;
+                        }
+                        case "start" -> {
+                            System.out.print("starting the tunnel and the token provider… "); System.out.flush();
+                            String r = Video.start();
+                            if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
+                            System.out.println("YouTube answers through " + r);
+                            return 0;
+                        }
+                        case "stop" -> { String r = Video.stop(); System.out.println(r.startsWith("!") ? r.substring(1) : "the video helper is stopped (researchzosho video start brings it back)"); return r.startsWith("!") ? 1 : 0; }
+                        case "test" -> {
+                            if (args.length < 4) { System.err.println("usage: researchzosho video test <words…>"); return 2; }
+                            String q = String.join(" ", Arrays.copyOfRange(args, 3, args.length));
+                            long t0 = System.currentTimeMillis();
+                            String r = Video.test(q, 5);
+                            if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
+                            System.out.println("YouTube answered through the tunnel in " + (System.currentTimeMillis() - t0) + " ms:\n" + r);
+                            return 0;
+                        }
+                        default -> { System.err.println("usage: researchzosho video [status | install | start | stop | test <words…>]"); return 2; }
                     }
                 }
                 case "bedrock" -> { return BedrockCli.run(args); }
@@ -1158,6 +1220,7 @@ public final class LibrarianCli {
         if (waiting > 0) System.out.println("  access requests waiting: " + waiting + "   (researchzosho reader requests)");
         System.out.println("  subjects: " + Cataloger.vocabulary(store).size()
                 + "   saved searches: " + Serials.shelves(store).size());
+        System.out.println("  " + SearchByMeaning.standing().sentence());
         for (String p : scan.problems()) System.out.println("  PROBLEM: " + p);
         for (String told : UncheckedPages.tell(store)) System.out.println("  " + told);   // pages saved before their check, and pages a later check removed
         if (drafts + stale > 0) System.out.println("  → `researchzosho inbox` has " + (drafts + stale) + " item(s) for you");
@@ -1334,6 +1397,8 @@ public final class LibrarianCli {
                     System.out.println("sent as " + r.path("job_id").asText() + (r.hasNonNull("field") ? ", in " + r.path("field").asText() + " mode" : "") + (quick ? " (quick: front of the line, short limits)" : "") + ". The service picks it up within seconds. researchzosho jobs " + r.path("job_id").asText() + " shows how it goes");
                     String letIn = ContentOffer.described(LibraryProtocol.allowOf(r));
                     if (!letIn.isEmpty()) System.out.println("This run lets in " + letIn + ", for this question only, because you asked for it.");
+                    Profile yt = Fields.enabledNamed(store, "youtube");
+                    if (yt != null && ("youtube".equalsIgnoreCase(field) || yt.applies(q)) && !Video.installed()) System.out.println(Video.NOT_INSTALLED_NOTE);
                     if (told != null) System.out.println(told);
                     if (toldContent != null) System.out.println(toldContent);
                 } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
@@ -1844,6 +1909,21 @@ public final class LibrarianCli {
     }
 
     /** researchzosho survey <thing> [--kind k] [--pick 1,3] [--do "…"]: a repository, a paper, a page or an issue tracker as a starting point. Without flags: read and offer directions. */
+    /**
+     * A tool's answer as a person reads it: the fence markers and the rule about fenced text are for a model reading evidence; a person
+     * at a terminal gets the text alone.
+     */
+    static String forPerson(String toolAnswer) {
+        StringBuilder sb = new StringBuilder();
+        for (String line : toolAnswer.split("\\R")) {
+            if (line.startsWith("<<<") && line.endsWith(">>>")) continue;
+            if (line.startsWith("(The text between the ") && line.contains("markers is quoted material")) continue;
+            sb.append(line.replace(" — YouTube's own text, fenced; days come with video_details:", "; days come with `youtube video <address>`:")
+                          .replace(" — YouTube's own text, fenced:", ":").replace(" (YouTube's own text, fenced):", ":")).append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
     static int survey(LibraryStore store, String[] args) throws Exception {
         if (args.length < 3) { System.err.println("usage: researchzosho survey <folder|file|url> [--kind repo|paper|site|issues] [--pick 1,3] [--do \"what to research\"]\n       researchzosho survey --from <report id> [--top 5] [--do \"what to research\"]   the repositories a report names, each cloned and read"); return 2; }
         if (args[2].equals("--from")) return surveyFrom(store, args);

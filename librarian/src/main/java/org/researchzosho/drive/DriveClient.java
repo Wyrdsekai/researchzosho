@@ -716,9 +716,16 @@ public final class DriveClient {
         if (again != null && System.nanoTime() < again) return Served.UNKNOWN;
         try {
             JsonNode props = pageOf("/props");
-            s = new Served(props == null ? 0 : props.path("total_slots").asInt(0));
+            if (props == null) {
+                // no page yet is not "says nothing": behind llama-swap the upstream has no /props until the model is loaded, and a
+                // service that asked once at start and remembered 0 ran a seven-hour research job with the gate off — 39 requests in
+                // flight on a four-slot server (2026-10-04). Asked again in a minute; the first request meanwhile loads the model.
+                ASK_AGAIN.put(key, System.nanoTime() + Duration.ofMinutes(1).toNanos());
+                return Served.UNKNOWN;
+            }
+            s = new Served(props.path("total_slots").asInt(0));
             SERVED.put(key, s);
-            if (s.slots() > 0) log.debug("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
+            if (s.slots() > 0) log.info("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
             return s;
         } catch (Stopping.Requested stop) {
             throw stop;
@@ -727,6 +734,9 @@ public final class DriveClient {
             return Served.UNKNOWN;
         }
     }
+
+    /** Forget what every server said of itself and when to ask again; for tests and for `embed start` / a model server's restart. */
+    static void forgetServed() { SERVED.clear(); ASK_AGAIN.clear(); SLOTS.clear(); }
 
     /** A llama.cpp page as JSON: the server's own, or behind llama-swap its upstream's for this model; null when neither is there (another kind of server). */
     private JsonNode pageOf(String path) throws Exception {

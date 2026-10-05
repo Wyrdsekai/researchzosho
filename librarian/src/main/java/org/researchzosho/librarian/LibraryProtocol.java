@@ -2007,6 +2007,7 @@ public final class LibraryProtocol {
         r.put("version", Version.string());
         counts.put("subject", (int) Related.counts(store).size());
         r.put("last_updated", lastUpdated());
+        r.put("search_by_meaning", SearchByMeaning.standing().state());   // on | not answering | off — a silent words-only library is the failure this names
         return r;
     }
 

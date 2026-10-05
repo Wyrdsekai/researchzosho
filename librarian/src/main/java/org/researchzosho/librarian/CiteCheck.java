@@ -22,6 +22,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.TreeSet;
 import org.researchzosho.Config;
+import org.researchzosho.tools.VideoText;
 import org.researchzosho.drive.Declined;
 /**
  * The cite-check at synthesis time: every sentence the report supports with a citation is read
@@ -137,6 +138,8 @@ public final class CiteCheck {
     /** The mechanical verdict for a clause against its source, before any judge: supported when its numbers all sit in the source, or an eight-word run does. */
     static String mechanical(String clause, String source) {
         if (source == null || source.isEmpty()) return "";
+        // the address a clause cites is not part of the claim: its digits (a video's moment, a page number in a path) are not the clause's numbers
+        clause = URL.matcher(clause).replaceAll(" ");
         List<String> nums = numbers(clause);
         if (!nums.isEmpty()) return numbersInSource(clause, source) ? "supported" : "";   // a number the source lacks is for the judge, never a pass
         return overlapInSource(clause, source, 8) ? "supported" : "";
@@ -164,6 +167,9 @@ public final class CiteCheck {
         if (u.find()) {
             String url = u.group().replaceAll("[)\\].,;]+$", "");
             for (Ref r : refs) if (r.locator().equals(url) || r.locator().startsWith(url) || url.startsWith(r.locator())) return r;
+            // a moment in a video (watch?v=…&t=312s) cites the video the library captured, whichever moment the reference list names
+            String video = VideoText.withoutMoment(url);
+            if (!video.equals(url)) for (Ref r : refs) if (VideoText.withoutMoment(r.locator()).equals(video)) return r;
         }
         // a shelved file is cited by its name — "(glossary.md)", "(guardrails.md, p.2)" — one word, but an exact one
         Matcher fn = Pattern.compile("([^\\s,;()]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?|rst|tex))", Pattern.CASE_INSENSITIVE).matcher(cite);
@@ -278,7 +284,7 @@ public final class CiteCheck {
                 if (clause.length() < 25 && mapped.size() > 1) clause = sentence.substring(0, span[1]).strip();   // a short clause reads with what leads to it
                 String source;
                 try {
-                    Path p = RawCapture.find(store, ref.locator());
+                    Path p = RawCapture.find(store, VideoText.withoutMoment(ref.locator()));   // a cited moment: the video's capture
                     String code = p == null ? CodeTool.textOf(store, ref.locator()) : null;   // a repository's file, as read_code read it
                     if (p == null && code == null) {
                         // no capture: a source a worker noted from a search result but never fetched cannot be checked — unmapped, unmarked
@@ -293,6 +299,13 @@ public final class CiteCheck {
                         continue;
                     }
                     source = code != null ? code : RawCapture.read(p)[2];
+                    // a claim about what is said at a moment is read against the transcript's lines around that moment: the moment the
+                    // sentence itself cites, else the one the reference list names for the video
+                    int at = -1;
+                    Matcher cm = URL.matcher(clause);
+                    if (cm.find()) at = VideoText.momentSeconds(cm.group());
+                    if (at < 0) at = VideoText.momentSeconds(ref.locator());
+                    if (at >= 0) source = VideoText.momentWindow(source, at, 90);
                 } catch (Exception e) { unmapped++; continue; }
                 // the mechanical pass first: numbers that sit in the source, or an eight-word run of the clause, settle it at no cost
                 String mech = mechanical(clause, source);

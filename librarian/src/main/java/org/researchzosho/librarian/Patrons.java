@@ -40,6 +40,15 @@ public final class Patrons {
 
     public enum Level { deny, read, write }
 
+    /** The level a word names, in any case; null when it names none. */
+    public static Level levelOf(String word) {
+        if (word == null) return null;
+        try { return Level.valueOf(word.strip().toLowerCase(Locale.ROOT)); } catch (IllegalArgumentException e) { return null; }
+    }
+
+    /** The two commands that make the owner's token, as the sign-in page shows them. ReaderCommandsTest runs them word for word. */
+    public static final String TOKEN_HOWTO = "researchzosho reader allow did:key:me write \"Me\"\nresearchzosho reader token did:key:me";
+
     /** The caller, as carried on every protocol call. Absent fields make an anonymous patron. */
     public record Patron(String did, String name, String runtime) {
         public static final Patron ANONYMOUS = new Patron("", "", "");
@@ -183,7 +192,7 @@ public final class Patrons {
             if (e.did().equals(did)) { found = new Entry(e.did(), e.name(), e.level(), sha256(token)); out.add(found); }
             else out.add(e);
         }
-        if (found == null) throw new IOException("patron " + did + " is not listed — `librarian patron allow " + did + " <level>` first");
+        if (found == null) throw new IOException(did + " is not on the readers list, so no token can be made for them. Put them on it first: researchzosho reader allow " + did + " write (or read), then ask for the token again.");
         write(store, new Policy(pol.dflt(), out));
         return token;
     }

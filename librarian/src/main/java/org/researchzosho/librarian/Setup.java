@@ -507,6 +507,7 @@ public final class Setup {
         out.println("Next:  researchzosho ask \"…\"        what the library holds");
         out.println("       researchzosho add <file>      shelve a document, or a folder with --collection");
         out.println("       researchzosho status           what is there, and what is waiting for you");
+        out.println("       researchzosho video install    read YouTube too (channels, what is said in a video and when); needs Docker");
         return 0;
     }
 }

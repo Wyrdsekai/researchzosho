@@ -44,6 +44,7 @@ This is The Research Harness For The Rest Of Us.
 → **[LIBRARIAN_HOWTOUSE.md](docs/LIBRARIAN_HOWTOUSE.md)**: how to use it day to day
 → **[LIBRARY_PROTOCOL.md](docs/LIBRARY_PROTOCOL.md)**: for programmers, how a program talks to it
 → **[FAMILY_HISTORY.md](docs/FAMILY_HISTORY.md)**: researching your family, from a relative's notes to records and a family tree
+→ **[YOUTUBE.md](docs/YOUTUBE.md)**: researching what is on YouTube — channels, what is said in a video and when, channels like one you know — without an API key
 
 → **[BEDROCK.md](docs/BEDROCK.md)**: using the models in your own AWS account (Amazon Bedrock) with your own AWS sign-in
 

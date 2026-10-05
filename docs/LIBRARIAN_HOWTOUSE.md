@@ -167,7 +167,8 @@ Search by words finds a claim by the words in it. Search by meaning also finds i
 uses other words, or another language. It needs an embeddings server. The setting is
 `RESEARCHZOSHO_EMBED`: the address of any server that answers the OpenAI embeddings call, or `off`.
 `researchzosho embed status` says what is configured. `embed start` runs one with Docker. `embed test`
-measures it. `embed stop` stops it. After starting one, run `researchzosho rebuild` to index the
+measures it. `embed stop` stops it. `researchzosho status` says in one line whether search by meaning is on — and
+says so when a server is configured but not answering, since searches are by words only until it is. After starting one, run `researchzosho rebuild` to index the
 library with it. The nightly housekeeping would do that the next night.
 
 ### Updating
@@ -240,6 +241,7 @@ researchzosho research ask "…" --shelves        # read only your own documents
 researchzosho research ask "…" --max-turns 200  # limit the run to 200 model steps
 researchzosho research ask "…" --max-minutes 120
 researchzosho research ask "…" --genealogy      # research it in genealogy mode: records, your family tree, your relatives
+researchzosho research ask "…" --youtube        # the YouTube field: channels, videos, what is said and when (needs `researchzosho video install`)
 ```
 
 From Claude Code or a program, the same thing is `library_research`. From the web pages, use the
@@ -260,6 +262,11 @@ parents" looks like family history. The library then says so once, in the place 
   `field: "genealogy"`.
 
 The same question is told once. `--field <name>` asks for any field by its name.
+
+A question about YouTube — which channels make a kind of video, whether one still posts, what is said in
+a video — gets the `youtube` field by itself from its words, once the video helper is installed
+(`researchzosho video install`). [YOUTUBE.md](YOUTUBE.md) has the setup, the five commands for looking
+things up yourself, and the rules a run keeps in that field.
 
 The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, queued and running
 ones first. `researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is
@@ -1925,7 +1932,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.2 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.3 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

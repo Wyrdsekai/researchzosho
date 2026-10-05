@@ -5,6 +5,10 @@ import java.util.regex.Pattern;
 import java.util.List;
 
 import java.nio.file.Files;
+import java.util.Set;
+import java.util.Locale;
+import java.util.Arrays;
+import java.util.ArrayList;
 import java.nio.file.Path;
 import java.util.HashSet;
 /**
@@ -172,23 +176,49 @@ public final class LibraryPush {
         }
     }
 
-    /** Frontier lines sharing a term with the question — cheap, deterministic, good enough for v1. */
-    private static String frontierMatches(LibraryStore store, String question) {
+    /** How many open threads a push shows beside a question, and how much text of them. */
+    static final int FRONTIER_LINES = 8, FRONTIER_CHARS = 1_200;
+
+    /**
+     * The open threads touching a question: the frontier lines that share two or more of the question's words (one, when the
+     * question has only one or two), most shared first, a handful at most. Any line containing any one four-letter word of the
+     * question was the rule before: a 25-word research question against 231 open threads brought 84,748 of a push's 86,646
+     * characters as "OPEN THREADS touching this" (2026-10-03), and the model read the threads instead of the holdings.
+     */
+    static String frontierMatches(LibraryStore store, String question) {
         try {
             if (!Files.exists(store.frontierFile())) return "";
-            var qTerms = new HashSet<String>();
-            for (String w : question.toLowerCase().split("[^\\p{L}\\p{N}]+")) {
-                if (w.length() >= 4) qTerms.add(w);
+            List<String> qTerms = new ArrayList<>();
+            for (String w : question.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
+                if (w.length() >= 4 && !FRONTIER_STOP.contains(w) && !qTerms.contains(w)) qTerms.add(w);
             }
-            StringBuilder sb = new StringBuilder();
+            if (qTerms.isEmpty()) return "";
+            int need = qTerms.size() <= 2 ? 1 : 2;
+            record Match(String line, int shared) { }
+            List<Match> matches = new ArrayList<>();
             for (String line : Files.readAllLines(store.frontierFile())) {
                 if (!line.startsWith("- ")) continue;
-                String lower = line.toLowerCase();
-                if (qTerms.stream().anyMatch(lower::contains)) sb.append(line).append('\n');
+                Set<String> words = new HashSet<>(Arrays.asList(line.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")));
+                int shared = 0;
+                for (String t : qTerms) if (words.contains(t)) shared++;
+                if (shared >= need) matches.add(new Match(line, shared));
+            }
+            matches.sort((x, y) -> y.shared() - x.shared());
+            StringBuilder sb = new StringBuilder();
+            int n = 0;
+            for (Match m : matches) {
+                if (n >= FRONTIER_LINES || sb.length() + m.line().length() > FRONTIER_CHARS) break;
+                sb.append(m.line()).append('\n');
+                n++;
             }
             return sb.toString();
         } catch (Exception e) {
             return "";
         }
     }
+
+    /** Words too common to say a thread touches a question. */
+    private static final Set<String> FRONTIER_STOP = Set.of("what", "which", "when", "where", "does", "that", "this", "with", "from", "have", "most", "there", "their",
+            "about", "into", "than", "then", "them", "they", "were", "been", "being", "will", "would", "could", "should", "also", "each", "other", "some", "such",
+            "between", "within", "without", "after", "before", "while", "these", "those", "many", "much", "very", "like", "over", "under", "both", "only", "well");
 }

@@ -57,6 +57,10 @@ import org.researchzosho.tools.Fetch;
 import org.researchzosho.tools.RecordSearchTool;
 import org.researchzosho.tools.ScholarSearchTool;
 import org.researchzosho.tools.WebFetchTool;
+import org.researchzosho.tools.VideoSearchTool;
+import org.researchzosho.tools.ChannelUploadsTool;
+import org.researchzosho.tools.ChannelsLikeTool;
+import org.researchzosho.tools.VideoDetailsTool;
 import org.researchzosho.tools.WebSearchTool;
 /**
  * The library's own overnight research runner (2026-09-06). ResearchZosho stands alone after the
@@ -1191,6 +1195,7 @@ public final class Researcher {
     List<String> plan(Ask ask, String known, Budget budget) {
         fields = Fields.forRun(store, ask);
         if (!fields.isEmpty()) log.accept("field: " + String.join(", ", fields.stream().map(Profile::name).toList()) + " — its rules join this run");
+        if (fields.stream().anyMatch(p -> p.name().equals("youtube")) && !Video.installed()) log.accept("youtube field without the video helper: YouTube is read through web search; researchzosho video install adds the video tools");
         List<String> open = planCore(ask, known, budget);
         laneOf.clear(); lanes.clear(); laneRetried.clear(); laneRan.clear();
         recordCitations.clear(); nothingFound.clear(); kindsSearched.clear(); sourcesSearched.clear();
@@ -2624,6 +2629,8 @@ public final class Researcher {
                 for (Lanes.Lane lane : Lanes.detect(focus, null)) languages.add(lane.code());
                 var records = new RecordSearchTool(languages, focus).policy(p.fetchPolicy());
                 if (RECORDS && records.any()) out.add(records);
+                // YouTube, where the video helper is installed: videos and channels are sources like pages are
+                if (Video.installed()) { out.add(new VideoSearchTool()); out.add(new ChannelUploadsTool()); out.add(new VideoDetailsTool().policy(p)); out.add(new ChannelsLikeTool()); }
                 return out;
             }
             @Override public BooleanSupplier exhausted() {
