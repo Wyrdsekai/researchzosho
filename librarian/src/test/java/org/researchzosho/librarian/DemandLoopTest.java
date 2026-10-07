@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -155,12 +157,14 @@ class DemandLoopTest {
         assertEquals("q7", jobs.get("J-0007").path("args").path("question").asText(), "an old one is found by walking the months");
         assertNull(jobs.get("J-9999"));
         assertEquals(0, jobs.turnsToday("person"), "the budget counter never touches the ledger");
-        // the protocol pages the same way, per patron
+        // the protocol pages the same way, and every reader sees every run (a named program used to see its own only)
         var p = new LibraryProtocol(store);
         ObjectNode mine = p.job((ObjectNode) M.readTree("{\"limit\":5,\"patron\":{\"did\":\"did:key:other\"}}"));
         assertEquals(5, mine.get("finished").size());
-        for (var j : mine.get("finished")) assertEquals("did:key:other", j.get("patron").asText());
-        assertEquals("J-0291", mine.get("next_cursor").asText());
+        Set<String> whose = new HashSet<>();
+        for (var j : mine.get("finished")) whose.add(j.get("patron").asText());
+        assertEquals(Set.of("person", "did:key:other"), whose, "the person's runs and the program's own, in one listing");
+        assertEquals("J-0296", mine.get("next_cursor").asText(), "the five newest of everyone's, so the cursor is the fifth");
         assertEquals(300, mine.get("finished_total").asLong());
         // a legacy flat file is sorted into place on first touch
         ObjectNode legacy = M.createObjectNode();
@@ -213,7 +217,7 @@ class DemandLoopTest {
         while (System.currentTimeMillis() < deadline && ran.size() < 5) Thread.sleep(50);
         assertEquals(5, ran.size());
         ObjectNode listing = p.job((ObjectNode) M.readTree("{" + patron + "}"));
-        assertEquals(4, listing.get("active").size() + listing.get("finished").size(), "the patron sees its own four, not the person's");
+        assertEquals(5, listing.get("active").size() + listing.get("finished").size(), "every reader sees every run: the patron's four and the person's one");
         worker.stop();
     }
 
@@ -298,6 +302,6 @@ class DemandLoopTest {
         assertTrue(Jobs.visibleTo(Patrons.Patron.PERSON, j));
         assertTrue(Jobs.visibleTo(Patrons.Patron.ANONYMOUS, j));
         assertTrue(Jobs.visibleTo(new Patrons.Patron("did:key:local-claude-3fa", "", "claude"), j), "its own");
-        assertFalse(Jobs.visibleTo(new Patrons.Patron("did:key:other", "", "x"), j), "another named program does not");
+        assertTrue(Jobs.visibleTo(new Patrons.Patron("did:key:other", "", "x"), j), "another named program too: who may read the library sees every run");
     }
 }

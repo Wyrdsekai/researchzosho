@@ -25,6 +25,29 @@ class WriteupChecksTest {
     }
 
     @Test
+    void aBareNumberOfThousandsCountsAndAYearDoesNot() {
+        String answer = "The corpus holds 48,000 documents. It was released in 2024 by 3 teams. The index has 1266 entries.";
+        List<String> off = WriteupChecks.numbersUnbacked(answer, EVIDENCE);
+        assertEquals(1, off.size(), off.toString());
+        assertTrue(off.get(0).startsWith("48000"), off.get(0));
+        assertFalse(WriteupChecks.bareNumberCounts("2024") || WriteupChecks.bareNumberCounts("500") || WriteupChecks.bareNumberCounts("3.14159"));
+        assertTrue(WriteupChecks.bareNumberCounts("48000") && WriteupChecks.bareNumberCounts("1300"));
+        // the digits of an id, a date, a time or a path are not counts
+        assertTrue(WriteupChecks.numbersUnbacked("See F-0012-a and 2026-09-14-f9b742163836.md, at 10:3000 in v1/2048; the box holds 0999 items.", EVIDENCE).isEmpty());
+    }
+
+    @Test
+    void anUnbackedNumberIsMarkedWhereItStands() {
+        String answer = "Recall fell to 21.4% on the open corpus. The set has 1,266 questions. It took 3 days.";
+        List<WriteupChecks.Unbacked> at = WriteupChecks.numbersUnbackedAt("Recall fell to 30% on the open corpus. The set has 1,266 questions.", EVIDENCE, List.of(), Map.of());
+        assertEquals(1, at.size(), at.toString());
+        String marked = WriteupChecks.markInline("Recall fell to 30% on the open corpus. The set has 1,266 questions.", at, "number not in any note or source read this run: ");
+        assertEquals("Recall fell to 30% on the open corpus. [number not in any note or source read this run: 30 %] The set has 1,266 questions.", marked);
+        assertEquals(marked, WriteupChecks.markInline(marked, at, "number not in any note or source read this run: "), "marked once");
+        assertTrue(WriteupChecks.numbersUnbackedAt(answer, EVIDENCE, List.of(), Map.of()).isEmpty());
+    }
+
+    @Test
     void aLicenceOrCveTheEvidenceNeverStatesIsListed() {
         String answer = "Karakeep is MIT-licensed. Khoj has CVE-2025-69207. Karakeep's CVE-2026-75773 is public.";
         List<String> off = WriteupChecks.namesUnbacked(answer, EVIDENCE);

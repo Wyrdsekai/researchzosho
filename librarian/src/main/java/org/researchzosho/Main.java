@@ -40,6 +40,7 @@ public final class Main {
      * because {@code System.exit} ends their threads where they stand.
      */
     public static int runToExit(String[] args) {
+        HttpSettings.apply();   // before the first connection: the pool's idle limit is read once, JVM-wide
         int code = run(args);
         if (Webhooks.Sent.any()) Webhooks.flush(Webhooks.FLUSH_MS);   // a command that changed nothing has nothing to wait for
         return code;

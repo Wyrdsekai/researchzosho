@@ -16,8 +16,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -54,6 +56,20 @@ public final class Jobs {
 
     /** Runs one job on one drive; returns the result text; throws on failure. */
     public interface Runner { String run(ObjectNode job, String driveUrl) throws Exception; }
+
+    /**
+     * Thrown by the runner before a run starts: the run waits for the person's yes, as a run the chat filed waits ({@link #OFFERED} with
+     * the help shown), until {@code untilMillis}; no answer by then starts nothing. {@code waiting} is what the job says meanwhile.
+     */
+    public static final class Hold extends RuntimeException {
+        private final String waiting; private final long untilMillis;
+        public Hold(String waiting, long untilMillis) { super(waiting); this.waiting = waiting; this.untilMillis = untilMillis; }
+        public String waiting() { return waiting; }
+        public long untilMillis() { return untilMillis; }
+    }
+
+    /** How long a run the service held for the person's yes waits for it. */
+    public static final long HELD_MS = 24L * 60 * 60 * 1000;
 
     /** How many model jobs run at once — the drive's parallel slots minus what interactive chat needs. */
     static final int WORKERS = Config.getInt("RESEARCHZOSHO_JOB_WORKERS", 1);
@@ -121,8 +137,7 @@ public final class Jobs {
         j.set("args", args); j.put("state", "queued"); j.put("queued_at", Instant.now().toString());
         j.put("restarted", 0);
         writeActive(j);
-        if (args != null && args.path("quick").asBoolean(false)) queue.addFirst(id);   // "look it up now": ahead of whatever waits for the night
-        else queue.add(id);
+        enqueue(j);
         return id;
     }
 
@@ -167,6 +182,74 @@ public final class Jobs {
         writeActive(j);
         return id;
     }
+
+    /** The run is put back to wait for the person's yes, as a run the chat filed waits: {@code offered}, with the help shown ({@link Hold}). */
+    private void hold(String id, Hold h) throws IOException {
+        synchronized (this) {
+            ObjectNode j = get(id);
+            if (j == null) return;
+            Files.deleteIfExists(stopMarker(id));
+            j.put("state", OFFERED); j.put("offered_help", true); j.remove("help_answered");
+            j.put("offer_until", Instant.ofEpochMilli(h.untilMillis()).toString());
+            j.put("waiting", h.waiting());
+            j.remove("started_at"); j.remove("drive");
+            writeActive(j);
+        }
+    }
+
+    /**
+     * The job's place in the line: "look it up now" (quick, with its short limits) and "this one first" (priority, a full run) go ahead of
+     * whatever waits; the rest join the tail. The same rule when a filed job is picked up or the service starts — the protocol files a job
+     * through a store of its own, so the service's own line learns of it from disk (a quick run used to join the tail there, 2026-10-07).
+     */
+    private void enqueue(ObjectNode j) {
+        String id = j.path("job_id").asText();
+        JsonNode a = j.path("args");
+        if (a.path("quick").asBoolean(false) || a.path("priority").asBoolean(false)) queue.addFirst(id);
+        else queue.add(id);
+    }
+
+    /** The job next in line, or null; for a test of the line's order. */
+    String nextInLine() { return queue.peekFirst(); }
+
+    /** The job's ask, written again: the service read the question before the run and wrote what it found into the ask. */
+    public synchronized void saveArgs(String id, ObjectNode args) throws IOException {
+        ObjectNode j = get(id);
+        if (j == null) return;
+        j.set("args", args);
+        writeActive(j);
+    }
+
+    /**
+     * An active research run of this patron's that is the same ask: by {@code key} when one was given, else by the question's words. A
+     * retry after a timeout, or a program that lost the id, gets that run back instead of a second one (two ran the same question for
+     * hours, 2026-10-07). Null when there is none.
+     */
+    public synchronized ObjectNode sameActive(String patronDid, String key, ObjectNode ask) throws IOException {
+        String want = sameAskKey(ask), who = patronDid == null ? "" : patronDid;
+        for (ObjectNode j : active()) {
+            if (!"research".equals(j.path("kind").asText()) || !who.equals(j.path("patron").asText(""))) continue;
+            JsonNode a = j.path("args");
+            if (key != null && !key.isEmpty()) { if (key.equals(a.path("idempotency_key").asText(""))) return j; continue; }
+            if (!want.isEmpty() && want.equals(sameAskKey(a))) return j;
+        }
+        return null;
+    }
+
+    /**
+     * What makes two asks the same: the question's words, and what the run was asked to be — its field, mode, sources and what it lets in.
+     * A program told that its question needs {@code allow} sends it again with that, and that is a new run, as the protocol says.
+     */
+    static String sameAskKey(JsonNode a) {
+        String q = fold(a.path("question").asText(""));
+        if (q.isEmpty()) return "";
+        List<String> allow = new ArrayList<>();
+        for (JsonNode x : a.path("allow")) allow.add(x.asText());
+        Collections.sort(allow);
+        return q + "|" + a.path("field").asText("") + "|" + a.path("mode").asText("broad") + "|" + a.path("sources").asText("both") + "|" + String.join(",", allow);
+    }
+
+    private static String fold(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip(); }
 
     /** Whether the question about a field's mode still waits for the person's answer. */
     static boolean fieldWaits(JsonNode j) { return j.hasNonNull("offered") && !j.has("answered"); }
@@ -559,7 +642,7 @@ public final class Jobs {
         for (ObjectNode j : active()) {
             String st = j.path("state").asText();
             if ("queued".equals(st)) {
-                queue.add(j.get("job_id").asText());
+                enqueue(j);
             } else if ("running".equals(st)) {
                 int restarted = j.path("restarted").asInt(0) + 1;
                 j.put("restarted", restarted);
@@ -570,7 +653,7 @@ public final class Jobs {
                 } else {
                     j.put("state", "queued");
                     writeActive(j);
-                    queue.add(j.get("job_id").asText());
+                    enqueue(j);
                 }
             }
         }
@@ -686,7 +769,7 @@ public final class Jobs {
                     String id = j.path("job_id").asText();
                     // a job that waited for the person's answer and got none starts as it was filed; one still waiting is left alone
                     if (OFFERED.equals(j.path("state").asText())) { if (offerEnded(j, now)) ended.add(j); continue; }
-                    if ("queued".equals(j.path("state").asText()) && !queue.contains(id) && !running.contains(id)) queue.add(id);
+                    if ("queued".equals(j.path("state").asText()) && !queue.contains(id) && !running.contains(id)) enqueue(j);
                 }
             } catch (IOException ignored) { }
         }
@@ -753,6 +836,7 @@ public final class Jobs {
                 String result;
                 boolean error = false;
                 try { result = runner.run(j, drive); }
+                catch (Hold h) { hold(id, h); continue; }   // the run waits for the person's yes; the finally takes it off the running set
                 catch (Failure f) { result = f.getMessage(); error = true; }   // the runner's own statement, in plain words
                 catch (Throwable t) { result = "job error: " + t; error = true; }
                 // the bookkeeping must never depend on the file still being where it was: another
@@ -818,6 +902,12 @@ public final class Jobs {
         String stalled = noProgressSince(j, System.currentTimeMillis());
         if (stalled != null) r.put("no_progress_since", stalled);
         if (j.hasNonNull("waiting")) r.put("waiting", j.get("waiting").asText());
+        JsonNode ja = j.path("args");
+        if (ja.hasNonNull("title")) r.put("title", ja.get("title").asText());
+        if (ja.path("priority").asBoolean(false)) r.put("priority", true);
+        if (ja.hasNonNull("delta_of")) r.put("delta_of", ja.get("delta_of").asText());
+        if (ja.hasNonNull("content_check")) r.put("content_check", ja.get("content_check").asText());
+        if (ja.has("content_suggestion") && ja.get("content_suggestion").isObject()) r.set("content_suggestion", ja.get("content_suggestion"));
         if (OFFERED.equals(j.path("state").asText())) {
             List<String> waits = new ArrayList<>();
             if (helpWaits(j)) waits.add("waiting for your answer: the library showed where to find help and asked whether to research this question; with no answer by "
@@ -832,7 +922,9 @@ public final class Jobs {
                 waits.add((waits.isEmpty() ? "waiting for your answer: " : "then ") + "the library asked whether to let in " + ContentOffer.described(offered)
                         + " for this question's run; with no answer it starts with that material left out at " + j.path("offer_until").asText());
             }
-            r.put("waiting", String.join("; ", waits));
+            // a run the service held says in its own words what it waits for (the help, and how the yes is given), then the rule
+            String own = j.path("waiting").asText("");
+            r.put("waiting", (own.isEmpty() ? "" : own + "\n\n") + String.join("; ", waits));
         }
         if (j.path("args").hasNonNull("field")) r.put("field", j.path("args").path("field").asText());
         if (j.path("args").path("allow").isArray() && !j.path("args").path("allow").isEmpty()) r.set("allow", j.path("args").path("allow").deepCopy());   // what the run lets in, because the person asked
@@ -851,10 +943,10 @@ public final class Jobs {
 
     /** A patron may see its own jobs and the crews'. */
     public static boolean visibleTo(Patrons.Patron patron, ObjectNode j) {
-        String owner = j.path("patron").asText();
-        // the person, an anonymous caller and someone in the browser see every run; a named program sees its own.
-        // The browser used to see only runs filed from the browser: the Runs page said "Nothing is running" while
-        // a program's run had been going for half an hour (2026-09-11)
-        return patron.anonymous() || patron.person() || patron.web() || owner.isEmpty() || patron.did().equals(owner);
+        // whoever may read the library sees every run: who can open the library decides what they see, and nothing is hidden per
+        // person (the rule of 2026-09-23). A named program used to see only its own runs; a program's next session, with a new id,
+        // could not find the run its last one had filed and read "nothing is running" while it ran (2026-10-07). The browser had the
+        // same fault earlier: the Runs page said nothing ran while a program's run had been going for half an hour (2026-09-11).
+        return true;
     }
 }

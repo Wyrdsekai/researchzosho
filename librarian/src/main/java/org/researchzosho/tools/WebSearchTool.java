@@ -103,6 +103,11 @@ public final class WebSearchTool implements Tool {
     /** When SearXNG last failed to answer at all; for a minute after that the fallback is tried first, so a firewalled address does not cost 30 s per search. */
     private static volatile long searxDownAt;
 
+    /** Whether this library is set to a SearXNG of its own (RESEARCHZOSHO_SEARXNG), rather than the default address. */
+    public static boolean searxConfigured() { String e = Config.get("RESEARCHZOSHO_SEARXNG"); return e != null && !e.isBlank(); }
+    /** Whether SearXNG failed to answer within the last hour. */
+    public static boolean searxDownLately() { return searxDownAt > 0 && System.currentTimeMillis() - searxDownAt < 3_600_000L; }
+
     /** The built-in fallback (Wikipedia's search, no key, no install) is on unless RESEARCHZOSHO_FALLBACK_SEARCH=off. */
     public static boolean fallbackOn() {
         String v = Config.get("RESEARCHZOSHO_FALLBACK_SEARCH");
@@ -247,10 +252,21 @@ public final class WebSearchTool implements Tool {
      */
     static String braveUrl(String query, int limit) { return braveUrl(query, limit, true); }
 
+    /**
+     * Brave's {@code search_lang} for the script of the query, or "" for none. Brave names Japanese {@code jp} and Chinese {@code zh-hans};
+     * sent {@code ja} or {@code zh} it answers 422, so every Japanese query went past Brave to SearXNG or the fallback on a box with a key
+     * (measured 2026-10-07: an English query answered by Brave, a Japanese one by SearXNG).
+     */
+    static String braveLang(String lang) {
+        if (lang == null) return "";
+        String code = switch (lang) { case "ja" -> "jp"; case "zh" -> "zh-hans"; default -> lang; };
+        return "&search_lang=" + code;
+    }
+
     /** {@code safe} false: a run whose person let in pornography and gore for that question, for which safe search is off ({@code off}). */
     static String braveUrl(String query, int limit, boolean safe) {
         return "https://api.search.brave.com/res/v1/web/search?count=" + Math.min(limit, 20) + "&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
-                + (languageOf(query) == null ? "" : "&search_lang=" + languageOf(query)) + "&safesearch=" + (safe ? "moderate" : "off");
+                + braveLang(languageOf(query)) + "&safesearch=" + (safe ? "moderate" : "off");
     }
 
     /** SearXNG's address for a query: {@code safesearch=1} is moderate, for the engines that have the setting. */

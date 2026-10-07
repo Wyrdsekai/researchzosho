@@ -137,7 +137,7 @@ public final class LibrarianCli {
                                            a directory is a list of libraries. Publish yours there, or search one for libraries to ask
               peer list · add <name> <url> <token> [--group a,b] · remove <name> · ask <name|group|all> <question…>
                                            other libraries this one may ask. Their answers stay labelled as theirs and are never merged in
-              research ask "<question…>" [--depth] [--quick] [--shelves|--web] [--max-turns N] [--max-minutes N] [{FIELD_FLAGS}--field <name>]
+              research ask "<question…>" [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [{FIELD_FLAGS}--field <name>]
                                            send a question. The service picks it up within seconds.{FIELD_MODES}
               research                     how research runs share the model: workers, pause, window. Today's turns by user, and what is running
               research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them now. A running question follows at its next step. stop ends one research run there
@@ -151,7 +151,7 @@ public final class LibrarianCli {
               sources [list | trust <host> [why] | ban <host> [why] | forget <host>]
                                            your own rules for sources. Trusted ones count as primary sources. Banned ones are dropped from searches and reviews
               settle [<I-…>…]              take a report's claims, file them under subjects and add them to the map, now. All waiting reports when none is named
-              export <id> [--pdf|--md] [--beginner|--familiar] [--out FILE]
+              export <id> [--pdf|--md] [--brief] [--beginner|--familiar] [--out FILE]
                                            an entry, or its Simple or Familiar version, as a Markdown or PDF file
               sharpen <question…>          refine a rough question into a better one: the question to run, what it assumed, what you already have. Runs nothing
               search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
@@ -454,6 +454,7 @@ public final class LibrarianCli {
         } catch (IllegalArgumentException e) {
             System.err.println("usage: researchzosho serve [--host H] [--port N] [--crew-hour H|--no-crews] [--log FILE] — " + e.getMessage()); return 2;
         }
+        DriveClient.service = true;   // this process's lines go to the service's log, not to a person's terminal
         if (log != null) {
             // the service's own log: rotated at 20MB on start (and nightly), appended otherwise
             Files.createDirectories(log.getParent());
@@ -700,7 +701,13 @@ public final class LibrarianCli {
                             String bk = Config.get("RESEARCHZOSHO_BRAVE_KEY");
                             System.out.println("  Brave Search API: " + (bk == null || bk.isBlank() ? "no key (RESEARCHZOSHO_BRAVE_KEY)" : "a key is set; used first"));
                             String ep = WebSearchTool.endpoint();
-                            System.out.println("  SearXNG: " + ep + " " + (Searx.answers(ep) ? "answers" : "does not answer") + "; docker container " + Searx.CONTAINER + ": " + Searx.state() + (Searx.haveDocker() ? "" : " (no docker here)"));
+                            boolean epAnswers = Searx.answers(ep);
+                            System.out.println("  SearXNG: " + ep + " " + (epAnswers ? "answers" : "does not answer") + "; docker container " + Searx.CONTAINER + ": " + Searx.state() + (Searx.haveDocker() ? "" : " (no docker here)"));
+                            // the library set to a SearXNG elsewhere that no longer answers, while the one on this machine does: say where the searches went and what to do
+                            String local = "http://localhost:" + Searx.DEFAULT_PORT;
+                            if (!epAnswers && !ep.equals(local) && Searx.answers(local))
+                                System.out.println("  The SearXNG on this machine answers at " + local + ", but the library is set to " + ep + ", so web searches have gone to the built-in fallback. "
+                                        + "`researchzosho search start` points the library at the one on this machine and saves that.");
                             System.out.println("  built-in fallback: " + (WebSearchTool.fallbackOn() ? "on (RESEARCHZOSHO_FALLBACK_SEARCH=off turns it off)" : "off"));
                             System.out.println("  order: Brave, then SearXNG, then the fallback. `researchzosho search test \"a query\"` shows which one answers.");
                             return 0;
@@ -874,14 +881,15 @@ public final class LibrarianCli {
                     }
                 }
                 case "export" -> {
-                    String usage = "usage: researchzosho export <F-…|I-…|A-…> [--pdf|--md] [--beginner|--familiar] [--out FILE]";
+                    String usage = "usage: researchzosho export <F-…|I-…|A-…> [--pdf|--md] [--brief] [--beginner|--familiar] [--out FILE]";
                     if (args.length < 3) { System.err.println(usage); return 2; }
-                    String id = args[2]; boolean pdf = false; Explain.Rung rung = Explain.Rung.written; Path out = null;
+                    String id = args[2]; boolean pdf = false, brief = false; Explain.Rung rung = Explain.Rung.written; Path out = null;
                     try {
                         for (int i = 3; i < args.length; i++) {
                             switch (args[i]) {
                                 case "--pdf" -> pdf = true;
                                 case "--md" -> pdf = false;
+                                case "--brief" -> brief = true;
                                 case "--beginner" -> rung = Explain.Rung.beginner;
                                 case "--familiar" -> rung = Explain.Rung.familiar;
                                 case "--out" -> out = Path.of(flagValue(args, i++));
@@ -890,7 +898,7 @@ public final class LibrarianCli {
                         }
                     } catch (IllegalArgumentException e) { System.err.println(usage); return 2; }
                     Explain.Reading reading = rung == Explain.Rung.written ? null : Explain.entry(store, Explain.drive(), id, rung, false);
-                    Export.File f = pdf ? Export.pdf(store, id, reading) : Export.markdown(store, id, reading);
+                    Export.File f = pdf ? Export.pdf(store, id, reading, brief) : Export.markdown(store, id, reading, brief);
                     if (out == null) out = Path.of(f.name());
                     Files.write(out, f.bytes());
                     System.out.println("wrote " + out + " (" + f.bytes().length + " bytes)");
@@ -1315,16 +1323,17 @@ public final class LibrarianCli {
             }
             case "ask" -> {
                 // file a question from the command line, as the person; the service picks it up within seconds
-                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--depth] [--quick] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
+                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
                 List<String> words = new ArrayList<>();
                 List<String> allow = new ArrayList<>();
-                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag"; boolean quick = false; int maxTurns = -1, maxMinutes = -1;
+                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag"; boolean quick = false, priority = false; int maxTurns = -1, maxMinutes = -1;
                 try {
                     for (int i = 3; i < args.length; i++) {
                         switch (args[i]) {
                             case "--depth" -> mode = "depth";
                             case "--broad" -> mode = "broad";
                             case "--quick", "--now" -> quick = true;
+                            case "--priority", "--first" -> priority = true;
                             case "--shelves" -> sources = "shelves";
                             case "--web" -> sources = "web";
                             case "--max-turns" -> maxTurns = flagInt(args, i++);
@@ -1346,6 +1355,7 @@ public final class LibrarianCli {
                 ObjectNode ask = new ObjectMapper().createObjectNode();
                 ask.put("question", q); ask.put("mode", mode); ask.put("sources", sources);
                 if (quick) ask.put("quick", true);
+                if (priority) ask.put("priority", true);
                 if (maxTurns >= 0) ask.put("max_turns", maxTurns);
                 if (maxMinutes >= 0) ask.put("max_minutes", maxMinutes);
                 ask.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
@@ -1426,7 +1436,7 @@ public final class LibrarianCli {
                 Config.set(ResearchSettings.WINDOW, args[3].equalsIgnoreCase("off") ? "off" : args[3]);
                 System.out.println(args[3].equalsIgnoreCase("off") ? "research.window = off. Questions are picked up at any hour" : "research.window = " + args[3] + ". Questions are picked up only inside it. A running question finishes");
             }
-            default -> { System.err.println("usage: researchzosho research [ask \"<question…>\" [--depth] [--quick] | workers <n> | pause | resume | window <HH:MM-HH:MM|off>]"); return 2; }
+            default -> { System.err.println("usage: researchzosho research [ask \"<question…>\" [--depth] [--quick|--priority] | workers <n> | pause | resume | window <HH:MM-HH:MM|off>]"); return 2; }
         }
         return 0;
     }
@@ -1523,6 +1533,14 @@ public final class LibrarianCli {
         a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
         String id = args.length > 2 ? args[2].strip() : "";
         if (!id.isEmpty()) a.put("job_id", id); else a.put("limit", 10);
+        // the person's answer to a run the service held for it: the question read as a person asking about harming themselves
+        if (!id.isEmpty() && args.length > 3 && (args[3].equals("--yes") || args[3].equals("--no"))) {
+            a.put("op", args[3].equals("--yes") ? "allow" : "decline");
+            JsonNode r;
+            try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+            System.out.println(args[3].equals("--yes") ? "Research run " + id + " starts: it is " + r.path("state").asText() + "." : "Research run " + id + " is not started; it is " + r.path("state").asText() + ".");
+            return 0;
+        }
         JsonNode r;
         try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
         if (!id.isEmpty()) {

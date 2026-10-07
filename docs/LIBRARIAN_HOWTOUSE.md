@@ -237,6 +237,8 @@ The drawing's source is `brand/loop.dot`. `dot -Tpng` redraws it.
 researchzosho research ask "what do the trials since 2020 say about statins for someone my age"
 researchzosho research ask "…" --depth          # go deep on the best sources instead of surveying
 researchzosho research ask "…" --quick          # a short run: front of the line, 12 model steps, 6 minutes
+researchzosho research ask "…" --priority       # a full run, ahead of the others waiting
+researchzosho research ask "…" --title "Statins after sixty"   # the report's title; without it, the question is the title
 researchzosho research ask "…" --shelves        # read only your own documents
 researchzosho research ask "…" --max-turns 200  # limit the run to 200 model steps
 researchzosho research ask "…" --max-minutes 120
@@ -554,6 +556,13 @@ error `confirm` (JSON-RPC -32007, HTTP 422), whose message is the help and a sen
 you, and send `allow: ["self-harm"]` only if you say yes. A tool that files several runs at once
 files nothing for such a question and lists it with the help. A short question is asked too.
 
+A program's question is read before it is filed, within 45 seconds. When the model is too busy to answer
+in that time, the question is filed anyway, and the service reads it just before the run would start. A
+question that reads as being about harming yourself is then held instead of started: `researchzosho jobs`
+lists it as waiting, with the help, for a day. `researchzosho jobs <J-id> --yes` starts it; `--no` ends
+it without research. A program that showed you the help and asked you answers with `library_job`,
+`op: "allow"` or `op: "decline"`.
+
 ### Pictures in web pages
 
 Every picture's alt text (the text a page gives for readers who cannot see it) stays in the page's
@@ -631,9 +640,19 @@ sources at the end. From the command line:
 ```
 researchzosho export I-0009 --pdf
 researchzosho export I-0009 --md --beginner
+researchzosho export I-0009 --brief             # the answer alone: no checks, evidence or worker findings, no claims list
+researchzosho export I-0009 --pdf --out ~/Desktop/statins.pdf
 ```
 
 ## 6. Reviewing the claims
+
+The write-up carries its own checks. A sentence whose cited source does not say what it says is marked
+`[not supported by the cited source on check]` where it stands; a number that no note or source read in
+the run states is marked `[number not in any note or source read this run: …]`. After the checks, the
+writer revises each marked sentence against the evidence, and a revision replaces its sentence only
+when it passes the same check; "Revision after the checks" under the text lists what changed and what
+stands as marked. A program reads the claims as records with `library_get` and `format: "claims"`: each
+claim with its text, source, confidence, state and what the checks made of it.
 
 ```
 researchzosho inbox                     # claims and write-ups waiting for your decision
@@ -1932,7 +1951,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.3 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.4 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

@@ -16,6 +16,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 
+import org.researchzosho.Stopping;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.tools.ContentPolicy;
 
@@ -72,6 +73,24 @@ public final class ContentOffer {
         if (j.ask(state, NEEDS_EXPLICIT).leansYes()) needs.add(ContentPolicy.EXPLICIT);
         if (j.ask(state, NEEDS_HOWTO).leansYes()) needs.add(ContentPolicy.HOWTO);
         return new Detected(needs, harm(j, state));
+    }
+
+    /**
+     * {@link #detect} within a bound: null when the model gave no verdict in {@code ms} milliseconds. A program's submit must return; the
+     * service then reads the question before the run starts, and holds the run for the person's yes if need be (0.5.4; a submit used to
+     * wait for three model calls behind running workers, time out at the caller, and the caller's retry filed a second run).
+     */
+    public static Detected detectWithin(String question, long ms) {
+        long deadline = System.nanoTime() + ms * 1_000_000L;
+        try { return Stopping.within(() -> System.nanoTime() > deadline, () -> detect(question, null)); }
+        catch (Stopping.Requested late) { return null; }
+    }
+
+    /** What a run the service held says while it waits for the person's yes: the help, then how the yes or the no is given. */
+    public static String heldMessage(String jobId) {
+        return CrisisHelp.text() + "\n\nThis question reads as a person asking about harming themselves, so the library starts no research on it "
+                + "until someone says yes to it. The person's own terminal: researchzosho jobs " + jobId + " --yes starts it, --no stops it. "
+                + "A program answers with library_job op=allow or op=decline, after it has shown this to the person and asked them.";
     }
 
     /** {@link #HARM} alone, for the nightly research, which lets nothing in and only needs to know whether to leave the question for the person. */

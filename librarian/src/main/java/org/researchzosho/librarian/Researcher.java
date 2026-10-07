@@ -834,6 +834,10 @@ public final class Researcher {
      * As above; {@code allowHow}: how the person asked to let in what the run lets in ({@link Ask#allow}), for the ledger
      * {@code catalog/run-content.tsv}, written before the report, and for the sentence under the report's question.
      */
+    /** The report's title, when the ask named one; blank: the question, compressed. */
+    private volatile String title = "";
+    public void title(String t) { title = t == null ? "" : t.strip(); }
+
     public static Filed file(LibraryStore store, Researcher researcher, Ask ask, String writer, String jobId, String how, String allowHow) throws IOException {
         var snap = Acquisitions.Snapshot.take();
         Result r = researcher.run(ask, known(store, ask.question(), ask.fields()));
@@ -863,7 +867,7 @@ public final class Researcher {
                 id -> {
                     for (String f : asked) Fields.record(store, id, jobId, f, how);
                     if (!letIn.isEmpty()) ContentOffer.record(store, id, jobId, letIn, allowHow);   // before the report, as the fields ledger is
-                }, ContentOffer.reportSentence(letIn));
+                }, ContentOffer.reportSentence(letIn), researcher.title);
         // the research log: every search this run made, under the question's subject, with the report it belongs to
         List<SearchLog.Entry> made = new ArrayList<>();
         for (SearchLog.Entry e : researcher.searches()) made.add(new SearchLog.Entry(e.date(), ask.question(), e.where(), e.query(), e.fromYear(), e.toYear(), e.found(), inv.id(), e.status()));
@@ -923,6 +927,9 @@ public final class Researcher {
         int searx = WebSearchTool.SEARXNG_USED.get() - searxAtStart;
         if (fb > 0) return "## Web search\n\n" + fb + (fb == 1 ? " search" : " searches") + " went through the built-in fallback (Wikipedia, Crossref and OpenAlex: reference pages and papers, no web engine)"
                 + (brave + searx > 0 ? ", " + (brave + searx) + " through " + (brave > 0 ? "Brave" : "SearXNG") : "")
+                // a library set to a SearXNG that did not answer searched the fallback for weeks without a word (an address on another machine, 2026-10-07)
+                + (WebSearchTool.searxConfigured() && WebSearchTool.searxDownLately() ? ". The SearXNG this library is set to, " + WebSearchTool.endpoint()
+                        + ", did not answer; `researchzosho search status` says what answers and how to point the library at it" : "")
                 + ". A Brave Search API key or a SearXNG (`researchzosho search start`) searches the whole web.";
         if (none > 0 && brave + searx == 0) return "## Web search\n\nNo search backend answered at " + WebSearchTool.endpoint() + " (" + none
                 + (none == 1 ? " search" : " searches") + " failed). This run read only the documents on the shelves. "
@@ -1139,7 +1146,10 @@ public final class Researcher {
         Map<Integer, String> textByRef = new HashMap<>();
         for (CiteCheck.Ref r : refs) { try { Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
         List<String> checks = new ArrayList<>();
-        List<String> numbersOff = WriteupChecks.numbersUnbacked(text, evidence, refs, textByRef), namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, evidence));
+        List<WriteupChecks.Unbacked> numbersAt = WriteupChecks.numbersUnbackedAt(text, evidence, refs, textByRef);
+        List<String> numbersOff = new ArrayList<>();
+        for (WriteupChecks.Unbacked u : numbersAt) numbersOff.add(u.what() + " — not in any note or source read this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
+        List<String> namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, evidence));
         for (String l : numbersOff) checks.add("number " + l);
         for (String l : namesOff) checks.add("name " + l);
         for (String l : quotesOff) checks.add("quotation " + l);
@@ -1152,7 +1162,17 @@ public final class Researcher {
                 + cc.unmapped() + " parenthetical(s) named no source (an aside, not a citation, counts here); " + byWork.size() + " reference(s)";
         notes.add(checked);
         log.accept(checked);
-        StringBuilder out = new StringBuilder(cc.text());
+        // a number no note or source states is marked where it stands, as a cited sentence the source does not support is (0.5.4)
+        String marked = WriteupChecks.markInline(cc.text(), numbersAt, "number not in any note or source read this run: ");
+        // the writer revises what the checks flagged, against the evidence; each revision goes through the check again, and only one that
+        // passes replaces its sentence — the rest stand as marked, and the section after the text says what changed (0.5.4)
+        Revision rev = revise(marked, evidence, refs, textByRef, unread, budget, notes);
+        runStats.put("revised", rev.changed()); runStats.put("revision_kept", rev.kept());
+        StringBuilder out = new StringBuilder(rev.text());
+        if (!rev.changes().isEmpty() || !rev.note().isEmpty()) {
+            out.append("\n\n## Revision after the checks\n\n").append(rev.summary()).append("\n\n");
+            for (String c : rev.changes()) out.append("- ").append(c).append('\n');
+        }
         if (!checks.isEmpty()) {
             out.append("\n\n## Checks\n\nThe write-up against the evidence it was written from, mechanically. A number with a unit, a licence, a CVE id or a "
                     + "quotation that no note or source read this run states is listed here; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
@@ -1189,6 +1209,216 @@ public final class Researcher {
     }
 
     private static String cell(String s) { return Acquisitions.compress(s == null ? "" : s.replace("|", "\\|").replace("\n", " "), 220); }
+
+    // ---- the revision after the checks ----
+
+    /** What the revision did: the text with the accepted revisions in place, each change in words, how many changed and how many stand as marked. */
+    record Revision(String text, List<String> changes, int changed, int kept, String note) {
+        String summary() {
+            if (changed + kept == 0) return note;
+            return "The checks flagged " + (changed + kept) + " sentence(s). The writer revised them against the evidence, and every revision went through the "
+                    + "check again: " + changed + " changed, " + kept + " stand as marked." + (note.isEmpty() ? "" : " " + note);
+        }
+    }
+
+    /** A mark the checks left in the text, with its reason. */
+    static final Pattern CHECK_MARK = Pattern.compile(" ?\\[(not supported by the cited source on check|cites a source that was not read this run|number not in any note or source read this run: [^\\]]*)\\]");
+    /** How many flagged sentences one revision turn is given; the rest stand as marked. */
+    static final int REVISE_MOST = 12;
+
+    /** A flagged sentence: its span in the marked text (marks included), what it says without them, why it was flagged. */
+    record Flag(int start, int end, String sentence, String why) { }
+
+    /** The sentences the checks marked, in order, each once however many marks it carries. */
+    static List<Flag> flagged(String marked) {
+        List<Flag> out = new ArrayList<>();
+        Matcher m = CHECK_MARK.matcher(marked);
+        int from = 0;
+        while (from < marked.length() && m.find(from)) {
+            int floor = out.isEmpty() ? 0 : out.get(out.size() - 1).end();
+            int end;
+            if (m.start() > 0 && ".!?".indexOf(marked.charAt(m.start() - 1)) >= 0) {   // the mark follows the full stop: the marks there end the sentence
+                end = m.end();
+                Matcher next = CHECK_MARK.matcher(marked);
+                while (end < marked.length() && next.find(end) && next.start() == end) end = next.end();
+            } else end = sentenceEnd(marked, m.end());   // the mark follows a citation inside the sentence
+            int start = sentenceStart(marked, m.start(), floor);
+            String span = marked.substring(start, end);
+            List<String> whys = new ArrayList<>();
+            Matcher inner = CHECK_MARK.matcher(span);
+            while (inner.find()) whys.add(inner.group(1));
+            String sentence = CHECK_MARK.matcher(span).replaceAll("").strip();
+            if (!sentence.isEmpty()) out.add(new Flag(start, end, sentence, String.join("; ", whys)));
+            from = end;
+        }
+        return out;
+    }
+
+    private static int sentenceStart(String s, int at, int floor) {
+        for (int i = at - 2; i > floor; i--) {
+            char c = s.charAt(i);
+            if (c == '\n') return i + 1;
+            if (".!?".indexOf(c) >= 0 && Character.isWhitespace(s.charAt(i + 1))) return i + 1;
+        }
+        return floor;
+    }
+
+    private static int sentenceEnd(String s, int from) {
+        for (int i = from; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '\n') return i;
+            if (".!?".indexOf(c) >= 0 && (i + 1 >= s.length() || Character.isWhitespace(s.charAt(i + 1)))) {
+                int end = i + 1;
+                Matcher next = CHECK_MARK.matcher(s);
+                while (end < s.length() && next.find(end) && next.start() == end) end = next.end();
+                return end;
+            }
+        }
+        return s.length();
+    }
+
+    /** Whether a sentence says, in its own words, that the claim could not be verified. */
+    static boolean saysUnverified(String s) {
+        String f = s.toLowerCase(Locale.ROOT);
+        for (String w : List.of("could not be verified", "not verified", "unverified", "could not verify", "cannot be verified", "no source read this run", "not confirmed", "unconfirmed", "確認できな", "未確認", "検証できな"))
+            if (f.contains(w)) return true;
+        return false;
+    }
+
+    /** The writer's tool for the revision: one call per flagged sentence. */
+    static final class ReviseTool implements Tool {
+        final List<JsonNode> calls = new ArrayList<>();
+        @Override public String name() { return "revise"; }
+        @Override public String description() {
+            return "Revise one flagged sentence of the report. n: its number in the list. revised: the sentence as it should read, or \"\" to leave it out. "
+                    + "why: what the evidence supports, in a few words.";
+        }
+        @Override public ObjectNode parametersSchema(ObjectMapper j) {
+            ObjectNode p = j.createObjectNode();
+            p.put("type", "object");
+            ObjectNode props = p.putObject("properties");
+            props.putObject("n").put("type", "integer").put("description", "the sentence's number in the list");
+            props.putObject("original").put("type", "string").put("description", "the sentence as flagged");
+            props.putObject("revised").put("type", "string").put("description", "the sentence as it should read; empty to leave it out");
+            props.putObject("why").put("type", "string").put("description", "what the evidence supports");
+            p.putArray("required").add("revised");
+            return p;
+        }
+        @Override public String execute(JsonNode args) { calls.add(args); return "noted"; }
+    }
+
+    /**
+     * One turn of the writer on the sentences the checks flagged, each with its reason, the research notes and the sources those sentences
+     * cite as read this run. A revision replaces its sentence only when it passes the check that flagged the original: a number it states
+     * is in the evidence; a sentence that still cites a source is read against it (mechanically, then by the judge); one that drops the
+     * citation says in its own words that the claim could not be verified. What does not pass stands as marked.
+     */
+    Revision revise(String marked, String evidence, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef, Set<Integer> unread, Budget budget, List<String> notes) {
+        List<Flag> flags = flagged(marked);
+        if (flags.isEmpty()) return new Revision(marked, List.of(), 0, 0, "");
+        if (!budget.take()) {
+            String n = "No turn was left for the revision: the " + flags.size() + " flagged sentence(s) stand as marked.";
+            notes.add("revision: " + n); log.accept(notes.get(notes.size() - 1));
+            return new Revision(marked, List.of(), 0, flags.size(), n);
+        }
+        List<Flag> sent = flags.size() > REVISE_MOST ? flags.subList(0, REVISE_MOST) : flags;
+        StringBuilder u = new StringBuilder();
+        u.append("You wrote a research report; its checks flagged the sentences below, each with the reason. Revise each with revise(n, revised, why): "
+                + "a sentence that says only what the evidence below supports. Cite a source [n] only where that source says it. A claim that nothing read "
+                + "this run supports: say that it could not be verified in this run, or leave it out (revised = \"\"). Keep every number exactly as the "
+                + "evidence states it. Write in the report's language. One revise call per sentence, all in this turn.\n\nTHE FLAGGED SENTENCES:\n");
+        int k = 0;
+        for (Flag f : sent) u.append(++k).append(". ").append(f.sentence()).append("\n   flagged: ").append(f.why()).append('\n');
+        u.append("\nEVIDENCE (the research notes):\n").append(Acquisitions.compress(evidence, 12_000));
+        Set<Integer> cited = new LinkedHashSet<>();
+        for (Flag f : sent) for (CiteCheck.Ref r : CiteCheck.citedRefs(f.sentence(), refs)) cited.add(r.n());
+        int room = 16_000;
+        for (int n : cited) {
+            String t = textByRef.get(n);
+            if (t == null || room <= 0) continue;
+            String cut = Acquisitions.compress(t, Math.min(3_000, room));
+            room -= cut.length();
+            u.append("\n\nSOURCE [").append(n).append("] as read this run:\n").append(cut);
+        }
+        ArrayNode history = J.createArrayNode();
+        history.addObject().put("role", "user").put("content", u.toString());
+        ReviseTool tool = new ReviseTool();
+        ObjectNode assistant;
+        try (var step = Declines.writeUp("revise the sentences of a research report that its checks flagged, against the evidence")) {
+            assistant = chat(history, toolsArray(List.of(tool)), outBudget(history, drive.contextWindow()));
+        } catch (Stopped e) {
+            throw e;
+        } catch (Declined d) {
+            declined(d.at("to revise the sentences the checks flagged"));
+            return new Revision(marked, List.of(), 0, flags.size(), "The model declined to revise them (see Declined); they stand as marked.");
+        } catch (Exception e) {
+            String n = "The revision call failed (" + e.getMessage() + "); the flagged sentences stand as marked.";
+            notes.add("revision: " + n); log.accept(notes.get(notes.size() - 1));
+            return new Revision(marked, List.of(), 0, flags.size(), n);
+        }
+        if (assistant != null) for (JsonNode call : assistant.path("tool_calls")) {
+            if (!tool.name().equals(call.path("function").path("name").asText())) continue;
+            tool.execute(parseArgs(call.path("function").path("arguments")));
+        }
+        // each proposal to its sentence: by number, else by its words
+        String[] revised = new String[sent.size()], why = new String[sent.size()];
+        for (JsonNode c : tool.calls) {
+            int i = c.path("n").asInt(0) - 1;
+            if (i < 0 || i >= sent.size()) {
+                String orig = foldWords(c.path("original").asText(""));
+                for (int j = 0; j < sent.size() && i < 0; j++) { String f = foldWords(sent.get(j).sentence()); if (!orig.isEmpty() && (f.equals(orig) || (orig.length() >= 20 && (f.contains(orig) || orig.contains(f))))) i = j; }
+            }
+            if (i < 0 || i >= sent.size()) continue;
+            revised[i] = c.path("revised").asText("").strip(); why[i] = c.path("why").asText("").strip();
+        }
+        List<String> changes = new ArrayList<>();
+        int changed = 0, kept = 0;
+        String text = marked;
+        for (int i = flags.size() - 1; i >= 0; i--) {   // from the end, so the earlier spans keep their places
+            Flag f = flags.get(i);
+            String was = Acquisitions.compress(f.sentence(), 200);
+            if (i >= sent.size()) { kept++; changes.add(0, "kept as marked (more than " + REVISE_MOST + " were flagged; not sent for revision): \"" + was + "\""); continue; }
+            if (revised[i] == null) { kept++; changes.add(0, "kept as marked (no revision was offered): \"" + was + "\""); continue; }
+            String fails = revisionFails(f, revised[i], evidence, refs, textByRef, unread, budget);
+            if (!fails.isEmpty()) { kept++; changes.add(0, "kept as marked: \"" + was + "\" — the revision \"" + Acquisitions.compress(revised[i], 200) + "\" did not pass: " + fails); continue; }
+            changed++;
+            String reason = why[i] == null || why[i].isEmpty() ? "" : " (" + Acquisitions.compress(why[i], 160) + ")";
+            if (revised[i].isEmpty()) {
+                int end = f.end();
+                while (end < text.length() && text.charAt(end) == ' ') end++;
+                text = text.substring(0, f.start()) + text.substring(end);
+                changes.add(0, "left out: \"" + was + "\"" + reason);
+            } else {
+                text = text.substring(0, f.start()) + revised[i] + text.substring(f.end());
+                changes.add(0, "was: \"" + was + "\" — now: \"" + Acquisitions.compress(revised[i], 200) + "\"" + reason);
+            }
+        }
+        String said = "revision: " + flags.size() + " flagged — " + changed + " changed, " + kept + " kept as marked";
+        notes.add(said); log.accept(said);
+        return new Revision(text, changes, changed, kept, "");
+    }
+
+    private static String foldWords(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ").strip(); }
+
+    /** Why a revised sentence does not pass the check that flagged its original; "" when it passes. */
+    String revisionFails(Flag f, String revised, String evidence, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef, Set<Integer> unread, Budget budget) {
+        if (revised.isBlank()) return "";   // left out: nothing is claimed
+        List<WriteupChecks.Unbacked> nums = WriteupChecks.numbersUnbackedAt(revised, evidence, refs, textByRef);
+        if (!nums.isEmpty()) return "it states " + nums.get(0).what() + ", which no note or source read this run states";
+        boolean citeFlag = f.why().contains("not supported by the cited source") || f.why().contains("not read this run");
+        if (!citeFlag) return "";
+        List<CiteCheck.Ref> cited = CiteCheck.citedRefs(revised, refs);
+        if (cited.isEmpty()) return saysUnverified(revised) ? "" : "it drops the citation and still states the claim";
+        for (CiteCheck.Ref r : cited) if (unread.contains(r.n())) return "it cites [" + r.n() + "], which was not read this run";
+        CiteCheck.Outcome again;
+        try { again = CiteCheck.run(store, revised, refs, judge, budget, unread); }
+        catch (Stopping.Requested stop) { throw stopped(stop); }
+        catch (RuntimeException e) { return "the citation check could not run on it (" + e.getMessage() + ")"; }
+        if (again.declined() != null) return "the model declined to check it";
+        if (CHECK_MARK.matcher(again.text()).find()) return "its cited source does not support it either, on check";
+        if (again.supported() < 1) return "whether its cited source supports it could not be decided from the excerpt";
+        return "";
+    }
 
     // ---- 1. plan ----
 

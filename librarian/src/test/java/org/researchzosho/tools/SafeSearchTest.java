@@ -23,7 +23,10 @@ class SafeSearchTest {
         String url = WebSearchTool.braveUrl("placeholder topic", 8);
         assertTrue(url.startsWith("https://api.search.brave.com/res/v1/web/search?"), url);
         assertTrue(url.contains("&safesearch=moderate"), url);
-        assertTrue(WebSearchTool.braveUrl("日本語の資料", 8).contains("&search_lang=ja&safesearch=moderate"), "the language stays beside it");
+        assertTrue(WebSearchTool.braveUrl("日本語の資料", 8).contains("&search_lang=jp&safesearch=moderate"), "the language stays beside it, in Brave's own code for Japanese");
+        assertTrue(WebSearchTool.braveUrl("北京の資料ではなく北京地铁", 8).contains("&search_lang=jp&"), "kana decides: Japanese");
+        assertTrue(WebSearchTool.braveUrl("北京地铁新线路", 8).contains("&search_lang=zh-hans&"), "Chinese is zh-hans to Brave");
+        assertTrue(WebSearchTool.braveUrl("서울 지하철", 8).contains("&search_lang=ko&"));
     }
 
     @Test

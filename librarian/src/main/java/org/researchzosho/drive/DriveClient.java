@@ -11,8 +11,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.ConnectException;
+import java.net.UnknownHostException;
+import java.nio.channels.UnresolvedAddressException;
 import java.net.NoRouteToHostException;
 import org.researchzosho.Config;
+import org.researchzosho.HttpSettings;
 import org.researchzosho.Stopping;
 import java.io.IOException;
 import java.net.URI;
@@ -33,6 +36,7 @@ import java.util.List;
 import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -58,11 +62,46 @@ import org.researchzosho.drive.aws.Bedrock;
 public final class DriveClient {
     private static final Logger log = LoggerFactory.getLogger(DriveClient.class);
 
+    /**
+     * Whether this process is the library's service ({@code researchzosho serve}), whose lines go to its log. Anywhere else the console is
+     * a person's terminal: notes on how the library paces its requests stay out of it, and a check that could not reach the model server
+     * says so once, in a sentence, instead of a log line with the exception on every call.
+     */
+    public static volatile boolean service = false;
+    private static final Set<String> SAID_UNREACHED = ConcurrentHashMap.newKeySet();
+
+    /** A note on how the library paces its requests: the service's log keeps it; a person's terminal is not shown it. */
+    private static void pacing(String format, Object... args) {
+        if (service) log.info(format, args); else log.debug(format, args);
+    }
+
+    /** A check ({@link #classify}) that got no answer: the service logs each one; a person is told once per server, in words. */
+    private void unanswered(String logLine, String inWords) {
+        if (service) { log.warn(logLine); return; }
+        log.debug(logLine);
+        if (SAID_UNREACHED.add(baseUrl)) System.err.println(inWords + ", so this went on without the model's answer. researchzosho status "
+                + "shows which model server the library uses, and researchzosho model use <address> sets another.");
+    }
+
+    /** Why a request did not reach the model server, in words. The most specific cause wins: a name that does not resolve arrives as a ConnectException around it. */
+    static String unreached(Throwable e) {
+        if (causedBy(e, UnresolvedAddressException.class) || causedBy(e, UnknownHostException.class)) return "cannot be found (its name does not resolve)";
+        if (causedBy(e, HttpTimeoutException.class)) return "did not answer in time";
+        if (causedBy(e, ConnectException.class)) return "does not answer (nothing is listening there)";
+        return "could not be reached (" + e.getClass().getSimpleName() + ")";
+    }
+
+    private static boolean causedBy(Throwable e, Class<? extends Throwable> kind) {
+        for (Throwable t = e; t != null; t = t.getCause()) if (kind.isInstance(t)) return true;
+        return false;
+    }
+
     private final String baseUrl;
     private final String model;
     /** One HTTP client for every DriveClient: each client owns a selector thread and an executor, and a client per
      *  instance (a Researcher's drive per job, a chat turn's drive per page post) leaked threads until the macOS CI
      *  runner failed with "pthread_create failed (EAGAIN)" at its 472nd HttpClient (2026-09-14). */
+    static { HttpSettings.apply(); }   // before the first client: the pool's idle limit is read once, JVM-wide
     private static final HttpClient SHARED_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final HttpClient http;
     private final ObjectMapper json = new ObjectMapper();
@@ -725,7 +764,7 @@ public final class DriveClient {
             }
             s = new Served(props.path("total_slots").asInt(0));
             SERVED.put(key, s);
-            if (s.slots() > 0) log.info("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
+            if (s.slots() > 0) pacing("the model server at {} serves {} request{} at once; the library sends it no more than that", baseUrl, s.slots(), s.slots() == 1 ? "" : "s");
             return s;
         } catch (Stopping.Requested stop) {
             throw stop;
@@ -771,7 +810,7 @@ public final class DriveClient {
             long now = System.nanoTime(), last = SAID_WAITING.getOrDefault(key, now - Duration.ofMinutes(2).toNanos());
             if (now - last > Duration.ofMinutes(1).toNanos()) {   // once a minute at most: with several workers every request waits
                 SAID_WAITING.put(key, now);
-                log.info("requests wait their turn for the model server at {}: it serves {} at once", baseUrl, n);
+                pacing("requests wait their turn for the model server at {}: it serves {} at once", baseUrl, n);
             }
             while (!s.tryAcquire(1, TimeUnit.SECONDS)) Stopping.check();
         }
@@ -826,7 +865,7 @@ public final class DriveClient {
                 return content.isBlank() ? msg.path("reasoning_content").asText("") : content;
             } catch (Declined | Stopping.Requested d) { throw d; }   // a decline is the model's answer, never an empty one; a stop ends the call
             catch (RuntimeException e) {
-                log.warn("classify() failed against bedrock: {}", e.getMessage());
+                unanswered("classify() failed against bedrock: " + e.getMessage(), "Bedrock (" + model + ") could not be reached: " + e.getMessage());
                 CLASSIFY_PROBLEM.set("the server answered: " + e.getMessage());
                 IOException none = bedrockUnanswered(e);
                 if (none != null) CLASSIFY_UNANSWERED.set(none);
@@ -844,7 +883,7 @@ public final class DriveClient {
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // a decline, never an empty answer
                 String said = resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body();
-                log.warn("classify HTTP {}: {}", resp.statusCode(), said);
+                unanswered("classify HTTP " + resp.statusCode() + ": " + said, "The model server at " + baseUrl + " answered HTTP " + resp.statusCode() + ": " + serverSaid(resp.body()));
                 CLASSIFY_PROBLEM.set("the server answered HTTP " + resp.statusCode() + ": " + said.replaceAll("\\s+", " ").strip());
                 // an error in place of a reply is no answer: the model said nothing about the text
                 IOException none = noAnswer(resp.statusCode(), who() + " answered HTTP " + resp.statusCode() + ": " + serverSaid(resp.body()));
@@ -864,7 +903,7 @@ public final class DriveClient {
         } catch (Stopping.Requested stop) {
             throw stop;   // a person stopped the run: no empty answer, the run ends
         } catch (Exception e) {
-            log.warn("classify() failed against {}: {}", baseUrl, e.toString());
+            unanswered("classify() failed against " + baseUrl + ": " + e, "The model server at " + baseUrl + " " + unreached(e));
             CLASSIFY_PROBLEM.set("the server could not be reached or did not answer in time (" + e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
             if (e instanceof IOException io && !(e instanceof JsonProcessingException)) CLASSIFY_UNANSWERED.set(io);
             return "";

@@ -42,6 +42,19 @@ public final class Export {
     public record File(String name, String contentType, byte[] bytes) { }
 
     /** The Markdown document for an entry (as written) or a reading of it at a rung. */
+    /** {@code brief}: the answer alone — the report's sections without the run's own checks, evidence and worker findings — and no claims list. */
+    public static File markdown(LibraryStore store, String id, Explain.Reading reading, boolean brief) throws IOException {
+        BRIEF.set(brief);
+        try { return markdown(store, id, reading); } finally { BRIEF.remove(); }
+    }
+
+    public static File pdf(LibraryStore store, String id, Explain.Reading reading, boolean brief) throws IOException {
+        BRIEF.set(brief);
+        try { return pdf(store, id, reading); } finally { BRIEF.remove(); }
+    }
+
+    private static final ThreadLocal<Boolean> BRIEF = new ThreadLocal<>();
+
     public static File markdown(LibraryStore store, String id, Explain.Reading reading) throws IOException {
         LibraryProtocol p = new LibraryProtocol(store);
         ObjectNode e = p.entry(id, p.kindOf(id), true);
@@ -84,8 +97,11 @@ public final class Export {
         sb.append(" · by ").append(e.path("writer").asText()).append(" · ").append(e.path("recorded_at").asText().replace('T', ' ').replaceAll("\\.\\d+Z$", " UTC"));
         if (e.path("subjects").size() > 0) { sb.append(" · subjects: "); for (JsonNode s : e.path("subjects")) sb.append(s.asText()).append(' '); }
         sb.append("*\n\n");
-        if (reading == null || reading.rung() == Explain.Rung.written) sb.append(e.path("body").asText().strip()).append("\n\n");
-        else sb.append(Explain.cap(e.path("body").asText().strip(), 1_200)).append("\n\n");
+        boolean brief = Boolean.TRUE.equals(BRIEF.get());
+        String bodyText = e.path("body").asText().strip();
+        if (brief) { String answer = LibraryProtocol.sectionOf(bodyText, "answer"); if (answer != null && !answer.isBlank()) bodyText = answer; }
+        if (reading == null || reading.rung() == Explain.Rung.written) sb.append(bodyText).append("\n\n");
+        else sb.append(Explain.cap(bodyText, 1_200)).append("\n\n");
         if (e.path("sources").size() > 0 && !"raw".equals(kind)) {
             sb.append("## Sources\n\n");
             for (JsonNode s : e.path("sources")) {
@@ -96,7 +112,7 @@ public final class Export {
             }
             sb.append('\n');
         }
-        if (e.path("findings").size() > 0) {
+        if (e.path("findings").size() > 0 && !brief) {
             sb.append("## Claims that came out of it\n\n");
             LibraryProtocol p = new LibraryProtocol(store);
             for (JsonNode f : e.path("findings")) {

@@ -141,7 +141,35 @@ public final class Stopping {
     public static <T> HttpResponse<T> send(HttpClient http, HttpRequest request, HttpResponse.BodyHandler<T> body, Duration limit, String what)
             throws IOException, InterruptedException {
         check();
-        return await(http.sendAsync(request, body), limit, what, request.timeout().orElse(null));
+        long started = System.nanoTime();
+        try { return await(http.sendAsync(request, body), limit, what, request.timeout().orElse(null)); }
+        catch (IOException e) {
+            // the pooled connection had been closed by the server while it was idle: nothing of the request was answered, so it goes
+            // once more, on a fresh connection, within what is left of the limit (HttpSettings says why this happens)
+            if (!staleConnection(e)) throw e;
+            STALE_RETRIES.incrementAndGet();
+            Duration left = limit.minus(Duration.ofNanos(System.nanoTime() - started));
+            if (left.isNegative() || left.isZero()) throw e;
+            return await(http.sendAsync(request, body), left, what, request.timeout().orElse(null));
+        }
+    }
+
+    /** Requests sent again because the pooled connection they first went down was dead (tests read it). */
+    public static final AtomicLong STALE_RETRIES = new AtomicLong();
+
+    /**
+     * A failure that means the server had closed the pooled connection while it was idle, so the request never reached it. A request
+     * the server took and is slow on (a timeout) is not this, and is never sent twice.
+     */
+    public static boolean staleConnection(IOException e) {
+        if (e instanceof HttpTimeoutException) return false;
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t.getClass().getSimpleName().equals("ConnectionExpiredException")) return true;
+            String m = t.getMessage() == null ? "" : t.getMessage();
+            if (m.contains("header parser received no bytes") || m.contains("connection closed locally") || m.contains("Connection reset")
+                    || m.contains("Broken pipe") || m.contains("EOF reached while reading")) return true;
+        }
+        return false;
     }
 
     /**

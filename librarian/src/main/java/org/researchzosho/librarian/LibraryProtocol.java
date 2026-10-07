@@ -90,6 +90,26 @@ public final class LibraryProtocol {
      * search. {@code routed} says which.
      */
     public ObjectNode ask(JsonNode args) throws IOException {
+        ObjectNode r = askUncapped(args);
+        // a caller with a small window asks for at most max_chars of entry text; each entry gets an even share, cut with a word that says so
+        int max = args.path("max_chars").asInt(0);
+        if (max < 0) throw ProtocolError.invalidArgs("max_chars must be zero or a positive number.");
+        if (max > 0 && r.path("entries").isArray() && r.path("entries").size() > 0) {
+            ArrayNode entries = (ArrayNode) r.get("entries");
+            int share = Math.max(200, max / entries.size());
+            for (JsonNode e : entries) {
+                if (!(e instanceof ObjectNode o) || !o.hasNonNull("body")) continue;
+                String body = o.get("body").asText();
+                if (body.length() <= share) continue;
+                o.put("body", body.substring(0, share).stripTrailing() + " …");
+                o.put("truncated", true);
+            }
+            r.put("max_chars", max);
+        }
+        return r;
+    }
+
+    private ObjectNode askUncapped(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.read);
         String question = reqStr(args, "question");
@@ -213,6 +233,25 @@ public final class LibraryProtocol {
         ObjectNode r = envelope();
         ObjectNode e = entry(id, kindOf(id), true);
         if (e == null) throw ProtocolError.notFound("No entry has the id " + id + ".");
+        // format=claims: a report's claims as records — each with its source, confidence, state and what the checks made of it — for a
+        // caller that folds a run into a table without parsing prose (0.5.4)
+        if ("claims".equalsIgnoreCase(args.path("format").asText(""))) {
+            if (!"investigation".equals(e.path("kind").asText())) throw ProtocolError.invalidArgs("format=claims is for a report (I-…); " + id + " is " + e.path("kind").asText() + ".");
+            r.put("id", id); r.put("title", e.path("title").asText());
+            ArrayNode claims = r.putArray("claims");
+            for (JsonNode fid : e.path("findings")) {
+                Finding f = store.finding(fid.asText());
+                if (f == null) continue;
+                ObjectNode c = claims.addObject();
+                c.put("id", f.id()); c.put("title", f.title()); c.put("text", f.body().strip());
+                c.put("confidence", f.confidence().name()); c.put("state", f.state().name());
+                ArrayNode src = c.putArray("sources");
+                for (Finding.Source so : f.sources()) { ObjectNode o = src.addObject(); o.put("locator", so.locator()); if (so.edition() != null && !so.edition().isEmpty()) o.put("edition", so.edition()); }
+                c.put("check", checkOf(f));
+            }
+            r.put("count", claims.size());
+            return r;
+        }
         // A record can run past what a tool call may carry (an investigation of 150,000 characters, measured 2026-09-11):
         // a caller asks for one section, or a window of the body, and gets the whole list of sections either way.
         String body = e.path("body").asText("");
@@ -234,6 +273,19 @@ public final class LibraryProtocol {
         e.put("body", body);
         r.set("entry", e);
         return r;
+    }
+
+    /**
+     * What the run's checks made of a claim, read from the marks they left in its text: {@code not supported} (its cited source does not
+     * say it), {@code source not read}, {@code number unbacked} (a number no note or source states), {@code cited} (it names a source and
+     * no check marked it), or {@code unchecked} (no source named).
+     */
+    static String checkOf(Finding f) {
+        String b = f.body() == null ? "" : f.body();
+        if (b.contains("[not supported by the cited source on check]")) return "not supported";
+        if (b.contains("[cites a source that was not read this run]")) return "source not read";
+        if (b.contains("[number not in any note or source read this run")) return "number unbacked";
+        return f.sources() == null || f.sources().isEmpty() ? "unchecked" : "cited";
     }
 
     /** The sections the harness itself appends to a write-up; "answer" is everything else. */
@@ -1549,6 +1601,9 @@ public final class LibraryProtocol {
      */
     /** Model turns an ask may spend when it does not say: shared by every worker, the critic and the synthesis. */
     /** No ceiling unless the ask names one: the run goes until the work is done. */
+    /** How long a program's submit waits for the model's one verdict before filing anyway (RESEARCHZOSHO_SUBMIT_CHECK_SECONDS, 45 unless set). */
+    static volatile long SUBMIT_CHECK_MS = Math.max(1, Config.getInt("RESEARCHZOSHO_SUBMIT_CHECK_SECONDS", 45)) * 1000L;   // a test shortens it
+
     public static final int DEFAULT_TURNS = 0;
 
     /**
@@ -1692,10 +1747,17 @@ public final class LibraryProtocol {
         // nobody can answer a program's run: its question is read for what it may need, and for a person asking about harming themselves,
         // which starts nothing: the caller is answered with the confirm error, whose message is where to find help and the sentence that
         // says to ask the person, so that a client that prints errors shows it to them
+        // A program's run: its question is read for what it may need (what the library leaves out by default) and for a person asking
+        // about harming themselves, which starts nothing — within a bound, so that submit returns. A model too busy to answer in time: the
+        // service reads the question before the run starts, the job carries what it found, and a run that reads as a person asking about
+        // harming themselves is held there for the person's yes. (A submit used to wait for three model calls behind running workers, time
+        // out at the caller, and the caller's retry filed a second run, 2026-10-07.)
         ContentOffer.Detected detected = null;
+        boolean pending = false;   // the model gave no verdict in time: the service reads the question before the run, and holds it if need be
         if (Way.PROGRAM.where().equals(way.where()) && offer == null) {
-            detected = ContentOffer.detect(question, null);
-            if (detected.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) throw ProtocolError.confirm(ContentOffer.confirmMessage(localeOf(args)), helpData(args));
+            detected = ContentOffer.detectWithin(question, SUBMIT_CHECK_MS);
+            pending = detected == null;
+            if (detected != null && detected.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) throw ProtocolError.confirm(ContentOffer.confirmMessage(localeOf(args)), helpData(args));
         }
         // a run cannot open files on this machine: it reads the web and the library. So when the library owner's question
         // names a file that exists, the library reads it in first and tells the run where to look.
@@ -1711,6 +1773,9 @@ public final class LibraryProtocol {
         a.put("question", question); a.put("mode", mode); a.put("max_turns", maxTurns); a.put("max_minutes", maxMinutes);
         if (!readIn.isEmpty()) { ArrayNode ri = a.putArray("read_in"); readIn.forEach(ri::add); }
         if (quick) a.put("quick", true);
+        // "this one first": a full run, with the full limits, ahead of the others waiting — quick is a lookup with short limits, not this
+        boolean priority = args.path("priority").asBoolean(false);
+        if (priority) a.put("priority", true);
         if (args.path("sub_questions").isArray() && args.path("sub_questions").size() > 0) {
             ArrayNode subs = a.putArray("sub_questions");
             for (JsonNode s : args.path("sub_questions")) subs.add(s.asText().strip());
@@ -1729,19 +1794,44 @@ public final class LibraryProtocol {
             // how it was asked for, for the ledger: a program named it; the terminal and the web page say whether it was a flag, a box or a yes
             a.put("allow_how", Way.PROGRAM.where().equals(way.where()) ? "mcp-allow" : args.path("allow_how").asText(way.how()));
         }
+        if (pending) a.put("content_check", "pending");
         // nobody can answer a program's run: its question is read for what it may need, and the result says how to let it in
         List<String> needs = List.of();
         if (detected != null) { needs = new ArrayList<>(detected.needs()); needs.removeAll(allow); }
+        String key = args.path("idempotency_key").asText("").strip();
+        if (!key.isEmpty()) a.put("idempotency_key", key);
+        String title = args.path("title").asText("").strip();
+        if (!title.isEmpty()) a.put("title", Acquisitions.compress(title, 160));
+        String deltaOf = args.path("delta_of").asText("").strip();
+        if (!deltaOf.isEmpty()) {
+            if (!deltaOf.startsWith("I-") || !LibraryStore.safeName(deltaOf)) throw ProtocolError.invalidArgs("delta_of names an earlier report by its id (I-…).");
+            if (entry(deltaOf, kindOf(deltaOf), false) == null) throw ProtocolError.notFound("No report has the id " + deltaOf + ".");
+            a.put("delta_of", deltaOf);
+            if (title.isEmpty()) a.put("title", Acquisitions.compress("What is new since " + deltaOf + ": " + question, 160));
+        }
+        // a program's same ask filed again while the first still waits or runs — a retry after a timeout, or a program that lost the id —
+        // is that run. A person asking again at the terminal or on the page means it: that is a new run, asked its questions again
+        if (offer == null && Way.PROGRAM.where().equals(way.where())) {
+            ObjectNode same = jobs.sameActive(who, key, a);
+            if (same != null) {
+                ObjectNode r = envelope();
+                r.put("job_id", same.path("job_id").asText()); r.put("state", same.path("state").asText()); r.put("already_filed", true);
+                return r;
+            }
+        }
         String id = offer != null ? jobs.submitOffered("research", who, a, offer, offeredUntil) : jobs.submit("research", who, a);
         store.circulate("research-job", id + " by " + patron.writer() + " :: " + Acquisitions.compress(question, 120));
         ObjectNode r = envelope();
         r.put("job_id", id);
         r.put("state", offer != null ? Jobs.OFFERED : "queued");
         if (quick) r.put("quick", true);
+        if (priority) r.put("priority", true);
         if (!field.isEmpty()) r.put("field", field);
         if (!allow.isEmpty()) r.set("allow", a.get("allow").deepCopy());
         if (told != null) r.putObject("suggestion").put("field", told.field()).put("why", told.offer()).put("how", told.how());
         if (!needs.isEmpty()) r.set("content_suggestion", ContentOffer.suggestion(needs));
+        if (pending) r.put("content_check", "pending");
+        if (a.hasNonNull("title")) r.put("title", a.get("title").asText());
         // the judge could not tell whether the question is a person asking about harming themselves: the help is shown anyway, it costs nothing
         if (detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !allow.contains(ContentPolicy.SELF_HARM)) {
             Locale l = localeOf(args);
@@ -1945,6 +2035,14 @@ public final class LibraryProtocol {
             Patrons.check(store, patron, Patrons.Level.write);
             Config.set(ResearchSettings.PAUSE, op.equals("pause") ? "on" : "off");
             r.put("paused", op.equals("pause"));
+            return r;
+        }
+        if (op.equals("allow") || op.equals("decline")) {   // the person's answer to a run the service held: a program sends it only after asking them
+            Patrons.check(store, patron, Patrons.Level.write);
+            if (id.isEmpty()) throw ProtocolError.invalidArgs(op + " needs job_id.");
+            if (!jobs.releaseHelp(id, op.equals("allow"))) throw ProtocolError.invalidArgs("Research run " + id + " is not waiting for an answer about help.");
+            ObjectNode j = jobs.get(id);
+            r.put("job_id", id); r.put("state", j == null ? "" : j.path("state").asText());
             return r;
         }
         if (op.equals("stop")) {   // one run: a queued one never starts, a running one ends within seconds, also in the middle of a call; the nightly tasks after their step

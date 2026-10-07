@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.Config;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -161,6 +162,8 @@ public final class LibrarianDaemon {
         switch (kind) {
             case "research" -> {
                 if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The question was saved but cannot run. Send it again when a model is up.");
+                try { contentCheckBeforeRun(job, a); }
+                catch (IOException e) { throw new IllegalStateException("The library could not be written: " + e.getMessage(), e); }
                 String writer = job.path("patron").asText("").isEmpty() ? "patron:anonymous" : "patron:" + job.path("patron").asText();
                 try {
                     return runResearch(job, a, d, writer);
@@ -185,9 +188,51 @@ public final class LibrarianDaemon {
      * shelf. The run's evidence goes into the investigation with the answer, so a cut-off synthesis
      * still leaves the work on record. Progress lines land in catalog/crews.log under the job id.
      */
+    /**
+     * What a program's submit left for the service to read, when the model gave no verdict in time ({@code content_check: pending}, 0.5.4):
+     * what the library leaves out by default, whose suggestion goes onto the job for the caller to read; and whether the question reads as a
+     * person asking about harming themselves — then the run is held for the person's yes ({@link Jobs.Hold}).
+     */
+    void contentCheckBeforeRun(ObjectNode job, ObjectNode a) throws IOException { contentCheckBeforeRun(store, jobs, job, a); }
+
+    static void contentCheckBeforeRun(LibraryStore store, Jobs jobs, ObjectNode job, ObjectNode a) throws IOException {
+        String check = a.path("content_check").asText("");
+        if (check.isEmpty()) return;
+        String jobId = job.path("job_id").asText("");
+        List<String> allow = new ArrayList<>();
+        for (JsonNode x : a.path("allow")) allow.add(x.asText());
+        ContentOffer.Detected det = ContentOffer.detect(a.path("question").asText(""), null);
+        List<String> needs = new ArrayList<>(det.needs());
+        needs.removeAll(allow);
+        a.remove("content_check");
+        if (!needs.isEmpty()) a.set("content_suggestion", ContentOffer.suggestion(needs));
+        jobs.saveArgs(jobId, a);
+        if (det.harm() == ContentOffer.Harm.SURE && !allow.contains(ContentPolicy.SELF_HARM)) {
+            Crews.log(store, "research " + jobId, "held for the person's yes: the question reads as a person asking about harming themselves", 0);
+            throw new Jobs.Hold(ContentOffer.heldMessage(jobId), System.currentTimeMillis() + Jobs.HELD_MS);
+        }
+    }
+
+    /** The question with what an earlier report answered, for a run asked for what is new since it ({@code delta_of}). */
+    String withEarlier(String question, String earlierId) throws IOException { return withEarlierFor(store, question, earlierId); }
+
+    static String withEarlierFor(LibraryStore store, String question, String earlierId) throws IOException {
+        LibraryProtocol protocol = new LibraryProtocol(store);
+        ObjectNode earlier = protocol.entry(earlierId, protocol.kindOf(earlierId), true);
+        if (earlier == null) return question;
+        String body = earlier.path("body").asText("");
+        String said = LibraryProtocol.sectionOf(body, "answer");
+        if (said == null || said.isBlank()) said = body;
+        return question + "\n\nWHAT THE LIBRARY'S EARLIER REPORT " + earlierId + " (" + earlier.path("recorded_at").asText("").replaceAll("T.*", "")
+                + ") ALREADY ANSWERED, for what is new since:\n" + Acquisitions.compress(said, 8_000)
+                + "\n\nReport what is new, changed, or contradicts that report since it was written. Where nothing changed, say so in a "
+                + "sentence and cite " + earlierId + " rather than repeating it.";
+    }
+
     private String runResearch(ObjectNode job, ObjectNode a, String drive, String writer) throws IOException {
         String jobId = job.path("job_id").asText("job");
         String question = a.path("question").asText();
+        if (a.hasNonNull("delta_of")) question = withEarlier(question, a.get("delta_of").asText());
         List<String> subs = new ArrayList<>();
         for (JsonNode s : a.path("sub_questions")) if (s.isTextual() && !s.asText().isBlank()) subs.add(s.asText());
         List<String> colls = new ArrayList<>();
@@ -198,6 +243,7 @@ public final class LibrarianDaemon {
         long t0 = System.currentTimeMillis();
         RunTrace trace = RunTrace.open(store, jobId);
         Researcher researcher = researcher(drive, trace);
+        if (a.hasNonNull("title")) researcher.title(a.get("title").asText());
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
         try {
             var later = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(drive, model())), UncheckedPages.PER_COMMAND);

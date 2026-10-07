@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.5.4
+
+### New
+
+- Reports fix their own flagged sentences. After the checks, the writer gets back each sentence that was marked, with
+  the reason and the sources, and rewrites it. A rewrite goes in only if it passes the same check; the rest stay
+  marked. "Revision after the checks" under the text lists what changed.
+- A number that no source from the run contains is marked right after its sentence, like an unsupported citation.
+  Plain numbers of four digits or more count too, except years.
+- `library_get` with `format: "claims"` returns a report's claims as records: text, source, confidence, state, and
+  what the checks made of each.
+- A research run filed by a program starts without waiting. The reading of the question before filing takes at most
+  45 seconds; if the model is too busy, the question is filed anyway and read just before the run starts. A question
+  that then reads as being about self-harm is held: `researchzosho jobs <J-id> --yes` starts it, `--no` drops it, and a
+  program answers with `library_job` and `op: "allow"` or `"decline"` after asking the person.
+- The same question sent again by a program while the first run is still going returns that run, marked
+  `already_filed: true`. An `idempotency_key` marks a request as the same whatever its words.
+- New options on a run: `title` names the report; `delta_of: "I-…"` asks what is new since an earlier report;
+  `priority: true` (`--priority`) puts a full run ahead of the others waiting.
+- `max_chars` on `library_ask` limits how much entry text comes back. `researchzosho export --brief` writes the answer
+  alone, without the checks, the evidence and the worker notes.
+- Everyone who can read the library sees every run in `jobs` and `library_job`. A program used to see only its own.
+
+### Fixed
+
+- Japanese and Chinese searches now reach Brave Search. The library sent language codes Brave does not accept, so those
+  searches fell through to SearXNG or the built-in fallback.
+- `researchzosho search status` says when the library points at a SearXNG that does not answer while one runs on this
+  machine, and names the fix: `researchzosho search start`. A report also says when its searches went to the built-in
+  fallback.
+- A request to the llama.cpp server no longer fails or hangs when sent a few seconds after the previous reply. The server
+  closes idle connections after 5 seconds and the client was reusing them for much longer. It now drops them after
+  3 seconds and retries once on a new connection if the old one was dead.
+- Terminal commands no longer print log lines from the model client. When the model server does not answer, the command
+  says so once and names the commands to check and set it.
+
 ## 0.5.3
 
 ### New

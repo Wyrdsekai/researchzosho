@@ -39,6 +39,38 @@ public final class WriteupChecks {
      */
     public static List<String> numbersUnbacked(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
         List<String> out = new ArrayList<>();
+        for (Unbacked u : numbersUnbackedAt(answer, notes, refs, textByRef)) out.add(u.what() + " — not in any note or source read this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
+        return out;
+    }
+
+    /** A number the evidence never states, with the whole sentence that states it. */
+    public record Unbacked(String sentence, String what) { }
+
+    /** A bare number of four or more digits that is not a year: a count or an amount, which is a claim like one with a unit. */
+    static boolean bareNumberCounts(String num) {
+        if (num.contains(".") || num.length() < 4) return false;
+        if (num.length() == 4) { int n = Integer.parseInt(num); return n < 1500 || n > 2100; }
+        return true;
+    }
+
+    /** The text with a mark after each sentence of {@code items}: "{@code [<prefix><what>]}", the way the cite-check marks a sentence. */
+    public static String markInline(String text, List<Unbacked> items, String prefix) {
+        String out = text;
+        for (Unbacked u : items) {
+            String sentence = u.sentence().strip();
+            int at = out.indexOf(sentence);
+            if (at < 0) continue;
+            int end = at + sentence.length();
+            String mark = " [" + prefix + u.what() + "]";
+            if (out.startsWith(mark.strip(), end) || out.startsWith(mark, end)) continue;
+            out = out.substring(0, end) + mark + out.substring(end);
+        }
+        return out;
+    }
+
+    /** As {@link #numbersUnbacked}, each with its whole sentence. */
+    public static List<Unbacked> numbersUnbackedAt(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
+        List<Unbacked> out = new ArrayList<>();
         String notesFolded = fold(notes);
         Set<String> seen = new LinkedHashSet<>();
         for (String sentence : CiteCheck.sentences(answer)) {
@@ -50,12 +82,17 @@ public final class WriteupChecks {
             Matcher m = NUMBER.matcher(expanded);
             while (m.find()) {
                 String num = m.group(1).replace(",", ""), unit = m.group(2);
-                if (unit == null) continue;                              // a bare number: not checked
-                if (num.length() < 2 && !"%".equals(unit)) continue;     // "2 days", "1 h": too small to mean anything
+                if (unit == null) {
+                    // a small bare number is the writer's own arithmetic; a count of thousands is a claim. The digits of an id, a path, a
+                    // date or a time (F-0012-a, 2026-09-14, 10:30, v1/2048) are none of these
+                    char before = m.start(1) > 0 ? expanded.charAt(m.start(1) - 1) : ' ';
+                    if ("-_/#:+".indexOf(before) >= 0 || num.startsWith("0") || !bareNumberCounts(num)) continue;
+                }
+                if (unit != null && num.length() < 2 && !"%".equals(unit)) continue;     // "2 days", "1 h": too small to mean anything
                 String key = num + (unit == null ? "" : unit.toLowerCase(Locale.ROOT));
                 if (!seen.add(key)) continue;
                 if (ev.contains(num)) continue;
-                out.add(num + (unit == null ? "" : " " + unit) + " — not in any note or source read this run: \"" + Acquisitions.compress(sentence.strip(), 140) + "\"");
+                out.add(new Unbacked(sentence, num + (unit == null ? "" : " " + unit)));
             }
         }
         return out;

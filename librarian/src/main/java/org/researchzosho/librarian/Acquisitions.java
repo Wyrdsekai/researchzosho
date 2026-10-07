@@ -138,7 +138,14 @@ public final class Acquisitions {
     /** As above; {@code questionNote}, when not blank, is a sentence under the question: what the run let in because the person asked. */
     public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
                                       String summary, String writer, String workerNotes, First first, String questionNote) throws IOException {
-        String id = store.nextInvestigationId(question);
+        return admit(store, index, question, summary, writer, workerNotes, first, questionNote, "");
+    }
+
+    /** As above; {@code title}, when not blank, is the report's title and names its file, instead of the question compressed. */
+    public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
+                                      String summary, String writer, String workerNotes, First first, String questionNote, String title) throws IOException {
+        boolean named = title != null && !title.isBlank();
+        String id = store.nextInvestigationId(named ? title.strip() : question);
         first.write(id);
         StringBuilder body = new StringBuilder();
         body.append("## Question\n\n").append(question.strip()).append("\n\n");
@@ -157,7 +164,7 @@ public final class Acquisitions {
             body.append("\n## Sources cited\n\n");
             for (String u : urls) body.append("- ").append(u).append('\n');
         }
-        Investigation inv = new Investigation(id, compress(question, 120), Finding.State.draft,
+        Investigation inv = new Investigation(id, named ? compress(title.strip(), 160) : compress(question, 120), Finding.State.draft,
                 writer, Instant.now().toString(), List.of(), List.of(), body.toString());
         store.write(inv);
         index.upsert(inv);
