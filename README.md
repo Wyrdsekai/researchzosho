@@ -55,7 +55,10 @@ This is The Research Harness For The Rest Of Us.
 ## What you can do with it
 
 **Send it a question.** It works out what needs answering. It reads in parallel: the web, and the
-scholarly literature by DOI through Crossref and OpenAlex. It writes the answer up in sections. It
+scholarly literature by DOI through Crossref and OpenAlex, and when the question calls for them the
+web archives, the Internet Archive, digitised historical newspapers, the National Diet Library's
+digitised Japanese books, the archives of source code and the video sites beside YouTube. A page
+that is gone is read from its archived copy. It writes the answer up in sections. It
 keeps going until the job is done, or for as long as you allow. It also reads sources in other
 languages, especially when the question points at a non-English language. The write-up says which
 languages its sources were in.
@@ -155,6 +158,9 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_API_KEY` | the key for a hosted API; it is sent only to that server |
 | `RESEARCHZOSHO_UPDATE` | `check` (default): say when a newer release exists; `auto`: the service updates itself after the housekeeping when idle; `off` |
 | `RESEARCHZOSHO_EXPLORER_PER_NIGHT` / `RESEARCHZOSHO_EXPLORER_TYPES` | how many open questions the housekeeping researches a night (default 2), and of which types (default report, asked, person) |
+| `RESEARCHZOSHO_PODCASTINDEX_KEY` / `RESEARCHZOSHO_PODCASTINDEX_SECRET` | the Podcast Index key and secret (api.podcastindex.org/signup, free): the open podcast directory and search by person. Apple's directory answers without them. `researchzosho podcast index download` keeps the directory's weekly file on the machine (1.8 GB) for searching and browsing shows by word, category and language without the API; `RESEARCHZOSHO_PODCASTINDEX_LOCAL=on` has the housekeeping refresh it. |
+| `RESEARCHZOSHO_WHISPER` | a transcription server on another machine (an OpenAI-style `/v1/audio/transcriptions`); the local container when unset. `RESEARCHZOSHO_TRANSCRIBE_EPISODES` and `RESEARCHZOSHO_TRANSCRIBE_MINUTES` cap what one run transcribes (2 episodes, 120 minutes); `RESEARCHZOSHO_TRANSCRIBE_FOLLOWED_MINUTES` caps a night's transcription for followed podcasts (unset: none). `researchzosho settings` reads and changes every setting. |
+| `RESEARCHZOSHO_TROVE_KEY` / `RESEARCHZOSHO_DIGITALNZ_KEY` / `RESEARCHZOSHO_EUROPEANA_KEY` / `RESEARCHZOSHO_DPLA_KEY` | keys for the archives that want one: Trove (Australian newspapers), DigitalNZ (a higher rate for Papers Past), Europeana and DPLA (heritage items). The rest of the archives need none. |
 | `RESEARCHZOSHO_FETCH_PRIVATE` | `deny` to stop it fetching addresses on your own network |
 | `RESEARCHZOSHO_FETCH_MAX_BYTES` | the largest document it will download (default 25 MB) |
 | `RESEARCHZOSHO_STALL_MINUTES` | after how many minutes without progress a research run is marked "no progress since" and the service writes where the run waits into its log (default 15) |

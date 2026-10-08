@@ -85,6 +85,7 @@ final class Pages {
                 case "/jobs" -> { if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron, q)); }
                 case "/explain" -> send(x, 200, explain(store, p, patron, q));
                 case "/download" -> download(x, store, patron, q);
+                case "/settings" -> { if ("POST".equals(method)) { String note = settingsPost(p, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); } else send(x, 200, settings(store, p, patron, q)); }
                 case "/map" -> { Patrons.check(store, patron, Patrons.Level.read); send(x, 200, page(store, patron, "Map", MapPage.body(q.getOrDefault("focus", "")), 0, null, true)); }
                 case "/research" -> {
                     if ("POST".equals(method) && "1".equals(form.get("sharpen"))) send(x, 200, sharpenStart(store, patron, form.getOrDefault("question", ""), form.getOrDefault("field", "")));
@@ -661,6 +662,36 @@ final class Pages {
     }
 
     /** POST /remove: the first post shows the plan with a Confirm button; the post with confirm=1 and an unspent token removes. */
+    /** The settings page (0.5.5): every setting with what it is for and its value, a key only as set or not, and a form to change one. */
+    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
+        JsonNode r = p.settings(a);
+        StringBuilder b = new StringBuilder();
+        String note = q.getOrDefault("note", "");
+        if (!note.isEmpty()) b.append("<p class=\"note\">").append(esc(note)).append("</p>\n");
+        b.append("<p>These are the settings of this library, from ").append(esc(r.path("config_file").asText())).append(". A change takes effect at once, except where a setting says otherwise. A key is shown only as set or not.</p>\n");
+        b.append("<form method=\"post\" action=\"/settings\"><p><label>Setting <select name=\"name\">");
+        for (JsonNode s : r.path("settings")) b.append("<option value=\"").append(esc(s.path("name").asText())).append("\">").append(esc(s.path("name").asText())).append("</option>");
+        b.append("</select></label> <label>Value <input name=\"value\" size=\"50\" placeholder=\"leave empty to unset\"></label> <button type=\"submit\">Save</button></p></form>\n");
+        b.append("<table><tr><th>setting</th><th>value</th><th>what it is for</th></tr>\n");
+        for (JsonNode s : r.path("settings")) {
+            String v = s.path("value").asText("");
+            b.append("<tr><td><code>").append(esc(s.path("name").asText())).append("</code></td><td>").append(v.isEmpty() ? "<i>not set</i>" + (s.hasNonNull("example") && !s.path("example").asText().isEmpty() ? " <small>for example " + esc(s.path("example").asText()) + "</small>" : "") : esc(v))
+             .append("</td><td>").append(esc(s.path("what").asText())).append(s.has("choices") ? " <small>(" + esc(String.join(", ", toStrings(s.path("choices")))) + ")</small>" : "").append("</td></tr>\n");
+        }
+        b.append("</table>\n<p>The same from a terminal: <code>researchzosho settings</code>; and in the chat, in a sentence.</p>\n");
+        return page(store, patron, "Settings", b.toString(), 0, null, true);
+    }
+
+    private static String settingsPost(LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        ObjectNode a = M.createObjectNode(); a.set("patron", LibrarianDaemon.patronNode(patron));
+        String name = form.getOrDefault("name", ""), value = form.getOrDefault("value", "");
+        a.put("op", value.isBlank() ? "unset" : "set"); a.put("name", name); a.put("value", value);
+        try { return p.settings(a).path("note").asText(); } catch (ProtocolError e) { return e.getMessage(); }
+    }
+
+    private static List<String> toStrings(JsonNode arr) { List<String> out = new ArrayList<>(); for (JsonNode x : arr) out.add(x.asText("")); return out; }
+
     private static String removePost(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
         Patrons.check(store, patron, Patrons.Level.write);
         String id = form.getOrDefault("id", "").strip(), what = form.getOrDefault("what", "all");
@@ -895,7 +926,7 @@ final class Pages {
         b.append("<label>The question<br><textarea name=\"question\" rows=\"3\" required>").append(esc(q)).append("</textarea></label>");
         String mode = sent.getOrDefault("mode", "broad"), sources = sent.getOrDefault("sources", "both");
         b.append("<label>How<br><select name=\"mode\"><option value=\"broad\">broad — cover the whole topic</option><option value=\"depth\"").append(mode.equals("depth") ? " selected" : "").append(">deep — go into detail on the best sources</option></select></label>");
-        b.append("<label>Where to read<br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\"").append(sources.equals("shelves") ? " selected" : "").append(">this library only</option><option value=\"web\"").append(sources.equals("web") ? " selected" : "").append(">the web only</option></select></label>");
+        b.append("<label>Where to read <small>(this library: the documents you added and what earlier runs found; the web: everything else, the archives and the podcasts included)</small><br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\"").append(sources.equals("shelves") ? " selected" : "").append(">this library only</option><option value=\"web\"").append(sources.equals("web") ? " selected" : "").append(">the web only</option></select></label>");
         b.append("<label>Limits, if you want any (0 = no limit)<br><input name=\"max_turns\" value=\"").append(num(sent.get("max_turns"))).append("\" size=\"6\"> model turns &nbsp; <input name=\"max_minutes\" value=\"").append(num(sent.get("max_minutes"))).append("\" size=\"6\"> minutes</label>");
         // harm_ok: the person's yes to researching it after the help was shown, carried so that the help is not shown twice
         for (String hidden : List.of("quick", "follow_up_to", "back", "harm_ok")) if (sent.containsKey(hidden) && !sent.get(hidden).isBlank()) b.append("<input type=\"hidden\" name=\"").append(hidden).append("\" value=\"").append(esc(sent.get(hidden))).append("\">");
@@ -976,7 +1007,7 @@ final class Pages {
         b.append("<form method=\"post\" action=\"/research\" class=\"stack\">");
         b.append("<label>The question<br><textarea name=\"question\" rows=\"14\" required>").append(esc(s.researchQuestion())).append("</textarea></label>");
         b.append("<label>How<br><select name=\"mode\"><option value=\"broad\"").append("broad".equals(s.mode()) ? " selected" : "").append(">broad — cover the whole topic</option><option value=\"depth\"").append("depth".equals(s.mode()) ? " selected" : "").append(">deep — go into detail on the best sources</option></select></label>");
-        b.append("<label>Where to read<br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\">this library only</option><option value=\"web\">the web only</option></select></label>");
+        b.append("<label>Where to read <small>(this library: the documents you added and what earlier runs found; the web: everything else, the archives and the podcasts included)</small><br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\">this library only</option><option value=\"web\">the web only</option></select></label>");
         boolean quick = "quick".equals(s.size());
         b.append("<label>Limits, if you want any (0 = no limit)<br><input name=\"max_turns\" value=\"").append(quick ? Explain.QUICK_TURNS : 0).append("\" size=\"6\"> model turns &nbsp; <input name=\"max_minutes\" value=\"").append(quick ? Explain.QUICK_MINUTES : 0).append("\" size=\"6\"> minutes</label>");
         if (quick) b.append("<input type=\"hidden\" name=\"quick\" value=\"1\">");

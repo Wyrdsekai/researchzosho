@@ -269,10 +269,16 @@ public final class Video {
         return List.of();
     }
 
+    /** The transcription server's address: RESEARCHZOSHO_WHISPER when set (any OpenAI-style server, on any machine), else the local container. */
+    public static String whisperBase() {
+        String w = Config.get("RESEARCHZOSHO_WHISPER");
+        return w == null || w.isBlank() ? "http://127.0.0.1:" + WHISPER_PORT : w.strip().replaceAll("/+$", "");
+    }
+
     /** Whether the transcription server answers. */
     public static boolean transcriptionReady() {
         try {
-            HttpResponse<String> r = PROBE.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + WHISPER_PORT + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> r = PROBE.send(HttpRequest.newBuilder(URI.create(whisperBase() + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200;
         } catch (Exception e) { return false; }
     }
@@ -292,6 +298,18 @@ public final class Video {
             Files.createDirectories(audio.getParent());
             Result r = ytdlp(List.of("-f", "bestaudio[filesize<120M]/bestaudio", "-o", audio.toString(), "https://www.youtube.com/watch?v=" + videoId), Duration.ofMinutes(10));
             if (r.code() != 0 || !Files.exists(audio)) return null;
+            return transcribeAudio(audio, language);
+        } catch (Exception e) {
+            return null;
+        } finally {
+            try { Files.deleteIfExists(audio); } catch (IOException ignored) { }
+        }
+    }
+
+    /** An audio file's spoken lines from the transcription server (a podcast episode, a recording); null when the server is not there or failed. */
+    public static List<VideoText.Line> transcribeAudio(Path audio, String language) {
+        if (!transcriptionReady() || !whisperModelReady()) return null;
+        try {
             String json = transcriber.transcribe(audio, language);
             List<VideoText.Line> lines = new ArrayList<>();
             for (JsonNode s : J.readTree(json).path("segments")) {
@@ -299,11 +317,7 @@ public final class Video {
                 if (!t.isEmpty()) lines.add(new VideoText.Line((int) s.path("start").asDouble(0), t));
             }
             return lines;
-        } catch (Exception e) {
-            return null;
-        } finally {
-            try { Files.deleteIfExists(audio); } catch (IOException ignored) { }
-        }
+        } catch (Exception e) { return null; }
     }
 
     private static volatile boolean modelKnownReady = false;
@@ -313,7 +327,7 @@ public final class Video {
         if (modelKnownReady) return true;
         try {
             HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-            String base = "http://127.0.0.1:" + WHISPER_PORT;
+            String base = whisperBase();
             HttpResponse<String> list = http.send(HttpRequest.newBuilder(URI.create(base + "/v1/models")).timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (list.statusCode() == 200 && list.body().contains("\"" + whisperModel() + "\"")) return modelKnownReady = true;
             HttpResponse<String> pull = http.send(HttpRequest.newBuilder(URI.create(base + "/v1/models/" + whisperModel())).timeout(Duration.ofMinutes(20))
@@ -336,7 +350,7 @@ public final class Video {
         byte[] body = new byte[h.length + file.length + tail.length];
         System.arraycopy(h, 0, body, 0, h.length); System.arraycopy(file, 0, body, h.length, file.length); System.arraycopy(tail, 0, body, h.length + file.length, tail.length);
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + WHISPER_PORT + "/v1/audio/transcriptions")).timeout(Duration.ofMinutes(30))
+        HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(whisperBase() + "/v1/audio/transcriptions")).timeout(Duration.ofMinutes(30))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());
         if (r.statusCode() != 200) throw new IOException("the transcription server answered HTTP " + r.statusCode() + ": " + last(r.body()));
         return r.body();

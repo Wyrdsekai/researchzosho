@@ -1,0 +1,1 @@
+{"responseHeader": {"status": 0, "QTime": 17, "params": {"query": "collection:tvarchive AND (text:iaido OR text:iaido OR text__reviews:iaido)", "qin": "collection:tvarchive AND iaido", "fields": "identifier,title,date,description", "wt": "json", "rows": 2, "start": 0}}, "response": {"numFound": 0, "start": 0, "docs": []}}

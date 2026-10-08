@@ -398,6 +398,20 @@ public final class Setup {
                 else out.println("  Brave did not accept that key.");
             }
         }
+        // podcasts: Apple's search needs no key; the Podcast Index (the open directory, search by person) wants a free key and secret
+        String piKey = Config.get("RESEARCHZOSHO_PODCASTINDEX_KEY"), piSecret = Config.get("RESEARCHZOSHO_PODCASTINDEX_SECRET");
+        if (piKey != null && !piKey.isBlank() && piSecret != null && !piSecret.isBlank()) out.println("  Podcasts: the Podcast Index key is set.");
+        else {
+            out.println("  Podcasts are searched through Apple's directory with no key. The Podcast Index adds the open directory and search");
+            out.println("  by person; its key is free: https://api.podcastindex.org/signup gives a key and a secret by email.");
+            String k = ask("  Paste a Podcast Index key, or press Enter to skip", "");
+            if (!k.isBlank()) {
+                String sec = ask("  And its secret", "");
+                if (sec.isBlank()) out.println("  Both are needed; researchzosho settings set podcastindex_secret … adds the secret later.");
+                Config.set("RESEARCHZOSHO_PODCASTINDEX_KEY", k.strip());
+                if (!sec.isBlank()) { Config.set("RESEARCHZOSHO_PODCASTINDEX_SECRET", sec.strip()); out.println("  Podcasts: the Podcast Index."); }
+            }
+        }
         String searx = Config.get("RESEARCHZOSHO_SEARXNG");
         String searxAt = searx != null && !searx.isBlank() ? searx : "http://localhost:" + Searx.DEFAULT_PORT;
         boolean haveSearx = probe.searxng(searxAt);

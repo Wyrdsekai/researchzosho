@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Arrays;
 import java.util.function.UnaryOperator;
 import java.util.regex.Pattern;
+import org.researchzosho.tools.Podcasts;
 import org.researchzosho.tools.WebSearchTool;
 /**
  * The SERIALS crew — living shelves (the architecture notes, §crews; the living-systematic-review
@@ -32,7 +33,12 @@ public final class Serials {
 
     private Serials() { }
 
+    /** The query of a shelf that follows a podcast: this word, then the feed's address. */
+    public static final String PODCAST = "podcast ";
+
     public record Shelf(String slug, String query, int everyDays, String lastChecked, boolean parked) {
+        public boolean podcast() { return query.startsWith(PODCAST); }
+        public String feedUrl() { return podcast() ? query.substring(PODCAST.length()).strip() : ""; }
         public Shelf(String slug, String query, int everyDays, String lastChecked) { this(slug, query, everyDays, lastChecked, false); }
         /** Due tonight: on its cadence, and not parked (a parked search is kept, shown, and never run until unparked). */
         boolean due(LocalDate today) {
@@ -267,6 +273,11 @@ public final class Serials {
         var json = new ObjectMapper();
         Function<String, List<String[]>> search = q -> {
             List<String[]> hits = new ArrayList<>();
+            if (q.startsWith(PODCAST)) {   // a followed podcast: the feed's newest episodes, the audio's address as the locator (the transcript is kept under it)
+                var fe = Podcasts.feed(q.substring(PODCAST.length()).strip(), 20);
+                if (fe != null) for (Podcasts.Episode e : fe.getValue()) hits.add(new String[]{e.title(), e.audioUrl().isEmpty() ? e.cite() : e.audioUrl()});
+                return hits;
+            }
             try {
                 String res = tool.execute(json.createObjectNode().put("query", q).put("limit", 10));
                 String title = "";

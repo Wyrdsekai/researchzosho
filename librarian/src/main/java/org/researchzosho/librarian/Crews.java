@@ -2,6 +2,8 @@ package org.researchzosho.librarian;
 
 import static org.researchzosho.librarian.Researcher.forExplorer;
 
+import org.researchzosho.tools.PodcastIndexLocal;
+import org.researchzosho.tools.Podcasts;
 import org.researchzosho.librarian.Researcher.CannotCheck;
 
 import java.io.IOException;
@@ -120,6 +122,8 @@ public final class Crews {
         boolean drive = driveAnswers(driveUrl);
         steps.add(step(store, "collections", () -> Corpus.rescan(store)));
         steps.add(step(store, "serials", () -> { Serials.check(store); return "checked"; }));
+        steps.add(step(store, "podcasts", () -> Podcasts.transcribeFollowed(store)));
+        steps.add(step(store, "podcast index", () -> PodcastIndexLocal.refreshDue() ? PodcastIndexLocal.download(null) : (PodcastIndexLocal.present() ? "the file is this week's" : "no file on this machine")));
         steps.add(step(store, "preprints", () -> {
             var o = Preprints.check(store, Preprints.live(), Preprints.PER_NIGHT, LocalDate.now());
             return o.checked() + " checked, " + o.revised() + " revised" + (o.notes().isEmpty() ? "" : " (" + String.join("; ", o.notes()) + ")");

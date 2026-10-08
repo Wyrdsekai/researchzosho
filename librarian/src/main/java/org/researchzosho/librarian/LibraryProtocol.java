@@ -1144,6 +1144,30 @@ public final class LibraryProtocol {
      * of urls) fetched onto the shelves as a collection; watch=true registers the list so the housekeeping
      * re-reads the pages and keeps a new capture when one changes.
      */
+    /**
+     * library_settings (0.5.5): op=list — every setting the library has, with its value as it may be shown (a secret only as set or not);
+     * op=set with name and value writes one (a blank value unsets it). Both need write access: the settings say where the models and the
+     * keys are. A value that cannot be the setting's is refused with the reason.
+     */
+    public ObjectNode settings(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String op = args.path("op").asText("list").strip().toLowerCase();
+        ObjectNode r = envelope();
+        if (op.equals("list")) { r.set("settings", Settings.list(M)); r.put("config_file", Config.userConfigPath().toString()); return r; }
+        if (!op.equals("set") && !op.equals("unset")) throw ProtocolError.invalidArgs("op is list, set or unset.");
+        String name = args.path("name").asText("").strip();
+        Settings.Setting s = Settings.named(name);
+        if (s == null) throw ProtocolError.invalidArgs("No setting is named " + name + ". library_settings op=list names them all.");
+        String value = op.equals("unset") ? "" : args.path("value").asText("");
+        String why = Settings.refuse(s, value);
+        if (!why.isEmpty()) throw ProtocolError.invalidArgs(why);
+        Settings.set(s, value);
+        r.put("key", s.key()); r.put("name", s.shortName()); r.put("set", !value.isBlank()); r.put("value", Settings.shown(s, value));
+        r.put("note", value.isBlank() ? s.shortName() + " is unset." : s.shortName() + " is set." + (s.key().equals("RESEARCHZOSHO_JOB_WORKERS") ? " It takes effect at the service's next restart." : ""));
+        return r;
+    }
+
     public ObjectNode bookmarks(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);

@@ -370,6 +370,15 @@ public final class McpServer {
                         prop("title", "string", "A name for the list."),
                         prop("limit", "integer", "How many questions to take (default all, up to 200)."),
                         patronProp())));
+        tools.add(tool("library_settings",
+                "The library's settings (write access): op=list shows every setting with what it is for and its value, a key only as set or not; "
+                + "op=set with name and value writes one (name as the key, or without its RESEARCHZOSHO_ prefix; a blank value, or op=unset, unsets it). "
+                + "A program sets a key or an address only when the person gave it in this conversation.",
+                schema(new String[]{},
+                        enumProp("op", "list (default) | set | unset.", "list", "set", "unset"),
+                        prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER."),
+                        prop("value", "string", "The value to write (set)."),
+                        patronProp())));
         tools.add(tool("library_bookmarks",
                 "A browser's bookmarks as a starting point: the exported bookmarks file, Chrome's Bookmarks JSON, or lines of urls. Each page is "
                 + "fetched onto the shelves as a collection (folder=… takes one folder); one that cannot be read becomes a source request. "
@@ -625,6 +634,7 @@ public final class McpServer {
             case "library_reading" -> p.reading(args);
             case "library_questions" -> p.questions(args);
             case "library_bookmarks" -> p.bookmarks(args);
+            case "library_settings" -> p.settings(args);
             case "library_meeting" -> p.meeting(args);
             case "library_bridges" -> p.bridges(args);
             case "library_frontier" -> p.frontier(args);

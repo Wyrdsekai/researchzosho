@@ -19,6 +19,9 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 8. Adding your own documents
 9. Languages
 10. Checks against bad sources
+10b. Archives, old newspapers, Japanese books, code, and other video sites
+10c. Podcasts
+10d. Settings
 11. The housekeeping
 12. Sharing the model
 12b. Talking to the Librarian
@@ -153,6 +156,11 @@ search" section says when a run went through the fallback, or when no backend an
 Every research run also has `scholar_search`, separate from all three: Crossref and OpenAlex,
 papers and books by DOI. It is in every configuration. A web engine ranks the primary literature
 low or not at all, and a DOI is a source the library can resolve and check.
+
+Every run also has the archives and the old sources, with no key and no setup: the web archives,
+the Internet Archive's texts and television news, digitised historical newspapers, the National
+Diet Library's digitised Japanese books, the archives of source code, and the video sites beside
+YouTube. Section 10b says what each does.
 
 ```
 researchzosho search                 # which backend answers, and the container's state
@@ -1113,6 +1121,131 @@ source itself is reliable. None of them uses a model's opinion.
 
 The library does not decide whether a claim is true. It shows what supports the claim. You decide.
 
+## 10b. Archives, old newspapers, Japanese books, code, and other video sites
+
+These are in every run. The model decides which to use for a question, the way it decides between
+your documents and the web. None needs a key, except the two marked.
+
+**A page that is gone.** When a page a run wants answers "not found", does not answer at all, or
+answers with a wall instead of the page, the run reads the archived copy from the Wayback Machine
+or archive.today, if one exists. The report cites the copy and the date it was saved, and its
+"Archived copies" section says how many pages were read that way. Nothing to set up; a run that
+hits a dead site simply reads the archive.
+
+**`archive_search`** is the tool behind the rest of the web archives and the Internet Archive:
+
+- `copy`: the saved copy of a page nearest a date, to read a page as it was.
+- `history`: when a page changed over the years, one line per change.
+- `site`: the pages an archive holds under a site or a path that no longer exists (the Wayback
+  Machine and Common Crawl).
+- `texts`: scanned books and documents in the Internet Archive, by catalogue and by their full
+  text, with the page where the words occur.
+- `tv`: television news by its captions. `video` and `audio`: films and recordings.
+- `wiki`: a Wikipedia article's revisions, and the article as of a date.
+- `heritage`: museum and library items in Europeana and DPLA. These two need a key:
+  `RESEARCHZOSHO_EUROPEANA_KEY`, `RESEARCHZOSHO_DPLA_KEY`.
+
+**`old_newspapers`** searches digitised historical newspapers by their text: the Library of
+Congress (United States, 1770 to 1963), Gallica (France), Delpher (the Netherlands), Papers Past
+(New Zealand), and Trove (Australia, with `RESEARCHZOSHO_TROVE_KEY`). For a person, a place or an
+event before the web: an obituary, a notice, a local story.
+
+**`ndl_fulltext`** is the National Diet Library's full-text search of digitised Japanese books
+whose copyright has expired, about 280,000 books and 80,000 classical works up to about 1970:
+local histories, name directories, school and company histories. It finds the books and the pages
+where the words occur, and reads the passages of one book. The text is machine-read and
+uncorrected, and the report says so. The library's terms allow this use without an application;
+a commercial, continuous user must apply to the library themselves.
+
+**`software_archive`** reaches Software Heritage, the archive of every public repository it has
+visited, including ones that no longer exist, and Debian's snapshot archive, every version a
+package ever had.
+
+**`video_sites_search`** searches the video sites other than YouTube: Niconico (Japanese), Nebula
+(independent creators; the catalogue is open, watching needs a subscription), PeerTube (every
+instance), Odysee, Dailymotion, and the Internet Archive's films.
+
+HathiTrust is not among these: it blocks machine reads of its full-text search. The 官報 and the
+other serials in the National Diet Library are searchable only on its website, not through the
+service above.
+
+## 10c. Podcasts
+
+Every run has `podcast_search`: shows by words, a show's episodes from its feed, what is said in an
+episode with the time, the episodes a person appeared on, and shows like one. The feed is the source;
+Apple's directory answers with no key.
+
+A question that names a podcast, an episode, a host or a co-host gets the `podcasts` field by itself,
+the way a question about YouTube gets the `youtube` field: the workers read the person's own words in
+the episodes before articles that quote them, one sub-question per show and topic, and every spoken
+claim is cited by the episode and the time. `--field podcasts` asks for it on any question.
+
+**The Podcast Index key.** The open directory, search by person and trending by category need a free
+key. Sign up at https://api.podcastindex.org/signup with an email address and a line about what you
+are building; the key and the secret come by email at once. Then:
+
+```
+researchzosho settings set podcastindex_key <key>
+researchzosho settings set podcastindex_secret <secret>
+```
+
+or paste them into `researchzosho setup`, or on the Settings page, or tell the chat. The index's terms
+forbid crawling it through the API; the library never does, every call is one lookup and a run makes a
+handful at most.
+
+**The Podcast Index as a file.** The index publishes its whole directory of shows once a week as one
+file, for exactly the use the API forbids: searching and browsing the directory at large.
+
+```
+researchzosho podcast index download      # about 1.8 GB; unpacked and indexed, about 5 GB; a few minutes
+researchzosho podcast index status
+researchzosho podcast index remove
+```
+
+With the file on the machine, show search goes through it first, by word, with no call and no limit,
+and runs can browse the directory by category and language, the most popular and recent shows first:
+"Japanese shows about history, active this year" is one question. The housekeeping fetches each new
+week's file while `RESEARCHZOSHO_PODCASTINDEX_LOCAL` is on, which the download turns on. The file holds
+the shows only: episodes, people and transcripts still come from the feeds and the API. It serves every
+library on the machine.
+
+**Transcripts.** When a show publishes a transcript in its feed, the run reads that. When it does not,
+the library transcribes the audio itself through the same server the video helper uses
+(`researchzosho video install` starts one on this machine; `RESEARCHZOSHO_WHISPER` names one on another
+machine, for instance a box with a GPU), keeps the transcript, and deletes the audio. A run may
+transcribe two episodes or two hours of audio, whichever comes first; `RESEARCHZOSHO_TRANSCRIBE_EPISODES`
+and `RESEARCHZOSHO_TRANSCRIBE_MINUTES` change that. A transcript the library made is machine-read, and
+the report says so. Citations name the episode's page and the time.
+
+**Following a show.**
+
+```
+researchzosho podcast search iaido                 # shows, with their feed addresses
+researchzosho podcast follow https://…/feed.xml    # its new episodes arrive on the arrival table
+researchzosho podcast list
+researchzosho podcast unfollow <name or feed>
+```
+
+A followed show is a shelf like any subscription: each night the housekeeping lists its new episodes and
+transcribes them, published transcript first, without a cap unless `RESEARCHZOSHO_TRANSCRIBE_FOLLOWED_MINUTES`
+sets one. Over the nights the show's whole run becomes searchable in the library, by its words.
+
+## 10d. Settings
+
+Every setting the library has can be read and changed in three places, which all do the same thing:
+
+```
+researchzosho settings                       # every setting, what it is for, its value
+researchzosho settings set whisper http://gpu-box:18890
+researchzosho settings unset whisper
+```
+
+the Settings page of the web app, and the chat, in a sentence ("set the transcription server to
+http://gpu-box:18890"). A key is shown only as set or not, never its value. Changing a setting needs
+write access; the chat asks before it writes. A change takes effect at once, except the number of
+workers, which takes effect at the service's next restart. The settings live in the library's config
+file, which you may also edit by hand.
+
 ## 11. The housekeeping
 
 The housekeeping runs at three each morning, or when you run `researchzosho crews`. Its steps:
@@ -1735,6 +1868,9 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
 
 - `science` looks up citations from the record, tracks preprint versions, and
   writes BibTeX with `researchzosho bib <id>`.
+- `podcasts` is for questions about a podcast, an episode, a host or a co-host. It joins a run by the
+  question's words: the workers read what the person said in the episodes, with the time, before
+  articles that quote them, and every spoken claim is cited by the episode and the time. Section 10c.
 - `software` is for questions about projects, libraries and tools. When a question names GitHub, open
   source, a repository or a package index, the research run searches GitHub and the package indexes
   directly, by best match and by most recent push. It judges a project by its last push, its licence and
@@ -1838,6 +1974,7 @@ Open `http://127.0.0.1:4649/` in a browser. The pages are:
 | Changes | What changed, newest first. |
 | Runs | What the housekeeping will do tonight; research runs, running and finished. "Pause the runner" holds every run at its next turn until "Resume"; "Stop" beside a run ends that one. |
 | Research | Send a question, or sharpen it first. |
+| Settings | Every setting the library has, with what it is for and its value; change one from the form. A key is shown only as set or not. |
 | Map | The map. |
 | Who is who | Family history: for each person in your family, the people the web shows under their name, with links. You tick the one who is your relative, or say none of them is, or leave it for later, and you can write something about the person. One person at a time; leave whenever you like, and the Inbox says how many still wait. At `/who`, for people who may write. |
 | Decisions | Family history: what only the family can settle, in one place. Names that may be one person, then two sources that disagree about one person, then who is who. Each answer says what it will do before you give it. At `/decide`, for people who may write. |
@@ -1951,7 +2088,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.4 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.5 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

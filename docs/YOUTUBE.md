@@ -52,6 +52,7 @@ rest of the library.
 | setting | default | what it does |
 |---|---|---|
 | `RESEARCHZOSHO_WHISPER_MODEL` | `Systran/faster-whisper-small` | the transcription model; `…-medium` is better and slower |
+| `RESEARCHZOSHO_WHISPER` | the local container | a transcription server on another machine (any server with an OpenAI-style `/v1/audio/transcriptions`, such as speaches with a GPU); podcasts use the same server |
 
 ## Using it yourself
 

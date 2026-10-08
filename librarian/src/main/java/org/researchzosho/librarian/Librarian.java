@@ -49,7 +49,7 @@ public class Librarian {
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
             "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
-            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db");
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings");
 
     /** How long a run the chat asked about waits for the person's answer before it starts as ordinary research. */
     static final int OFFER_MINUTES = Config.getInt("RESEARCHZOSHO_OFFER_MINUTES", 10);
@@ -648,6 +648,7 @@ public class Librarian {
             Map.entry("library_reading", "A reading list (BibTeX, RIS, CSV, lines of DOIs and urls): every entry fetched onto the shelves as a collection; watch=true re-reads them nightly."),
             Map.entry("library_questions", "A file of questions onto the open questions in order; as=runs sends the first ten out as research runs."),
             Map.entry("library_bookmarks", "A browser's bookmarks: the pages fetched onto the shelves as a collection; folder=… takes one folder, watch=true re-reads them nightly."),
+            Map.entry("library_settings", "The library's settings: op=list shows every setting and its value (a key only as set or not); op=set name=… value=… changes one, after the person said so in this conversation; a blank value unsets it."),
             Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
             Map.entry("library_who", "Family history: which of the people the web shows under a relative's name IS the relative. op=list who waits, op=show one person's numbered entries, op=answer the person's word (is=\"1\" or \"1,3\", none=true, later=true), op=tell what they say of the relative, op=find looks one person up."),
             Map.entry("library_meeting", "A meeting transcript: shelved with its decisions, the questions raised filed, the claims returned to check with who said them; verify=true files the checking run."));
@@ -826,6 +827,7 @@ public class Librarian {
                 case "library_reading" -> protocol.reading(args);
                 case "library_questions" -> protocol.questions(args);
                 case "library_bookmarks" -> protocol.bookmarks(args);
+                case "library_settings" -> protocol.settings(args);
                 case "library_meeting" -> protocol.meeting(args);
                 case "library_who" -> protocol.who(args);
                 case "library_bridges" -> protocol.bridges(args);

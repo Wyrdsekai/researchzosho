@@ -54,6 +54,13 @@ import org.researchzosho.records.RecordSource;
 import org.researchzosho.records.RecordSources;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.Archives;
+import org.researchzosho.tools.ArchiveSearchTool;
+import org.researchzosho.tools.OldNewspapersTool;
+import org.researchzosho.tools.PodcastSearchTool;
+import org.researchzosho.tools.NdlFulltextTool;
+import org.researchzosho.tools.SoftwareArchiveTool;
+import org.researchzosho.tools.VideoSitesTool;
 import org.researchzosho.tools.RecordSearchTool;
 import org.researchzosho.tools.ScholarSearchTool;
 import org.researchzosho.tools.WebFetchTool;
@@ -916,7 +923,17 @@ public final class Researcher {
     final int unreachableAtStart = WebSearchTool.UNREACHABLE.get(),
             fallbackAtStart = WebSearchTool.FALLBACK_USED.get(),
             braveAtStart = WebSearchTool.BRAVE_USED.get(),
-            searxAtStart = WebSearchTool.SEARXNG_USED.get();
+            searxAtStart = WebSearchTool.SEARXNG_USED.get(),
+            copiesAtStart = Archives.COPIES_FOUND.get();
+
+    /** "## Archived copies": how many pages that were gone, silent or walled were read from an archive's copy in this run (0.5.5). */
+    String archivedCopiesSection() {
+        int n = Archives.COPIES_FOUND.get() - copiesAtStart;
+        if (n <= 0) return "";
+        runStats.put("archived_copies", n);
+        return "## Archived copies\n\n" + n + (n == 1 ? " page that was" : " pages that were") + " gone, did not answer or answered with a wall "
+                + (n == 1 ? "was" : "were") + " read from an archived copy (the Wayback Machine or archive.today). Each is cited as a copy, with the date it was saved.";
+    }
 
     /** "## Web search": which backend the run searched through, when that is worth knowing: the fallback, or none at all. */
     String webSearchSection(Ask ask) {
@@ -1038,6 +1055,8 @@ public final class Researcher {
         String languages = languagesSection(evidence);
         String web = webSearchSection(ask);
         if (!web.isEmpty()) { languages = languages.isEmpty() ? web : web + "\n\n" + languages; notes.add("web search: no backend answered"); log.accept(notes.get(notes.size() - 1)); }
+        String copies = archivedCopiesSection();
+        if (!copies.isEmpty()) { languages = languages.isEmpty() ? copies : copies + "\n\n" + languages; notes.add("archived copies: " + runStats.get("archived_copies")); log.accept(notes.get(notes.size() - 1)); }
         if (!languages.isEmpty()) { notes.add("languages: " + Lanes.describe(Lanes.languagesRead(evidence))); log.accept(notes.get(notes.size() - 1)); }
         String searched = searchedSection();
         if (!searched.isEmpty()) { languages = languages.isEmpty() ? searched : searched + "\n\n" + languages; notes.add("record searches with no result: " + nothingFound.size()); log.accept(notes.get(notes.size() - 1)); }
@@ -2861,6 +2880,9 @@ public final class Researcher {
                 if (RECORDS && records.any()) out.add(records);
                 // YouTube, where the video helper is installed: videos and channels are sources like pages are
                 if (Video.installed()) { out.add(new VideoSearchTool()); out.add(new ChannelUploadsTool()); out.add(new VideoDetailsTool().policy(p)); out.add(new ChannelsLikeTool()); }
+                // the archives and the old sources (0.5.5): in every run, the model picks which to use; a field adds rules, never tools
+                out.add(new ArchiveSearchTool().policy(p.fetchPolicy())); out.add(new OldNewspapersTool().policy(p.fetchPolicy()));
+                out.add(new NdlFulltextTool()); out.add(new SoftwareArchiveTool()); out.add(new VideoSitesTool()); out.add(new PodcastSearchTool().policy(p));
                 return out;
             }
             @Override public BooleanSupplier exhausted() {

@@ -6,6 +6,9 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.regex.Matcher;
+import java.time.LocalDate;
 
 import org.researchzosho.drive.DriveClient;
 
@@ -22,7 +25,6 @@ import java.nio.file.StandardOpenOption;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -37,14 +39,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.StreamSupport;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 import org.researchzosho.mcp.McpServer;
 import org.researchzosho.records.RecordSources;
 import org.researchzosho.records.RecordSource;
+import org.researchzosho.tools.PodcastIndexLocal;
+import org.researchzosho.tools.Podcasts;
+import org.researchzosho.tools.PodcastSearchTool;
 import org.researchzosho.tools.DocText;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Fetch;
@@ -154,6 +157,9 @@ public final class LibrarianCli {
               export <id> [--pdf|--md] [--brief] [--beginner|--familiar] [--out FILE]
                                            an entry, or its Simple or Familiar version, as a Markdown or PDF file
               sharpen <question…>          refine a rough question into a better one: the question to run, what it assumed, what you already have. Runs nothing
+              settings [list | set <name> <value> | unset <name>]   every setting, with its value; a key is shown only as set or not
+              podcast search <words> | follow <feed> [--every N] | unfollow <feed|name> | list   shows by words; follow one: its new episodes arrive and are transcribed at night
+              podcast index [download|status|remove]   the Podcast Index as a file on this machine (1.8 GB, weekly): shows by word, category and language without the API
               search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
               video [status|install|start|stop|test <query>]   the keyless YouTube route: a WARP tunnel and a token provider through Docker, yt-dlp in the library's own environment
               youtube [search|channels <words…>|uploads <channel>|video <address> [--transcript]|like <channel>]   YouTube for a person: search, a channel's uploads, a video with its transcript, channels like one
@@ -693,6 +699,8 @@ public final class LibrarianCli {
                         default -> { System.err.println("usage: researchzosho embed [status | start [port] [--cpu] | stop | test]"); return 2; }
                     }
                 }
+                case "settings" -> { return settingsCommand(store, args); }
+                case "podcast" -> { return podcastCommand(store, args); }
                 case "search" -> {
                     // which backend a search would use, and SearXNG through Docker by hand
                     String op = args.length > 2 ? args[2] : "status";
@@ -1455,6 +1463,12 @@ public final class LibrarianCli {
     }
 
     /** `researchzosho chat`: the terminal front of the Librarian. Lines in, replies out; a few slash commands. */
+    /** The day a chat session began, from its id (C-2026-09-17-14-39-52), or null. */
+    static LocalDate sessionDay(String id) {
+        Matcher m = Pattern.compile("^C-(\\d{4}-\\d{2}-\\d{2})").matcher(id == null ? "" : id);
+        try { return m.find() ? LocalDate.parse(m.group(1)) : null; } catch (Exception e) { return null; }
+    }
+
     /** How often the terminal chat looks at the runs it follows. */
     static final int CHAT_WATCH_SECONDS = Config.getInt("RESEARCHZOSHO_CHAT_WATCH_SECONDS", 15);
     /** The terminal chat prints a followed run's line on every stage change, and this often in between. */
@@ -1467,7 +1481,14 @@ public final class LibrarianCli {
             else if (args[i].equals("--resume") && i + 1 < args.length) { session = Librarian.Session.resume(store, args[++i]); if (session == null) { System.err.println("no session " + args[i] + " (researchzosho chat --sessions lists them)"); return 2; } }
             else if (args[i].equals("--sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } return 0; }
         }
-        if (session == null) session = Librarian.Session.latest(store);
+        // the latest conversation continues only when it is today's or yesterday's; an older one is kept, and said, not resumed in silence
+        // (the chat opened on a three-week-old session and showed its last reply as if new, 2026-10-08)
+        String kept = null;
+        if (session == null) {
+            session = Librarian.Session.latest(store);
+            LocalDate began = sessionDay(session.id);
+            if (!session.messages().isEmpty() && began != null && began.isBefore(LocalDate.now().minusDays(1))) { kept = session.id + " (" + began + ")"; session = Librarian.Session.open(store); }
+        }
         Researcher.Drive drive = Researcher.watchedChat(baseUrl, model);   // watched: when the model declines, the chat says so
         if (!Crews.driveAnswers(baseUrl)) { System.err.println("no model answers at " + baseUrl + " — the Librarian needs one to talk (researchzosho setup, or researchzosho model install)"); return 1; }
         // a quiet screen: the drive's request lines belong in a log, not between the person and the Librarian
@@ -1476,6 +1497,8 @@ public final class LibrarianCli {
         ChatIo io = ChatIo.open(store);
         String name = store.identity().name();
         System.out.println("The Librarian of " + name + ". Session " + session.id + (session.messages().isEmpty() ? "" : ", continued") + ". /help for the commands, /quit to leave.");
+        if (kept != null) System.out.println("Your last conversation, " + kept + ", is kept: researchzosho chat --resume " + kept.replaceAll(" .*$", "") + " continues it.");
+        if (!session.messages().isEmpty()) System.out.println("\nEarlier in this session:");
         if (!session.messages().isEmpty()) { var ms = session.messages(); for (int i = Math.max(0, ms.size() - 2); i < ms.size(); i++) { var m = ms.get(i); if (m.path("role").asText().equals("user")) System.out.println("\n> " + m.path("content").asText()); else if (m.path("role").asText().equals("assistant") && !m.path("content").asText("").isBlank()) System.out.println("\n" + m.path("content").asText()); } }
         // the chat follows the runs it starts: a line when a run's stage changes, one notice when it is done
         final Librarian.Session[] current = {session};
@@ -1528,6 +1551,101 @@ public final class LibrarianCli {
     }
 
     /** `researchzosho jobs [<J-…>]`: the runs, or one run — the line the CLI names after `research ask` (it was named and missing through 0.1.8). */
+    /** {@code researchzosho podcast}: shows by words; follow and unfollow a show (a serials shelf whose query names the feed); the followed shows. */
+    static int podcastCommand(LibraryStore store, String[] args) throws IOException {
+        String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
+        switch (op) {
+            case "search" -> {
+                String words = args.length > 3 ? String.join(" ", Arrays.asList(args).subList(3, args.length)) : "";
+                if (words.isBlank()) { System.err.println("usage: researchzosho podcast search <words…>"); return 2; }
+                System.out.println(new PodcastSearchTool().execute(new ObjectMapper().createObjectNode().put("kind", "shows").put("query", words).put("limit", 10)));
+                return 0;
+            }
+            case "follow" -> {
+                if (args.length < 4) { System.err.println("usage: researchzosho podcast follow <feed address> [--every N]   (podcast search shows the feed address)"); return 2; }
+                String feed = args[3].strip(); int every = 1;
+                for (int i = 4; i + 1 < args.length; i++) if (args[i].equals("--every")) every = Math.max(1, Integer.parseInt(args[i + 1]));
+                var fe = Podcasts.feed(feed, 1);
+                if (fe == null) { System.err.println("The feed at " + feed + " did not answer or is not a podcast feed."); return 1; }
+                List<Serials.Shelf> shelves = new ArrayList<>(Serials.shelves(store));
+                for (Serials.Shelf sh : shelves) if (sh.podcast() && sh.feedUrl().equalsIgnoreCase(feed)) { System.out.println("Already following " + fe.getKey().title() + " (" + sh.slug() + ")."); return 0; }
+                String slug = fe.getKey().title().toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "-").replaceAll("^-|-$", "");
+                if (slug.isEmpty()) slug = "podcast";
+                String base = slug; int n = 2;
+                while (true) { String want = slug; if (shelves.stream().noneMatch(sh -> sh.slug().equals(want))) break; slug = base + "-" + n++; }
+                shelves.add(new Serials.Shelf(slug, Serials.PODCAST + feed, every, "", false));
+                Serials.writeShelves(store, shelves);
+                System.out.println("Following " + fe.getKey().title() + " as " + slug + ": its new episodes arrive on the arrival table every " + (every == 1 ? "day" : every + " days") + ", and the housekeeping transcribes them at night"
+                        + " (RESEARCHZOSHO_TRANSCRIBE_FOLLOWED_MINUTES caps the minutes per night; unset, no cap). researchzosho podcast unfollow " + slug + " stops it.");
+                return 0;
+            }
+            case "unfollow" -> {
+                if (args.length < 4) { System.err.println("usage: researchzosho podcast unfollow <feed address or name>"); return 2; }
+                String which = args[3].strip();
+                List<Serials.Shelf> shelves = new ArrayList<>(Serials.shelves(store));
+                boolean removed = shelves.removeIf(sh -> sh.podcast() && (sh.slug().equalsIgnoreCase(which) || sh.feedUrl().equalsIgnoreCase(which)));
+                if (!removed) { System.err.println("No followed podcast is " + which + ". researchzosho podcast list names them."); return 1; }
+                Serials.writeShelves(store, shelves);
+                System.out.println("No longer following " + which + ". The transcripts already in the library stay.");
+                return 0;
+            }
+            case "index" -> {
+                String what = args.length > 3 ? args[3].strip().toLowerCase() : "status";
+                switch (what) {
+                    case "download" -> { try { PodcastIndexLocal.download(System.out); return 0; } catch (IOException e) { System.err.println("The Podcast Index could not be fetched: " + e.getMessage()); return 1; } }
+                    case "remove" -> {
+                        if (!PodcastIndexLocal.present()) { System.out.println("There is no Podcast Index file on this machine."); return 0; }
+                        Files.deleteIfExists(PodcastIndexLocal.file()); Config.set("RESEARCHZOSHO_PODCASTINDEX_LOCAL", "off");
+                        System.out.println("The Podcast Index file is removed; show search goes through the live directories again."); return 0;
+                    }
+                    default -> {
+                        if (!PodcastIndexLocal.present()) System.out.println("No Podcast Index file on this machine. researchzosho podcast index download fetches the directory's weekly file (about 1.8 GB) for searching and browsing shows by word, category and language without the API.");
+                        else System.out.println("The Podcast Index file: " + PodcastIndexLocal.count() + " shows, fetched " + PodcastIndexLocal.fetchedAt().toString().replaceAll("T.*", "") + ", at " + PodcastIndexLocal.file()
+                                + (PodcastIndexLocal.refreshDue() ? "; a week old, the housekeeping fetches the new one tonight" : "") + ". researchzosho podcast index download fetches it again now; remove deletes it.");
+                        return 0;
+                    }
+                }
+            }
+            case "list" -> {
+                int n = 0;
+                for (Serials.Shelf sh : Serials.shelves(store)) if (sh.podcast()) { n++; System.out.println("  " + sh.slug() + "  " + sh.feedUrl() + "  every " + sh.everyDays() + " day(s)" + (sh.lastChecked().isEmpty() ? "" : ", last " + sh.lastChecked()) + (sh.parked() ? "  (parked)" : "")); }
+                if (n == 0) System.out.println("No podcast is followed. researchzosho podcast follow <feed address> follows one; podcast search <words> finds the address.");
+                return 0;
+            }
+            default -> { System.err.println("usage: researchzosho podcast search <words> | follow <feed> [--every N] | unfollow <feed|name> | list | index [download|status|remove]"); return 2; }
+        }
+    }
+
+    /** {@code researchzosho settings}: the library's settings as a person reads them; set and unset write the config file. */
+    static int settingsCommand(LibraryStore store, String[] args) throws IOException {
+        String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
+        LibraryProtocol p = new LibraryProtocol(store);
+        ObjectNode a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", "").put("runtime", "cli");
+        try {
+            if (op.equals("list")) {
+                JsonNode r = p.settings(a.put("op", "list"));
+                System.out.println("Settings of this library (" + r.path("config_file").asText() + "). A key is shown only as set or not.");
+                for (JsonNode s : r.path("settings")) {
+                    String v = s.path("value").asText("");
+                    System.out.println("  " + s.path("name").asText() + (v.isEmpty() ? "  (not set" + (s.hasNonNull("example") && !s.path("example").asText().isEmpty() ? "; for example " + s.path("example").asText() : "") + ")" : "  = " + v));
+                    System.out.println("      " + s.path("what").asText());
+                }
+                System.out.println("researchzosho settings set <name> <value> changes one; unset <name> removes it. The web page /settings and the chat do the same.");
+                return 0;
+            }
+            if (op.equals("set") || op.equals("unset")) {
+                if (args.length < 4) { System.err.println("usage: researchzosho settings " + op + " <name>" + (op.equals("set") ? " <value>" : "")); return 2; }
+                a.put("op", op); a.put("name", args[3]);
+                if (op.equals("set")) { if (args.length < 5) { System.err.println("usage: researchzosho settings set <name> <value>"); return 2; } a.put("value", String.join(" ", Arrays.asList(args).subList(4, args.length))); }
+                JsonNode r = p.settings(a);
+                System.out.println(r.path("note").asText() + (r.path("set").asBoolean(false) && !r.path("value").asText().isEmpty() ? " (" + r.path("value").asText() + ")" : ""));
+                return 0;
+            }
+            System.err.println("usage: researchzosho settings [list | set <name> <value> | unset <name>]"); return 2;
+        } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+    }
+
     static int jobs(LibraryStore store, String[] args) throws Exception {
         var a = new ObjectMapper().createObjectNode();
         a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");

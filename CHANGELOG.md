@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.5
+
+### New
+
+- When a page a run needs has disappeared, it now reads the archived copy instead. If a page is gone, does not answer, or
+  shows a sign-in wall in place of its text, the run fetches the copy that the Wayback Machine or archive.today saved and cites
+  that copy along with the date it was saved. There is nothing to set up.
+- Runs can also use the web archives directly. They can read a page as it looked on a particular date, follow how a page
+  changed over the years, list the pages the archives still hold for a website that no longer exists, and search the Internet
+  Archive's scanned books, television news and films. For Wikipedia, a run can read an article's earlier versions, which helps
+  when the question is about what was known at the time.
+- Runs can search digitised historical newspapers in the United States, France, the Netherlands and New Zealand by their full
+  text. Australia's Trove works too once you add a key.
+- For Japanese research, runs can search the full text of the National Diet Library's digitised books whose copyright has
+  expired, and pull out the passages around the words they are looking for. Because that text was read by a machine from scans,
+  the report says so wherever it quotes it.
+- Code that has disappeared from the web can still be found, through Software Heritage's archive of repositories and Debian's
+  archive of every version of its packages.
+- Besides YouTube, runs now search Niconico, Nebula, PeerTube, Odysee, Dailymotion and the Internet Archive's films.
+- Podcasts are now a source. A run can find shows and episodes, read what was said in an episode along with the time it was
+  said, and find the episodes a particular person appeared on. If the show publishes a transcript, the run uses it; if not, the
+  library transcribes the audio itself. When a question is about a podcast, an episode or a host, the run goes to the episodes
+  themselves before it goes to articles about the person, and every claim about what was said is cited by episode and time.
+- You can follow a show with `researchzosho podcast follow <feed>`. New episodes then arrive on the arrival table and are
+  transcribed overnight, so the whole show gradually becomes searchable.
+- The Podcast Index can be kept on your machine. `researchzosho podcast index download` fetches the directory's weekly file,
+  about 1.8 GB, and runs can then search and browse its 4.7 million shows by word, category and language without touching the
+  API. A free Podcast Index key of your own adds search by person; the guide explains how to get one.
+- All settings are now in one place. `researchzosho settings`, the Settings page of the web app, and the chat can each show and
+  change every setting the library has, and a key is only ever shown as set or not set. Transcription can also run on another
+  machine, for instance one with a GPU, by pointing `RESEARCHZOSHO_WHISPER` at it.
+
 ## 0.5.4
 
 ### New

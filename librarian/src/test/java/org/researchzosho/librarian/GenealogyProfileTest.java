@@ -31,7 +31,7 @@ class GenealogyProfileTest {
     void everyProfileIsOnUntilTheLibrarySaysOtherwise(@TempDir Path home) throws Exception {
         Path tmp = home.resolve("researchzosho-library");
         LibraryStore store = new LibraryStore(tmp); store.init();
-        assertEquals(Set.of("science", "genealogy", "software", "youtube"), Profiles.enabled(store), "no profiles: line, every profile on");
+        assertEquals(Set.of("science", "genealogy", "software", "youtube", "podcasts"), Profiles.enabled(store), "no profiles: line, every profile on");
         assertTrue(Vocabulary.read(Graph.predicatesFile(store)).isEmpty(), "being on writes nothing");
         assertEquals("married-to", FamilyPeople.view(store).predicateOf("spouse of"), "genealogy's own view resolves a kinship wording with no enable step");
         assertEquals("adopted-by", FamilyPeople.view(store).predicateOf("婿養子"));

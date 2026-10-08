@@ -13,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import org.researchzosho.Stopping;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -119,8 +120,12 @@ public final class WebFetchTool implements Tool {
             return "ERROR: " + e.url() + " was left out of this research, because " + e.why() + ". Read another source.";
         } catch (IllegalArgumentException e) {
             return "ERROR: " + e.getMessage() + " — " + url + " is not a source this tool will read.";
+        } catch (Stopping.Requested stop) {
+            throw stop;
         } catch (Exception e) {
-            return "ERROR: could not fetch " + url + " (" + e + ")";
+            // the site is gone or does not answer: an archived copy, when one exists, is the page (0.5.5)
+            String copy = archivedCopy(url, terms, "no answer (" + e.getClass().getSimpleName() + ")");
+            return copy != null ? copy : "ERROR: could not fetch " + url + " (" + e + ")";
         }
         Fetch.Result resp = page.fetched();
         url = resp.url();   // after redirects — what was actually read is what gets cited
@@ -130,6 +135,7 @@ public final class WebFetchTool implements Tool {
             // "List of U.S. state constitutions"; three fetch attempts, task lost). Wikipedia's own
             // title-search API resolves the guess; enrich the error with the top real titles.
             String didYouMean = wikiTitleSuggestions(url);
+            if (didYouMean.isEmpty()) { String copy = archivedCopy(url, terms, "HTTP " + resp.status()); if (copy != null) return copy; }
             return "ERROR: HTTP " + resp.status() + " for " + url + didYouMean;
         }
         // Bytes → sniff → text: PDF, DOCX/PPTX/ODT/EPUB and HTML all arrive here as bytes and are
@@ -150,10 +156,48 @@ public final class WebFetchTool implements Tool {
             // page were numbered references in a report. A wall is not a source; it is a fetch that failed — and a
             // request to the person, who may hold the paper or the access.
             String what = wall != null ? wall : "HTTP " + resp.status();
+            String copy = archivedCopy(url, terms, what);   // an archive's copy, saved before the wall went up, is the page
+            if (copy != null) return copy;
             request(url, what);
             return "ERROR: " + url + " answered with " + what + " instead of the page — recorded as a source request for the person. "
                     + "Try an open version (arXiv, a repository, the author's page) or another source.";
         }
+        return render(url, page, terms, "");
+    }
+
+    /** How many archived copies one tool (one worker) looks up: a dead site with many dead pages must not cost a lookup each. */
+    static final int MOST_ARCHIVE_LOOKUPS = 8;
+    private final AtomicInteger archiveLookups = new AtomicInteger();
+
+    /**
+     * The archived copy of a page that is gone, does not answer or answers with a wall (0.5.5): the Wayback Machine's or archive.today's
+     * nearest copy, fetched and checked like any page, shown under a first line that says what it is and when it was saved. Null when
+     * there is none, when the copy fails the page check, or when this worker has made its lookups.
+     */
+    private String archivedCopy(String url, String terms, String why) {
+        if (archiveLookups.incrementAndGet() > MOST_ARCHIVE_LOOKUPS) return null;
+        Archives.Copy c;
+        try { c = Archives.nearest(url, ""); } catch (Stopping.Requested stop) { throw stop; } catch (RuntimeException e) { return null; }
+        if (c == null) return null;
+        PageCheck.Page page;
+        try { page = PageCheck.fetch(c.copyUrl(), Duration.ofSeconds(30), policy, terms); } catch (Stopping.Requested stop) { throw stop; } catch (Exception e) { return null; }
+        if (page.fetched().status() >= 400 || !page.kept() || page.doc().kind().startsWith("pdf-unreadable")) return null;
+        String text = page.doc().text();
+        if (text.isBlank() || Fetch.wall(page.doc().title(), text) != null) return null;
+        Archives.COPIES_FOUND.incrementAndGet();
+        fetched.add(c.copyUrl() + "|" + terms.strip().toLowerCase());
+        try {
+            return render(c.copyUrl(), page, terms, "archived copy of " + url + ", saved on " + c.date() + " by the " + c.archive() + " — the live page answered " + why
+                    + ". Cite it as a copy of the page, with that date.\n");
+        } catch (Exception e) { return null; }
+    }
+
+    /** A fetched page as the model sees it: the source line, the text within its fence, the pictures; the library keeps the full text. */
+    private String render(String url, PageCheck.Page page, String terms, String firstLine) throws Exception {
+        Fetch.Result resp = page.fetched();
+        byte[] bytes = resp.body();
+        DocText.Doc doc = page.doc();
+        String text = doc.text();
         FETCHES_OK.incrementAndGet();
         // Raw tier: the FULL text is preserved with provenance at capture time (the model sees
         // the excerpt below; the library keeps the source). No library → no-op.
@@ -172,7 +216,7 @@ public final class WebFetchTool implements Tool {
         if (!pics.isEmpty()) shown = shown + "\n\n" + pictureList(pics);
         // The page's text is FENCED with a per-process nonce: it is quoted evidence, and a page cannot
         // forge the closing marker to speak in the harness's voice (Wyrdsekai, 2026-09-07).
-        return head + Fence.wrap("SOURCE TEXT", shown) + "\n" + Fence.rule("SOURCE TEXT")
+        return firstLine + head + Fence.wrap("SOURCE TEXT", shown) + "\n" + Fence.rule("SOURCE TEXT")
                 + (pics.isEmpty() ? "" : "\nThe page has " + pics.size() + " picture(s), listed at the end of its text. To have one read, call web_fetch with its address.");
     }
 
