@@ -34,6 +34,19 @@ import java.util.regex.Pattern;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 import org.researchzosho.tools.DocText;
+import org.researchzosho.tools.MyShelfTool;
+import org.researchzosho.librarian.dna.Browse;
+import org.researchzosho.librarian.dna.Dna;
+import org.researchzosho.librarian.dna.PodcastDna;
+import org.researchzosho.librarian.dna.Pool;
+import org.researchzosho.librarian.dna.DnaCard;
+import org.researchzosho.librarian.dna.Labels;
+import org.researchzosho.librarian.dna.LikeX;
+import org.researchzosho.librarian.dna.Prefs;
+import org.researchzosho.librarian.dna.Reactions;
+import org.researchzosho.librarian.dna.RecordFill;
+import org.researchzosho.librarian.dna.ShelfDna;
+import org.researchzosho.tools.Recalls;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Fetch;
 import org.researchzosho.tools.PageCheck;
@@ -2639,6 +2652,8 @@ public final class LibraryProtocol {
                 for (String k : List.of("report", "subject", "kind", "tier", "confidence", "writer", "state", "language", "q")) if (args.hasNonNull(k)) f.put(k, args.path(k).asText());
                 ArrayNode items = r.putArray("items");
                 for (var o : inboxList()) if (inboxMatches(o, f)) items.add(o);
+                ArrayNode recalls = r.putArray("recalls");   // notices that may concern what the person owns, beside the claims
+                for (Recalls.Hit h : Recalls.hits(store, true)) recalls.add(h.json());
             }
             case "accept", "dispute", "retire" -> {
                 Patrons.check(store, patron, Patrons.Level.write);
@@ -2838,5 +2853,260 @@ public final class LibraryProtocol {
             }
         }
         return latest.equals(Instant.EPOCH) ? "" : latest.toString();
+    }
+
+    /**
+     * What the person owns (0.6.0): their purchases, from their own records. {@code op=import} reads a file on this machine into
+     * the ledger (the owner); {@code find} and {@code list} show lines (read); {@code status} the counts and where each imported
+     * file's records begin; {@code forget} drops what one file added (the owner). The ledger is a reference: nothing needs it.
+     */
+    /** The person's own shelf (0.6.0): op=profile what they rate highly; op=have title=… (author) whether a book is already here; op=liked words=… the rated books on a subject; op=refresh (the owner) reads the catalogues of the authors rated well now, for the "what next" pool. */
+    public ObjectNode myShelf(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("profile").strip().toLowerCase(Locale.ROOT);
+        if (!op.equals("refresh")) Patrons.check(store, patron, Patrons.Level.read);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "profile" -> {
+                ObjectNode p = Shelf.profile(store);
+                r.setAll(p);
+                r.put("summary", !p.path("calibre").asBoolean() ? "No Calibre library is set: the setting calibre names its folder or its metadata.db."
+                        : p.path("books").asInt() + " books on the shelf, " + p.path("chosen").asInt() + " added by you one by one (the profile), " + p.path("bulk").asInt() + " from bulk imports; " + p.path("ratings_given").asInt() + " rating(s) given by you" + (p.path("ratings_imported").asInt() > 0 ? ", " + p.path("ratings_imported").asInt() + " imported and not counted" : "")
+                        + (p.path("podcasts_followed").isEmpty() ? "" : "; " + p.path("podcasts_followed").size() + " podcast(s) followed") + (p.path("owned").path("lines").asInt() == 0 ? "" : "; " + p.path("owned").path("purchases").asInt() + " purchases on record") + ".");
+                r.put("text", MyShelfTool.profile(p));
+            }
+            case "have" -> {
+                String title = reqStr(args, "title");
+                List<Shelf.Have> h = Shelf.have(store, title, args.path("author").asText(""));
+                ArrayNode arr = r.putArray("found"); for (Shelf.Have x : h) arr.add(x.json());
+                r.put("count", h.size());
+                r.put("summary", h.isEmpty() ? "Not on the shelf, not in the purchase ledger, not on a holdings list." : h.size() + " match(es): " + h.get(0).where() + " — " + h.get(0).detail());
+            }
+            case "liked" -> {
+                int limit = Math.max(1, Math.min(60, args.path("limit").asInt(20)));
+                List<Shelf.Book> l = Shelf.liked(args.path("words").asText(""), args.path("stars").asDouble(0), limit);
+                ArrayNode arr = r.putArray("books"); for (Shelf.Book b : l) arr.add(Shelf.line(b));
+                r.put("count", l.size());
+                r.put("summary", Shelf.path() == null ? "No Calibre library is set: the setting calibre names its folder or its metadata.db." : l.isEmpty() ? "No book you went for carries those words." : l.size() + " book(s) you went for, best first.");
+            }
+            case "refresh" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner reads the catalogues of their authors now; the night housekeeping does it for everyone else.");
+                int minutes = Math.max(1, Math.min(30, args.path("minutes").asInt(2)));
+                String said = ShelfAuthors.nightly(minutes * 60_000L);
+                r.put("summary", said + ". The night housekeeping goes on from here, two minutes a night.");
+            }
+            case "dna" -> {
+                String title = args.path("title").asText("");
+                if (title.isBlank()) {   // the owner: the night's step now
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner reads the shelf for its DNA now; the night housekeeping does it for everyone else.");
+                    int asked = args.path("minutes").asInt(ShelfDna.MINUTES), minutes = Math.max(1, Math.min(240, asked));
+                    String said = ShelfDna.nightly(minutes * 60_000L, ShelfDna.driveModel(), () -> false);
+                    r.put("summary", said + shortened(asked) + ". The night housekeeping goes on from here, " + Config.getInt(ShelfDna.MINUTES_KEY, ShelfDna.MINUTES) + " minutes a night.");
+                } else {
+                    Shelf.Book b = Shelf.onShelf(title, args.path("author").asText(""));
+                    if (b == null) { r.put("found", false); r.put("summary", Shelf.path() == null ? "No Calibre library is set: the setting calibre names its folder or its metadata.db." : "No book on the shelf has that title."); break; }
+                    r.put("found", true);
+                    Labels.Model m = args.path("label").asBoolean(true) ? ShelfDna.driveModel() : null;
+                    ObjectNode d;
+                    try { d = m == null ? ShelfDna.measure(b) : ShelfDna.label(b, m, null); } catch (Exception e) { throw new IOException("the book could not be read for its DNA: " + e.getMessage(), e); }
+                    if (d == null) d = ShelfDna.doc(b);
+                    if (d == null) { r.put("summary", "The shelf has \"" + b.title() + "\" but no EPUB file for it, so there is no text to read."); break; }
+                    r.set("dna", d);
+                    r.put("text", DnaCard.text(d));
+                    r.put("summary", DnaCard.summary(d) + (m == null && !Dna.labelledCurrent(d) ? " No model answers now, so the labelled layer waits for the night housekeeping." : ""));
+                }
+            }
+            case "like" -> {
+                String title = reqStr(args, "title");
+                int limit = Math.max(1, Math.min(40, args.path("limit").asInt(10)));
+                LikeX.OnShelf o = LikeX.onShelf(title, args.path("author").asText(""), limit, args.path("label").asBoolean(true));
+                r.put("found", o.book() != null);
+                if (!o.ok()) { r.put("summary", o.message()); break; }
+                LikeX.Result res = o.result();
+                r.put("compared", res.compared()); r.put("left_out", res.leftOut());
+                ArrayNode rows = r.putArray("rows");
+                for (LikeX.Match m : res.rows()) {
+                    ObjectNode row = rows.addObject(); row.put("title", m.title()); row.put("authors", LikeX.authors(m.doc())); row.put("year", m.doc().path("record").path("year").asText("")); row.put("key", m.doc().path("key").asText());
+                    row.put("distance", Math.round(m.distance() * 1000) / 1000.0);
+                    ArrayNode al = row.putArray("alike"); m.alike().forEach(al::add); ArrayNode un = row.putArray("unlike"); m.unlike().forEach(un::add); ArrayNode no = row.putArray("notes"); m.notes().forEach(no::add);
+                    row.put("line", LikeX.line(m));
+                }
+                ArrayNode side = r.putArray("side"); for (ObjectNode s : res.side()) side.add(s.path("record").path("title").asText(""));
+                r.put("text", LikeX.text(res));
+                r.put("summary", res.rows().isEmpty() ? "Nothing in the store compares with \"" + o.book().title() + "\" yet: " + (res.compared() == 0 ? "no book is labelled." : "every labelled book is by the same author or left out.") : res.rows().size() + " book(s) like \"" + o.book().title() + "\" among the " + res.compared() + " labelled on your shelf, the author's own works set aside.");
+            }
+            case "browse" -> {
+                int limit = Math.max(1, Math.min(40, args.path("limit").asInt(10)));
+                long seed = args.has("seed") ? args.path("seed").asLong() : System.currentTimeMillis() / 3_600_000L;   // the same list within the hour, a new one after
+                List<ObjectNode> pool = Dna.labelled(Dna.BOOK);
+                List<Browse.Pick> picks = Browse.browse(pool, Prefs.load(Dna.BOOK), limit, seed);
+                ArrayNode rows = r.putArray("rows");
+                for (Browse.Pick p : picks) { ObjectNode row = rows.addObject(); row.put("title", p.title()); row.put("authors", LikeX.authors(p.doc())); row.put("year", p.doc().path("record").path("year").asText("")); row.put("key", p.doc().path("key").asText()); row.put("why", p.why()); }
+                r.put("pool", pool.size());
+                r.put("text", Browse.text(picks, pool.size(), "book"));
+                r.put("summary", picks.isEmpty() ? "Nothing to browse yet: no book is labelled, or every labelled one has had a reaction or is excluded." : picks.size() + " books to browse, a spread across the " + pool.size() + " labelled; react to any and the next list moves.");
+            }
+            default -> throw ProtocolError.invalidArgs("op is profile, have, liked, refresh, dna, like or browse.");
+        }
+        return r;
+    }
+
+    /**
+     * The preferences file (0.6.0): op=show (default) the lines with their sources; op=draft (the owner) writes one from the shelf; op=set name=… value=…
+     * and op=unset change a line; op=export path=… and op=import path=… carry the file; op=learn reads the reactions into it.
+     */
+    public ObjectNode prefs(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("show").strip().toLowerCase(Locale.ROOT);
+        String kind = args.path("kind").asText(Dna.BOOK).strip().toLowerCase(Locale.ROOT);
+        Patrons.check(store, patron, op.equals("show") ? Patrons.Level.read : Patrons.Level.write);
+        if (!op.equals("show") && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner changes the preferences file: it is the person's own.");
+        ObjectNode r = envelope();
+        Prefs p = Prefs.load(kind);
+        String said;
+        switch (op) {
+            case "show" -> said = p.exists() ? "The preferences file for " + kind + "s, " + p.lines().size() + " lines." : "No preferences file yet; the defaults apply.";
+            case "draft" -> { p = Prefs.draft(kind); said = "A preferences file drafted from your shelf: " + p.of("prefer").size() + " prefer line(s), each saying how many books it rests on. Change any with prefs set, drop any with prefs unset."; }
+            case "set" -> said = p.set(reqStr(args, "name"), args.path("value").asText(""), patron.name().isEmpty() ? "you" : "you (" + patron.name() + ")");
+            case "unset" -> said = p.unset(reqStr(args, "name"), args.path("value").asText(""));
+            case "export" -> { Path to = Path.of(reqStr(args, "path")); p.export(to); said = "The preferences file is written to " + to.toAbsolutePath() + "."; }
+            case "import" -> { Path from = Path.of(reqStr(args, "path")); if (!Files.isRegularFile(from)) throw ProtocolError.invalidArgs("no file at " + from.toAbsolutePath()); int n = p.importFrom(from); said = n + " line(s) came in from " + from.getFileName() + "; a line already here was kept once."; }
+            case "learn" -> { p.learn(); said = "The reactions are read into the file: " + p.of("prefer").stream().filter(l -> l.from().startsWith("learned")).count() + " prefer line(s) and " + p.of("avoid").stream().filter(l -> l.from().startsWith("learned")).count() + " avoid line(s) learned."; }
+            default -> throw ProtocolError.invalidArgs("op is show, draft, set, unset, export, import or learn.");
+        }
+        r.set("prefs", p.json());
+        r.put("text", p.text());
+        r.put("summary", said);
+        return r;
+    }
+
+    /**
+     * The DNA store beyond the shelf (0.6.0): op=status the counts and the sharing state; op=pack-export path=… (the owner) writes a pack of the labelled
+     * documents; op=pack-import path=… (the owner) reads one; op=pack-refresh fetches the published pack when the site announces one; op=podcast-like
+     * words=… the episodes like one among the transcripts held; op=podcast-read (the owner) reads the transcripts held for their DNA now.
+     */
+    public ObjectNode dna(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("status").strip().toLowerCase(Locale.ROOT);
+        String kind = args.path("kind").asText(Dna.BOOK).strip().toLowerCase(Locale.ROOT);
+        if (!kind.equals(Dna.BOOK) && !kind.equals(Dna.PODCAST)) throw ProtocolError.invalidArgs("kind is book or podcast.");
+        boolean owners = op.equals("pack-export") || op.equals("pack-import") || op.equals("podcast-read") || op.equals("records");
+        Patrons.check(store, patron, owners ? Patrons.Level.write : Patrons.Level.read);
+        if (owners && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner writes or reads packs and reads the transcripts for their DNA.");
+        ObjectNode r = envelope();
+        switch (op) {
+            case "status" -> { r.put("text", Pool.status(Dna.BOOK) + "\n" + Pool.status(Dna.PODCAST)); r.put("summary", Pool.status(kind)); }
+            case "pack-export" -> { Path to = Path.of(reqStr(args, "path")); int n = Pool.export(kind, to, args.path("contributor").asText(Config.get("RESEARCHZOSHO_DNA_CONTRIBUTOR", ""))); r.put("count", n); r.put("summary", n + " labelled " + kind + " document(s) written to " + to.toAbsolutePath() + " as a pack (" + Pool.FORMAT + "), with their layers and provenance and nothing of you."); }
+            case "pack-import" -> { Path from = Path.of(reqStr(args, "path")); if (!Files.isRegularFile(from)) throw ProtocolError.invalidArgs("no file at " + from.toAbsolutePath()); Pool.Loaded l = Pool.importPack(from); r.put("added", l.added()); r.put("kept", l.kept()); r.put("set_aside", l.setAside()); r.put("summary", l.said()); }
+            case "pack-refresh" -> r.put("summary", Pool.refresh(kind));
+            case "records" -> { if (Shelf.path() == null) { r.put("summary", "No Calibre library is set: the setting calibre names its folder or its metadata.db."); break; } int minutes = Math.max(1, Math.min(240, args.path("minutes").asInt(2))); r.put("summary", RecordFill.nightly(minutes * 60_000L, () -> false) + ". The night housekeeping goes on from here, two minutes a night."); }
+            case "podcast-like" -> {
+                PodcastDna.Found f = PodcastDna.like(reqStr(args, "words"), Math.max(1, Math.min(40, args.path("limit").asInt(10))));
+                r.put("found", f.ok());
+                if (!f.ok()) { r.put("summary", f.message()); break; }
+                ArrayNode rows = r.putArray("rows"); for (LikeX.Match m : f.result().rows()) { ObjectNode row = rows.addObject(); row.put("title", m.title()); row.put("show", LikeX.authors(m.doc())); row.put("key", m.doc().path("key").asText()); row.put("line", LikeX.line(m)); }
+                r.put("text", PodcastDna.text(f.result()));
+                r.put("summary", f.result().rows().size() + " episode(s) like \"" + f.x().path("record").path("title").asText() + "\" among the " + f.result().compared() + " labelled, the same show set aside.");
+            }
+            case "podcast-read" -> { int asked = args.path("minutes").asInt(5), minutes = Math.max(1, Math.min(240, asked)); r.put("summary", PodcastDna.nightly(store, minutes * 60_000L, ShelfDna.driveModel(), () -> false) + shortened(asked) + "."); }
+            default -> throw ProtocolError.invalidArgs("op is status, pack-export, pack-import, pack-refresh, records, podcast-like or podcast-read.");
+        }
+        return r;
+    }
+
+    /** The sentence when a DNA read was asked for more than one call reads: one call reads for at most 240 minutes. */
+    static String shortened(int askedMinutes) {
+        return askedMinutes > 240 ? ". One call reads for at most 240 minutes, so this one was shortened to 240" : "";
+    }
+
+    /** A reaction (0.6.0): reaction=like|dislike|seen|own on a shelf book by title (and author), or any title; about=<title> when it is a row of a "like" list. The owner. */
+    public ObjectNode react(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner writes reactions down: they are the person's own.");
+        String reaction = reqStr(args, "reaction").strip().toLowerCase(Locale.ROOT), title = reqStr(args, "title");
+        if (!Reactions.KINDS.contains(reaction)) throw ProtocolError.invalidArgs("reaction is like, dislike, seen or own.");
+        ObjectNode r = envelope();
+        String author = args.path("author").asText("");
+        Shelf.Book b = Shelf.onShelf(title, author);
+        ObjectNode doc = null, about = null;
+        try { if (b != null) doc = ShelfDna.doc(b); } catch (IOException ignored) { }
+        if (doc == null) doc = Dna.byTitle(Dna.BOOK, title, author);   // a row from the store that is not on the shelf (the pool, another library)
+        String aboutTitle = args.path("about").asText("");
+        if (!aboutTitle.isBlank()) { Shelf.Book ab = Shelf.onShelf(aboutTitle, ""); try { if (ab != null) about = ShelfDna.doc(ab); } catch (IOException ignored) { } if (about == null) about = Dna.byTitle(Dna.BOOK, aboutTitle, ""); if (about == null) { about = r.objectNode(); about.put("key", "title:" + Reactions.norm(aboutTitle)); about.putObject("record").put("title", aboutTitle); } }
+        String keptTitle = b != null ? b.title() : doc != null ? doc.path("record").path("title").asText(title) : title, keptAuthors = b != null ? b.authors() : doc != null ? doc.path("record").path("authors").asText(author) : author;
+        Reactions.Reaction x = Reactions.add(Dna.BOOK, reaction, doc, keptTitle, keptAuthors, about);
+        Prefs.load(Dna.BOOK).learn();
+        r.set("reaction", x.json());
+        int n = Reactions.all(Dna.BOOK).size();
+        r.put("summary", "Written down: " + reaction + " — " + x.title() + (x.authors().isEmpty() ? "" : " by " + x.authors()) + (doc != null ? "" : b == null ? " (not a book on the shelf; kept by its title)" : " (its DNA is not made yet; the reaction is kept by its title)") + (about == null ? "" : ", on the list like \"" + x.aboutTitle() + "\"") + ". " + n + " reaction(s) so far; the preferences file learns from them.");
+        return r;
+    }
+
+    public ObjectNode owned(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("status").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "import" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner imports purchase records: they are the person's own, and the file is on this machine.");
+                Path path = Path.of(reqStr(args, "path"));
+                Owned.Summary s = Owned.importPath(store, path, args.path("kind").asText("auto"), args.path("currency").asText(""));
+                r.put("file", s.file()); r.put("kind", s.kind()); r.put("messages_read", s.messagesRead()); r.put("orders_found", s.ordersFound());
+                r.put("lines_added", s.linesAdded()); r.put("lines_already", s.linesAlready()); r.put("shipments_seen", s.shipmentsSeen());
+                r.put("records_begin", s.firstDate()); r.put("records_end", s.lastDate());
+                ArrayNode notes = r.putArray("notes"); s.notes().forEach(notes::add);
+                String what = switch (s.kind()) { case "mail" -> "Read " + s.messagesRead() + " messages, " + s.ordersFound() + " of them orders"; case "bank" -> "Read " + s.ordersFound() + " statement lines"; default -> "Read " + s.ordersFound() + " order lines"; };
+                r.put("summary", what + ": " + s.linesAdded() + " added to what you own" + (s.linesAlready() > 0 ? ", " + s.linesAlready() + " already there" : "")
+                        + (s.shipmentsSeen() > 0 ? "; " + s.shipmentsSeen() + " shipment notices seen" : "") + (s.ownMail() > 0 ? "; " + s.ownMail() + " sent to yourself passed over" : "") + "."
+                        + (s.firstDate().isEmpty() ? "" : " The records in this file run from " + s.firstDate() + " to " + s.lastDate() + "."));
+                r.put("next", s.linesAdded() == 0 && s.ordersFound() == 0 ? "Nothing in it read as a purchase. If it is a mailbox, it must hold the order confirmations themselves; if a statement, a CSV with a date, a description and an amount."
+                        : "researchzosho owned find <words> looks something up; researchzosho owned shows what the ledger holds.");
+            }
+            case "find", "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                int limit = Math.max(1, Math.min(500, args.path("limit").asInt(50)));
+                List<Owned.Line> found = Owned.find(store, args.path("words").asText(""), args.path("year").asText(""), args.path("shop").asText(""), limit);
+                ArrayNode arr = r.putArray("lines");
+                for (Owned.Line l : found) arr.add(l.json());
+                r.put("count", found.size());
+                r.put("summary", found.isEmpty() ? "Nothing in what you own matches." : found.size() + " line(s), newest first" + (found.size() == limit ? " (the first " + limit + "; limit takes more)" : "") + ".");
+            }
+            case "status" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                ObjectNode st = Owned.status(store);
+                r.setAll(st);
+                int n = st.path("lines").asInt();
+                StringBuilder sb = new StringBuilder(n == 0 ? "Nothing is imported yet." : n + " line(s): " + st.path("purchases").asInt() + " purchases, " + st.path("receipts").asInt() + " receipts for services and " + st.path("payments").asInt() + " statement payments, from " + st.path("sources").size() + " file(s).");
+                for (JsonNode s : st.path("sources")) if (!s.path("records_begin").asText().isEmpty()) sb.append(" Records in ").append(Path.of(s.path("file").asText()).getFileName()).append(" begin ").append(s.path("records_begin").asText()).append(" — the file's first record, not when the account was opened.");
+                r.put("summary", sb.toString());
+                r.put("next", n == 0 ? "researchzosho owned import <file> reads the zip a shop's data request returns, a mailbox, or a statement as CSV." : "researchzosho owned find <words> looks something up.");
+            }
+            case "recalls" -> {
+                boolean check = args.path("check").asBoolean(false); String dismiss = args.path("hit").asText("");
+                Patrons.check(store, patron, check || !dismiss.isEmpty() ? Patrons.Level.write : Patrons.Level.read);
+                if (!dismiss.isEmpty()) { if (!Recalls.dismiss(store, dismiss)) throw ProtocolError.notFound("No open recall hit has the id " + dismiss + "."); r.put("dismissed", dismiss); }
+                if (check) { Recalls.Checked c = Recalls.check(store, true); r.put("feeds", c.feeds()); r.put("notices", c.notices()); r.put("new_hits", c.newHits()); }
+                ArrayNode hits = r.putArray("hits");
+                List<Recalls.Hit> open = Recalls.hits(store, true);
+                for (Recalls.Hit h : open) hits.add(h.json());
+                r.put("count", open.size());
+                r.put("summary", (check ? "The feeds were read: " + r.path("feeds").asText() + ". " : "") + (open.isEmpty() ? "No recall notice on file concerns anything you own." : open.size() + " recall notice(s) may concern something you own; each says what matched and how surely. researchzosho owned recalls dismiss <id> puts one away."));
+            }
+            case "forget" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library's owner changes what it holds about their purchases.");
+                String file = reqStr(args, "file");
+                int gone = Owned.forget(store, file);
+                if (gone == 0 && Owned.sources(store).stream().noneMatch(s -> s.file().equals(file))) throw ProtocolError.notFound("No imported file is named " + file + "; researchzosho owned lists them.");
+                r.put("file", file); r.put("removed", gone);
+                r.put("summary", gone + " line(s) from " + Path.of(file).getFileName() + " forgotten.");
+            }
+            default -> throw ProtocolError.invalidArgs("op is import, find, list, status, recalls or forget.");
+        }
+        return r;
     }
 }

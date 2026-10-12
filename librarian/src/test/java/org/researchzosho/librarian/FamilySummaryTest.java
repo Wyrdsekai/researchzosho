@@ -380,20 +380,20 @@ class FamilySummaryTest {
         Path mine = Files.writeString(folder.resolve("notes.txt"), "Ned Hale is my father.\nKimie Hale wrote aunt-notes.txt.\n", StandardCharsets.UTF_8);
         Path aunt = Files.writeString(folder.resolve("aunt-notes.txt"), "Ned Hale was born in 1940.\n", StandardCharsets.UTF_8);
         Path alone = Files.writeString(tmp.resolve("loose-notes.txt"), "Ned Hale married Ann Ellis.\n", StandardCharsets.UTF_8);
-        Path rose = Files.writeString(tmp.resolve("rose-notes.txt"), "Ned Hale died in 1990.\n", StandardCharsets.UTF_8);
+        Path ruth = Files.writeString(tmp.resolve("ruth-notes.txt"), "Ned Hale died in 1990.\n", StandardCharsets.UTF_8);
         file(store, "told://link-note/https://example.org/ned-hale", OWNER, List.of(fact("Ned Hale", "relative-of", OWNER, "", "About Ned Hale: my father")), List.of());
         file(store, "file://" + mine, "the writer of notes.txt", List.of(fact("Ned Hale", "sibling-of", "Walter Hale", "", "Ned Hale and his brother Walter Hale ran the mill.")), List.of());
         file(store, "file://" + aunt, "Kimie Hale", List.of(fact("Ned Hale", "born-on", "1940", "", "Ned Hale was born in 1940.")), List.of());
         file(store, "file://" + alone, "the writer of loose-notes.txt", List.of(fact("Ned Hale", "married-to", "Ann Ellis", "1965", "Ned Hale married Ann Ellis in 1965.")), List.of());
-        file(store, "file://" + rose, "Rose Hart", List.of(fact("Ned Hale", "died-on", "1990", "", "Ned Hale died in 1990.")), List.of());
+        file(store, "file://" + ruth, "Ruth Hart", List.of(fact("Ned Hale", "died-on", "1990", "", "Ned Hale died in 1990.")), List.of());
         FamilyFolder.markRead(store, mine, FamilyReads.FILE, folder.toString());
         FamilyFolder.markRead(store, aunt, FamilyReads.FILE, folder.toString());
         FamilyReads.readFile(store, alone, FamilyReads.FILE, "", "", "");
-        FamilyReads.readFile(store, rose, FamilyReads.FILE, "", "Rose Hart", "");
+        FamilyReads.readFile(store, ruth, FamilyReads.FILE, "", "Ruth Hart", "");
         List<String> ned = lines(FamilySummary.of(store, false), "Ned Hale");
         assertTrue(ned.contains("Born 1940. (Kimie Hale's notes)"), "the folder's notes say who wrote it: " + ned);
         assertTrue(ned.contains("Married to Ann Ellis in 1965. (your notes)"), "notes read on their own, with no other writer named, are yours too (FamilyFolder.ownerNotes): " + ned);
-        assertTrue(ned.stream().anyMatch(l -> l.startsWith("Died 1990") && l.endsWith("(Rose Hart's notes)")), "notes read as somebody else's account (--by) are theirs: " + ned);
+        assertTrue(ned.stream().anyMatch(l -> l.startsWith("Died 1990") && l.endsWith("(Ruth Hart's notes)")), "notes read as somebody else's account (--by) are theirs: " + ned);
         assertTrue(ned.contains("Brothers and sisters: Walter Hale. (your notes)"), "the folder's own notes are yours, with no \"I am\" in them: " + ned);
     }
 
@@ -478,6 +478,6 @@ class FamilySummaryTest {
         assertTrue(lines(s, "森田健二").contains("Parents: Ned Hale. (" + BOOK + ")"), "森田健二の父 is Ned Hale, the one father the same book records, so his son's list names him once: " + lines(s, "森田健二"));
         assertNull(person(s, "Walter Hale"), "one relation and nothing else: no block");
         assertTrue(lines(s, "Ned Hale").contains("Brothers and sisters: Walter Hale. (" + BOOK + ")"), lines(s, "Ned Hale").toString());
-        assertTrue(FamilySummary.description("森田健二の父の父") && FamilySummary.description("森田健二の長男") && FamilySummary.description("Kano's mother") && !FamilySummary.description("森田健二"));
+        assertTrue(FamilySummary.description("森田健二の父の父") && FamilySummary.description("森田健二の長男") && FamilySummary.description("Tsuda's mother") && !FamilySummary.description("森田健二"));
     }
 }

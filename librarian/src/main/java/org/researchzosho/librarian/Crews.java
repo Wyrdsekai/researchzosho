@@ -4,6 +4,7 @@ import static org.researchzosho.librarian.Researcher.forExplorer;
 
 import org.researchzosho.tools.PodcastIndexLocal;
 import org.researchzosho.tools.Podcasts;
+import org.researchzosho.tools.Recalls;
 import org.researchzosho.librarian.Researcher.CannotCheck;
 
 import java.io.IOException;
@@ -30,6 +31,12 @@ import java.util.function.Function;
 import org.researchzosho.Config;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.librarian.dna.Dna;
+import org.researchzosho.librarian.dna.Labels;
+import org.researchzosho.librarian.dna.PodcastDna;
+import org.researchzosho.librarian.dna.Pool;
+import org.researchzosho.librarian.dna.RecordFill;
+import org.researchzosho.librarian.dna.ShelfDna;
 import org.researchzosho.drive.aws.Bedrock;
 import org.slf4j.LoggerFactory;
 import org.researchzosho.drive.Declined;
@@ -123,6 +130,8 @@ public final class Crews {
         steps.add(step(store, "collections", () -> Corpus.rescan(store)));
         steps.add(step(store, "serials", () -> { Serials.check(store); return "checked"; }));
         steps.add(step(store, "podcasts", () -> Podcasts.transcribeFollowed(store)));
+        steps.add(step(store, "recalls", () -> Recalls.nightly(store)));
+        steps.add(step(store, "shelf", () -> ShelfAuthors.nightly(120_000)));   // the catalogues of the authors rated well, two minutes a night
         steps.add(step(store, "podcast index", () -> PodcastIndexLocal.refreshDue() ? PodcastIndexLocal.download(null) : (PodcastIndexLocal.present() ? "the file is this week's" : "no file on this machine")));
         steps.add(step(store, "preprints", () -> {
             var o = Preprints.check(store, Preprints.live(), Preprints.PER_NIGHT, LocalDate.now());
@@ -139,6 +148,8 @@ public final class Crews {
                 var o = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(driveUrl, model)), 500);
                 return o.checked() + " saved page(s) checked, " + o.removed().size() + " removed, " + o.waiting() + " still waiting" + (o.sentence().isEmpty() ? "" : ". " + o.sentence());
             }));
+            steps.add(step(store, "dna", () -> ShelfDna.nightly(driveUrl, model, stop())));   // the shelf's books read for their DNA, the person's picks first, within the setting's minutes
+            steps.add(step(store, "dna podcasts", () -> PodcastDna.nightly(store, Config.getInt(ShelfDna.MINUTES_KEY, ShelfDna.MINUTES) * 15_000L, ShelfDna.named(Labels.drive(new DriveClient(driveUrl, model)), model), stop())));   // the transcripts held, a quarter of the minutes
             steps.add(step(store, "explorer", () -> explore(store, researcher, explorePerNight)));
             steps.add(step(store, "review", () -> reviewDrafts(store, new LibrarianReview(store, new LibrarianIndex(store),
                     LibrarianReview.driveJudge(new DriveClient(driveUrl, model)), "librarian:" + model).searcher(LibrarianReview.liveSearcher()))));
@@ -170,11 +181,13 @@ public final class Crews {
             }));
         } else {
             String why = "skipped — no drive answers at " + (driveUrl == null ? "(unset)" : driveUrl);
-            for (String name : new String[]{"page-checks", "explorer", "review", "catalog", "triples", "inventory", "abstracts", "enrich"}) {
+            for (String name : new String[]{"page-checks", "dna", "dna podcasts", "explorer", "review", "catalog", "triples", "inventory", "abstracts", "enrich"}) {
                 steps.add(new Step(name, why, 0));
                 log(store, name, why, 0);
             }
         }
+        steps.add(step(store, "dna records", () -> Shelf.path() == null ? "no Calibre library is set" : RecordFill.nightly(120_000, stop())));   // the catalogue's record for the shelf's documents, the labelled first, two minutes a night, keyless
+        steps.add(step(store, "dna pack", () -> Pool.nightly(Dna.BOOK) + "; " + Pool.nightly(Dna.PODCAST)));   // with sharing on, the weekly pack to the outbox
         steps.add(step(store, "graph", () -> Graph.propose(store)));
         if (drive) steps.add(step(store, "bridges", () -> Bridges.nightly(store, driveUrl, model)));
         steps.add(step(store, "vault", () -> Vault.refresh(store)));
@@ -319,7 +332,28 @@ public final class Crews {
     enum DriveState { ANSWERS, STARTING, DOWN }
 
     /** A functional probe, never a port check: llama.cpp answers 503 while loading. */
-    static boolean driveAnswers(String driveUrl) { return driveState(driveUrl) == DriveState.ANSWERS; }
+    /**
+     * Whether the drive answers. A server found loading its model (STARTING: reachable, a 503 or a body that outlasts the probe) is
+     * asked again, because the probe itself is what makes a server that sleeps between uses (llama-swap, Ollama) load its model, and
+     * it answers when the load ends — a 27B from a fast disk in half a minute, longer from a slow one. The waits add up to about a
+     * minute; a server that is down is refused at once. {@link #driveAnswersNow} is the single probe, for a loop that asks again on
+     * its own.
+     */
+    public static boolean driveAnswers(String driveUrl) {
+        DriveState s = driveState(driveUrl);
+        for (long wait : startingWaitsMs) {
+            if (s != DriveState.STARTING) break;
+            try { Thread.sleep(wait); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+            s = driveState(driveUrl);
+        }
+        return s == DriveState.ANSWERS;
+    }
+
+    /** One probe, no waiting: for a loop that asks again on its own, such as the job scheduler. */
+    public static boolean driveAnswersNow(String driveUrl) { return driveState(driveUrl) == DriveState.ANSWERS; }
+
+    /** The waits between probes of a server that is loading its model, in milliseconds; a test seam. */
+    static volatile long[] startingWaitsMs = {5_000, 10_000, 20_000, 30_000};
 
     /**
      * The probe names the model: a bare llama-server ignores the field, but a router (llama-swap, Ollama)

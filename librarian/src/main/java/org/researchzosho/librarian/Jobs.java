@@ -802,7 +802,7 @@ public final class Jobs {
                     String kind = j.path("kind").asText();
                     boolean defer = false;
                     if ("crews".equals(kind) && index != 0) { defer = true; wait = 2_000; }
-                    if ("research".equals(kind) && !drive.isEmpty() && !Crews.driveAnswers(drive)) {
+                    if ("research".equals(kind) && !drive.isEmpty() && !Crews.driveAnswersNow(drive)) {
                         defer = true; wait = 30_000;
                         // say so on the record: a model server that sleeps between uses (llama-swap, Ollama) answers after a
                         // start, and a run that sits a minute after a quiet night should read as waiting, not stuck

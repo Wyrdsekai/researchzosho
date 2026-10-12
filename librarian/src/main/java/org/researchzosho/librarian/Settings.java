@@ -49,6 +49,22 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_PODCASTINDEX_KEY", Kind.secret, "A Podcast Index API key (api.podcastindex.org/signup, free): the open podcast directory and search by person.", ""),
             new Setting("RESEARCHZOSHO_PODCASTINDEX_SECRET", Kind.secret, "The secret that came with the Podcast Index key; both are needed.", ""),
             new Setting("RESEARCHZOSHO_PODCASTINDEX_LOCAL", Kind.choice, "Keep the Podcast Index's weekly file on this machine (researchzosho podcast index download fetches it; on: the housekeeping fetches each new week's).", "off", List.of("on", "off")),
+            new Setting("RESEARCHZOSHO_YAHOO_JP_CLIENT_ID", Kind.secret, "A Yahoo! JAPAN Client ID (developer.yahoo.co.jp, free): what Yahoo!ショッピング lists, with prices, for a shopping question in Japan.", ""),
+            new Setting("RESEARCHZOSHO_RAKUTEN_APP_ID", Kind.secret, "A Rakuten Web Service application ID (webservice.rakuten.co.jp, free): what 楽天市場 lists, with prices; needs the access key too.", ""),
+            new Setting("RESEARCHZOSHO_RAKUTEN_ACCESS_KEY", Kind.secret, "The access key that comes with the Rakuten application ID.", ""),
+            new Setting("RESEARCHZOSHO_ICECAT_USER", Kind.text, "An Open Icecat account name (icecat.biz, free): a product's datasheet by brand and model, or by barcode.", ""),
+            new Setting("RESEARCHZOSHO_REDDIT_CLIENT_ID", Kind.secret, "A Reddit app of your own (reddit.com/prefs/apps, type script, free): what owners wrote about a product; needs the secret too.", ""),
+            new Setting("RESEARCHZOSHO_REDDIT_CLIENT_SECRET", Kind.secret, "The secret of that Reddit app.", ""),
+            new Setting("RESEARCHZOSHO_EBAY_CLIENT_ID", Kind.secret, "An eBay developer keyset's client id (developer.ebay.com, free; production access by a short application): eBay listings and auctions in product_search kind=marketplaces.", ""),
+            new Setting("RESEARCHZOSHO_EBAY_CLIENT_SECRET", Kind.secret, "The client secret of that keyset; both are needed.", ""),
+            new Setting("RESEARCHZOSHO_ETSY_KEY", Kind.secret, "An Etsy app keystring (etsy.com/developers, a personal app): Etsy listings, the handmade and vintage tail.", ""),
+            new Setting("RESEARCHZOSHO_CINII_APPID", Kind.secret, "A CiNii appid (NII's developer registration, free): CiNii Books in book_search for Japanese books by 件名 (subject heading), author and words, each with how many Japanese libraries hold it.", ""),
+            new Setting("RESEARCHZOSHO_RECALLS", Kind.choice, "The recall watch: the housekeeping fetches the open product-safety feeds (US CPSC and FDA, EU Safety Gate, UK OPSS, the OECD portal) and matches them against what you own; a notice that may concern something you own waits in the inbox. on by default.", "on", List.of("on", "off")),
+            new Setting("RESEARCHZOSHO_MARKET", Kind.text, "The country you buy in, as two letters (JP, US, GB, DE…): the shops, the currency, the recall notices and the reviewers a shopping run uses. Set at setup from this machine's country; the chat can switch it for one conversation.", "JP"),
+            new Setting("RESEARCHZOSHO_CALIBRE", Kind.text, "Your Calibre library: its folder, or its metadata.db. Read only, never changed. What you rated there says what you like, and a book already on the shelf is not recommended again; the my_shelf tool and `researchzosho myshelf` read it.", "~/Calibre Library"),
+            new Setting("RESEARCHZOSHO_DNA_MINUTES", Kind.number, "Minutes a night the housekeeping spends reading the books on your shelf for their DNA (the model labels about one book a minute; the books you went for come first; 20 unless set, 0 turns it off).", "20"),
+            new Setting("RESEARCHZOSHO_DNA_SHARE", Kind.choice, "Contribute your books' DNA to the shared pool: on writes a pack of the labelled documents (the books' layers, nothing of you) to ~/.researchzosho/dna/outbox once a week for you to send. off unless set.", "off", List.of("on", "off")),
+            new Setting("RESEARCHZOSHO_DNA_CONTRIBUTOR", Kind.text, "The name a contributed pack carries; anonymous when unset.", "a reader"),
             new Setting("RESEARCHZOSHO_WHISPER", Kind.address, "A transcription server (an OpenAI-style /v1/audio/transcriptions, such as speaches or faster-whisper-server); the local container when unset.", "http://gpu-box:18890"),
             new Setting("RESEARCHZOSHO_WHISPER_MODEL", Kind.text, "The transcription model on that server.", "Systran/faster-whisper-small"),
             new Setting("RESEARCHZOSHO_TRANSCRIBE_EPISODES", Kind.number, "How many podcast episodes one research run may transcribe (2 unless set).", "2"),
@@ -92,8 +108,20 @@ public final class Settings {
             case address -> v.matches("^https?://\\S+$") ? "" : s.shortName() + " is an address and must start with http:// or https://, for example " + s.example() + ".";
             case number -> v.matches("^\\d+$") ? "" : s.shortName() + " is a number, for example " + s.example() + ".";
             case choice -> s.choices().contains(v.toLowerCase(Locale.ROOT)) ? "" : s.shortName() + " is one of " + String.join(", ", s.choices()) + ".";
-            default -> v.contains("\n") ? s.shortName() + " is one line." : "";
+            default -> s.key().equals(MARKET) ? (v.matches("(?i)^[a-z]{2}$") ? "" : "market is a country as two letters, for example JP or US.")
+                     : v.contains("\n") ? s.shortName() + " is one line." : "";
         };
+    }
+
+    public static final String MARKET = "RESEARCHZOSHO_MARKET";
+    public static final String CALIBRE = "RESEARCHZOSHO_CALIBRE";
+
+    /** The country the person buys in, as two upper-case letters: the setting, else this machine's country, else US. */
+    public static String market() {
+        String m = Config.get(MARKET);
+        if (m != null && m.strip().matches("(?i)^[a-z]{2}$")) return m.strip().toUpperCase(Locale.ROOT);
+        String c = Locale.getDefault().getCountry();
+        return c != null && c.matches("^[A-Z]{2}$") ? c : "US";
     }
 
     /** Every setting with its value as it may be shown, in the order above. */
@@ -115,6 +143,7 @@ public final class Settings {
     public static void set(Setting s, String value) throws IOException {
         String v = value == null ? "" : value.strip();
         if (s.kind() == Kind.choice) v = v.toLowerCase(Locale.ROOT);
+        if (s.key().equals(MARKET)) v = v.toUpperCase(Locale.ROOT);
         Config.set(s.key(), v);
     }
 }

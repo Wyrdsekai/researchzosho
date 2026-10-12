@@ -58,6 +58,8 @@ public final class ContentPolicy {
     private final ContentJudge judge;
     private final LibraryStore store;
     private final List<LeftOut> leftOut = Collections.synchronizedList(new ArrayList<>());
+    /** The books the catalogues returned this run, as normalised titles and record keys: what a books run may name (0.6.0). */
+    private final Set<String> catalogue = ConcurrentHashMap.newKeySet();
     private volatile Consumer<String> log = line -> { };
 
     private ContentPolicy(Collection<String> allow, boolean person, ContentJudge judge, LibraryStore store) {
@@ -173,6 +175,12 @@ public final class ContentPolicy {
     public List<LeftOut> leftOut() { synchronized (leftOut) { return List.copyOf(leftOut); } }
 
     /** Whether this address was left out under this policy. */
+    /** A book a catalogue returned this run, by its normalised title, its title before the subtitle, and its record key. */
+    public void returned(String... keys) { for (String k : keys) if (k != null && !k.isBlank()) catalogue.add(k); }
+
+    /** What the catalogues returned this run; empty when no catalogue was asked. */
+    public Set<String> catalogue() { return catalogue; }
+
     public boolean wasLeftOut(String url) {
         if (url == null) return false;
         String c = Fetch.canonical(url.strip());

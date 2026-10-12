@@ -27,6 +27,9 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.ZoneOffset;
+import java.time.Instant;
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.researchzosho.librarian.Acquisitions;
@@ -209,7 +212,8 @@ public final class WebFetchTool implements Tool {
         // WHAT was read, not just that a read happened, and the model cites by name, not URL.
         String title = doc.title();
         String kindNote = "html".equals(doc.kind()) || "text".equals(doc.kind()) ? "" : " [" + doc.kind() + "]";
-        String head = "source: " + url + (title.isEmpty() ? "" : " — " + title) + kindNote + "\n";
+        String head = "source: " + url + (title.isEmpty() ? "" : " — " + title) + kindNote + " — fetched " + DateTimeFormatter.ISO_INSTANT.format(Instant.now().atZone(ZoneOffset.UTC).withSecond(0).withNano(0))
+                + (published == null || published.isBlank() ? "" : "; the page says it was published " + published) + "\n";   // the model has no clock: a price or a claim read here carries the time it was seen
         String shown = text.length() <= MAX_CHARS ? text : excerpt(text, terms);
         // the page's pictures, with their alt text, caption and address, so that the model can have one read by the model that reads pictures
         List<Picture> pics = "html".equals(doc.kind()) ? pictures(new String(bytes, 0, Math.min(bytes.length, 2_000_000), StandardCharsets.UTF_8), url) : List.of();

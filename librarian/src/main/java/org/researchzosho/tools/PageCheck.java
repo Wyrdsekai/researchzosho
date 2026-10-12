@@ -112,7 +112,9 @@ public final class PageCheck {
         catch (Fetch.LeftOut lo) {
             // the report says whose list it was: the person's own, or the site list and where that list came from; a redirect's hop is
             // written down with the address asked for
-            policy.leftOut(lo.url(), lo.why().contains("refused-sources") ? "on the person's refused-sources list"
+            String why = lo.why();
+            policy.leftOut(lo.url(), why.contains("refused-sources") ? "on the person's refused-sources list"
+                    : why.startsWith("the terms of") ? why.substring(0, why.indexOf(';') > 0 ? why.indexOf(';') : why.length()) + "; pointed at by its address, never read"
                     : Category.EXPLICIT.said() + " (the site is on " + Fetch.SITE_LIST_NAME + ": " + SiteList.current().origin() + ")", url);
             throw lo;
         }

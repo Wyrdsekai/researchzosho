@@ -57,7 +57,11 @@ import org.researchzosho.tools.Fetch;
 import org.researchzosho.tools.Archives;
 import org.researchzosho.tools.ArchiveSearchTool;
 import org.researchzosho.tools.OldNewspapersTool;
+import org.researchzosho.tools.BookSearchTool;
+import org.researchzosho.tools.MyShelfTool;
 import org.researchzosho.tools.PodcastSearchTool;
+import org.researchzosho.tools.ProductSafetyTool;
+import org.researchzosho.tools.ProductSearchTool;
 import org.researchzosho.tools.NdlFulltextTool;
 import org.researchzosho.tools.SoftwareArchiveTool;
 import org.researchzosho.tools.VideoSitesTool;
@@ -468,6 +472,8 @@ public final class Researcher {
     private final Set<String> laneRetried = ConcurrentHashMap.newKeySet();
     private final Set<String> laneRan = ConcurrentHashMap.newKeySet();
     private final Tools tools;
+    /** What the book catalogues returned this run, for the title check and its revision; empty when none was asked. */
+    volatile Set<String> catalogueTitles = Set.of();
     private final Consumer<String> log;
     /**
      * Set by the daemon for a job: true when a person asked for the run to stop. It is checked before every turn, on every worker, and
@@ -685,6 +691,15 @@ public final class Researcher {
         synchronized (WebFetchTool.WALLS) { wallsSeenAtStart = new HashSet<>(WebFetchTool.WALLS); }
         List<String> notes = new ArrayList<>();
         String knownBlock = known == null ? "" : known;
+        // the fields' machine-made evidence (0.6.0): what a deterministic step computes before any worker — read by the planner and the
+        // writer with what the library holds, and counted as evidence by the checks
+        List<String> fieldEvidence = new ArrayList<>();
+        for (Profile p : Fields.forRun(store, ask)) {
+            try {
+                String ev = p.runEvidence(store, ask, runPolicy);
+                if (ev != null && !ev.isBlank()) { fieldEvidence.add(ev); knownBlock = knownBlock + (knownBlock.isBlank() ? "" : "\n\n") + ev; log.accept("field " + p.name() + ": " + ev.lines().count() + " line(s) of evidence made before the workers"); }
+            } catch (Exception e) { log.accept("field " + p.name() + ": its evidence could not be made (" + e.getMessage() + ")"); }
+        }
 
         // 1. Plan
         currentBudgetForProgress = budget;
@@ -704,7 +719,7 @@ public final class Researcher {
         log.accept("plan: " + open.size() + " sub-question(s), " + workersNow() + " worker(s), " + ask.ceilings());
 
         // 2/3. Rounds of workers, the critic between them
-        List<String> evidence = new ArrayList<>();
+        List<String> evidence = new ArrayList<>(fieldEvidence);
         List<String> unaffordable = new ArrayList<>();
         unaffordableFromPlan.clear();
         int rounds = 0;
@@ -1169,12 +1184,19 @@ public final class Researcher {
         List<String> numbersOff = new ArrayList<>();
         for (WriteupChecks.Unbacked u : numbersAt) numbersOff.add(u.what() + " — not in any note or source read this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
         List<String> namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, evidence));
+        // a books run: every row of a table against what the catalogues returned this run; a book none returned is marked (0.6.0)
+        catalogueTitles = runPolicy == null ? Set.of() : runPolicy.catalogue();
+        List<WriteupChecks.Unbacked> titlesAt = catalogueTitles.isEmpty() ? List.of() : WriteupChecks.titlesUnbackedAt(text, catalogueTitles);
+        List<String> titlesOff = new ArrayList<>();
+        for (WriteupChecks.Unbacked u : titlesAt) titlesOff.add(u.what() + " — in no catalogue result this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
         for (String l : numbersOff) checks.add("number " + l);
         for (String l : namesOff) checks.add("name " + l);
         for (String l : quotesOff) checks.add("quotation " + l);
+        for (String l : titlesOff) checks.add("title " + l);
         List<String> retracted = retractedAmong(refs);
         for (String l : retracted) checks.add("retracted " + l);
         runStats.put("numbers_unbacked", numbersOff.size()); runStats.put("names_unbacked", namesOff.size()); runStats.put("quotes_unbacked", quotesOff.size()); runStats.put("retracted_cited", retracted.size());
+        runStats.put("titles_unbacked", titlesOff.size());
         if (!checks.isEmpty()) { notes.add("checks: " + checks.size() + " line(s) — " + numbersOff.size() + " number(s), " + namesOff.size() + " name(s), " + quotesOff.size() + " quotation(s) unbacked, " + retracted.size() + " retracted source(s) cited"); log.accept(notes.get(notes.size() - 1)); }
         String checked = "cite-check: " + cc.checked() + " cited sentence(s) read against their source — " + cc.supported() + " supported, "
                 + cc.unsupported() + " not supported (marked), " + (cc.checked() - cc.supported() - cc.unsupported()) + " undecidable from the excerpt; "
@@ -1183,6 +1205,7 @@ public final class Researcher {
         log.accept(checked);
         // a number no note or source states is marked where it stands, as a cited sentence the source does not support is (0.5.4)
         String marked = WriteupChecks.markInline(cc.text(), numbersAt, "number not in any note or source read this run: ");
+        marked = WriteupChecks.markInline(marked, titlesAt, "no catalogue record this run: ");
         // the writer revises what the checks flagged, against the evidence; each revision goes through the check again, and only one that
         // passes replaces its sentence — the rest stand as marked, and the section after the text says what changed (0.5.4)
         Revision rev = revise(marked, evidence, refs, textByRef, unread, budget, notes);
@@ -1194,7 +1217,7 @@ public final class Researcher {
         }
         if (!checks.isEmpty()) {
             out.append("\n\n## Checks\n\nThe write-up against the evidence it was written from, mechanically. A number with a unit, a licence, a CVE id or a "
-                    + "quotation that no note or source read this run states is listed here; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
+                    + "quotation that no note or source read this run states is listed here; a book in a table that no catalogue returned this run is named; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
             for (String c : checks) out.append("- ").append(c).append('\n');
         }
         for (String pr : cc.problems()) if (pr.startsWith("cite-check stopped")) runStats.put("citecheck_cut", true);
@@ -1241,7 +1264,7 @@ public final class Researcher {
     }
 
     /** A mark the checks left in the text, with its reason. */
-    static final Pattern CHECK_MARK = Pattern.compile(" ?\\[(not supported by the cited source on check|cites a source that was not read this run|number not in any note or source read this run: [^\\]]*)\\]");
+    static final Pattern CHECK_MARK = Pattern.compile(" ?\\[(not supported by the cited source on check|cites a source that was not read this run|no catalogue record this run: [^\\]]*|number not in any note or source read this run: [^\\]]*)\\]");
     /** How many flagged sentences one revision turn is given; the rest stand as marked. */
     static final int REVISE_MOST = 12;
 
@@ -1262,6 +1285,12 @@ public final class Researcher {
                 while (end < marked.length() && next.find(end) && next.start() == end) end = next.end();
             } else end = sentenceEnd(marked, m.end());   // the mark follows a citation inside the sentence
             int start = sentenceStart(marked, m.start(), floor);
+            // a table row is one sentence whatever its cells hold ("D. Weber" is not a full stop): the whole line, marks and all
+            int lineStart = marked.lastIndexOf('\n', m.start() - 1) + 1;
+            if (lineStart < marked.length() && marked.charAt(lineStart) == '|' && lineStart >= floor) {
+                start = lineStart;
+                int lineEnd = marked.indexOf('\n', m.end()); end = lineEnd < 0 ? marked.length() : lineEnd;
+            }
             String span = marked.substring(start, end);
             List<String> whys = new ArrayList<>();
             Matcher inner = CHECK_MARK.matcher(span);
@@ -1424,6 +1453,7 @@ public final class Researcher {
         if (revised.isBlank()) return "";   // left out: nothing is claimed
         List<WriteupChecks.Unbacked> nums = WriteupChecks.numbersUnbackedAt(revised, evidence, refs, textByRef);
         if (!nums.isEmpty()) return "it states " + nums.get(0).what() + ", which no note or source read this run states";
+        if (f.why().contains("no catalogue record this run") && !WriteupChecks.titlesUnbackedAt(revised, catalogueTitles).isEmpty()) return "it still names a book no catalogue returned this run";
         boolean citeFlag = f.why().contains("not supported by the cited source") || f.why().contains("not read this run");
         if (!citeFlag) return "";
         List<CiteCheck.Ref> cited = CiteCheck.citedRefs(revised, refs);
@@ -1590,7 +1620,7 @@ public final class Researcher {
             byName.put(t.name(), t);
         }
         if (databases && Databases.any()) { byName.put("db_schema", new DbSchemaTool()); byName.put("db_query", new DbQueryTool(store)); }
-        if (store != null) byName.put("read_pages", new PagesTool(store));
+        if (store != null) { byName.put("read_pages", new PagesTool(store)); byName.put("product_safety", new ProductSafetyTool(store)); byName.put("my_shelf", new MyShelfTool(store)); }
         List<String> repos = store == null ? List.of() : codeSettles(ask, CodeTool.reposIn(store, ask.question()));
         if (!repos.isEmpty()) byName.put("read_code", new CodeTool(store, repos));
         byName.put(notebook.name(), notebook);
@@ -2012,7 +2042,7 @@ public final class Researcher {
                 + "The sections you wrote are the answer; do not repeat them here.");
         Map<String, Tool> byName = new LinkedHashMap<>();
         if (ask.web()) for (Tool t : tools.web(ask.question(), runPolicy)) if ("web_fetch".equals(t.name())) byName.put(t.name(), t);
-        if (store != null) { byName.put("read_pages", new PagesTool(store)); if (ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); } }
+        if (store != null) { byName.put("read_pages", new PagesTool(store)); byName.put("product_safety", new ProductSafetyTool(store)); byName.put("my_shelf", new MyShelfTool(store)); if (ask.shelves()) { byName.put("shelf_search", new ShelfSearchTool(store, ask.collections())); if (Holdings.size(store) > 0) byName.put("holdings", new HoldingsTool(store)); } }
         byName.put(sections.name(), sections);
         byName.put(done.name(), done);
         String notes = coverage(pieces) + "\n" + fitted("synthesis", pieces);
@@ -2883,6 +2913,8 @@ public final class Researcher {
                 // the archives and the old sources (0.5.5): in every run, the model picks which to use; a field adds rules, never tools
                 out.add(new ArchiveSearchTool().policy(p.fetchPolicy())); out.add(new OldNewspapersTool().policy(p.fetchPolicy()));
                 out.add(new NdlFulltextTool()); out.add(new SoftwareArchiveTool()); out.add(new VideoSitesTool()); out.add(new PodcastSearchTool().policy(p));
+                out.add(new ProductSearchTool());   // the shops and the catalogues (0.6.0): what is for sale now, behind the person's keys
+                out.add(new BookSearchTool().policy(p));   // the book catalogues (0.6.0): only a book they return may be named — recorded on the run's policy for the write-up's title check
                 return out;
             }
             @Override public BooleanSupplier exhausted() {

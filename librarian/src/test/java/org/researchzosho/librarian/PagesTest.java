@@ -137,12 +137,14 @@ class PagesTest {
             var qp = get(c, base + "/questions", null);
             assertTrue(qp.body().contains("tooth profiles first"));
             assertTrue(qp.headers().firstValue("Content-Security-Policy").orElse("").contains("script-src 'unsafe-inline'"), "a pick form's \"all\" box needs its inline handler allowed");
-            assertFalse(get(c, base + "/changes", null).headers().firstValue("Content-Security-Policy").orElse("").contains("script-src"), "other pages stay script-free");
+            String changesCsp = get(c, base + "/changes", null).headers().firstValue("Content-Security-Policy").orElse("");
+            assertTrue(changesCsp.startsWith("default-src 'none'") && changesCsp.contains("script-src 'unsafe-inline'") && changesCsp.contains("connect-src 'self'") && !changesCsp.contains("http"),
+                    "every page carries the chat panel (0.6.0): its own inline script and fetches of its own origin are allowed, nothing from elsewhere: " + changesCsp);
             assertTrue(get(c, base + "/changes", null).body().contains("F-0002-teeth"));
             assertTrue(get(c, base + "/jobs", null).body().contains("Nothing is running"));
             var map = get(c, base + "/map?focus=gears", null);
             assertEquals(200, map.statusCode());
-            assertTrue(map.body().contains("<nav>") && map.body().contains("id=\"c\"></canvas>") && map.body().contains("main class=\"wide\""), "the map sits in the site frame with the nav");
+            assertTrue(map.body().contains("<nav id=\"site-nav\"") && map.body().contains("id=\"c\"></canvas>") && map.body().contains("main class=\"wide\""), "the map sits in the site frame with the nav");
             assertTrue(map.headers().firstValue("content-security-policy").orElse("").contains("script-src 'unsafe-inline'"));
             assertEquals(404, get(c, base + "/entry/F-9999-nope", null).statusCode());
             assertEquals(404, get(c, base + "/nothing-here", null).statusCode(), "a stray path is still the API's 404, not a page");

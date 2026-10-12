@@ -49,7 +49,7 @@ public final class FamilyFolder {
      */
     public static Map<String, String> writers(List<Item> plan) { return credits(plan, false); }
 
-    /** Who translated which file, from the notes in the folder: "Rose Hart translated village.epub", "village.epub was translated by Rose Hart". File name → translator. */
+    /** Who translated which file, from the notes in the folder: "Ruth Hart translated village.epub", "village.epub was translated by Ruth Hart". File name → translator. */
     public static Map<String, String> translators(List<Item> plan) { return credits(plan, true); }
 
     /** The files the notes call their writer's own memoir, autobiography or diary ("it is his own memoir", "village.epub is Tom Hart's diary"). */
@@ -245,8 +245,8 @@ public final class FamilyFolder {
     }
 
     /**
-     * The name alone of the words the notes give for a writer: "Kimie Hale - my father's cousin -" is Kimie Hale, "Rose Hart (Rose Mary Hart)"
-     * is Rose Hart. Null when nothing is left.
+     * The name alone of the words the notes give for a writer: "Kimie Hale - my father's cousin -" is Kimie Hale, "Ruth Hart (Ruth Mary Hart)"
+     * is Ruth Hart. Null when nothing is left.
      */
     static String nameOnly(String words) {
         String w = words == null ? "" : words.strip().replaceFirst("^[-*•・]\\s*", "");

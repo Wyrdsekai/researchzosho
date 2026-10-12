@@ -159,7 +159,16 @@ public final class LibrarianCli {
               sharpen <question…>          refine a rough question into a better one: the question to run, what it assumed, what you already have. Runs nothing
               settings [list | set <name> <value> | unset <name>]   every setting, with its value; a key is shown only as set or not
               podcast search <words> | follow <feed> [--every N] | unfollow <feed|name> | list   shows by words; follow one: its new episodes arrive and are transcribed at night
+              podcast dna [--minutes N] | like <words>   the transcripts held read for their DNA now; the episodes like one, the same show set aside
               podcast index [download|status|remove]   the Podcast Index as a file on this machine (1.8 GB, weekly): shows by word, category and language without the API
+              owned [import <file> [--from amazon|mail|bank|google|apple] [--currency USD] | find <words> [--year Y] [--shop S] | list | recalls [check|dismiss <id>] | forget <file>]   what you own, from your own records; recall notices that may concern it
+              myshelf [profile | have <title> [--by <author>] | liked <words> [--stars N] | refresh [--minutes N] | dna [<title> [--by <author>]] [--minutes N] | like <title> [--by <author>] [--limit N] | browse [--limit N] [--seed N]]
+                                           your own shelf (the calibre setting): the books you added yourself, as a profile; whether a book is already here; your books on a subject; the catalogues of your authors read now; a book's DNA, or the shelf read for it now; the books on your shelf like one, by their DNA; a spread of your labelled books to browse
+              dna [status | records [--minutes N] | pack export <file> [--kind book|podcast] [--as <name>] | pack import <file> | pack refresh [--kind book|podcast]]
+                                           the DNA store beyond the shelf: the counts and the sharing state; the catalogue's record joined to your books' documents now; a pack of the labelled documents written, read in, or fetched from researchzosho.org when one is published
+              prefs [show | draft | set <name> <value…> | unset <name> [<value>] | export <file> | import <file> | learn]
+                                           your preferences file: what you want more and less of, each line with where it came from; drafted from your shelf, changed by you, learned from your reactions
+              react <like|dislike|seen|own> <title…> [--by <author>] [--about <title>]   write a reaction to a book down; --about names the book whose "like" list it was on
               search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
               video [status|install|start|stop|test <query>]   the keyless YouTube route: a WARP tunnel and a token provider through Docker, yt-dlp in the library's own environment
               youtube [search|channels <words…>|uploads <channel>|video <address> [--transcript]|like <channel>]   YouTube for a person: search, a channel's uploads, a video with its transcript, channels like one
@@ -701,6 +710,11 @@ public final class LibrarianCli {
                 }
                 case "settings" -> { return settingsCommand(store, args); }
                 case "podcast" -> { return podcastCommand(store, args); }
+                case "owned" -> { return ownedCommand(store, args); }
+                case "myshelf" -> { return myShelfCommand(store, args); }
+                case "prefs" -> { return prefsCommand(store, args); }
+                case "dna" -> { return dnaCommand(store, args); }
+                case "react" -> { return reactCommand(store, args); }
                 case "search" -> {
                     // which backend a search would use, and SearXNG through Docker by hand
                     String op = args.length > 2 ? args[2] : "status";
@@ -1551,10 +1565,180 @@ public final class LibrarianCli {
     }
 
     /** `researchzosho jobs [<J-…>]`: the runs, or one run — the line the CLI names after `research ask` (it was named and missing through 0.1.8). */
+    /** {@code researchzosho owned}: the ledger of what the person owns — import a file of their records, look something up, forget a file. */
+    static int myShelfCommand(LibraryStore store, String[] args) throws IOException {
+        var a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String sub = args.length > 2 ? args[2] : "profile";
+        List<String> words = new ArrayList<>();
+        try {
+            switch (sub) {
+                case "profile" -> a.put("op", "profile");
+                case "have" -> a.put("op", "have");
+                case "liked" -> a.put("op", "liked");
+                case "refresh" -> a.put("op", "refresh");
+                case "dna" -> a.put("op", "dna");
+                case "like" -> a.put("op", "like");
+                case "browse" -> a.put("op", "browse");
+                default -> { System.err.println("usage: researchzosho myshelf [profile | have <title> [--by <author>] | liked <words> [--stars N] [--limit N] | refresh [--minutes N] | dna [<title> [--by <author>]] [--minutes N] | like <title> [--by <author>] [--limit N] | browse [--limit N] [--seed N]]"); return 2; }
+            }
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--by" -> a.put("author", flagValue(args, i++));
+                    case "--stars" -> a.put("stars", Double.parseDouble(flagValue(args, i++)));
+                    case "--minutes" -> a.put("minutes", flagInt(args, i++));
+                    case "--limit" -> a.put("limit", flagInt(args, i++));
+                    case "--seed" -> a.put("seed", flagInt(args, i++));
+                    default -> { if (args[i].startsWith("--")) { System.err.println("unknown flag " + args[i]); return 2; } words.add(args[i]); }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        if (sub.equals("have")) { if (words.isEmpty()) { System.err.println("usage: researchzosho myshelf have <title> [--by <author>]"); return 2; } a.put("title", String.join(" ", words)); }
+        else if (sub.equals("dna")) { if (!words.isEmpty()) a.put("title", String.join(" ", words)); else System.out.println("Reading the shelf for its DNA now; a book takes the model about a minute."); }
+        else if (sub.equals("like")) { if (words.isEmpty()) { System.err.println("usage: researchzosho myshelf like <title> [--by <author>] [--limit N]"); return 2; } a.put("title", String.join(" ", words)); if (!a.has("limit")) a.put("limit", 10); }
+        else if (!words.isEmpty()) a.put("words", String.join(" ", words));
+        ObjectNode r;
+        try { r = new LibraryProtocol(store).myShelf(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        if ((sub.equals("profile") || sub.equals("dna") || sub.equals("like") || sub.equals("browse")) && r.hasNonNull("text")) { System.out.println(r.path("text").asText().stripTrailing()); return 0; }
+        System.out.println(r.path("summary").asText());
+        for (var f : r.path("found")) System.out.println("  " + f.path("where").asText() + ": " + f.path("detail").asText());
+        for (var b : r.path("books")) System.out.println("  " + b.asText());
+        return 0;
+    }
+
+    static int prefsCommand(LibraryStore store, String[] args) throws IOException {
+        var a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String sub = args.length > 2 ? args[2] : "show";
+        switch (sub) {
+            case "show", "draft", "learn" -> a.put("op", sub);
+            case "set" -> { if (args.length < 5) { System.err.println("usage: researchzosho prefs set <name> <value…>   (names: weight.subject, roam, popularity, words, exclude.author, prefer.mood, avoid.kind …)"); return 2; } a.put("op", "set"); a.put("name", args[3]); a.put("value", String.join(" ", Arrays.copyOfRange(args, 4, args.length))); }
+            case "unset" -> { if (args.length < 4) { System.err.println("usage: researchzosho prefs unset <name> [<value>]"); return 2; } a.put("op", "unset"); a.put("name", args[3]); if (args.length > 4) a.put("value", String.join(" ", Arrays.copyOfRange(args, 4, args.length))); }
+            case "export", "import" -> { if (args.length < 4) { System.err.println("usage: researchzosho prefs " + sub + " <file>"); return 2; } a.put("op", sub); a.put("path", Path.of(args[3]).toAbsolutePath().normalize().toString()); }
+            default -> { System.err.println("usage: researchzosho prefs [show | draft | set <name> <value…> | unset <name> [<value>] | export <file> | import <file> | learn]"); return 2; }
+        }
+        ObjectNode r;
+        try { r = new LibraryProtocol(store).prefs(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        if (sub.equals("show") || sub.equals("draft") || sub.equals("learn")) System.out.println(r.path("text").asText().stripTrailing());
+        return 0;
+    }
+
+    static int dnaCommand(LibraryStore store, String[] args) throws IOException {
+        var a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String sub = args.length > 2 ? args[2] : "status";
+        String usage = "usage: researchzosho dna [status | records [--minutes N] | pack export <file> [--kind book|podcast] [--as <name>] | pack import <file> | pack refresh [--kind book|podcast]]";
+        if (sub.equals("status")) a.put("op", "status");
+        else if (sub.equals("records")) { a.put("op", "records"); for (int i = 3; i + 1 < args.length; i++) if (args[i].equals("--minutes")) a.put("minutes", Integer.parseInt(args[i + 1])); System.out.println("Asking the catalogue for your books' records now, the labelled ones first, a few a second."); }
+        else if (sub.equals("pack") && args.length > 3) {
+            String what = args[3];
+            List<String> rest = new ArrayList<>();
+            try {
+                for (int i = 4; i < args.length; i++) {
+                    switch (args[i]) {
+                        case "--kind" -> a.put("kind", flagValue(args, i++));
+                        case "--as" -> a.put("contributor", flagValue(args, i++));
+                        default -> { if (args[i].startsWith("--")) { System.err.println("unknown flag " + args[i]); return 2; } rest.add(args[i]); }
+                    }
+                }
+            } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+            switch (what) {
+                case "export", "import" -> { if (rest.isEmpty()) { System.err.println("usage: researchzosho dna pack " + what + " <file>"); return 2; } a.put("op", "pack-" + what); a.put("path", Path.of(rest.get(0)).toAbsolutePath().normalize().toString()); }
+                case "refresh" -> a.put("op", "pack-refresh");
+                default -> { System.err.println(usage); return 2; }
+            }
+        } else { System.err.println(usage); return 2; }
+        ObjectNode r;
+        try { r = new LibraryProtocol(store).dna(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(sub.equals("status") ? r.path("text").asText() : r.path("summary").asText());
+        return 0;
+    }
+
+    static int reactCommand(LibraryStore store, String[] args) throws IOException {
+        var a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        if (args.length < 4) { System.err.println("usage: researchzosho react <like|dislike|seen|own> <title…> [--by <author>] [--about <title>]"); return 2; }
+        a.put("reaction", args[2]);
+        List<String> words = new ArrayList<>();
+        try {
+            for (int i = 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--by" -> a.put("author", flagValue(args, i++));
+                    case "--about" -> a.put("about", flagValue(args, i++));
+                    default -> { if (args[i].startsWith("--")) { System.err.println("unknown flag " + args[i]); return 2; } words.add(args[i]); }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        if (words.isEmpty()) { System.err.println("usage: researchzosho react <like|dislike|seen|own> <title…> [--by <author>] [--about <title>]"); return 2; }
+        a.put("title", String.join(" ", words));
+        ObjectNode r;
+        try { r = new LibraryProtocol(store).react(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        return 0;
+    }
+
+    static int ownedCommand(LibraryStore store, String[] args) throws IOException {
+        var a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        String sub = args.length > 2 ? args[2] : "status";
+        List<String> words = new ArrayList<>();
+        try {
+            switch (sub) {
+                case "import" -> { if (args.length < 4) { System.err.println("usage: researchzosho owned import <file|folder> [--from amazon|mail|bank|google|apple] [--currency USD]"); return 2; } a.put("op", "import"); a.put("path", Path.of(args[3]).toAbsolutePath().normalize().toString()); }
+                case "find" -> a.put("op", "find");
+                case "list", "status" -> a.put("op", sub);
+                case "recalls" -> { a.put("op", "recalls"); if (args.length > 3 && args[3].equals("check")) a.put("check", true); else if (args.length > 4 && args[3].equals("dismiss")) a.put("hit", args[4]); }
+                case "forget" -> { if (args.length < 4) { System.err.println("usage: researchzosho owned forget <file as `researchzosho owned` lists it>"); return 2; } a.put("op", "forget"); a.put("file", args[3]); }
+                default -> { System.err.println("usage: researchzosho owned [import <file> | find <words> | list | recalls [check | dismiss <id>] | forget <file>]"); return 2; }
+            }
+            for (int i = sub.equals("import") || sub.equals("forget") ? 4 : sub.equals("recalls") ? args.length : 3; i < args.length; i++) {
+                switch (args[i]) {
+                    case "--from" -> a.put("kind", flagValue(args, i++));
+                    case "--currency" -> a.put("currency", flagValue(args, i++));
+                    case "--year" -> a.put("year", flagValue(args, i++));
+                    case "--shop" -> a.put("shop", flagValue(args, i++));
+                    case "--limit" -> a.put("limit", flagInt(args, i++));
+                    default -> { if (args[i].startsWith("--")) { System.err.println("unknown flag " + args[i]); return 2; } words.add(args[i]); }
+                }
+            }
+        } catch (IllegalArgumentException e) { System.err.println(e.getMessage()); return 2; }
+        if (!words.isEmpty()) a.put("words", String.join(" ", words));
+        ObjectNode r;
+        try { r = new LibraryProtocol(store).owned(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+        System.out.println(r.path("summary").asText());
+        for (var l : r.path("lines")) {
+            String price = l.path("total").asText().isEmpty() ? l.path("unit_price").asText() : l.path("total").asText();
+            System.out.println("  " + l.path("date").asText() + "  " + l.path("shop").asText() + "  " + l.path("title").asText()
+                    + (l.path("qty").asInt(1) > 1 ? "  ×" + l.path("qty").asInt() : "") + (price.isEmpty() ? "" : "  " + price + " " + l.path("currency").asText()).stripTrailing()
+                    + (l.path("confidence").asText().equals("guessed") ? "  (read from the mail's text; may be off)" : ""));
+        }
+        if (sub.equals("status") || sub.equals("list") && r.path("count").asInt() == 0) {
+            for (var s : r.path("sources")) System.out.println("  " + s.path("kind").asText() + ": " + s.path("file").asText() + " — " + s.path("lines").asInt() + " line(s), " + (s.path("records_begin").asText().isEmpty() ? "no dates" : s.path("records_begin").asText() + " to " + s.path("records_end").asText()));
+            var shops = r.path("shops");
+            if (shops.size() > 0) { StringBuilder sb = new StringBuilder("  shops: "); int n = 0; var it = shops.fields(); while (it.hasNext() && n++ < 12) { var e = it.next(); sb.append(e.getKey()).append(' ').append(e.getValue().asInt()).append(it.hasNext() && n < 12 ? ", " : ""); } System.out.println(sb); }
+        }
+        for (var h : r.path("hits")) System.out.println("  " + h.path("id").asText() + "  " + h.path("notice_title").asText() + " (" + h.path("feed").asText().toUpperCase(Locale.ROOT) + ", " + h.path("notice_date").asText() + ")\n      you have: " + h.path("line_title").asText() + " — " + h.path("shop").asText() + ", " + h.path("line_date").asText() + "\n      found by " + h.path("why").asText() + " (" + h.path("tier").asText() + ")\n      " + h.path("notice_url").asText());
+        for (var n : r.path("notes")) System.out.println("  " + n.asText());
+        if (r.hasNonNull("next")) System.out.println("  " + r.path("next").asText());
+        return 0;
+    }
+
     /** {@code researchzosho podcast}: shows by words; follow and unfollow a show (a serials shelf whose query names the feed); the followed shows. */
     static int podcastCommand(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
         switch (op) {
+            case "dna", "like" -> {
+                var a = new ObjectMapper().createObjectNode();
+                a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+                a.put("kind", "podcast");
+                if (op.equals("dna")) { a.put("op", "podcast-read"); for (int i = 3; i + 1 < args.length; i++) if (args[i].equals("--minutes")) a.put("minutes", Integer.parseInt(args[i + 1])); System.out.println("Reading the transcripts the library holds for their DNA now; an episode takes the model about a minute."); }
+                else { String words = args.length > 3 ? String.join(" ", Arrays.asList(args).subList(3, args.length)) : ""; if (words.isBlank()) { System.err.println("usage: researchzosho podcast like <words of the episode's show or title>"); return 2; } a.put("op", "podcast-like"); a.put("words", words); }
+                ObjectNode r;
+                try { r = new LibraryProtocol(store).dna(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+                System.out.println(r.hasNonNull("text") ? r.path("text").asText().stripTrailing() : r.path("summary").asText());
+                return 0;
+            }
             case "search" -> {
                 String words = args.length > 3 ? String.join(" ", Arrays.asList(args).subList(3, args.length)) : "";
                 if (words.isBlank()) { System.err.println("usage: researchzosho podcast search <words…>"); return 2; }
@@ -1612,7 +1796,7 @@ public final class LibrarianCli {
                 if (n == 0) System.out.println("No podcast is followed. researchzosho podcast follow <feed address> follows one; podcast search <words> finds the address.");
                 return 0;
             }
-            default -> { System.err.println("usage: researchzosho podcast search <words> | follow <feed> [--every N] | unfollow <feed|name> | list | index [download|status|remove]"); return 2; }
+            default -> { System.err.println("usage: researchzosho podcast search <words> | follow <feed> [--every N] | unfollow <feed|name> | list | index [download|status|remove] | dna [--minutes N] | like <words>"); return 2; }
         }
     }
 

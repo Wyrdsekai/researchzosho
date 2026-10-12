@@ -22,7 +22,7 @@ class GenealogyProfileTest {
             + "0 @I2@ INDI\n1 NAME Simon /Ellis/\n1 SEX M\n1 FAMS @F1@\n1 FAMC @F3@\n1 BIRT\n2 DATE 12 SEP 1964\n2 PLAC Dunedin, New Zealand\n"
             + "0 @I3@ INDI\n1 NAME Ana /Rangi/\n1 SEX F\n1 FAMS @F1@\n1 BIRT\n2 DATE 2 FEB 1966\n2 PLAC Rotorua, New Zealand\n"
             + "0 @I4@ INDI\n1 NAME Arthur /Ellis/\n1 SEX M\n1 FAMS @F3@\n1 BIRT\n2 DATE 1934\n2 PLAC Christchurch, New Zealand\n1 IMMI\n2 DATE 1952\n2 PLAC Lyttelton, New Zealand\n1 DEAT\n2 DATE 2011\n2 PLAC Dunedin, New Zealand\n1 OCCU Fitter and turner\n"
-            + "0 @I5@ INDI\n1 NAME Rose /Morgan/\n1 SEX F\n1 FAMS @F3@\n1 BIRT\n2 DATE 1938\n2 PLAC Dunedin, New Zealand\n1 DEAT\n2 DATE 2019\n2 PLAC Dunedin, New Zealand\n"
+            + "0 @I5@ INDI\n1 NAME Ruth /Morgan/\n1 SEX F\n1 FAMS @F3@\n1 BIRT\n2 DATE 1938\n2 PLAC Dunedin, New Zealand\n1 DEAT\n2 DATE 2019\n2 PLAC Dunedin, New Zealand\n"
             + "0 @F1@ FAM\n1 HUSB @I2@\n1 WIFE @I3@\n1 CHIL @I1@\n1 MARR\n2 DATE 9 JAN 1988\n2 PLAC Wellington, New Zealand\n"
             + "0 @F3@ FAM\n1 HUSB @I4@\n1 WIFE @I5@\n1 CHIL @I2@\n"
             + "0 TRLR\n";
@@ -31,7 +31,7 @@ class GenealogyProfileTest {
     void everyProfileIsOnUntilTheLibrarySaysOtherwise(@TempDir Path home) throws Exception {
         Path tmp = home.resolve("researchzosho-library");
         LibraryStore store = new LibraryStore(tmp); store.init();
-        assertEquals(Set.of("science", "genealogy", "software", "youtube", "podcasts"), Profiles.enabled(store), "no profiles: line, every profile on");
+        assertEquals(Set.of("science", "genealogy", "software", "youtube", "podcasts", "shopping", "books"), Profiles.enabled(store), "no profiles: line, every profile on");
         assertTrue(Vocabulary.read(Graph.predicatesFile(store)).isEmpty(), "being on writes nothing");
         assertEquals("married-to", FamilyPeople.view(store).predicateOf("spouse of"), "genealogy's own view resolves a kinship wording with no enable step");
         assertEquals("adopted-by", FamilyPeople.view(store).predicateOf("婿養子"));
@@ -151,13 +151,13 @@ class GenealogyProfileTest {
         assertFalse(g.node("arthur ellis").mayBeLiving(), "died 2011");
         assertTrue(g.node("mara ellis").mayBeLiving());
         Graph.Neighbourhood nb = g.around("Arthur Ellis", 1, 50);
-        assertTrue(nb.nodes().stream().anyMatch(n -> n.id().equals("rose morgan")));
+        assertTrue(nb.nodes().stream().anyMatch(n -> n.id().equals("ruth morgan")));
         assertTrue(nb.nodes().stream().anyMatch(n -> n.id().equals("simon ellis")), "the living son is on the map like anybody else");
         // a second import adds nothing
         assertEquals(0, Gedcom.importFile(store, ged).findings());
         // export the subgraph: everyone in the family, the living too
         String out = Gedcom.export(store, "Arthur Ellis");
-        assertTrue(out.contains("1 NAME Arthur /Ellis/") && out.contains("1 NAME Rose /Morgan/"), out);
+        assertTrue(out.contains("1 NAME Arthur /Ellis/") && out.contains("1 NAME Ruth /Morgan/"), out);
         assertTrue(out.contains("1 IMMI\n2 DATE 1952\n2 PLAC Lyttelton, New Zealand"), out);
         assertTrue(out.contains("1 OCCU Fitter and turner"), out);
         assertTrue(out.contains("Simon /Ellis/") && out.contains("Mara /Ellis/"), out);

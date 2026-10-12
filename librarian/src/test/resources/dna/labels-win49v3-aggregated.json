@@ -1,0 +1,8528 @@
+{
+ "16669": {
+  "title": "Places to Be, People to Kill",
+  "windows": 12,
+  "mood": {
+   "menacing": 0.5,
+   "suspenseful": 0.42,
+   "sardonic": 0.25,
+   "haunting": 0.25
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.08,
+    "sd": 0.49,
+    "agreement": 0.75,
+    "arc": [
+     -1,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 0.67,
+    "sd": 0.62,
+    "agreement": 0.5,
+    "arc": [
+     1,
+     2,
+     0,
+     0,
+     1,
+     1,
+     0,
+     1,
+     1,
+     0,
+     1,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    11
+   ],
+   [
+    "character",
+    1
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.95,
+    "v": 0.17
+   },
+   "mood.romantic": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.08
+   },
+   "mood.menacing": {
+    "f": 0.5,
+    "r": 0.53,
+    "v": 0.5
+   },
+   "mood.suspenseful": {
+    "f": 0.42,
+    "r": 0.33,
+    "v": 0.42
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.5
+   },
+   "mood.darkly humorous": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": 0.08
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.5
+   },
+   "mood.haunting": {
+    "f": 0.25,
+    "r": 0.7,
+    "v": 0.25
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.27,
+    "v": 0.25
+   },
+   "scale.pace": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": 0.69,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.08,
+    "c": 0.75,
+    "t": 0.65,
+    "end": 0.25
+   },
+   "scale.humour": {
+    "v": 0.67,
+    "c": 0.69,
+    "t": -0.62,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "pace=faster": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "style=about the same": {
+    "f": 0.75,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "style=more ornate": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "humour=a little": {
+    "f": 0.5,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "humour=frequent": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "humour=none": {
+    "f": 0.42,
+    "r": 0.56,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "drive=character": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.82,
+    "turns": 4,
+    "jump": -2,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.55,
+    "follows": [
+     "sardonic>darkly humorous",
+     "darkly humorous>menacing",
+     "menacing>sardonic"
+    ]
+   },
+   "topic.fantasy": {
+    "f": 0.67,
+    "r": 0.56,
+    "v": 0.5
+   },
+   "topic.supernatural": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.0
+   },
+   "topic.assassination": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.military": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.survival": {
+    "f": 0.17,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "topic.magic": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.rescue": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.anthology": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.assassins": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.comedy": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.smuggling": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.spy": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ },
+ "19712": {
+  "title": "Flowers for Algernon",
+  "windows": 12,
+  "mood": {
+   "haunting": 0.75,
+   "bittersweet": 0.42,
+   "bleak": 0.42,
+   "nostalgic": 0.17
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.08,
+    "sd": 0.86,
+    "agreement": 0.42,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     0,
+     0,
+     1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.75,
+    "sd": 0.43,
+    "agreement": 0.75,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     0,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 0.25,
+    "sd": 0.6,
+    "agreement": 0.83,
+    "arc": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     2,
+     0,
+     0,
+     0
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    8
+   ],
+   [
+    "description",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.42,
+    "r": 0.51,
+    "v": 0.42
+   },
+   "mood.menacing": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "mood.bittersweet": {
+    "f": 0.42,
+    "r": 0.49,
+    "v": 0.42
+   },
+   "mood.gentle": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": 0.08
+   },
+   "mood.lyrical": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.08
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.92
+   },
+   "mood.haunting": {
+    "f": 0.75,
+    "r": 0.59,
+    "v": 0.75
+   },
+   "mood.nostalgic": {
+    "f": 0.17,
+    "r": 0.14,
+    "v": 0.17
+   },
+   "scale.pace": {
+    "v": -0.92,
+    "c": 0.86,
+    "t": -0.04,
+    "end": -1.0
+   },
+   "scale.darkness": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": 0.69,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.08,
+    "c": 0.57,
+    "t": 0.81,
+    "end": 0.0
+   },
+   "scale.humour": {
+    "v": 0.75,
+    "c": 0.78,
+    "t": 0.5,
+    "end": 1.0
+   },
+   "scale.scale": {
+    "v": 0.25,
+    "c": 0.8,
+    "t": 0.35,
+    "end": 0.5
+   },
+   "pace=slower": {
+    "f": 0.92,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.33,
+    "r": 0.32,
+    "v": -0.5
+   },
+   "style=more ornate": {
+    "f": 0.42,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "style=about the same": {
+    "f": 0.25,
+    "r": 0.67,
+    "v": 0.5
+   },
+   "humour=none": {
+    "f": 0.25,
+    "r": 0.3,
+    "v": -0.25
+   },
+   "humour=a little": {
+    "f": 0.75,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "scale=one person's inner life": {
+    "f": 0.83,
+    "r": 0.48,
+    "v": -0.25
+   },
+   "scale=a few people": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.67,
+    "r": 0.43,
+    "v": -0.5
+   },
+   "drive=description": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.18,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.42
+   },
+   "dyn.darkness": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.25
+   },
+   "dyn.humour": {
+    "delta": 0.45,
+    "turns": 3,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.67
+   },
+   "dyn.mood": {
+    "switches": 0.64,
+    "follows": [
+     "haunting>nostalgic",
+     "nostalgic>haunting",
+     "haunting>menacing"
+    ]
+   },
+   "topic.disability": {
+    "f": 0.5,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.memory": {
+    "f": 0.42,
+    "r": 0.35,
+    "v": -0.75
+   },
+   "topic.psychology": {
+    "f": 0.42,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.intelligence": {
+    "f": 0.25,
+    "r": 0.3,
+    "v": -0.25
+   },
+   "topic.identity": {
+    "f": 0.25,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "topic.isolation": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.autobiography": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.experiment": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.education": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.bullying": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.childhood": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.intellect": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "19054": {
+  "title": "Chi - Book 3",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.58,
+   "whimsical": 0.42,
+   "sardonic": 0.42,
+   "gritty": 0.25
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.25,
+    "sd": 0.83,
+    "agreement": 0.5,
+    "arc": [
+     1,
+     0,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     0,
+     -1,
+     1,
+     0,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 1.5,
+    "sd": 0.5,
+    "agreement": 0.5,
+    "arc": [
+     1,
+     1,
+     2,
+     2,
+     1,
+     2,
+     1,
+     2,
+     2,
+     1,
+     1,
+     2
+    ]
+   },
+   "scale": {
+    "mean": 1.08,
+    "sd": 0.49,
+    "agreement": 0.75,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     0,
+     1,
+     2,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    9
+   ],
+   [
+    "description",
+    2
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.menacing": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.17
+   },
+   "mood.suspenseful": {
+    "f": 0.58,
+    "r": 0.42,
+    "v": 0.58
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.5
+   },
+   "mood.gentle": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.darkly humorous": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": 0.17
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.48,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.42,
+    "r": 0.64,
+    "v": 0.42
+   },
+   "mood.sardonic": {
+    "f": 0.42,
+    "r": 0.56,
+    "v": 0.42
+   },
+   "scale.pace": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.25,
+    "c": 0.59,
+    "t": -1.27,
+    "end": -0.25
+   },
+   "scale.style": {
+    "v": 0.92,
+    "c": 0.86,
+    "t": 0.42,
+    "end": 1.0
+   },
+   "scale.humour": {
+    "v": 1.5,
+    "c": 0.75,
+    "t": 0.23,
+    "end": 1.5
+   },
+   "scale.scale": {
+    "v": 1.08,
+    "c": 0.84,
+    "t": 0.12,
+    "end": 1.25
+   },
+   "pace=faster": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.5,
+    "r": 0.36,
+    "v": -0.5
+   },
+   "darkness=about the same": {
+    "f": 0.25,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "darkness=lighter": {
+    "f": 0.25,
+    "r": 0.73,
+    "v": 0.5
+   },
+   "style=about the same": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "style=more ornate": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.5,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "humour=frequent": {
+    "f": 0.5,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.75,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.75,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "drive=description": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "dyn.pace": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 1.09,
+    "turns": 5,
+    "jump": -2,
+    "jump_at": 0.42
+   },
+   "dyn.style": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.64,
+    "turns": 3,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.55,
+    "turns": 3,
+    "jump": 1,
+    "jump_at": 0.42
+   },
+   "dyn.mood": {
+    "switches": 0.91,
+    "follows": [
+     "gritty>whimsical",
+     "whimsical>darkly humorous",
+     "darkly humorous>menacing"
+    ]
+   },
+   "topic.science fiction": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "topic.escape": {
+    "f": 0.25,
+    "r": 0.39,
+    "v": 0.0
+   },
+   "topic.mystery": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.travel": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.25
+   },
+   "topic.crime": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.thailand": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.transgender": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.conspiracy": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.paranormal": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.trade": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.deception": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.infidelity": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "11375": {
+  "title": "Bram Stoker's Dracula",
+  "windows": 12,
+  "mood": {
+   "haunting": 0.58,
+   "suspenseful": 0.5,
+   "menacing": 0.42,
+   "bittersweet": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 0.33,
+    "sd": 0.94,
+    "agreement": 0.67,
+    "arc": [
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.5,
+    "sd": 0.5,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     1,
+     1,
+     0,
+     0,
+     1,
+     1,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 0.5,
+    "sd": 0.65,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     0,
+     1,
+     1,
+     2,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 0.83,
+    "sd": 0.37,
+    "agreement": 0.83,
+    "arc": [
+     0,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    7
+   ],
+   [
+    "description",
+    2
+   ]
+  ],
+  "signature": {
+   "mood.menacing": {
+    "f": 0.42,
+    "r": 0.44,
+    "v": 0.42
+   },
+   "mood.suspenseful": {
+    "f": 0.5,
+    "r": 0.48,
+    "v": 0.5
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.bittersweet": {
+    "f": 0.25,
+    "r": 0.76,
+    "v": 0.25
+   },
+   "mood.darkly humorous": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.08
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.83
+   },
+   "mood.haunting": {
+    "f": 0.58,
+    "r": 0.58,
+    "v": 0.58
+   },
+   "mood.sardonic": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": 0.08
+   },
+   "mood.nostalgic": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": 0.08
+   },
+   "scale.pace": {
+    "v": 0.33,
+    "c": 0.53,
+    "t": 1.08,
+    "end": 0.5
+   },
+   "scale.darkness": {
+    "v": 0.92,
+    "c": 0.86,
+    "t": 0.42,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.5,
+    "c": 0.75,
+    "t": 0.69,
+    "end": 0.75
+   },
+   "scale.humour": {
+    "v": 0.5,
+    "c": 0.68,
+    "t": -1.15,
+    "end": 0.0
+   },
+   "scale.scale": {
+    "v": 0.83,
+    "c": 0.88,
+    "t": 0.77,
+    "end": 1.0
+   },
+   "pace=slower": {
+    "f": 0.33,
+    "r": 0.34,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.67,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.5,
+    "r": 0.36,
+    "v": -0.5
+   },
+   "style=more ornate": {
+    "f": 0.5,
+    "r": 0.64,
+    "v": 0.5
+   },
+   "humour=a little": {
+    "f": 0.33,
+    "r": 0.23,
+    "v": -0.75
+   },
+   "humour=none": {
+    "f": 0.58,
+    "r": 0.68,
+    "v": 0.75
+   },
+   "humour=frequent": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.0
+   },
+   "scale=one person's inner life": {
+    "f": 0.17,
+    "r": 0.05,
+    "v": -0.5
+   },
+   "scale=a few people": {
+    "f": 0.83,
+    "r": 0.59,
+    "v": 0.5
+   },
+   "drive=description": {
+    "f": 0.17,
+    "r": 0.05,
+    "v": -0.5
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.58,
+    "r": 0.64,
+    "v": 0.5
+   },
+   "drive=character": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.91,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.17
+   },
+   "dyn.darkness": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.45,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.45,
+    "turns": 2,
+    "jump": -1,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.mood": {
+    "switches": 0.82,
+    "follows": [
+     "suspenseful>haunting",
+     "nostalgic>menacing",
+     "menacing>haunting"
+    ]
+   },
+   "topic.vampire": {
+    "f": 0.67,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "topic.supernatural": {
+    "f": 0.5,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "topic.diary": {
+    "f": 0.42,
+    "r": 0.27,
+    "v": -0.75
+   },
+   "topic.gothic": {
+    "f": 0.33,
+    "r": 0.27,
+    "v": -0.5
+   },
+   "topic.journal": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.madness": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.5
+   },
+   "topic.marriage": {
+    "f": 0.17,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "topic.horror": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.strategy": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.25
+   },
+   "topic.transylvania": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.travel": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.imprisonment": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ },
+ "19635": {
+  "title": "Arc City Stories: A Cyberpunk Anthology",
+  "windows": 12,
+  "mood": {
+   "gritty": 0.75,
+   "sardonic": 0.42,
+   "suspenseful": 0.33,
+   "menacing": 0.25
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.0,
+    "sd": 0.71,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     0,
+     0,
+     1,
+     1,
+     0,
+     0,
+     -1,
+     1,
+     0,
+     -1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.75,
+    "sd": 0.43,
+    "agreement": 0.75,
+    "arc": [
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     0,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    10
+   ],
+   [
+    "character",
+    2
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "mood.menacing": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.33,
+    "r": 0.27,
+    "v": 0.33
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.42
+   },
+   "mood.lyrical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.gritty": {
+    "f": 0.75,
+    "r": 0.47,
+    "v": 0.75
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.33
+   },
+   "mood.sardonic": {
+    "f": 0.42,
+    "r": 0.67,
+    "v": 0.42
+   },
+   "scale.pace": {
+    "v": 0.92,
+    "c": 0.86,
+    "t": 0.35,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.0,
+    "c": 0.65,
+    "t": -1.0,
+    "end": -0.25
+   },
+   "scale.humour": {
+    "v": 0.75,
+    "c": 0.78,
+    "t": -0.04,
+    "end": 0.75
+   },
+   "scale.scale": {
+    "v": 0.92,
+    "c": 0.91,
+    "t": 0.42,
+    "end": 1.0
+   },
+   "pace=faster": {
+    "f": 0.92,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "style=about the same": {
+    "f": 0.5,
+    "r": 0.35,
+    "v": -0.5
+   },
+   "style=more ornate": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "style=plainer": {
+    "f": 0.25,
+    "r": 0.85,
+    "v": 0.5
+   },
+   "humour=a little": {
+    "f": 0.75,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "humour=none": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.0
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "drive=plot": {
+    "f": 0.83,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "dyn.pace": {
+    "delta": 0.18,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.64,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.67
+   },
+   "dyn.humour": {
+    "delta": 0.55,
+    "turns": 3,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.82,
+    "follows": [
+     "suspenseful>menacing",
+     "menacing>suspenseful",
+     "gritty>suspenseful"
+    ]
+   },
+   "topic.cyberpunk": {
+    "f": 0.58,
+    "r": 0.4,
+    "v": -0.5
+   },
+   "topic.dystopia": {
+    "f": 0.33,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.domestic violence": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": -0.25
+   },
+   "topic.action": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.family conflict": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.delivery": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.urban": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.drug trafficking": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.performance art": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.urban life": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.assassination": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.power dynamics": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "19471": {
+  "title": "The Nemesis",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.5,
+   "haunting": 0.33,
+   "menacing": 0.25,
+   "gritty": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.58,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 0.33,
+    "sd": 0.47,
+    "agreement": 0.67,
+    "arc": [
+     0,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.92,
+    "sd": 1.04,
+    "agreement": 0.42,
+    "arc": [
+     2,
+     3,
+     1,
+     2,
+     1,
+     3,
+     3,
+     0,
+     1,
+     3,
+     3,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    6
+   ],
+   [
+    "character",
+    6
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": 0.08
+   },
+   "mood.romantic": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.17
+   },
+   "mood.menacing": {
+    "f": 0.25,
+    "r": 0.24,
+    "v": 0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.5,
+    "r": 0.48,
+    "v": 0.5
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.bittersweet": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.08
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.61,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.67
+   },
+   "mood.haunting": {
+    "f": 0.33,
+    "r": 0.39,
+    "v": 0.33
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.17
+   },
+   "scale.pace": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": -0.23,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": -0.85,
+    "end": 0.5
+   },
+   "scale.style": {
+    "v": 0.58,
+    "c": 0.75,
+    "t": -0.42,
+    "end": 0.5
+   },
+   "scale.humour": {
+    "v": 0.33,
+    "c": 0.76,
+    "t": 0.46,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.92,
+    "c": 0.65,
+    "t": -0.19,
+    "end": 2.0
+   },
+   "pace=faster": {
+    "f": 0.92,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "pace=slower": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "darkness=lighter": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "style=more ornate": {
+    "f": 0.58,
+    "r": 0.43,
+    "v": -0.5
+   },
+   "style=about the same": {
+    "f": 0.42,
+    "r": 0.6,
+    "v": 0.5
+   },
+   "humour=none": {
+    "f": 0.67,
+    "r": 0.43,
+    "v": -0.25
+   },
+   "humour=a little": {
+    "f": 0.33,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.17,
+    "r": 0.14,
+    "v": -0.5
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.42,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "scale=a few people": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.5,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "drive=character": {
+    "f": 0.5,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.58
+   },
+   "dyn.darkness": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.style": {
+    "delta": 0.55,
+    "turns": 4,
+    "jump": -1,
+    "jump_at": 0.33
+   },
+   "dyn.humour": {
+    "delta": 0.45,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 1.36,
+    "turns": 5,
+    "jump": -3,
+    "jump_at": 0.58
+   },
+   "dyn.mood": {
+    "switches": 1.0,
+    "follows": [
+     "haunting>suspenseful",
+     "suspenseful>menacing",
+     "menacing>suspenseful"
+    ]
+   },
+   "topic.space opera": {
+    "f": 0.5,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "topic.romance": {
+    "f": 0.42,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "topic.political intrigue": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "topic.rebellion": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.0
+   },
+   "topic.identity": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.military strategy": {
+    "f": 0.17,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.betrayal": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "topic.apocalypse": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.colonization": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.fantasy": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.science fiction": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.thriller": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "19067": {
+  "title": "The Sum of Us: Tales of the Bonded and Bound",
+  "windows": 12,
+  "mood": {
+   "haunting": 0.58,
+   "bleak": 0.33,
+   "suspenseful": 0.25,
+   "gritty": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -0.25,
+    "sd": 0.83,
+    "agreement": 0.5,
+    "arc": [
+     -1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     0,
+     0,
+     0,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.08,
+    "sd": 0.76,
+    "agreement": 0.42,
+    "arc": [
+     -1,
+     -1,
+     1,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     0,
+     1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.42,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1,
+     1,
+     0,
+     1,
+     1,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.42,
+    "sd": 0.76,
+    "agreement": 0.5,
+    "arc": [
+     2,
+     1,
+     0,
+     2,
+     1,
+     3,
+     1,
+     1,
+     1,
+     2,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    6
+   ],
+   [
+    "description",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.33,
+    "r": 0.73,
+    "v": 0.33
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.suspenseful": {
+    "f": 0.25,
+    "r": 0.21,
+    "v": 0.25
+   },
+   "mood.bittersweet": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.08
+   },
+   "mood.gentle": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.17
+   },
+   "mood.lyrical": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.17
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.42,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.83
+   },
+   "mood.haunting": {
+    "f": 0.58,
+    "r": 0.52,
+    "v": 0.58
+   },
+   "mood.sardonic": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.08
+   },
+   "mood.nostalgic": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": 0.08
+   },
+   "scale.pace": {
+    "v": -0.25,
+    "c": 0.59,
+    "t": -1.27,
+    "end": -0.75
+   },
+   "scale.darkness": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": 0.85,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.08,
+    "c": 0.62,
+    "t": 0.5,
+    "end": 0.0
+   },
+   "scale.humour": {
+    "v": 0.42,
+    "c": 0.75,
+    "t": 0.42,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.42,
+    "c": 0.75,
+    "t": 0.27,
+    "end": 1.5
+   },
+   "pace=slower": {
+    "f": 0.5,
+    "r": 0.59,
+    "v": 0.5
+   },
+   "pace=faster": {
+    "f": 0.25,
+    "r": 0.18,
+    "v": -0.75
+   },
+   "pace=about the same": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "style=plainer": {
+    "f": 0.25,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "style=more ornate": {
+    "f": 0.33,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "style=about the same": {
+    "f": 0.42,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "humour=none": {
+    "f": 0.58,
+    "r": 0.43,
+    "v": -0.25
+   },
+   "humour=a little": {
+    "f": 0.42,
+    "r": 0.6,
+    "v": 0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.33,
+    "r": 0.52,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.5,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.17,
+    "r": 0.18,
+    "v": -0.5
+   },
+   "drive=character": {
+    "f": 0.5,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "drive=description": {
+    "f": 0.25,
+    "r": 0.79,
+    "v": 0.5
+   },
+   "dyn.pace": {
+    "delta": 0.55,
+    "turns": 0,
+    "jump": 2,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": 2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.91,
+    "turns": 5,
+    "jump": 2,
+    "jump_at": 0.17
+   },
+   "dyn.humour": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 1.09,
+    "turns": 6,
+    "jump": 2,
+    "jump_at": 0.25
+   },
+   "dyn.mood": {
+    "switches": 0.64,
+    "follows": [
+     "suspenseful>haunting",
+     "gentle>suspenseful",
+     "haunting>suspenseful"
+    ]
+   },
+   "topic.survival": {
+    "f": 0.33,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.caregiving": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.0
+   },
+   "topic.family": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "topic.mental health": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.fantasy": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "topic.disability": {
+    "f": 0.17,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "topic.grief": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.anthology": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.military": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.rescue": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.war": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.depression": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "19651": {
+  "title": "Lockdown Tales.",
+  "windows": 12,
+  "mood": {
+   "gritty": 0.67,
+   "menacing": 0.5,
+   "sardonic": 0.25,
+   "suspenseful": 0.25
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 0.75,
+    "sd": 0.6,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": -0.08,
+    "sd": 0.76,
+    "agreement": 0.42,
+    "arc": [
+     -1,
+     1,
+     -1,
+     0,
+     0,
+     0,
+     -1,
+     -1,
+     0,
+     1,
+     1,
+     0
+    ]
+   },
+   "humour": {
+    "mean": 0.5,
+    "sd": 0.5,
+    "agreement": 0.5,
+    "arc": [
+     1,
+     1,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     0,
+     1,
+     0,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.25,
+    "sd": 0.83,
+    "agreement": 0.75,
+    "arc": [
+     3,
+     1,
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     3,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    11
+   ],
+   [
+    "description",
+    1
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": 0.17
+   },
+   "mood.menacing": {
+    "f": 0.5,
+    "r": 0.56,
+    "v": 0.5
+   },
+   "mood.suspenseful": {
+    "f": 0.25,
+    "r": 0.61,
+    "v": 0.25
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.67
+   },
+   "mood.gritty": {
+    "f": 0.67,
+    "r": 0.47,
+    "v": 0.67
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.33
+   },
+   "mood.haunting": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.17
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.42,
+    "v": 0.25
+   },
+   "scale.pace": {
+    "v": 0.75,
+    "c": 0.7,
+    "t": -0.04,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.92,
+    "c": 0.86,
+    "t": -0.04,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": -0.08,
+    "c": 0.62,
+    "t": 0.81,
+    "end": 0.5
+   },
+   "scale.humour": {
+    "v": 0.5,
+    "c": 0.75,
+    "t": -0.15,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.25,
+    "c": 0.72,
+    "t": -0.42,
+    "end": 1.5
+   },
+   "pace=faster": {
+    "f": 0.83,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "pace=slower": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "style=plainer": {
+    "f": 0.33,
+    "r": 0.34,
+    "v": -0.5
+   },
+   "style=more ornate": {
+    "f": 0.25,
+    "r": 0.61,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.42,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.5,
+    "r": 0.47,
+    "v": 0.0
+   },
+   "humour=none": {
+    "f": 0.5,
+    "r": 0.53,
+    "v": 0.0
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.75,
+    "r": 0.54,
+    "v": 0.0
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "drive=description": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.58
+   },
+   "dyn.darkness": {
+    "delta": 0.18,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.5
+   },
+   "dyn.style": {
+    "delta": 0.82,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.73,
+    "turns": 5,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.64,
+    "follows": [
+     "menacing>gritty",
+     "bleak>menacing",
+     "gritty>menacing"
+    ]
+   },
+   "topic.science fiction": {
+    "f": 0.67,
+    "r": 0.41,
+    "v": -0.5
+   },
+   "topic.survival": {
+    "f": 0.67,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "topic.combat": {
+    "f": 0.25,
+    "r": 0.7,
+    "v": 0.25
+   },
+   "topic.cyberpunk": {
+    "f": 0.17,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.repair": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.apocalypse": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.religion": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.war": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.interrogation": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.transhumanism": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.dystopia": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.slavery": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "74123": {
+  "title": "The Worlds Trilogy",
+  "windows": 12,
+  "mood": {
+   "sardonic": 0.58,
+   "nostalgic": 0.33,
+   "bleak": 0.33,
+   "gritty": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 0.0,
+    "sd": 1.0,
+    "agreement": 0.5,
+    "arc": [
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.58,
+    "sd": 0.76,
+    "agreement": 0.75,
+    "arc": [
+     0,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": -0.25,
+    "sd": 0.72,
+    "agreement": 0.42,
+    "arc": [
+     1,
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     -1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.08,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.83,
+    "sd": 0.8,
+    "agreement": 0.42,
+    "arc": [
+     3,
+     3,
+     1,
+     1,
+     1,
+     3,
+     1,
+     2,
+     2,
+     2,
+     2,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    4
+   ],
+   [
+    "description",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.33,
+    "r": 0.52,
+    "v": 0.33
+   },
+   "mood.menacing": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": 0.0
+   },
+   "mood.suspenseful": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.gentle": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.lyrical": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": 0.08
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.33
+   },
+   "mood.haunting": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.58,
+    "r": 0.52,
+    "v": 0.58
+   },
+   "mood.nostalgic": {
+    "f": 0.33,
+    "r": 0.5,
+    "v": 0.33
+   },
+   "scale.pace": {
+    "v": 0.0,
+    "c": 0.5,
+    "t": -0.77,
+    "end": 0.0
+   },
+   "scale.darkness": {
+    "v": 0.58,
+    "c": 0.62,
+    "t": 0.12,
+    "end": 0.5
+   },
+   "scale.style": {
+    "v": -0.25,
+    "c": 0.64,
+    "t": -0.27,
+    "end": -0.5
+   },
+   "scale.humour": {
+    "v": 1.08,
+    "c": 0.86,
+    "t": -0.27,
+    "end": 1.0
+   },
+   "scale.scale": {
+    "v": 1.83,
+    "c": 0.73,
+    "t": -0.69,
+    "end": 1.75
+   },
+   "pace=slower": {
+    "f": 0.5,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "pace=faster": {
+    "f": 0.5,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.75,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.42,
+    "r": 0.49,
+    "v": -0.25
+   },
+   "style=about the same": {
+    "f": 0.42,
+    "r": 0.58,
+    "v": 0.5
+   },
+   "humour=a little": {
+    "f": 0.92,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "humour=frequent": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.25,
+    "r": 0.18,
+    "v": -0.5
+   },
+   "scale=a few people": {
+    "f": 0.42,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.33,
+    "r": 0.77,
+    "v": 0.75
+   },
+   "drive=description": {
+    "f": 0.25,
+    "r": 0.39,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.33,
+    "r": 0.41,
+    "v": -0.25
+   },
+   "drive=idea": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.25,
+    "r": 0.67,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 1.09,
+    "turns": 3,
+    "jump": 2,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.64,
+    "turns": 2,
+    "jump": -2,
+    "jump_at": 0.17
+   },
+   "dyn.style": {
+    "delta": 0.55,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.18,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": -2,
+    "jump_at": 0.17
+   },
+   "dyn.mood": {
+    "switches": 0.82,
+    "follows": [
+     "lyrical>sardonic",
+     "sardonic>whimsical",
+     "whimsical>menacing"
+    ]
+   },
+   "topic.space colonization": {
+    "f": 0.42,
+    "r": 0.4,
+    "v": -0.25
+   },
+   "topic.survival": {
+    "f": 0.42,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "topic.science fiction": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.post-apocalyptic": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "topic.sociology": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.diary": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.violence": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "topic.genealogy": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.economic warfare": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.political intrigue": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.genetic engineering": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.relationships": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "52497": {
+  "title": "The Dead Alive",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.58,
+   "sardonic": 0.5,
+   "haunting": 0.33,
+   "bleak": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 0.42,
+    "sd": 0.86,
+    "agreement": 0.67,
+    "arc": [
+     -1,
+     -1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.58,
+    "sd": 0.76,
+    "agreement": 0.75,
+    "arc": [
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.08,
+    "sd": 0.64,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     -1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.42,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     0,
+     1,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.08,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    8
+   ],
+   [
+    "character",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.25,
+    "r": 0.67,
+    "v": 0.25
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.menacing": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.08
+   },
+   "mood.suspenseful": {
+    "f": 0.58,
+    "r": 0.53,
+    "v": 0.58
+   },
+   "mood.heart-warming": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.0
+   },
+   "mood.gritty": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": 0.08
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.75
+   },
+   "mood.haunting": {
+    "f": 0.33,
+    "r": 0.36,
+    "v": 0.33
+   },
+   "mood.sardonic": {
+    "f": 0.5,
+    "r": 0.44,
+    "v": 0.5
+   },
+   "scale.pace": {
+    "v": 0.42,
+    "c": 0.57,
+    "t": 0.88,
+    "end": 0.5
+   },
+   "scale.darkness": {
+    "v": 0.58,
+    "c": 0.62,
+    "t": -1.35,
+    "end": 0.0
+   },
+   "scale.style": {
+    "v": 0.08,
+    "c": 0.68,
+    "t": -1.35,
+    "end": -0.25
+   },
+   "scale.humour": {
+    "v": 0.42,
+    "c": 0.75,
+    "t": -0.73,
+    "end": 0.25
+   },
+   "scale.scale": {
+    "v": 1.08,
+    "c": 0.91,
+    "t": 0.42,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 0.25,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.67,
+    "r": 0.58,
+    "v": 0.5
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.75,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "darkness=lighter": {
+    "f": 0.17,
+    "r": 0.95,
+    "v": 0.5
+   },
+   "style=more ornate": {
+    "f": 0.25,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "style=about the same": {
+    "f": 0.58,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.17,
+    "r": 0.95,
+    "v": 0.5
+   },
+   "humour=a little": {
+    "f": 0.42,
+    "r": 0.33,
+    "v": -0.5
+   },
+   "humour=none": {
+    "f": 0.58,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.25,
+    "r": 0.12,
+    "v": -0.75
+   },
+   "drive=plot": {
+    "f": 0.67,
+    "r": 0.58,
+    "v": 0.5
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.17
+   },
+   "dyn.darkness": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.83
+   },
+   "dyn.style": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.humour": {
+    "delta": 0.45,
+    "turns": 2,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.92
+   },
+   "dyn.mood": {
+    "switches": 0.55,
+    "follows": [
+     "sardonic>haunting",
+     "haunting>suspenseful",
+     "suspenseful>sardonic"
+    ]
+   },
+   "topic.murder": {
+    "f": 0.42,
+    "r": 0.64,
+    "v": 0.5
+   },
+   "topic.romance": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "topic.trial": {
+    "f": 0.33,
+    "r": 0.64,
+    "v": 0.5
+   },
+   "topic.rural life": {
+    "f": 0.25,
+    "r": 0.21,
+    "v": -0.5
+   },
+   "topic.mystery": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "topic.confession": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.family conflict": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.suspicion": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.family dynamics": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.medical crisis": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.isolation": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.social dynamics": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ },
+ "42837": {
+  "title": "Poems By the Way",
+  "windows": 12,
+  "mood": {
+   "lyrical": 0.83,
+   "haunting": 0.67,
+   "nostalgic": 0.17,
+   "romantic": 0.08
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.5,
+    "sd": 0.87,
+    "agreement": 0.75,
+    "arc": [
+     -1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.5,
+    "sd": 0.96,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     3,
+     3,
+     1,
+     1,
+     3,
+     0,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "description",
+    6
+   ],
+   [
+    "idea",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.romantic": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": 0.0
+   },
+   "mood.lyrical": {
+    "f": 0.83,
+    "r": 0.44,
+    "v": 0.83
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.67
+   },
+   "mood.haunting": {
+    "f": 0.67,
+    "r": 0.51,
+    "v": 0.67
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "mood.sardonic": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.0
+   },
+   "mood.nostalgic": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.17
+   },
+   "scale.pace": {
+    "v": -1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": -1.0
+   },
+   "scale.darkness": {
+    "v": 0.5,
+    "c": 0.57,
+    "t": -0.08,
+    "end": 0.5
+   },
+   "scale.style": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": -0.85,
+    "end": 0.5
+   },
+   "scale.humour": {
+    "v": 0.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 0.0
+   },
+   "scale.scale": {
+    "v": 1.5,
+    "c": 0.68,
+    "t": -0.54,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=lighter": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.75,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=none": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.58,
+    "r": 0.48,
+    "v": 0.25
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": -0.5
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "drive=description": {
+    "f": 0.5,
+    "r": 0.3,
+    "v": -0.75
+   },
+   "drive=idea": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.25,
+    "r": 0.82,
+    "v": 0.75
+   },
+   "dyn.pace": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.73,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.humour": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 1.0,
+    "turns": 2,
+    "jump": -3,
+    "jump_at": 0.58
+   },
+   "dyn.mood": {
+    "switches": 0.55,
+    "follows": [
+     "haunting>lyrical",
+     "lyrical>haunting",
+     "lyrical>upbeat"
+    ]
+   },
+   "topic.romance": {
+    "f": 0.5,
+    "r": 0.5,
+    "v": 0.25
+   },
+   "topic.poetry": {
+    "f": 0.33,
+    "r": 0.36,
+    "v": -0.5
+   },
+   "topic.nature": {
+    "f": 0.25,
+    "r": 0.21,
+    "v": -0.5
+   },
+   "topic.medieval": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.labor": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.mythology": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.5
+   },
+   "topic.death": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.folklore": {
+    "f": 0.17,
+    "r": 0.82,
+    "v": 0.5
+   },
+   "topic.icelandic saga": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.victorian literature": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.loss": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.social justice": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "18207": {
+  "title": "Star Trek: The Next Generation - 071 - Double Helix 1 - Infection",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.75,
+   "gritty": 0.5,
+   "sardonic": 0.33,
+   "menacing": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.5,
+    "sd": 0.76,
+    "agreement": 0.67,
+    "arc": [
+     1,
+     0,
+     0,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": -0.25,
+    "sd": 0.43,
+    "agreement": 0.75,
+    "arc": [
+     0,
+     0,
+     -1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     -1,
+     0,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.0,
+    "sd": 0.41,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     0,
+     1,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.42,
+    "sd": 0.76,
+    "agreement": 0.75,
+    "arc": [
+     3,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     1,
+     3
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    12
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.menacing": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": 0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.75,
+    "r": 0.49,
+    "v": 0.75
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.33
+   },
+   "mood.gritty": {
+    "f": 0.5,
+    "r": 0.56,
+    "v": 0.5
+   },
+   "mood.whimsical": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": -0.42
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.33,
+    "r": 0.41,
+    "v": 0.33
+   },
+   "scale.pace": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.5,
+    "c": 0.62,
+    "t": -0.31,
+    "end": 0.5
+   },
+   "scale.style": {
+    "v": -0.25,
+    "c": 0.78,
+    "t": -0.42,
+    "end": -0.5
+   },
+   "scale.humour": {
+    "v": 1.0,
+    "c": 0.8,
+    "t": -0.15,
+    "end": 0.75
+   },
+   "scale.scale": {
+    "v": 1.42,
+    "c": 0.75,
+    "t": 0.19,
+    "end": 1.75
+   },
+   "pace=faster": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.67,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "darkness=about the same": {
+    "f": 0.17,
+    "r": 0.14,
+    "v": -0.5
+   },
+   "darkness=lighter": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.75,
+    "r": 0.44,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.25,
+    "r": 0.67,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.83,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "humour=frequent": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "humour=none": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.75,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "drive=plot": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "dyn.pace": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.73,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.5
+   },
+   "dyn.style": {
+    "delta": 0.45,
+    "turns": 3,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.humour": {
+    "delta": 0.36,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.5
+   },
+   "dyn.scale": {
+    "delta": 0.55,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.36,
+    "follows": [
+     "menacing>suspenseful",
+     "suspenseful>sardonic",
+     "sardonic>suspenseful"
+    ]
+   },
+   "topic.space opera": {
+    "f": 0.5,
+    "r": 0.32,
+    "v": -0.75
+   },
+   "topic.science fiction": {
+    "f": 0.5,
+    "r": 0.53,
+    "v": 0.0
+   },
+   "topic.plague": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.mystery": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.medical mystery": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "topic.military": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.medical emergency": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.military conflict": {
+    "f": 0.17,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "topic.quarantine": {
+    "f": 0.17,
+    "r": 0.82,
+    "v": 0.5
+   },
+   "topic.bioterrorism": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.espionage": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.epidemic": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ },
+ "25951": {
+  "title": "Albrecht",
+  "windows": 12,
+  "mood": {
+   "haunting": 0.58,
+   "lyrical": 0.5,
+   "romantic": 0.25,
+   "suspenseful": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.5,
+    "sd": 0.76,
+    "agreement": 0.67,
+    "arc": [
+     1,
+     -1,
+     -1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     0,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 0.58,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     0,
+     0,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     0,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.17,
+    "sd": 0.37,
+    "agreement": 0.83,
+    "arc": [
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    8
+   ],
+   [
+    "description",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.romantic": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "mood.menacing": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": 0.0
+   },
+   "mood.suspenseful": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.bittersweet": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.08
+   },
+   "mood.gentle": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": 0.08
+   },
+   "mood.lyrical": {
+    "f": 0.5,
+    "r": 0.3,
+    "v": 0.5
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.58
+   },
+   "mood.haunting": {
+    "f": 0.58,
+    "r": 0.51,
+    "v": 0.58
+   },
+   "mood.upbeat": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.sardonic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.nostalgic": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.17
+   },
+   "scale.pace": {
+    "v": -0.83,
+    "c": 0.72,
+    "t": 0.54,
+    "end": -0.5
+   },
+   "scale.darkness": {
+    "v": 0.5,
+    "c": 0.62,
+    "t": 0.92,
+    "end": 0.75
+   },
+   "scale.style": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.humour": {
+    "v": 0.58,
+    "c": 0.75,
+    "t": 0.35,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.17,
+    "c": 0.88,
+    "t": -0.39,
+    "end": 1.0
+   },
+   "pace=slower": {
+    "f": 0.92,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": 0.25
+   },
+   "darkness=darker": {
+    "f": 0.67,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.17,
+    "r": 0.14,
+    "v": -0.5
+   },
+   "darkness=about the same": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "style=more ornate": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "humour=none": {
+    "f": 0.42,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "humour=a little": {
+    "f": 0.58,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "scale=a few people": {
+    "f": 0.83,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "drive=description": {
+    "f": 0.25,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "drive=character": {
+    "f": 0.67,
+    "r": 0.56,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.75
+   },
+   "dyn.darkness": {
+    "delta": 0.55,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.45,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.91,
+    "follows": [
+     "romantic>lyrical",
+     "lyrical>haunting",
+     "haunting>romantic"
+    ]
+   },
+   "topic.medieval": {
+    "f": 0.58,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "topic.marriage": {
+    "f": 0.5,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "topic.medieval romance": {
+    "f": 0.33,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.courtship": {
+    "f": 0.33,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.supernatural": {
+    "f": 0.25,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "topic.romance": {
+    "f": 0.25,
+    "r": 0.18,
+    "v": -0.75
+   },
+   "topic.nobility": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.superstition": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "topic.castle life": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.folklore": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.hunting": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.gothic": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   }
+  }
+ },
+ "10299": {
+  "title": "Soothsayer",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.58,
+   "sardonic": 0.58,
+   "gritty": 0.42,
+   "whimsical": 0.17
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 0.83,
+    "sd": 0.37,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     0,
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": 0.67,
+    "sd": 0.62,
+    "agreement": 0.75,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.0,
+    "sd": 0.41,
+    "agreement": 0.83,
+    "arc": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     0,
+     0,
+     0,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.17,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     3,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    9
+   ],
+   [
+    "character",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.0
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.menacing": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.08
+   },
+   "mood.suspenseful": {
+    "f": 0.58,
+    "r": 0.42,
+    "v": 0.58
+   },
+   "mood.heart-warming": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": -0.42
+   },
+   "mood.gritty": {
+    "f": 0.42,
+    "r": 0.4,
+    "v": 0.42
+   },
+   "mood.whimsical": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": -0.08
+   },
+   "mood.sardonic": {
+    "f": 0.58,
+    "r": 0.61,
+    "v": 0.58
+   },
+   "scale.pace": {
+    "v": 0.83,
+    "c": 0.81,
+    "t": 0.31,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": 0.67,
+    "c": 0.69,
+    "t": -0.08,
+    "end": 0.5
+   },
+   "scale.style": {
+    "v": 0.0,
+    "c": 0.8,
+    "t": -0.31,
+    "end": -0.25
+   },
+   "scale.humour": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.scale": {
+    "v": 1.17,
+    "c": 0.82,
+    "t": -0.85,
+    "end": 1.0
+   },
+   "pace=faster": {
+    "f": 0.83,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "pace=about the same": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "darkness=about the same": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.75,
+    "r": 0.53,
+    "v": 0.0
+   },
+   "darkness=lighter": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.83,
+    "r": 0.44,
+    "v": -0.25
+   },
+   "style=more ornate": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "drive=plot": {
+    "f": 0.75,
+    "r": 0.54,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.25,
+    "r": 0.39,
+    "v": -0.25
+   },
+   "dyn.pace": {
+    "delta": 0.36,
+    "turns": 2,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.darkness": {
+    "delta": 0.64,
+    "turns": 2,
+    "jump": -2,
+    "jump_at": 0.75
+   },
+   "dyn.style": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.58
+   },
+   "dyn.humour": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.73,
+    "follows": [
+     "whimsical>suspenseful",
+     "suspenseful>sardonic",
+     "sardonic>suspenseful"
+    ]
+   },
+   "topic.science fiction": {
+    "f": 0.58,
+    "r": 0.39,
+    "v": -0.5
+   },
+   "topic.space opera": {
+    "f": 0.33,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.adventure": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": -0.25
+   },
+   "topic.bounty hunters": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "topic.confrontation": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.prophecy": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.hostage": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "topic.heist": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.crime": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.childhood": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.precognition": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.protection": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   }
+  }
+ },
+ "66991": {
+  "title": "The Web of Time",
+  "windows": 12,
+  "mood": {
+   "lyrical": 0.42,
+   "haunting": 0.25,
+   "sardonic": 0.25,
+   "bittersweet": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -0.67,
+    "sd": 0.75,
+    "agreement": 0.83,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.0,
+    "sd": 0.91,
+    "agreement": 0.42,
+    "arc": [
+     1,
+     -1,
+     -1,
+     0,
+     -1,
+     1,
+     -1,
+     1,
+     1,
+     1,
+     0,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.67,
+    "sd": 0.75,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     2,
+     0,
+     0,
+     0,
+     1,
+     2,
+     0,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.17,
+    "sd": 0.37,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    9
+   ],
+   [
+    "description",
+    1
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.17
+   },
+   "mood.romantic": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.0
+   },
+   "mood.menacing": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": -0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.08
+   },
+   "mood.heart-warming": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "mood.bittersweet": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "mood.gentle": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": 0.08
+   },
+   "mood.darkly humorous": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.08
+   },
+   "mood.lyrical": {
+    "f": 0.42,
+    "r": 0.42,
+    "v": 0.42
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.33
+   },
+   "mood.haunting": {
+    "f": 0.25,
+    "r": 0.39,
+    "v": 0.25
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "mood.nostalgic": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": 0.08
+   },
+   "scale.pace": {
+    "v": -0.67,
+    "c": 0.63,
+    "t": 0.46,
+    "end": -0.5
+   },
+   "scale.darkness": {
+    "v": 0.0,
+    "c": 0.54,
+    "t": 0.38,
+    "end": 0.25
+   },
+   "scale.style": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": -0.85,
+    "end": 0.5
+   },
+   "scale.humour": {
+    "v": 0.67,
+    "c": 0.63,
+    "t": -0.31,
+    "end": 0.75
+   },
+   "scale.scale": {
+    "v": 1.17,
+    "c": 0.88,
+    "t": 0.15,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 0.83,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "darkness=darker": {
+    "f": 0.42,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.42,
+    "r": 0.44,
+    "v": -0.25
+   },
+   "darkness=about the same": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=none": {
+    "f": 0.5,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.33,
+    "r": 0.32,
+    "v": -0.5
+   },
+   "humour=frequent": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "scale=a few people": {
+    "f": 0.83,
+    "r": 0.48,
+    "v": 0.0
+   },
+   "scale=a community or an institution": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "drive=character": {
+    "f": 0.75,
+    "r": 0.48,
+    "v": 0.0
+   },
+   "drive=description": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.42
+   },
+   "dyn.darkness": {
+    "delta": 1.09,
+    "turns": 4,
+    "jump": -2,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.humour": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": -2,
+    "jump_at": 0.42
+   },
+   "dyn.scale": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.mood": {
+    "switches": 1.0,
+    "follows": [
+     "haunting>gentle",
+     "gentle>lyrical",
+     "lyrical>heart-warming"
+    ]
+   },
+   "topic.family": {
+    "f": 0.33,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.poverty": {
+    "f": 0.25,
+    "r": 0.15,
+    "v": -0.75
+   },
+   "topic.alcoholism": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.community": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.5
+   },
+   "topic.faith": {
+    "f": 0.17,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "topic.friendship": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "topic.domestic life": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.marriage": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.charity": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.dinner": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.labor": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.philosophy": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ },
+ "16272": {
+  "title": "Hilldiggers",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.67,
+   "gritty": 0.58,
+   "sardonic": 0.33,
+   "bleak": 0.17
+  },
+  "least": "heart-warming",
+  "scales": {
+   "pace": {
+    "mean": 0.75,
+    "sd": 0.6,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.92,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "style": {
+    "mean": 0.0,
+    "sd": 0.41,
+    "agreement": 0.83,
+    "arc": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     -1,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "humour": {
+    "mean": 0.58,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 2.25,
+    "sd": 0.92,
+    "agreement": 0.58,
+    "arc": [
+     3,
+     2,
+     1,
+     1,
+     3,
+     3,
+     3,
+     3,
+     3,
+     1,
+     1,
+     3
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    11
+   ],
+   [
+    "idea",
+    1
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": 0.17
+   },
+   "mood.menacing": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.17
+   },
+   "mood.suspenseful": {
+    "f": 0.67,
+    "r": 0.5,
+    "v": 0.67
+   },
+   "mood.heart-warming": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.5
+   },
+   "mood.gritty": {
+    "f": 0.58,
+    "r": 0.53,
+    "v": 0.58
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.5
+   },
+   "mood.haunting": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.33,
+    "r": 0.32,
+    "v": 0.33
+   },
+   "scale.pace": {
+    "v": 0.75,
+    "c": 0.7,
+    "t": -0.5,
+    "end": 0.5
+   },
+   "scale.darkness": {
+    "v": 0.92,
+    "c": 0.86,
+    "t": 0.42,
+    "end": 1.0
+   },
+   "scale.style": {
+    "v": 0.0,
+    "c": 0.8,
+    "t": 0.31,
+    "end": 0.25
+   },
+   "scale.humour": {
+    "v": 0.58,
+    "c": 0.75,
+    "t": -0.88,
+    "end": 0.25
+   },
+   "scale.scale": {
+    "v": 2.25,
+    "c": 0.69,
+    "t": 0.04,
+    "end": 2.0
+   },
+   "pace=faster": {
+    "f": 0.83,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "pace=slower": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.92,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.83,
+    "r": 0.44,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.58,
+    "r": 0.35,
+    "v": -0.75
+   },
+   "humour=none": {
+    "f": 0.42,
+    "r": 0.71,
+    "v": 0.75
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.58,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "scale=a few people": {
+    "f": 0.33,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.darkness": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.58
+   },
+   "dyn.humour": {
+    "delta": 0.36,
+    "turns": 2,
+    "jump": -1,
+    "jump_at": 0.42
+   },
+   "dyn.scale": {
+    "delta": 0.73,
+    "turns": 0,
+    "jump": 2,
+    "jump_at": 0.33
+   },
+   "dyn.mood": {
+    "switches": 0.82,
+    "follows": [
+     "menacing>suspenseful",
+     "sardonic>bleak",
+     "bleak>gritty"
+    ]
+   },
+   "topic.military strategy": {
+    "f": 0.33,
+    "r": 0.77,
+    "v": 0.75
+   },
+   "topic.space warfare": {
+    "f": 0.33,
+    "r": 0.77,
+    "v": 0.75
+   },
+   "topic.artificial intelligence": {
+    "f": 0.25,
+    "r": 0.39,
+    "v": -0.25
+   },
+   "topic.science fiction": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": -0.5
+   },
+   "topic.space opera": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.war": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.military": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.politics": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.alien culture": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "topic.betrayal": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.cybernetics": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "topic.mystery": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   }
+  }
+ },
+ "8627": {
+  "title": "Red Mars",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.42,
+   "nostalgic": 0.33,
+   "lyrical": 0.25,
+   "haunting": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": -0.17,
+    "sd": 0.8,
+    "agreement": 0.42,
+    "arc": [
+     -1,
+     0,
+     -1,
+     0,
+     -1,
+     0,
+     1,
+     0,
+     -1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": 0.33,
+    "sd": 0.75,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     1,
+     0,
+     0,
+     1,
+     1,
+     1,
+     0,
+     -1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.42,
+    "sd": 0.49,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     0,
+     0,
+     1,
+     0,
+     0,
+     1,
+     1,
+     0,
+     0,
+     0
+    ]
+   },
+   "humour": {
+    "mean": 0.67,
+    "sd": 0.47,
+    "agreement": 0.67,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     1,
+     0,
+     0,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 2.08,
+    "sd": 0.64,
+    "agreement": 0.58,
+    "arc": [
+     2,
+     2,
+     2,
+     2,
+     1,
+     3,
+     2,
+     1,
+     2,
+     3,
+     3,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    5
+   ],
+   [
+    "description",
+    4
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.17
+   },
+   "mood.menacing": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.0
+   },
+   "mood.suspenseful": {
+    "f": 0.42,
+    "r": 0.6,
+    "v": 0.42
+   },
+   "mood.heart-warming": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.08
+   },
+   "mood.lyrical": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.25
+   },
+   "mood.gritty": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": 0.25
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.83
+   },
+   "mood.haunting": {
+    "f": 0.25,
+    "r": 0.3,
+    "v": 0.25
+   },
+   "mood.sardonic": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": 0.17
+   },
+   "mood.nostalgic": {
+    "f": 0.33,
+    "r": 0.55,
+    "v": 0.33
+   },
+   "mood.violent": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "scale.pace": {
+    "v": -0.17,
+    "c": 0.6,
+    "t": 0.85,
+    "end": 0.0
+   },
+   "scale.darkness": {
+    "v": 0.33,
+    "c": 0.63,
+    "t": -0.46,
+    "end": 0.0
+   },
+   "scale.style": {
+    "v": 0.42,
+    "c": 0.75,
+    "t": -0.58,
+    "end": 0.25
+   },
+   "scale.humour": {
+    "v": 0.67,
+    "c": 0.76,
+    "t": -0.92,
+    "end": 0.25
+   },
+   "scale.scale": {
+    "v": 2.08,
+    "c": 0.79,
+    "t": 0.58,
+    "end": 2.5
+   },
+   "pace=slower": {
+    "f": 0.42,
+    "r": 0.45,
+    "v": 0.0
+   },
+   "pace=about the same": {
+    "f": 0.33,
+    "r": 0.36,
+    "v": -0.5
+   },
+   "pace=faster": {
+    "f": 0.25,
+    "r": 0.76,
+    "v": 0.5
+   },
+   "darkness=about the same": {
+    "f": 0.33,
+    "r": 0.27,
+    "v": -0.75
+   },
+   "darkness=darker": {
+    "f": 0.5,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.17,
+    "r": 0.86,
+    "v": 0.5
+   },
+   "style=more ornate": {
+    "f": 0.42,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "style=about the same": {
+    "f": 0.58,
+    "r": 0.6,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.67,
+    "r": 0.36,
+    "v": -0.75
+   },
+   "humour=none": {
+    "f": 0.33,
+    "r": 0.77,
+    "v": 0.75
+   },
+   "scale=a community or an institution": {
+    "f": 0.58,
+    "r": 0.4,
+    "v": -0.5
+   },
+   "scale=a few people": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a nation, a world or an age": {
+    "f": 0.25,
+    "r": 0.73,
+    "v": 0.5
+   },
+   "drive=description": {
+    "f": 0.33,
+    "r": 0.25,
+    "v": -0.5
+   },
+   "drive=character": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.0
+   },
+   "drive=plot": {
+    "f": 0.42,
+    "r": 0.67,
+    "v": 0.5
+   },
+   "dyn.pace": {
+    "delta": 1.09,
+    "turns": 6,
+    "jump": 2,
+    "jump_at": 0.75
+   },
+   "dyn.darkness": {
+    "delta": 0.82,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.75
+   },
+   "dyn.style": {
+    "delta": 0.45,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.humour": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.33
+   },
+   "dyn.scale": {
+    "delta": 0.73,
+    "turns": 3,
+    "jump": 2,
+    "jump_at": 0.42
+   },
+   "dyn.mood": {
+    "switches": 0.91,
+    "follows": [
+     "sardonic>suspenseful",
+     "suspenseful>gritty",
+     "gritty>nostalgic"
+    ]
+   },
+   "topic.colonization": {
+    "f": 0.5,
+    "r": 0.56,
+    "v": 0.25
+   },
+   "topic.mars": {
+    "f": 0.5,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "topic.sociology": {
+    "f": 0.17,
+    "r": 0.05,
+    "v": -0.5
+   },
+   "topic.architecture": {
+    "f": 0.17,
+    "r": 0.18,
+    "v": -0.5
+   },
+   "topic.space travel": {
+    "f": 0.17,
+    "r": 0.18,
+    "v": -0.5
+   },
+   "topic.engineering": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.science fiction": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "topic.conspiracy": {
+    "f": 0.17,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "topic.reunion": {
+    "f": 0.17,
+    "r": 0.82,
+    "v": 0.25
+   },
+   "topic.history": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.radiation": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.construction": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "5140": {
+  "title": "Rubberband Boy",
+  "windows": 12,
+  "mood": {
+   "whimsical": 1.0,
+   "upbeat": 0.42,
+   "darkly humorous": 0.25,
+   "sardonic": 0.17
+  },
+  "least": "bleak",
+  "scales": {
+   "pace": {
+    "mean": 1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   },
+   "darkness": {
+    "mean": -1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": -0.58,
+    "sd": 0.64,
+    "agreement": 0.67,
+    "arc": [
+     -1,
+     0,
+     -1,
+     -1,
+     0,
+     1,
+     0,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 2.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2
+    ]
+   },
+   "scale": {
+    "mean": 1.08,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    9
+   ],
+   [
+    "character",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.42
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.17
+   },
+   "mood.darkly humorous": {
+    "f": 0.25,
+    "r": 0.24,
+    "v": 0.25
+   },
+   "mood.lyrical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.whimsical": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 1.0
+   },
+   "mood.upbeat": {
+    "f": 0.42,
+    "r": 0.44,
+    "v": 0.42
+   },
+   "mood.sardonic": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.17
+   },
+   "scale.pace": {
+    "v": 1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 1.0
+   },
+   "scale.darkness": {
+    "v": -1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": -1.0
+   },
+   "scale.style": {
+    "v": -0.58,
+    "c": 0.68,
+    "t": -0.5,
+    "end": -1.0
+   },
+   "scale.humour": {
+    "v": 2.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": 2.0
+   },
+   "scale.scale": {
+    "v": 1.08,
+    "c": 0.91,
+    "t": -0.04,
+    "end": 1.0
+   },
+   "pace=faster": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "darkness=lighter": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "style=plainer": {
+    "f": 0.67,
+    "r": 0.57,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.25,
+    "r": 0.33,
+    "v": -0.25
+   },
+   "style=more ornate": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "humour=frequent": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.0
+   },
+   "drive=character": {
+    "f": 0.25,
+    "r": 0.3,
+    "v": -0.5
+   },
+   "drive=plot": {
+    "f": 0.75,
+    "r": 0.57,
+    "v": 0.5
+   },
+   "dyn.pace": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.darkness": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 0.18,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.42
+   },
+   "dyn.mood": {
+    "switches": 0.0,
+    "follows": []
+   },
+   "topic.school": {
+    "f": 0.92,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "topic.childhood": {
+    "f": 0.42,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.friendship": {
+    "f": 0.33,
+    "r": 0.34,
+    "v": -0.5
+   },
+   "topic.adventure": {
+    "f": 0.25,
+    "r": 0.61,
+    "v": 0.25
+   },
+   "topic.misadventure": {
+    "f": 0.17,
+    "r": 0.05,
+    "v": -0.5
+   },
+   "topic.comedy": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.pranks": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.humor": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.prank": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.zombies": {
+    "f": 0.17,
+    "r": 0.86,
+    "v": 0.5
+   },
+   "topic.misunderstanding": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.chaos": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.0
+   }
+  }
+ },
+ "62069": {
+  "title": "Storm-Bound; or, A Vacation Among the Snow Drifts",
+  "windows": 12,
+  "mood": {
+   "suspenseful": 0.5,
+   "gritty": 0.33,
+   "heart-warming": 0.25,
+   "sardonic": 0.25
+  },
+  "least": "whimsical",
+  "scales": {
+   "pace": {
+    "mean": 0.0,
+    "sd": 0.71,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     0,
+     0,
+     -1,
+     1,
+     0,
+     -1,
+     0,
+     0,
+     1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": -0.58,
+    "sd": 0.76,
+    "agreement": 0.75,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     1,
+     -1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": -0.5,
+    "sd": 0.5,
+    "agreement": 0.5,
+    "arc": [
+     -1,
+     0,
+     0,
+     0,
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     -1,
+     0,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.0,
+    "sd": 0.41,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.08,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    9
+   ],
+   [
+    "character",
+    2
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.08
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.5,
+    "r": 0.5,
+    "v": 0.5
+   },
+   "mood.heart-warming": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.25
+   },
+   "mood.gentle": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.17
+   },
+   "mood.lyrical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.gritty": {
+    "f": 0.33,
+    "r": 0.41,
+    "v": 0.33
+   },
+   "mood.whimsical": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.haunting": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.upbeat": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.49,
+    "v": 0.25
+   },
+   "mood.nostalgic": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.08
+   },
+   "scale.pace": {
+    "v": 0.0,
+    "c": 0.65,
+    "t": 0.23,
+    "end": 0.25
+   },
+   "scale.darkness": {
+    "v": -0.58,
+    "c": 0.62,
+    "t": 0.35,
+    "end": -0.25
+   },
+   "scale.style": {
+    "v": -0.5,
+    "c": 0.75,
+    "t": -0.15,
+    "end": -0.5
+   },
+   "scale.humour": {
+    "v": 1.0,
+    "c": 0.8,
+    "t": -0.69,
+    "end": 0.75
+   },
+   "scale.scale": {
+    "v": 1.08,
+    "c": 0.91,
+    "t": 0.42,
+    "end": 1.25
+   },
+   "pace=about the same": {
+    "f": 0.5,
+    "r": 0.35,
+    "v": -0.5
+   },
+   "pace=slower": {
+    "f": 0.25,
+    "r": 0.61,
+    "v": 0.0
+   },
+   "pace=faster": {
+    "f": 0.25,
+    "r": 0.7,
+    "v": 0.5
+   },
+   "darkness=lighter": {
+    "f": 0.75,
+    "r": 0.46,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.17,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "darkness=about the same": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "style=plainer": {
+    "f": 0.5,
+    "r": 0.53,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.5,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "humour=a little": {
+    "f": 0.83,
+    "r": 0.48,
+    "v": 0.0
+   },
+   "humour=frequent": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "humour=none": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "drive=plot": {
+    "f": 0.75,
+    "r": 0.47,
+    "v": 0.0
+   },
+   "drive=character": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.82,
+    "turns": 3,
+    "jump": 2,
+    "jump_at": 0.33
+   },
+   "dyn.darkness": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.25
+   },
+   "dyn.style": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": 1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.92
+   },
+   "dyn.mood": {
+    "switches": 0.64,
+    "follows": [
+     "upbeat>suspenseful",
+     "suspenseful>sardonic",
+     "sardonic>bleak"
+    ]
+   },
+   "topic.adventure": {
+    "f": 0.83,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.scouting": {
+    "f": 0.5,
+    "r": 0.41,
+    "v": -0.25
+   },
+   "topic.winter": {
+    "f": 0.33,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.survival": {
+    "f": 0.25,
+    "r": 0.18,
+    "v": -0.75
+   },
+   "topic.hunting": {
+    "f": 0.25,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "topic.wildlife": {
+    "f": 0.25,
+    "r": 0.67,
+    "v": 0.25
+   },
+   "topic.boy scouts": {
+    "f": 0.17,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "topic.friendship": {
+    "f": 0.17,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "topic.navigation": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.snow": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.camping": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.nature": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   }
+  }
+ },
+ "22424": {
+  "title": "A Pair of Schoolgirls: A Story of School Days",
+  "windows": 12,
+  "mood": {
+   "gentle": 0.5,
+   "nostalgic": 0.42,
+   "whimsical": 0.33,
+   "suspenseful": 0.25
+  },
+  "least": "menacing",
+  "scales": {
+   "pace": {
+    "mean": -0.25,
+    "sd": 0.92,
+    "agreement": 0.58,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     1,
+     1,
+     -1,
+     1,
+     -1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": -0.67,
+    "sd": 0.75,
+    "agreement": 0.83,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.08,
+    "sd": 0.49,
+    "agreement": 0.75,
+    "arc": [
+     0,
+     1,
+     0,
+     0,
+     0,
+     0,
+     0,
+     -1,
+     0,
+     0,
+     1,
+     0
+    ]
+   },
+   "humour": {
+    "mean": 0.92,
+    "sd": 0.64,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     1,
+     0,
+     1,
+     1,
+     1,
+     2,
+     2,
+     1,
+     0,
+     0,
+     1
+    ]
+   },
+   "scale": {
+    "mean": 1.25,
+    "sd": 0.43,
+    "agreement": 0.75,
+    "arc": [
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "plot",
+    7
+   ],
+   [
+    "character",
+    4
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.67
+   },
+   "mood.suspenseful": {
+    "f": 0.25,
+    "r": 0.7,
+    "v": 0.25
+   },
+   "mood.heart-warming": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.0
+   },
+   "mood.gentle": {
+    "f": 0.5,
+    "r": 0.52,
+    "v": 0.5
+   },
+   "mood.whimsical": {
+    "f": 0.33,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "mood.haunting": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.17
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.17
+   },
+   "mood.nostalgic": {
+    "f": 0.42,
+    "r": 0.29,
+    "v": 0.42
+   },
+   "scale.pace": {
+    "v": -0.25,
+    "c": 0.54,
+    "t": 0.88,
+    "end": 0.0
+   },
+   "scale.darkness": {
+    "v": -0.67,
+    "c": 0.63,
+    "t": 0.62,
+    "end": -0.5
+   },
+   "scale.style": {
+    "v": 0.08,
+    "c": 0.75,
+    "t": -0.12,
+    "end": 0.25
+   },
+   "scale.humour": {
+    "v": 0.92,
+    "c": 0.68,
+    "t": -0.19,
+    "end": 0.5
+   },
+   "scale.scale": {
+    "v": 1.25,
+    "c": 0.86,
+    "t": 0.04,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 0.58,
+    "r": 0.44,
+    "v": -0.25
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.33,
+    "r": 0.66,
+    "v": 0.5
+   },
+   "darkness=lighter": {
+    "f": 0.83,
+    "r": 0.46,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.75,
+    "r": 0.48,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "humour=a little": {
+    "f": 0.58,
+    "r": 0.42,
+    "v": -0.25
+   },
+   "humour=none": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "humour=frequent": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "scale=a community or an institution": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.75,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "drive=description": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "drive=character": {
+    "f": 0.33,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "drive=plot": {
+    "f": 0.58,
+    "r": 0.65,
+    "v": 0.5
+   },
+   "dyn.pace": {
+    "delta": 1.27,
+    "turns": 6,
+    "jump": 2,
+    "jump_at": 0.42
+   },
+   "dyn.darkness": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.42
+   },
+   "dyn.style": {
+    "delta": 0.55,
+    "turns": 3,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.55,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.17
+   },
+   "dyn.scale": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -1,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.82,
+    "follows": [
+     "gentle>suspenseful",
+     "upbeat>nostalgic",
+     "nostalgic>whimsical"
+    ]
+   },
+   "topic.friendship": {
+    "f": 0.5,
+    "r": 0.41,
+    "v": -0.25
+   },
+   "topic.school life": {
+    "f": 0.42,
+    "r": 0.25,
+    "v": -0.75
+   },
+   "topic.family": {
+    "f": 0.33,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.adolescence": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.youth": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.school": {
+    "f": 0.17,
+    "r": 0.91,
+    "v": 0.5
+   },
+   "topic.coming of age": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.election": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.domesticity": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.family secrets": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.social status": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.education": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "42881": {
+  "title": "Pomona's Travels / A Series of Letters to the Mistress of Rudder Grange from her Former Handmaiden",
+  "windows": 12,
+  "mood": {
+   "whimsical": 0.75,
+   "gentle": 0.33,
+   "nostalgic": 0.33,
+   "sardonic": 0.25
+  },
+  "least": "menacing",
+  "scales": {
+   "pace": {
+    "mean": -0.33,
+    "sd": 0.75,
+    "agreement": 0.5,
+    "arc": [
+     -1,
+     0,
+     -1,
+     0,
+     0,
+     -1,
+     -1,
+     -1,
+     1,
+     1,
+     0,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": -1.0,
+    "sd": 0.0,
+    "agreement": 1.0,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.42,
+    "sd": 0.86,
+    "agreement": 0.67,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1,
+     1,
+     1,
+     -1,
+     0,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.75,
+    "sd": 0.6,
+    "agreement": 0.83,
+    "arc": [
+     2,
+     2,
+     1,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.0,
+    "sd": 0.41,
+    "agreement": 0.83,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     0,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    7
+   ],
+   [
+    "plot",
+    3
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.0
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.17
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.75
+   },
+   "mood.heart-warming": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.08
+   },
+   "mood.gentle": {
+    "f": 0.33,
+    "r": 0.34,
+    "v": 0.33
+   },
+   "mood.darkly humorous": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": 0.08
+   },
+   "mood.whimsical": {
+    "f": 0.75,
+    "r": 0.48,
+    "v": 0.75
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 0.82,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.45,
+    "v": 0.25
+   },
+   "mood.nostalgic": {
+    "f": 0.33,
+    "r": 0.57,
+    "v": 0.33
+   },
+   "scale.pace": {
+    "v": -0.33,
+    "c": 0.63,
+    "t": 0.62,
+    "end": 0.25
+   },
+   "scale.darkness": {
+    "v": -1.0,
+    "c": 1.0,
+    "t": 0.0,
+    "end": -1.0
+   },
+   "scale.style": {
+    "v": 0.42,
+    "c": 0.57,
+    "t": -1.81,
+    "end": -0.25
+   },
+   "scale.humour": {
+    "v": 1.75,
+    "c": 0.7,
+    "t": -0.58,
+    "end": 1.5
+   },
+   "scale.scale": {
+    "v": 1.0,
+    "c": 0.86,
+    "t": 0.08,
+    "end": 1.0
+   },
+   "pace=slower": {
+    "f": 0.5,
+    "r": 0.47,
+    "v": -0.25
+   },
+   "pace=about the same": {
+    "f": 0.33,
+    "r": 0.41,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.5
+   },
+   "darkness=lighter": {
+    "f": 1.0,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "style=more ornate": {
+    "f": 0.67,
+    "r": 0.34,
+    "v": -0.75
+   },
+   "style=plainer": {
+    "f": 0.25,
+    "r": 0.79,
+    "v": 0.5
+   },
+   "style=about the same": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.25
+   },
+   "humour=frequent": {
+    "f": 0.83,
+    "r": 0.48,
+    "v": 0.0
+   },
+   "humour=a little": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "humour=none": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "scale=a few people": {
+    "f": 0.83,
+    "r": 0.41,
+    "v": -0.5
+   },
+   "scale=one person's inner life": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.58,
+    "r": 0.39,
+    "v": -0.5
+   },
+   "drive=plot": {
+    "f": 0.25,
+    "r": 0.58,
+    "v": 0.25
+   },
+   "drive=description": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.73,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.67
+   },
+   "dyn.darkness": {
+    "delta": 0.0,
+    "turns": 0,
+    "jump": 0,
+    "jump_at": 0.08
+   },
+   "dyn.style": {
+    "delta": 0.73,
+    "turns": 3,
+    "jump": -2,
+    "jump_at": 0.5
+   },
+   "dyn.humour": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.scale": {
+    "delta": 0.27,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.92
+   },
+   "dyn.mood": {
+    "switches": 0.64,
+    "follows": [
+     "whimsical>darkly humorous",
+     "darkly humorous>whimsical",
+     "whimsical>sardonic"
+    ]
+   },
+   "topic.travel": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "topic.marriage": {
+    "f": 0.25,
+    "r": 0.52,
+    "v": 0.25
+   },
+   "topic.social observation": {
+    "f": 0.25,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.identity": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.domestic life": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.5
+   },
+   "topic.humor": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.comedy": {
+    "f": 0.17,
+    "r": 0.82,
+    "v": 0.5
+   },
+   "topic.epistolary": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.class": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.dining": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.lodging": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.social custom": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   }
+  }
+ },
+ "34327": {
+  "title": "Experience",
+  "windows": 12,
+  "mood": {
+   "whimsical": 0.58,
+   "nostalgic": 0.33,
+   "sardonic": 0.25,
+   "heart-warming": 0.17
+  },
+  "least": "menacing",
+  "scales": {
+   "pace": {
+    "mean": -0.25,
+    "sd": 0.83,
+    "agreement": 0.5,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     1,
+     0,
+     1,
+     0,
+     -1,
+     0,
+     -1,
+     1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": -0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     -1,
+     1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.33,
+    "sd": 0.62,
+    "agreement": 0.5,
+    "arc": [
+     0,
+     1,
+     1,
+     1,
+     0,
+     0,
+     0,
+     1,
+     0,
+     1,
+     0,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 1.5,
+    "sd": 0.65,
+    "agreement": 0.58,
+    "arc": [
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     2,
+     1,
+     1,
+     1,
+     1,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.08,
+    "sd": 0.28,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "character",
+    8
+   ],
+   [
+    "plot",
+    2
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.95,
+    "v": 0.17
+   },
+   "mood.romantic": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": 0.0
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.83
+   },
+   "mood.heart-warming": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": 0.17
+   },
+   "mood.bittersweet": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.17
+   },
+   "mood.gentle": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.08
+   },
+   "mood.whimsical": {
+    "f": 0.58,
+    "r": 0.27,
+    "v": 0.5
+   },
+   "mood.haunting": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.08
+   },
+   "mood.upbeat": {
+    "f": 0.08,
+    "r": 0.46,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.25,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "mood.nostalgic": {
+    "f": 0.33,
+    "r": 0.45,
+    "v": 0.33
+   },
+   "scale.pace": {
+    "v": -0.25,
+    "c": 0.59,
+    "t": 0.35,
+    "end": -0.25
+   },
+   "scale.darkness": {
+    "v": -0.83,
+    "c": 0.72,
+    "t": 0.69,
+    "end": -0.5
+   },
+   "scale.style": {
+    "v": 0.33,
+    "c": 0.69,
+    "t": -0.85,
+    "end": 0.0
+   },
+   "scale.humour": {
+    "v": 1.5,
+    "c": 0.68,
+    "t": -1.77,
+    "end": 0.75
+   },
+   "scale.scale": {
+    "v": 1.08,
+    "c": 0.91,
+    "t": 0.42,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 0.5,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "pace=faster": {
+    "f": 0.25,
+    "r": 0.55,
+    "v": 0.0
+   },
+   "pace=about the same": {
+    "f": 0.25,
+    "r": 0.55,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.92,
+    "r": 0.46,
+    "v": -0.25
+   },
+   "darkness=darker": {
+    "f": 0.08,
+    "r": 0.91,
+    "v": 0.25
+   },
+   "style=about the same": {
+    "f": 0.5,
+    "r": 0.5,
+    "v": 0.25
+   },
+   "style=more ornate": {
+    "f": 0.42,
+    "r": 0.4,
+    "v": -0.5
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=frequent": {
+    "f": 0.58,
+    "r": 0.27,
+    "v": -1.0
+   },
+   "humour=a little": {
+    "f": 0.33,
+    "r": 0.77,
+    "v": 0.75
+   },
+   "humour=none": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "scale=a few people": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "scale=a community or an institution": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "drive=character": {
+    "f": 0.67,
+    "r": 0.38,
+    "v": -0.5
+   },
+   "drive=plot": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "drive=description": {
+    "f": 0.08,
+    "r": 0.64,
+    "v": 0.0
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 1.09,
+    "turns": 7,
+    "jump": 2,
+    "jump_at": 0.25
+   },
+   "dyn.darkness": {
+    "delta": 0.36,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.83
+   },
+   "dyn.style": {
+    "delta": 0.64,
+    "turns": 3,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.humour": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -1,
+    "jump_at": 0.58
+   },
+   "dyn.scale": {
+    "delta": 0.09,
+    "turns": 0,
+    "jump": 1,
+    "jump_at": 0.92
+   },
+   "dyn.mood": {
+    "switches": 0.45,
+    "follows": [
+     "whimsical>gentle",
+     "gentle>heart-warming",
+     "heart-warming>nostalgic"
+    ]
+   },
+   "topic.family": {
+    "f": 0.67,
+    "r": 0.38,
+    "v": -0.75
+   },
+   "topic.war": {
+    "f": 0.33,
+    "r": 0.59,
+    "v": 0.25
+   },
+   "topic.childhood": {
+    "f": 0.17,
+    "r": 0.36,
+    "v": -0.25
+   },
+   "topic.diary": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.5
+   },
+   "topic.romance": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.domesticity": {
+    "f": 0.17,
+    "r": 0.59,
+    "v": 0.0
+   },
+   "topic.humor": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.writing": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.education": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.social class": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.religion": {
+    "f": 0.08,
+    "r": 0.18,
+    "v": -0.25
+   },
+   "topic.travel": {
+    "f": 0.08,
+    "r": 0.27,
+    "v": -0.25
+   }
+  }
+ },
+ "42439": {
+  "title": "Marguerite Verne; Or, Scenes from Canadian Life",
+  "windows": 12,
+  "mood": {
+   "nostalgic": 0.42,
+   "lyrical": 0.42,
+   "sardonic": 0.33,
+   "gentle": 0.25
+  },
+  "least": "menacing",
+  "scales": {
+   "pace": {
+    "mean": -0.75,
+    "sd": 0.6,
+    "agreement": 0.83,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     -1,
+     0,
+     -1,
+     -1,
+     -1,
+     1,
+     -1,
+     -1,
+     -1
+    ]
+   },
+   "darkness": {
+    "mean": -0.58,
+    "sd": 0.64,
+    "agreement": 0.67,
+    "arc": [
+     -1,
+     -1,
+     -1,
+     0,
+     0,
+     -1,
+     -1,
+     -1,
+     1,
+     0,
+     -1,
+     -1
+    ]
+   },
+   "style": {
+    "mean": 0.83,
+    "sd": 0.55,
+    "agreement": 0.92,
+    "arc": [
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     -1
+    ]
+   },
+   "humour": {
+    "mean": 0.92,
+    "sd": 0.64,
+    "agreement": 0.58,
+    "arc": [
+     1,
+     2,
+     1,
+     1,
+     1,
+     1,
+     2,
+     1,
+     0,
+     1,
+     0,
+     0
+    ]
+   },
+   "scale": {
+    "mean": 1.17,
+    "sd": 0.37,
+    "agreement": 0.83,
+    "arc": [
+     2,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     1,
+     2
+    ]
+   }
+  },
+  "drive": [
+   [
+    "description",
+    5
+   ],
+   [
+    "character",
+    5
+   ]
+  ],
+  "signature": {
+   "mood.bleak": {
+    "f": 0.17,
+    "r": 0.86,
+    "v": 0.17
+   },
+   "mood.romantic": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.08
+   },
+   "mood.menacing": {
+    "f": 0.0,
+    "r": null,
+    "v": -0.25
+   },
+   "mood.suspenseful": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": -0.08
+   },
+   "mood.heart-warming": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.17
+   },
+   "mood.gentle": {
+    "f": 0.25,
+    "r": 0.36,
+    "v": 0.25
+   },
+   "mood.lyrical": {
+    "f": 0.42,
+    "r": 0.45,
+    "v": 0.42
+   },
+   "mood.whimsical": {
+    "f": 0.08,
+    "r": 0.55,
+    "v": -0.08
+   },
+   "mood.haunting": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.08
+   },
+   "mood.sardonic": {
+    "f": 0.33,
+    "r": 0.55,
+    "v": 0.17
+   },
+   "mood.nostalgic": {
+    "f": 0.42,
+    "r": 0.42,
+    "v": 0.42
+   },
+   "scale.pace": {
+    "v": -0.75,
+    "c": 0.7,
+    "t": 0.27,
+    "end": -0.5
+   },
+   "scale.darkness": {
+    "v": -0.58,
+    "c": 0.68,
+    "t": 0.35,
+    "end": -0.25
+   },
+   "scale.style": {
+    "v": 0.83,
+    "c": 0.72,
+    "t": -0.85,
+    "end": 0.5
+   },
+   "scale.humour": {
+    "v": 0.92,
+    "c": 0.68,
+    "t": -1.27,
+    "end": 0.25
+   },
+   "scale.scale": {
+    "v": 1.17,
+    "c": 0.88,
+    "t": 0.0,
+    "end": 1.25
+   },
+   "pace=slower": {
+    "f": 0.83,
+    "r": 0.49,
+    "v": -0.25
+   },
+   "pace=about the same": {
+    "f": 0.08,
+    "r": 0.36,
+    "v": 0.0
+   },
+   "pace=faster": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "darkness=lighter": {
+    "f": 0.67,
+    "r": 0.48,
+    "v": -0.25
+   },
+   "darkness=about the same": {
+    "f": 0.25,
+    "r": 0.49,
+    "v": 0.0
+   },
+   "darkness=darker": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "style=more ornate": {
+    "f": 0.92,
+    "r": 0.45,
+    "v": -0.25
+   },
+   "style=plainer": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "humour=a little": {
+    "f": 0.58,
+    "r": 0.39,
+    "v": -0.5
+   },
+   "humour=frequent": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "humour=none": {
+    "f": 0.25,
+    "r": 0.88,
+    "v": 0.75
+   },
+   "scale=a community or an institution": {
+    "f": 0.17,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "scale=a few people": {
+    "f": 0.83,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "drive=description": {
+    "f": 0.42,
+    "r": 0.24,
+    "v": -1.0
+   },
+   "drive=character": {
+    "f": 0.42,
+    "r": 0.62,
+    "v": 0.5
+   },
+   "drive=plot": {
+    "f": 0.08,
+    "r": 0.73,
+    "v": 0.25
+   },
+   "drive=idea": {
+    "f": 0.08,
+    "r": 1.0,
+    "v": 0.25
+   },
+   "dyn.pace": {
+    "delta": 0.55,
+    "turns": 2,
+    "jump": 2,
+    "jump_at": 0.67
+   },
+   "dyn.darkness": {
+    "delta": 0.55,
+    "turns": 1,
+    "jump": 2,
+    "jump_at": 0.67
+   },
+   "dyn.style": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -2,
+    "jump_at": 0.92
+   },
+   "dyn.humour": {
+    "delta": 0.64,
+    "turns": 4,
+    "jump": 1,
+    "jump_at": 0.08
+   },
+   "dyn.scale": {
+    "delta": 0.18,
+    "turns": 0,
+    "jump": -1,
+    "jump_at": 0.08
+   },
+   "dyn.mood": {
+    "switches": 0.91,
+    "follows": [
+     "nostalgic>heart-warming",
+     "heart-warming>lyrical",
+     "lyrical>sardonic"
+    ]
+   },
+   "topic.romance": {
+    "f": 0.33,
+    "r": 0.5,
+    "v": 0.0
+   },
+   "topic.courtship": {
+    "f": 0.17,
+    "r": 0.23,
+    "v": -0.25
+   },
+   "topic.family dynamics": {
+    "f": 0.17,
+    "r": 0.09,
+    "v": -0.5
+   },
+   "topic.correspondence": {
+    "f": 0.17,
+    "r": 0.32,
+    "v": -0.25
+   },
+   "topic.family conflict": {
+    "f": 0.17,
+    "r": 0.41,
+    "v": 0.0
+   },
+   "topic.marriage": {
+    "f": 0.17,
+    "r": 0.64,
+    "v": 0.25
+   },
+   "topic.social status": {
+    "f": 0.17,
+    "r": 0.68,
+    "v": 0.25
+   },
+   "topic.illness": {
+    "f": 0.17,
+    "r": 0.77,
+    "v": 0.5
+   },
+   "topic.new year's eve": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.social customs": {
+    "f": 0.08,
+    "r": 0.0,
+    "v": -0.25
+   },
+   "topic.domestic life": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   },
+   "topic.nature": {
+    "f": 0.08,
+    "r": 0.09,
+    "v": -0.25
+   }
+  }
+ }
+}

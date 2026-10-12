@@ -128,12 +128,13 @@ class RunProgressTest {
             var frag = c.send(HttpRequest.newBuilder(URI.create(base + "/chat/runs?session=" + s.id)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, frag.statusCode());
             assertTrue(frag.body().startsWith("<p class=\"k run\">") && frag.body().contains(jobId) && !frag.body().contains("<html"), "the strip alone: " + frag.body());
-            // a conversation that follows nothing has no strip and no script
+            // a conversation that follows nothing has no strip; its page runs only its own inline script (the menu, the scroll box) and fetches nothing from elsewhere
             Librarian.Session quiet = Librarian.Session.open(store);
             quiet.append(M.createObjectNode().put("role", "user").put("content", "hello"));   // a conversation exists once something is said in it
             var plain = c.send(HttpRequest.newBuilder(URI.create(base + "/chat?session=" + quiet.id)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertFalse(plain.body().contains("runs-strip"));
-            assertFalse(plain.headers().firstValue("content-security-policy").orElse("").contains("script-src"));
+            String quietCsp = plain.headers().firstValue("content-security-policy").orElse("");
+            assertTrue(quietCsp.startsWith("default-src 'none'") && !quietCsp.contains("http"), quietCsp);
         } finally { d.stop(); Explain.DRIVES = drives; }
     }
 }

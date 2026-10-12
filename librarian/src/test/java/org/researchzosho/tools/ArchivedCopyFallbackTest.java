@@ -48,6 +48,7 @@ class ArchivedCopyFallbackTest {
         String out = new WebFetchTool().execute(args("{\"url\":\"" + base + "/gone.html\"}"));
         assertTrue(out.startsWith("archived copy of " + base + "/gone.html, saved on 2010-01-01 by the Wayback Machine — the live page answered HTTP 404"), out);
         assertTrue(out.contains("source: " + base + "/web/20100101000000id_/" + base + "/gone.html"), "the copy's address is what is cited: " + out);
+        assertTrue(out.contains(" — fetched 20") && out.contains("Z"), "a fetched page carries the time it was fetched, since the model has no clock (0.6.0): " + out.substring(0, Math.min(300, out.length())));
         assertTrue(out.contains("cut by hand with files"), out);
     }
 

@@ -49,7 +49,7 @@ public final class Podcasts {
     static volatile String APPLE = "https://itunes.apple.com", INDEX = "https://api.podcastindex.org/api/1.0";
     /** How many redirects an episode's audio may go through: a Megaphone show's goes through five measurement hosts (measured 2026-10-08), and the Java client's own following stopped short of the last. */
     static final int MOST_HOPS = 10;
-    static final String BY = "researchzosho-podcast";
+    public static final String BY = "researchzosho-podcast";
 
     public record Show(String title, String author, String feedUrl, String site, String language, List<String> categories, int episodes, String lastEpisode, String source) { }
     public record Episode(String title, String date, String description, String page, String audioUrl, String audioType, int seconds, String guid,

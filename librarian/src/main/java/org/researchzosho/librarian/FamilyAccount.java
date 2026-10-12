@@ -1725,7 +1725,7 @@ public final class FamilyAccount {
 
     /**
      * Whether a kinship label in the quote says this relation by itself, without the judge: a label of the right kind stands next to one of
-     * the two names, and the quote names nobody else and does not speak as I or we. "my mother (Morita Yuri) and (Endo Shin)'s uncle" has a
+     * the two names, and the quote names nobody else and does not speak as I or we. "my mother (Morita Yasuko) and (Endo Shin)'s uncle" has a
      * mother next to a name and still says nothing certain about whose mother, so the judge decides it.
      */
     static boolean labelSays(Fact fact) {
@@ -1979,7 +1979,7 @@ public final class FamilyAccount {
 
     /**
      * Whether two names in Latin letters share a given name: a word of two letters or more that is neither a title nor the family part of the
-     * first, or an initial that begins one of the first's given words ("H. Kano" for Amos Kano). Relatives share a family name, not a given one.
+     * first, or an initial that begins one of the first's given words ("H. Tsuda" for Amos Tsuda). Relatives share a family name, not a given one.
      */
     static boolean sharesGiven(Person p, String other) {
         String family = p.family().isBlank() ? "" : unaccented(p.family()).toLowerCase(Locale.ROOT);

@@ -160,14 +160,14 @@ class GraphTest {
         f(store, "Arthur Ellis", "migrated to", "Lyttelton", Finding.State.accepted);
         f(store, "Arthur Ellis", "patented", "Journey route mapping", Finding.State.draft);
         f(store, "Journey route mapping", "is a kind of", "shortest-path algorithm", Finding.State.accepted);
-        f(store, "Rose Morgan", "married to", "Arthur Ellis", Finding.State.accepted);
+        f(store, "Ruth Morgan", "married to", "Arthur Ellis", Finding.State.accepted);
         Finding retired = f(store, "Arthur Ellis", "born in", "Mars", Finding.State.retired);
         Graph g = Graph.build(store);
         assertEquals(4, g.edges().size(), "a retired finding is no edge");
         assertNotNull(g.node("arthur ellis"));
         Graph.Neighbourhood one = g.around("arthur ellis", 1, 25);
         assertEquals("arthur ellis", one.focus().id());
-        assertEquals(4, one.nodes().size(), "arthur + lyttelton + the patent + rose");
+        assertEquals(4, one.nodes().size(), "arthur + lyttelton + the patent + ruth");
         assertEquals(3, one.edges().size());
         Graph.Neighbourhood two = g.around("Arthur  ELLIS.", 2, 25);
         assertTrue(two.nodes().stream().anyMatch(n -> n.id().equals("shortest-path algorithm")), "two hops: the family shelf meets the algorithm shelf");
@@ -182,8 +182,8 @@ class GraphTest {
     @Test
     void identityIsThePersonsActAndPredicatesResolveThroughTheVocabulary(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
-        f(store, "A. Ellis", "spouse of", "Rose Morgan", Finding.State.accepted);
-        f(store, "Arthur Ellis", "married to", "Rose Morgan", Finding.State.accepted);
+        f(store, "A. Ellis", "spouse of", "Ruth Morgan", Finding.State.accepted);
+        f(store, "Arthur Ellis", "married to", "Ruth Morgan", Finding.State.accepted);
         Graph.predicate(store, "married-to", "was married to", List.of("spouse of", "married to"));
         Graph before = Graph.build(store);
         assertEquals(3, before.nodes().size(), "two spellings are two nodes until the person says otherwise");
@@ -245,9 +245,9 @@ class GraphTest {
         assertEquals(1, Graph.build(store).edges().size());
         ProtocolError bad = assertThrows(ProtocolError.class, () -> p.submit((ObjectNode) M.readTree("{\"claim\":\"A claim long enough to be a claim about something.\",\"sources\":[\"https://x.example/1\"],\"triple\":{\"subject\":\"A\"}}")));
         assertEquals("invalid_args", bad.code);
-        var plain = p.submit((ObjectNode) M.readTree("{\"claim\":\"Rose Morgan taught at Otago Girls High School from 1960.\",\"sources\":[\"https://x.example/2\"]}"));
+        var plain = p.submit((ObjectNode) M.readTree("{\"claim\":\"Ruth Morgan taught at Otago Girls High School from 1960.\",\"sources\":[\"https://x.example/2\"]}"));
         assertNull(store.finding(plain.get("id").asText()).triple());
-        Triples.Outcome o = Triples.fill(store, claim -> claim.contains("Rose") ? "{\"subject\":\"Rose Morgan\",\"predicate\":\"taught at\",\"object\":\"Otago Girls High School\"}" : "{\"triple\": null}", 40);
+        Triples.Outcome o = Triples.fill(store, claim -> claim.contains("Ruth") ? "{\"subject\":\"Ruth Morgan\",\"predicate\":\"taught at\",\"object\":\"Otago Girls High School\"}" : "{\"triple\": null}", 40);
         assertEquals(1, o.asked()); assertEquals(1, o.filled());
         assertEquals("Otago Girls High School", store.finding(plain.get("id").asText()).triple().object());
         assertEquals(0, Triples.fill(store, claim -> { throw new AssertionError("asked twice"); }, 40).asked(), "a finding is asked once");

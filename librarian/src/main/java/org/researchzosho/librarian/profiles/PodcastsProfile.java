@@ -37,7 +37,7 @@ public final class PodcastsProfile implements Profile {
 
     @Override public String register() {
         return "A question about what someone says on a podcast, or about a show, its host or a guest, is answered from the episodes themselves: "
-                + "podcast_search is the tool. kind=shows with the show's or the person's name gives the feed address; kind=episodes with that feed lists "
+                + "podcast_search is the tool (and for \"shows like the ones I follow\", my_shelf kind=profile lists what the person follows with each feed address, then kind=similar with each feed). kind=shows with the show's or the person's name gives the feed address; kind=episodes with that feed lists "
                 + "the episodes, newest first, with whether a transcript is published, and query narrows them by words; kind=transcript with the feed and "
                 + "the episode reads what was said, with the time, from the show's own transcript or the library's transcription of the audio (two "
                 + "episodes or two hours per run, so choose the episodes by their titles and dates first); kind=people lists the episodes a person "

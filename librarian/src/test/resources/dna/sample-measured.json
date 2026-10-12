@@ -1,0 +1,69 @@
+{
+ "sample-en": {
+  "chapters_read": 9,
+  "chapter_words": [
+   23,
+   830,
+   832,
+   822,
+   844,
+   821,
+   826,
+   834,
+   846
+  ],
+  "features": {
+   "words": 6678,
+   "chapters": 8,
+   "cjk_share": 0.0,
+   "language_guess": "other",
+   "chapter_words_median": 831,
+   "sentences": 641,
+   "sentence_words_mean": 10.4,
+   "sentence_words_sd": 7.4,
+   "long_sentence_share": 0.037,
+   "dialogue_share": 0.157,
+   "type_token_10k": 0.021,
+   "mtld_50k": 59.2,
+   "flesch_kincaid_grade": 7.5,
+   "first_person_share": 0.354,
+   "past_tense_share": 0.762,
+   "connective_share": 0.1116,
+   "adverb_ly_share": 0.0774,
+   "adjective_suffix_share": 0.0997,
+   "content_word_share": 0.753,
+   "stopword_share": 0.247,
+   "extreme_word_share": 0.0806,
+   "negative_word_share": 0.0855,
+   "arc_mean": 0.053,
+   "arc_sd": 0.125,
+   "arc_min": -0.271,
+   "arc_max": 0.373,
+   "arc_end_minus_mean": 0.011,
+   "arc_start_minus_mean": 0.017,
+   "arc_hurst": 0.553,
+   "arc_apen": 0.423
+  }
+ },
+ "sample-ja": {
+  "chapters_read": 5,
+  "chapter_words": [
+   131,
+   142,
+   141,
+   127,
+   138
+  ],
+  "features": {
+   "words": 679,
+   "chapters": 0,
+   "cjk_share": 0.996,
+   "language_guess": "ja",
+   "chapter_words_median": null,
+   "sentences": 666,
+   "sentence_chars_mean": 15.9,
+   "kanji_density": 0.407,
+   "dialogue_share": 0.254
+  }
+ }
+}

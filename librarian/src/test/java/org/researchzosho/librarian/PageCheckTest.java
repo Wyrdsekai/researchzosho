@@ -92,6 +92,15 @@ class PageCheckTest {
     boolean saved(String url) throws Exception { return RawCapture.find(store, url) != null; }
 
     @Test
+    void aPageWhoseTermsForbidMachineReadingIsLeftOutWithThatReasonNotTheSiteLists() throws Exception {
+        ContentPolicy off = ContentPolicy.run(List.of(), markers(), store);
+        String r = fetch(off, "https://www.amazon.com/dp/B000000000");
+        assertTrue(r.startsWith("ERROR: https://www.amazon.com/dp/B000000000 was left out of this research, because the terms of Amazon forbid machine reading"), r);
+        assertEquals("left out: the terms of Amazon forbid machine reading; pointed at by its address, never read — https://www.amazon.com/dp/B000000000", off.leftOut().get(0).line());
+        assertFalse(off.leftOut().get(0).line().contains("pornography"), "a never-read site is not called by the site list's name");
+    }
+
+    @Test
     void theSwitchChangesExactlyWhatIsFetchedAndSaved() throws Exception {
         // off: the two default categories are left out, the ordinary page is read and saved
         ContentPolicy off = ContentPolicy.run(List.of(), markers(), store);

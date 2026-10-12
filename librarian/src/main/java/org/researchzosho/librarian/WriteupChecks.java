@@ -2,6 +2,8 @@ package org.researchzosho.librarian;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import org.researchzosho.tools.BookSearchTool;
+
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -64,6 +66,52 @@ public final class WriteupChecks {
             String mark = " [" + prefix + u.what() + "]";
             if (out.startsWith(mark.strip(), end) || out.startsWith(mark, end)) continue;
             out = out.substring(0, end) + mark + out.substring(end);
+        }
+        return out;
+    }
+
+    /**
+     * The rows of the write-up's tables whose book no catalogue returned this run (0.6.0): the first cell's title, before " — " and
+     * without its link, against the run's catalogue as {@code BookSearchTool} recorded it — the normalised title, the title before the
+     * subtitle, or the record key in the link. A header or rule row, or a row with no catalogue at all, is not a row to check.
+     */
+    public static List<Unbacked> titlesUnbackedAt(String answer, Set<String> catalogue) {
+        List<Unbacked> out = new ArrayList<>();
+        if (catalogue == null || catalogue.isEmpty()) return out;
+        for (String line : answer.split("\n")) {
+            String row = line.strip();
+            if (!row.startsWith("|")) continue;
+            String[] cells = row.substring(1).split("\\|");
+            if (cells.length < 2) continue;
+            String first = cells[0].strip();
+            if (first.isEmpty() || first.matches("[-: ]+") || first.equalsIgnoreCase("book") || first.equalsIgnoreCase("title") || first.equalsIgnoreCase("本")) continue;
+            Matcher link = Pattern.compile("\\[([^\\]]+)\\]\\(([^)]+)\\)").matcher(first);
+            String title = first, url = "";
+            if (link.find()) { title = link.group(1); url = link.group(2); }
+            String[] parts = title.replaceAll("\\*\\*", "").split("\\s+[—–]\\s+|,\\s+(?=[A-Z\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}][^,]*$)", 2);
+            title = parts[0].strip();
+            String author = parts.length > 1 ? parts[1].strip() : "";
+            if (title.isEmpty()) continue;
+            String key = url.replaceFirst("^https?://[^/]+", "");
+            boolean catalogueLink = url.isEmpty() || url.matches("(?i)^https?://([^/]*\\.)?(openlibrary\\.org|ndlsearch\\.ndl\\.go\\.jp|ci\\.nii\\.ac\\.jp|openbd\\.jp)/.*");
+            String sn = author.isEmpty() ? "" : BookSearchTool.surname(author.split("\\s+(?:and|&)\\s+|,")[0]);
+            boolean known = (!key.isEmpty() && catalogue.contains(key))
+                    || (sn.isEmpty() ? catalogue.contains(Shelf.norm(title)) || catalogue.contains(Shelf.shortTitle(title))
+                                     : catalogue.contains(Shelf.norm(title) + "|" + sn) || catalogue.contains(Shelf.shortTitle(title) + "|" + sn));
+            if (!catalogueLink) { out.add(new Unbacked(line, "\"" + Acquisitions.compress(title, 80) + "\" (its link is not a catalogue record)")); continue; }
+            if (!known) { out.add(new Unbacked(line, "\"" + Acquisitions.compress(title, 80) + "\"" + (sn.isEmpty() ? "" : " by " + Acquisitions.compress(author, 40)))); continue; }
+            // the row's year against the record's first-publication year, where the catalogue gave one for this title
+            Matcher y = Pattern.compile("(?<![\\d/.-])((?:1[5-9]|20)\\d{2})(?![\\d])").matcher(row.substring(first.length() + 1));
+            if (y.find()) {
+                String year = y.group(1); String t1 = Shelf.norm(title), t2 = Shelf.shortTitle(title);
+                boolean anyYear = catalogue.stream().anyMatch(k -> k.startsWith(t1 + "@") || k.startsWith(t2 + "@"));
+                boolean near = false;
+                for (int d = -1; d <= 1 && !near; d++) { String yy = String.valueOf(Integer.parseInt(year) + d); near = catalogue.contains(t1 + "@" + yy) || catalogue.contains(t2 + "@" + yy); }
+                if (anyYear && !near) {
+                    String rec = catalogue.stream().filter(k -> k.startsWith(t1 + "@") || k.startsWith(t2 + "@")).map(k -> k.substring(k.indexOf('@') + 1)).sorted().findFirst().orElse("");
+                    out.add(new Unbacked(line, "\"" + Acquisitions.compress(title, 80) + "\": the year " + year + " is not the record's (" + rec + ")"));
+                }
+            }
         }
         return out;
     }

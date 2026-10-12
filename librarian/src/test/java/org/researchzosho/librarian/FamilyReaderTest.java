@@ -35,18 +35,18 @@ class FamilyReaderTest {
         assertTrue(FamilyAccount.labelSays(fact("髙橋正一", "child-of", "髙橋源三郎", "長男 正一")), "a register writes the given name only");
         assertTrue(FamilyAccount.labelSays(fact("Tom Hale", "married-to", "Ann Hale", "Spouse: Ann Hale")));
         assertFalse(FamilyAccount.labelSays(fact("Ann Hale", "parent-of", "Tom Hale", "Spouse: Ann Hale")), "a spouse label says nothing of a parent");
-        assertFalse(FamilyAccount.labelSays(fact("Morita Yuri", "parent-of", "Morita Isamu", "Morita Isamu - my mother (Morita Yuri) and (Endo Shin)'s uncle")), "whose mother? the note speaks as I");
-        assertFalse(FamilyAccount.labelSays(fact("Morita Yuri", "parent-of", "Morita Isamu", "Morita Isamu - mother (Morita Yuri) and (Endo Shin)'s uncle")), "a third person is named");
+        assertFalse(FamilyAccount.labelSays(fact("Morita Yasuko", "parent-of", "Morita Isamu", "Morita Isamu - my mother (Morita Yasuko) and (Endo Shin)'s uncle")), "whose mother? the note speaks as I");
+        assertFalse(FamilyAccount.labelSays(fact("Morita Yasuko", "parent-of", "Morita Isamu", "Morita Isamu - mother (Morita Yasuko) and (Endo Shin)'s uncle")), "a third person is named");
         assertFalse(FamilyAccount.labelSays(fact("Tom Hale", "parent-of", "Kimie Hale", "Father: a soldier in the war. Tom Hale")), "the label is not next to either name");
         assertFalse(FamilyAccount.labelSays(fact("森田正一", "married-to", "森田勇", "次代 森田正一")), "a successor in an office is no relative");
     }
 
     @Test
     void aQuoteThatSpeaksAsIGoesToTheJudgeInsteadOfPassingOnItsLabel() {
-        String text = "Morita Isamu\n\nuncle | \nmy mother | Morita Yuri | \n";
+        String text = "Morita Isamu\n\nuncle | \nmy mother | Morita Yasuko | \n";
         List<String> judged = new ArrayList<>();
         FamilyAccount.Read read = FamilyAccount.read(text, "the owner of this library", new GenealogyProfile().predicates(), prompt -> """
-                {"people": [], "facts": [{"subject": "Morita Yuri", "relation": "parent-of", "object": "Morita Isamu", "date": "", "quote": "my mother | Morita Yuri"}]}""",
+                {"people": [], "facts": [{"subject": "Morita Yasuko", "relation": "parent-of", "object": "Morita Isamu", "date": "", "quote": "my mother | Morita Yasuko"}]}""",
                 List.of(), null, q -> { judged.add(q); return 0.1; });
         assertEquals(1, judged.size(), "the label is a mother, and the words still go to the judge: " + judged);
         assertTrue(read.facts().isEmpty(), read.facts().toString());

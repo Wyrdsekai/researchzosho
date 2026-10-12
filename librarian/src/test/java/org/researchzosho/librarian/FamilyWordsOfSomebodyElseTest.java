@@ -75,7 +75,7 @@ class FamilyWordsOfSomebodyElseTest {
 
     @Test
     void aDescriptionAnchoredOnTheAccountsIIsReanchoredWhereTheWordsSayHerFather() {
-        String q = "Wilma Hale's name is Wilma, but she is generally known as Rose, after Nell Gwyn, a name given to her by her banker father with socialist ideals.";
+        String q = "Wilma Hale's name is Wilma, but she is generally known as Ruth, after Nell Gwyn, a name given to her by her banker father with socialist ideals.";
         FamilyAccount.Read r = read(q, "Kimie Hale", "{\"people\": [{\"name\": \"Wilma Hale\", \"sex\": \"female\"}], \"facts\": [" + fact("Kimie Hale's father", "parent-of", "Wilma Hale", q) + "]}");
         assertEquals(List.of("Wilma Hale's father | parent-of | Wilma Hale"), triples(r), "her father is Wilma's, not the writer's");
         assertTrue(r.dropped().stream().anyMatch(d -> d.contains(FamilyAccount.ANCHORED) && d.contains("the words say her father, Wilma Hale's")), r.dropped().toString());

@@ -419,8 +419,8 @@ public final class FamilyNameHistory {
     private static final Pattern FORMERLY = Pattern.compile("(?i)(?:(?:[(（,、;]|\\s)\\s*(?:formerly|previously|originally)(?:\\s+known\\s+as|\\s+called|\\s+named)?|(?:[(（,、;（]|\\s)?\\s*(?:旧姓|旧名|旧称))\\s*[:：]?\\s*[“\"'‘「『]?\\s*$");
 
     /**
-     * The words before a name that say it is the earlier name, and what stands before them: "Yuri Hale (formerly Yuri Ellis)", "Yuri Hale,
-     * formerly Yuri Ellis", "formerly known as", 旧姓. The text before the words ("Yuri Hale"), which names the later name; "" when the words
+     * The words before a name that say it is the earlier name, and what stands before them: "Yasuko Hale (formerly Yasuko Ellis)", "Yasuko Hale,
+     * formerly Yasuko Ellis", "formerly known as", 旧姓. The text before the words ("Yasuko Hale"), which names the later name; "" when the words
      * stand at the start; null when the quote does not say so of this name.
      */
     static String formerName(String quote, String name) {
@@ -2487,7 +2487,7 @@ public final class FamilyNameHistory {
             // the name at birth is judged beside the other names as those rules settle them: a married name the marriage dates comes later
             List<Name> settled = settle(id, ns, proposed, torn);
             atBirth(id, ns, settled, proposed);
-            // the words that say which of two names came first ("Yuri Hale (formerly Yuri Ellis)"), beside what the other rules settled
+            // the words that say which of two names came first ("Yasuko Hale (formerly Yasuko Ellis)"), beside what the other rules settled
             byFormer(id, ns, settled, proposed);
             return settle(id, ns, proposed, torn);
         }

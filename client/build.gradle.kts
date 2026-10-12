@@ -90,4 +90,12 @@ tasks.test {
     environment("RESEARCHZOSHO_EMBED", "off")
     environment("RESEARCHZOSHO_RERANK", "off")
     environment("RESEARCHZOSHO_CTX", "8192")
+    // The suite runs against the daemon in-process, so like the librarian's it must never read or write the developer's own config, and
+    // the model it would ask by default is whatever answers at the box's default address: on the Mac mini a slow 9B made a short
+    // question's help check wait out its 30 seconds and the client give up with "unavailable" instead of "too short" (2026-10-11).
+    // A scratch home and a drive at a closed port make every box the same as a CI runner.
+    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    doFirst { testHome.mkdirs() }
+    systemProperty("user.home", testHome.path)
+    environment("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:1")
 }

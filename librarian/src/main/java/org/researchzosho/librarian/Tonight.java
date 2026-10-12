@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.researchzosho.Config;
+import org.researchzosho.librarian.dna.Dna;
+import org.researchzosho.librarian.dna.ShelfDna;
 /**
  * What the housekeeping will do at its next run, before it runs: which kept searches are due, which open questions
  * the explorer will take and in what bundles, how many accepted claims get re-read, and which weekly or monthly extras
@@ -69,6 +71,14 @@ public final class Tonight {
         }
         if (p.stillOpen() > 0) b.append("  … ").append(p.stillOpen()).append(" more queued for later nights\n");
         if (p.parked() > 0) b.append("  ").append(p.parked()).append(" parked (kept, not taken)\n");
+        if (Shelf.path() != null) {
+            // the shelf's books read for their DNA: a night's step when a shelf is set (Crews skips it when no model answers)
+            int minutes = Config.getInt(ShelfDna.MINUTES_KEY, ShelfDna.MINUTES);
+            int labelled = Dna.counts(Dna.BOOK)[1];
+            b.append("\nYour shelf: ").append(minutes > 0
+                ? "its books are read for their DNA for " + minutes + " minutes, the ones you went for first (" + labelled + " labelled so far; the setting dna_minutes changes the minutes, 0 turns it off)."
+                : "the reading of its books for their DNA is turned off (dna_minutes is 0); " + labelled + " labelled so far.").append('\n');
+        }
         b.append("\nAlso: ").append(p.inventoryPerNight()).append(" accepted claims re-read against their sources; new write-ups reviewed and catalogued; preprints and retractions checked; the index refreshed; a backup kept.");
         if (p.weekly()) b.append("\nWeekly extras tonight: the duplicate-claims list and the unreferenced-documents list.");
         if (p.monthly()) b.append("\nMonthly extra tonight: the search index is rebuilt.");

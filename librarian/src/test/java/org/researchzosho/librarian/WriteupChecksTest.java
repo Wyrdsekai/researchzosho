@@ -2,7 +2,9 @@ package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -116,5 +118,25 @@ class WriteupChecksTightenedTest {
         String elided = "A maintainer: \"a project's popularity has almost zero correlation… how well done it is\".";
         assertTrue(WriteupChecks.quotesUnbacked(elided, List.of(savedPage)).isEmpty(), WriteupChecks.quotesUnbacked(elided, List.of(savedPage)).toString());
         assertEquals(1, WriteupChecks.quotesUnbacked("A maintainer: \"a project's popularity has almost zero correlation… and nobody ever reads the docs\".", List.of(savedPage)).size(), "a piece the source does not have is still flagged");
+    }
+
+    @Test
+    void aTableRowWhoseBookNoCatalogueReturnedIsListedAndARowWithARecordIsNot() {
+        Set<String> catalogue = new HashSet<>(List.of("fire upon the deep", "/works/OL1207691W", "fire upon the deep@1992", "off armageddon reef", "off armageddon reef|weber", "off armageddon reef@2007", "renegade", "renegade|quell", "columbus day", "trading in danger", "trading in danger|moon", "trading in danger@2003"));
+        String answer = "Eight novels:\n\n| Book | Year | Why |\n|---|---|---|\n| [A Fire Upon the Deep](https://openlibrary.org/works/OL1207691W) — Vernor Vinge | 1992 | fits |\n"
+                + "| Off Armageddon Reef — David Weber | 2007 | fits |\n| The Long Watch — David Feintuch | 1982 | invented |\n| Vatta's War — Elizabeth Moon | 1985 | a series name |\n"
+                + "| [Renegade](https://mostrecommendedbooks.com/series/x), Shepherd | 2015 | a list page, not a record |\n| Columbus Day, Alanson | 2016 | another author's book of that title was returned |\n"
+                + "| Trading in Danger — Elizabeth Moon | 1985 | the record says 2003 |\n\nYour shelf: military.";
+        List<WriteupChecks.Unbacked> off = WriteupChecks.titlesUnbackedAt(answer, catalogue);
+        assertEquals(5, off.size(), off.toString());
+        assertEquals("\"Trading in Danger\": the year 1985 is not the record's (2003)", off.get(4).what());
+        assertTrue(off.stream().noneMatch(u -> u.sentence().contains("Off Armageddon Reef")), "a row whose year matches the record passes");
+        assertEquals("\"The Long Watch\" by David Feintuch", off.get(0).what()); assertTrue(off.get(0).sentence().startsWith("| The Long Watch — David Feintuch"));
+        assertEquals("\"Vatta's War\" by Elizabeth Moon", off.get(1).what());
+        assertEquals("\"Renegade\" (its link is not a catalogue record)", off.get(2).what(), "a shop or list page is not a record, whatever the title");
+        assertEquals("\"Columbus Day\" by Alanson", off.get(3).what(), "a bare title the catalogue returned under another author does not back the row");
+        String marked = WriteupChecks.markInline(answer, off, "no catalogue record this run: ");
+        assertTrue(marked.contains("| The Long Watch — David Feintuch | 1982 | invented | [no catalogue record this run: \"The Long Watch\" by David Feintuch]"), marked);
+        assertTrue(WriteupChecks.titlesUnbackedAt(answer, Set.of()).isEmpty(), "a run that asked no catalogue has no rows to check");
     }
 }

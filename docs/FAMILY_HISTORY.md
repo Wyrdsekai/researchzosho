@@ -128,7 +128,7 @@ When you read a whole folder, a line in your notes says who wrote a book: "Kimie
 community.pdf", "Kimie Hale - my father's cousin - wrote community.pdf" or "community.pdf is Kimie
 Hale's memoir" makes the library read that file as her account, so that "my grandfather" in it is her
 grandfather. The writer is the name before the first dash. What you wrote between the dashes is your own
-account of her, and the reading of your notes files it. "Rose Hart translated community.pdf" names the
+account of her, and the reading of your notes files it. "Ruth Hart translated community.pdf" names the
 translator, who is not the writer: what the book marks as the translator's own note is hers.
 
 When nothing says who wrote a book, the library asks the model once, from the book's first pages. It
@@ -1042,7 +1042,7 @@ research is not asked about. A library with genealogy turned off (`profile disab
   of one word is a word of exactly one romanised Japanese name whose order nothing in your library says
   (Shoichi beside Morita Shoichi), and then the question does not call the word a family name or a given
   name.
-  An entry written by a family name alone ("Kano", what a book wrote by that word, of one person or several)
+  An entry written by a family name alone ("Tsuda", what a book wrote by that word, of one person or several)
   is never "another person of that name" beside a whole name, so no such question is asked against it.
   "One person" is offered first. The library never joins two entries because their names look alike.
   An entry written in Latin letters is joined into the one written in characters, because the characters
@@ -1079,11 +1079,11 @@ research is not asked about. A library with genealogy turned off (`profile disab
   neither is a name of the person, and nothing is asked. An index's "Endō, Kenji. See Morita, Kenji" says
   the two forms are one person's and nothing of how the name came, so it raises no question of how. An
   index's "Morita, Kenji (father)" says what the person is to the book's subject: the name is "Morita,
-  Kenji", and the note is no part of it. "Yuri Hale (formerly Yuri Ellis)", "Yuri Hale, formerly Yuri
-  Ellis", "formerly known as" and 旧姓 say which name came first. When Yuri Hale is the name taken at a
-  marriage and no other change of family name is known, Yuri Ellis is the name at birth, worked out,
-  carried up to the marriage. When how Yuri Hale came is not known, the page shows Yuri Ellis as the earlier
-  name and Yuri Hale as the later, and asks nothing. A name a source writes in kana alone (きゅうろう), for a
+  Kenji", and the note is no part of it. "Yasuko Hale (formerly Yasuko Ellis)", "Yasuko Hale, formerly Yasuko
+  Ellis", "formerly known as" and 旧姓 say which name came first. When Yasuko Hale is the name taken at a
+  marriage and no other change of family name is known, Yasuko Ellis is the name at birth, worked out,
+  carried up to the marriage. When how Yasuko Hale came is not known, the page shows Yasuko Ellis as the earlier
+  name and Yasuko Hale as the later, and asks nothing. A name a source writes in kana alone (きゅうろう), for a
   person filed in characters, is a reading of one of their names, never a name of its own: it goes with
   the name in characters it stands beside in the source's words, or with the name the person is filed under,
   and is shown as "also written". Two readings of one name are the question of which is right, as before.

@@ -11,6 +11,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.nio.file.Files;
+import org.junit.jupiter.api.AfterEach;
+import org.researchzosho.librarian.dna.Dna;
 /** The plan the housekeeping will follow, read from its own files: shelves due by cadence, questions by demand. */
 class TonightTest {
 
@@ -53,5 +55,18 @@ class TonightTest {
         LocalDate d = LocalDate.of(2026, 9, 9);
         assertEquals(d, Tonight.nextRun(d, LocalTime.of(1, 0)));
         assertEquals(d.plusDays(1), Tonight.nextRun(d, LocalTime.of(9, 0)));
+    }
+
+    @AfterEach void reset() { Shelf.override = null; Dna.useDir(null); }
+
+    @Test
+    void thePlanSaysTheShelfIsReadForItsDnaWhenAShelfIsSet(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Dna.useDir(tmp.resolve("dna"));
+        Shelf.override = tmp.resolve("nowhere.db");                     // no shelf: the plan says nothing of it
+        assertFalse(Tonight.text(Tonight.plan(store, LocalDate.now())).contains("Your shelf"), "no shelf set");
+        Shelf.override = ShelfDnaTest.shelfWithAFile(tmp.resolve("calibre"));
+        String text = Tonight.text(Tonight.plan(store, LocalDate.now()));
+        assertTrue(text.contains("Your shelf: its books are read for their DNA for 20 minutes, the ones you went for first (0 labelled so far"), text);
     }
 }

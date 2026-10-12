@@ -142,12 +142,12 @@ class FamilyLinksSixTest {
     @Test
     void aNameInLowerCaseIsTheSameNameAsTheFormANameClaimLists(@TempDir Path tmp) throws Exception {
         LibraryStore store = family(tmp);
-        claim(store, "rose yamada", "child-of", "Kenji Yamada", NOTES);
-        claim(store, "rose yamada", "born-on", "1950", NOTES);
-        FamilyNameHistoryTest.file(store, NOTES, List.of(), List.of(FamilyNameHistoryTest.name("Rose Yoko Hale Yamada", "Rose Yoko Hale Yamada", "Yamada", "Rose Yoko", "marriage", "1975", "Rose Yoko Hale Yamada, known as rose yamada.", "rose yamada")));
-        claim(store, "Rose Yoko Hale Yamada", "born-on", "1950", TREE);
+        claim(store, "ruth yamada", "child-of", "Kenji Yamada", NOTES);
+        claim(store, "ruth yamada", "born-on", "1950", NOTES);
+        FamilyNameHistoryTest.file(store, NOTES, List.of(), List.of(FamilyNameHistoryTest.name("Ruth Yaeko Hale Yamada", "Ruth Yaeko Hale Yamada", "Yamada", "Ruth Yaeko", "marriage", "1975", "Ruth Yaeko Hale Yamada, known as ruth yamada.", "ruth yamada")));
+        claim(store, "Ruth Yaeko Hale Yamada", "born-on", "1950", TREE);
         FamilyLinks.update(store);
-        assertEquals(entry(store, "rose yamada"), entry(store, "Rose Yoko Hale Yamada"), "the same name, case aside, that one text writes both ways: " + sentences(store));
+        assertEquals(entry(store, "ruth yamada"), entry(store, "Ruth Yaeko Hale Yamada"), "the same name, case aside, that one text writes both ways: " + sentences(store));
     }
 
     // ── 5. descriptions: "X's mother" by X's own source, and "the speaker in <a talk>" ───────────────────────────────

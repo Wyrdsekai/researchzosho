@@ -40,7 +40,7 @@ class FamilyWhoATextIsByTest {
                 "Kimie Hale - my father's cousin - wrote community.pdf",
                 "Tom Hart - wrote the book - Village Life in Leeds.epub",
                 "Isamu Morita - is the one the book - farm.epub is about. it is his own memoir.",
-                "Rose Hart (Rose Mary Hart) - translated farm.epub. she is not family - her parents were Ned and Mary Hart",
+                "Ruth Hart (Ruth Mary Hart) - translated farm.epub. she is not family - her parents were Ned and Mary Hart",
                 "letters.pdf is Haru Endō's diary",
                 "sermons.pdf is the memoir of Ken Ellis.",
                 "i wrote story.pdf",
@@ -51,7 +51,7 @@ class FamilyWhoATextIsByTest {
         assertEquals("Kimie Hale", writers.get("community.pdf"), "the owner's words about her between the dashes are no part of her name");
         assertEquals("Tom Hart", writers.get("Village Life in Leeds.epub"));
         assertEquals("Isamu Morita", writers.get("farm.epub"), "his own memoir is his, not its translator's");
-        assertEquals("Rose Hart", translators.get("farm.epub"));
+        assertEquals("Ruth Hart", translators.get("farm.epub"));
         assertEquals("Haru Endō", writers.get("letters.pdf"));
         assertEquals("Ken Ellis", writers.get("sermons.pdf"));
         assertEquals("the writer of notes.txt", writers.get("story.pdf"), "\"i\" in the notes is whoever wrote the notes");
@@ -59,27 +59,27 @@ class FamilyWhoATextIsByTest {
         assertEquals(1, translators.size(), translators.toString());
         assertEquals(Set.of("farm.epub", "letters.pdf", "sermons.pdf"), FamilyFolder.memoirs(plan), "the texts the notes call the writer's own memoir or diary");
         assertEquals("Kimie Hale", FamilyFolder.nameOnly("Kimie Hale - my father's cousin -"));
-        assertEquals("Rose Hart", FamilyFolder.nameOnly("Rose Hart (Rose Mary Hart)"));
+        assertEquals("Ruth Hart", FamilyFolder.nameOnly("Ruth Hart (Ruth Mary Hart)"));
     }
 
-    static final String BOOK = "THE HALE FARM\n\nA Memoir\n\nIsamu Morita\n\nTranslated from the Japanese by Rose Hart\n\n"
+    static final String BOOK = "THE HALE FARM\n\nA Memoir\n\nIsamu Morita\n\nTranslated from the Japanese by Ruth Hart\n\n"
             + "Translator's Note\n\nI met Isamu Morita's daughter in 1990, and my mother Mary Hart encouraged me to translate this book.\n\n"
             + "Chapter One\n\nI was born in Sendai in 1901. My father Genzaburo Morita kept silkworms.\n\n" + "The farm grew year by year. ".repeat(1600);
 
     @Test
     void aBookNobodyNamedTheWriterOfIsAskedOnceAndItsFirstPagesMustSayIt(@TempDir Path tmp) throws Exception {
         List<String> prompts = new ArrayList<>();
-        FamilyAccount.Byline b = FamilyAccount.byline(BOOK, p -> { prompts.add(p); return "{\"writer\": \"Isamu Morita\", \"translator\": \"Rose Hart\", \"quote\": \"Isamu Morita\\n\\nTranslated from the Japanese by Rose Hart\"}"; });
+        FamilyAccount.Byline b = FamilyAccount.byline(BOOK, p -> { prompts.add(p); return "{\"writer\": \"Isamu Morita\", \"translator\": \"Ruth Hart\", \"quote\": \"Isamu Morita\\n\\nTranslated from the Japanese by Ruth Hart\"}"; });
         assertNotNull(b);
         assertEquals("Isamu Morita", b.writer());
-        assertEquals("Rose Hart", b.translator());
+        assertEquals("Ruth Hart", b.translator());
         assertEquals(1, prompts.size());
         assertTrue(prompts.get(0).contains("THE FIRST PAGES:\nTHE HALE FARM") && prompts.get(0).length() < FamilyAccount.FIRST_PAGES + 2000, "only the first pages go to the model");
         assertNull(FamilyAccount.byline(BOOK, p -> "{\"writer\": \"Tom Hale\", \"translator\": \"\", \"quote\": \"by Tom Hale\"}"), "words the text does not have name nobody");
         assertNull(FamilyAccount.byline(BOOK, p -> "{\"writer\": \"Tom Hale\", \"translator\": \"\", \"quote\": \"A Memoir\"}"), "a line that does not carry the name names nobody");
         assertNull(FamilyAccount.byline(BOOK, p -> "no idea"));
-        FamilyAccount.Byline same = FamilyAccount.byline(BOOK, p -> "{\"writer\": \"Rose Hart\", \"translator\": \"Rose Hart\", \"quote\": \"Translated from the Japanese by Rose Hart\"}");
-        assertTrue(same != null && same.writer().isEmpty() && same.translator().equals("Rose Hart"), "the translator is not taken for the writer");
+        FamilyAccount.Byline same = FamilyAccount.byline(BOOK, p -> "{\"writer\": \"Ruth Hart\", \"translator\": \"Ruth Hart\", \"quote\": \"Translated from the Japanese by Ruth Hart\"}");
+        assertTrue(same != null && same.writer().isEmpty() && same.translator().equals("Ruth Hart"), "the translator is not taken for the writer");
     }
 
     @Test
@@ -90,7 +90,7 @@ class FamilyWhoATextIsByTest {
         List<String> prompts = new ArrayList<>();
         GenealogyProfile.useReader(p -> {
             prompts.add(p);
-            if (p.startsWith("Below are the first pages")) return "{\"writer\": \"Isamu Morita\", \"translator\": \"Rose Hart\", \"quote\": \"A Memoir Isamu Morita Translated from the Japanese by Rose Hart\"}";
+            if (p.startsWith("Below are the first pages")) return "{\"writer\": \"Isamu Morita\", \"translator\": \"Ruth Hart\", \"quote\": \"A Memoir Isamu Morita Translated from the Japanese by Ruth Hart\"}";
             if (p.contains("Answer with one word")) return "no";
             if (!p.contains("Translator's Note")) return "{\"people\": [], \"facts\": []}";
             return """
@@ -101,19 +101,19 @@ class FamilyWhoATextIsByTest {
         });
         String out = run(store, "read", book.toString());
         assertTrue(prompts.stream().filter(p -> p.startsWith("Below are the first pages")).count() == 1, "asked once: " + prompts.size());
-        assertTrue(out.contains("Its first pages say it is by Isamu Morita") && out.contains("Rose Hart translated it"), out);
+        assertTrue(out.contains("Its first pages say it is by Isamu Morita") && out.contains("Ruth Hart translated it"), out);
         assertTrue(prompts.stream().anyMatch(p -> p.contains("told by Isamu Morita. List the people")), "the book is read as his account");
         List<String> triples = store.scanFindings().findings().stream().filter(f -> f.triple() != null).map(f -> f.triple().subject() + " | " + f.triple().predicate() + " | " + f.triple().object()).toList();
-        assertTrue(triples.contains("Mary Hart | parent-of | Rose Hart"), "the translator's note speaks as the translator: " + triples);
+        assertTrue(triples.contains("Mary Hart | parent-of | Ruth Hart"), "the translator's note speaks as the translator: " + triples);
         assertFalse(triples.contains("Mary Hart | parent-of | Isamu Morita"), triples.toString());
         assertTrue(store.scanFindings().findings().stream().anyMatch(f -> f.sources().stream().anyMatch(s -> s.edition().equals("as told by Isamu Morita"))), "the claims are his account");
     }
 
     @Test
     void aMemoirsIIsItsWritersUnlessThePartIsSomebodyElsesAndTheJudgeIsToldTheNameAsWritten() {
-        FamilyAccount.Voice memoir = FamilyAccount.Voice.of("森田勇", "file:///family/farm.epub", "Rose Hart").as("Isamu Morita", true);
+        FamilyAccount.Voice memoir = FamilyAccount.Voice.of("森田勇", "file:///family/farm.epub", "Ruth Hart").as("Isamu Morita", true);
         String q = FamilyAccount.voiceQuestion(memoir, "My father kept silkworms.", "Chapter One. I was born in Sendai. My father kept silkworms.");
-        assertTrue(q.contains("the memoir 森田勇 (its first pages write the name Isamu Morita) wrote of their own life, translated by Rose Hart"), q);
+        assertTrue(q.contains("the memoir 森田勇 (its first pages write the name Isamu Morita) wrote of their own life, translated by Ruth Hart"), q);
         assertTrue(q.contains("In the memoir's own text the one who says I is 森田勇") && q.contains("an editor's introduction or a translator's note"), q);
         FamilyAccount.Voice plain = FamilyAccount.Voice.of("Kimie Hale", "file:///family/community.pdf").as("Kimie Hale", false);
         assertEquals("", plain.writtenAs(), "the same way of writing is not said twice");
@@ -125,7 +125,7 @@ class FamilyWhoATextIsByTest {
 
     @Test
     void wordsInAnEditorsPartAreNotTheWritersWhateverTheyTellOf() {
-        FamilyAccount.Voice voice = FamilyAccount.Voice.of("Isamu Morita", "file:///family/farm.epub", "Rose Hart").as("", true);
+        FamilyAccount.Voice voice = FamilyAccount.Voice.of("Isamu Morita", "file:///family/farm.epub", "Ruth Hart").as("", true);
         assertEquals("editor", FamilyAccount.partOf(FRONT, "With my grades and diploma I came back to Leeds in 1950"));
         assertEquals("", FamilyAccount.partOf(FRONT, "I was born in Sendai in 1901."), "the memoir's own text");
         FamilyAccount.Read r = FamilyAccount.read(FRONT, "Isamu Morita", new GenealogyProfile().predicates(), p -> p.contains("THE HALE FARM") ? """
@@ -143,9 +143,9 @@ class FamilyWhoATextIsByTest {
 
     @Test
     void aNameTheWordsCreditWithWorkOnTheTextIsNoNameOfTheWriter() {
-        String q = "memoir / Isamu Morita ; introduced and edited by Ken Ellis ; from a translation by Rose Hart";
+        String q = "memoir / Isamu Morita ; introduced and edited by Ken Ellis ; from a translation by Ruth Hart";
         assertTrue(FamilyAccount.credited(new FamilyAccount.NameRead("Isamu Morita", "Ken Ellis", "", "", List.of(), "", "", "", q)));
-        assertTrue(FamilyAccount.credited(new FamilyAccount.NameRead("Isamu Morita", "Rose Hart", "", "", List.of(), "", "", "", q)));
+        assertTrue(FamilyAccount.credited(new FamilyAccount.NameRead("Isamu Morita", "Ruth Hart", "", "", List.of(), "", "", "", q)));
         assertFalse(FamilyAccount.credited(new FamilyAccount.NameRead("Isamu Morita", "Isamu Morita", "", "", List.of(), "", "", "", q)));
         assertTrue(FamilyAccount.credited(new FamilyAccount.NameRead("森田勇", "遠藤ハル", "", "", List.of(), "", "", "", "森田勇 著・遠藤ハル 訳")));
         List<String> dropped = new ArrayList<>();

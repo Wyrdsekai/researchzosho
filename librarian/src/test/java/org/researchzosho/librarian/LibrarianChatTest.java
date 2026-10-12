@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.Config;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -197,6 +198,14 @@ class LibrarianChatFitTest {
     @Test
     void theContextIsFittedToTheWindowByClearingOlderLookUpsFirst() throws Exception {
         Path tmp = Files.createTempDirectory("rzfit");
+        // the prompt's size is what is measured, so the home is this test's own: the suite's shared scratch home carries what earlier
+        // tests left (a shelf, once), and the prompt grew past the window's share (1 of 1,854, 2026-10-11)
+        String home0 = System.getProperty("user.home");
+        System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
+        try { fitted(tmp); } finally { System.setProperty("user.home", home0); Config.invalidate(); }
+    }
+
+    private void fitted(Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         List<ArrayNode> seen = new ArrayList<>();
         String big = "x ".repeat(6000);   // ~3000 tokens a result on an 8000-token window
@@ -217,9 +226,13 @@ class LibrarianChatFitTest {
         };
         lib.say("one"); lib.say("two"); lib.say("three");
         ArrayNode last = seen.get(seen.size() - 1);
-        int total = 0; int cleared = 0;
-        for (JsonNode m : last) { total += Researcher.estTokens(m.path("content").asText("")); if (m.path("content").asText("").startsWith("[an earlier look-up, cleared")) cleared++; }
-        assertTrue(total <= 8000 * 0.55 + 200, "fitted inside the window: " + total);
+        int total = 0; int cleared = 0; StringBuilder shape = new StringBuilder();
+        for (JsonNode m : last) {
+            String c = m.path("content").asText(""); int n = Researcher.estTokens(c); total += n;
+            if (c.startsWith("[an earlier look-up, cleared")) cleared++;
+            shape.append(' ').append(m.path("role").asText()).append('=').append(n);   // each message's share, so a failure says what grew
+        }
+        assertTrue(total <= 8000 * 0.55 + 200, "fitted inside the window: " + total + " (" + shape.toString().strip() + ")");
         assertTrue(cleared >= 1, "the oldest look-ups were cleared, not the words");
         assertEquals("system", last.get(0).path("role").asText());
     }

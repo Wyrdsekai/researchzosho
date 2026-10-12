@@ -1,5 +1,71 @@
 # Changelog
 
+## 0.6.0
+
+With this release the library makes recommendations, as part of its research. Ask for a book, a podcast episode
+or something to buy, and it is researched the way any other question is: from library catalogues, shops and your
+own shelf, with a record you can check for everything it names. Each change below is in full in the guide,
+LIBRARIAN_HOWTOUSE.md.
+
+### New
+
+- **Book recommendations.** Ask for a book to read first on a subject, what a book covers, or what to read next.
+  The recommendations come from library catalogues, so every book is real and has a link to its record. It looks past the bestseller lists and
+  says what each book covers and who it is for. In the chat it asks a question or two first, such as your level and
+  what you have read.
+- **Your own shelf.** Set `calibre` to your Calibre library, and `researchzosho myshelf` shows what you go for:
+  subjects, the authors you come back to, decades, languages. `myshelf have <title>` says whether you already have a
+  book, and recommendations leave out what you have. Your library is read, never changed, and books that arrived in one bulk import count as holdings, not taste.
+- **A card for every book.** Overnight the library reads the books on your shelf and writes a card for each: how long
+  it is, how much is dialogue, how hard it reads, and what the model found in it, mood, pace, themes, who it is for.
+  The cards describe the books, not you. `researchzosho myshelf dna "<title>"` shows one. Twenty minutes a night,
+  unless you set `dna_minutes`.
+- **"Like this one".** `researchzosho myshelf like "<title>"` recommends books on your shelf like one you name, by
+  what the texts say rather than who wrote them. Each row says in what way it is alike. Books by the same author go in a side
+  list, and one well-known title is always in, so you can say whether you want more or fewer of those.
+- **Your preferences.** `researchzosho prefs` shows what you want more and less of, and where each line came from.
+  `prefs draft` writes a first version from your shelf. `prefs set prefer.mood gentle` adds a line of your own. "Like
+  this one" and browsing follow it.
+- **Reactions.** `researchzosho react like "<title>"`, or dislike, seen, own. A disliked book leaves later lists, a
+  seen or owned one is marked, and your preferences learn from what you liked.
+- **Browsing.** `researchzosho myshelf browse` recommends a spread of your books, each as different from the last as
+  possible, for when you will know it when you see it. React to any, and the next list moves.
+- **Sharing the cards.** `researchzosho dna pack export <file>` writes the cards out with nothing of you in them, and
+  `dna pack import <file>` reads a pack in. Sharing is off unless you turn `dna_share` on.
+- **Podcasts get cards too.** An episode whose transcript the library holds gets a card like a book's. `researchzosho
+  podcast like <words>` recommends episodes like one.
+- **What you own.** `researchzosho owned import <file>` reads your purchase records: the zip Amazon sends when you ask
+  for your data, a mailbox of order confirmations, a bank or card statement, a Google Takeout or an Apple data
+  download. `owned find <words>` looks something up: what, when, where, how much. Nothing needs this; with it,
+  research and the chat know what you already have.
+- **Recalls.** Every night the library checks the product-safety feeds (US, EU, UK and more) against what you own. A
+  notice that may concern something of yours waits in the inbox, saying how it matched. The setting `recalls off`
+  turns it off.
+- **Shopping.** Ask what to buy, with your need and your budget, and the recommendations come from what shops list
+  right now in your country: the price, the datasheet, recall notices, repairability and what owners say. It judges fit against
+  your need, not popularity, and keeps to six rows. Sites whose terms forbid machine reading are linked, never read.
+  The shops work through your own free keys; without them it says so and uses the open sources.
+- **Marketplaces.** For something used, vintage, handmade or out of print, the run asks eBay (with your free eBay
+  keys) and gives you ready search links for Mercari, ヤフオク!, ラクマ, 日本の古本屋 and AbeBooks, which no program may read.
+- **Your market.** Setup asks which country you buy in. Shopping uses that country's shops, currency and recall
+  notices.
+- **The menu.** It moved to a column on the left, in groups: the library, the work, what is yours, each field. It
+  folds to a rail of symbols, or opens over the page on a phone. The pages are dark by default, with a switch at the
+  bottom of the menu.
+- **Chat on every page.** The chat sits beside every page on a wide window and behind a Chat button on a narrow one.
+  It is the same conversation as the Chat page and the terminal. Drag its edge to make it wider.
+
+### Fixed
+
+- The Settings page works again. 0.5.5 added it, but the service did not serve it.
+- A browser signed in with a token the library no longer accepts is signed out cleanly, with a note saying so, instead
+  of seeing "Not allowed" on every page.
+- A model server that is still loading its model is waited for, up to about a minute, instead of being refused with
+  "no model answers" on the first question after a quiet spell.
+- The chat page fits the window. The conversation scrolls in its own box and opens at the latest reply, with the box
+  to type in under it.
+- The test suite no longer touches the developer's own config file.
+
 ## 0.5.5
 
 ### New

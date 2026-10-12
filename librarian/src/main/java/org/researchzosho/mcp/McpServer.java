@@ -379,6 +379,68 @@ public final class McpServer {
                         prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER."),
                         prop("value", "string", "The value to write (set)."),
                         patronProp())));
+        tools.add(tool("library_my_shelf",
+                "The person's own shelf: their Calibre library (the calibre setting), the podcasts they follow, what they bought. op=profile: what they went for — the books they added one by one (a day of fifty or more additions is an import: holdings, not taste) and any they rated themselves — "
+                + "the subject mix among the liked books with its tilt against the whole shelf, the authors rated well more than once, decades, languages, sample "
+                + "titles, podcasts followed, shops bought from; an imported rating is set aside. op=have with title (and author): whether a book is "
+                + "already on the shelf, in the purchase ledger or on a holdings list. op=liked with words: the rated books on a subject or by an author, best first. "
+                + "op=dna with title: a shelf book's DNA — the text counted (length, sentences, dialogue, reading grade, the feeling's arc) and the model's reading of it over twelve windows (kind, themes, moods against an ordinary book of its kind, pace, darkness, scale, humour, style, drive, topics), made now when missing; without a title (the owner) the night's reading of the shelf runs now.",
+                schema(new String[]{},
+                        enumProp("op", "profile (default) | have | liked | refresh (the owner: the catalogues of the authors rated well read now, for the what-next pool) | dna (a book's DNA; the owner without a title: the shelf read now) | like (with title: the books on the shelf like it by their DNA — subject first, then kind, audience, demand, mood, pace; the author's own works set aside; under the person's preferences file and reactions) | browse (a spread of labelled books across kind, mood, pace, scale and subject, the preferences as the prior, one well-known title in, what the person reacted to left out; seed for the same list again).", "profile", "have", "liked", "refresh", "dna", "like", "browse"),
+                        prop("minutes", "integer", "With op=refresh: how long to spend (default 2, up to 30); with op=dna and no title: minutes to read the shelf (default 20)."),
+                        prop("title", "string", "The book's title, or an ISBN (have)."),
+                        prop("author", "string", "The author, to tell books of one title apart (have)."),
+                        prop("words", "string", "A subject, a tag, an author or title words (liked)."),
+                        prop("stars", "number", "liked: only the books the person rated at least this themselves; left out, every book they went for."),
+                        prop("limit", "integer", "How many books (liked; default 20, up to 60; like: default 10, up to 40)."),
+                        patronProp())));
+        tools.add(tool("library_dna",
+                "The DNA store beyond the shelf. op=status: how many documents and how many labelled, per kind, and whether the person shares. op=pack-export (the owner) with path writes a pack of the labelled documents (the shared pool's format: the works' layers and provenance, nothing of the person); op=pack-import (the owner) with path reads one in; op=pack-refresh fetches the pack researchzosho.org announces, when there is one. "
+                + "op=podcast-like with words: the podcast episodes like one, among the transcripts the library holds, the same show set aside; op=podcast-read (the owner) reads the transcripts for their DNA now.",
+                schema(new String[]{},
+                        enumProp("op", "status (default) | pack-export | pack-import | pack-refresh | records (the owner: the catalogue's subjects, editions and ratings joined to the shelf's documents now, the labelled first) | podcast-like | podcast-read.", "status", "pack-export", "pack-import", "pack-refresh", "records", "podcast-like", "podcast-read"),
+                        enumProp("kind", "book (default) | podcast.", "book", "podcast"),
+                        prop("path", "string", "The pack file to write or read."),
+                        prop("words", "string", "Words of the episode's show or title (podcast-like)."),
+                        prop("limit", "integer", "How many rows (podcast-like; default 10)."),
+                        prop("minutes", "integer", "How long to read (podcast-read; default 5) or to fill records (records; default 2)."),
+                        patronProp())));
+        tools.add(tool("library_prefs",
+                "The person's preferences file for books: what they want more and less of, each line with its source (drafted from the shelf, learned from the reactions, or said by the person). op=show (default) the lines; "
+                + "op=draft (the owner) writes one from the shelf; op=set with name and value changes a line (weight.subject 2 | roam 0.4 | popularity one|none|known | words \"…\" | exclude.author|subject|kind|series <value> | prefer.mood|subject|kind|pace|author <value> | avoid.<the same> <value>); "
+                + "op=unset drops one; op=export and op=import with path carry the file; op=learn reads the reactions into it. \"Like X\" and browsing read it. A program sets a line only when the person said so in this conversation.",
+                schema(new String[]{},
+                        enumProp("op", "show (default) | draft | set | unset | export | import | learn.", "show", "draft", "set", "unset", "export", "import", "learn"),
+                        prop("name", "string", "The line to set or unset, e.g. prefer.mood, exclude.author, weight.subject, roam, popularity, words."),
+                        prop("value", "string", "Its value (set); the value to drop (unset, optional)."),
+                        prop("path", "string", "The file to write or read (export, import)."),
+                        patronProp())));
+        tools.add(tool("library_react",
+                "Writes the person's reaction to a book down: like, dislike, seen or own, by title (and author); about=<title> when the book was a row of a \"like\" list for that title. A disliked book leaves later lists, a seen or owned one is marked, and the preferences file learns from the likes and dislikes. The owner, and only when the person said so in this conversation.",
+                schema(new String[]{"reaction", "title"},
+                        enumProp("reaction", "like | dislike | seen | own.", "like", "dislike", "seen", "own"),
+                        prop("title", "string", "The book's title."),
+                        prop("author", "string", "Its author, to tell books of one title apart."),
+                        prop("about", "string", "The X whose \"like\" list the book was on, by title."),
+                        patronProp())));
+        tools.add(tool("library_owned",
+                "What the person owns: their purchases, imported from their own records (the zip Amazon's data request returns, a mailbox of order "
+                + "confirmations, a bank or card statement as CSV). op=status says what the ledger holds and where each file's records begin; op=find with "
+                + "words (and year, shop) looks something up: what was bought, when, where, for how much; op=import with path reads a file on this machine "
+                + "(the owner only); op=forget with file drops what one file added. The ledger is a reference, never a requirement.",
+                schema(new String[]{},
+                        enumProp("op", "status (default) | find | list | import | recalls (the recall notices that may concern what is owned; check=true reads the feeds now, hit=<id> puts one away) | forget.", "status", "find", "list", "import", "recalls", "forget"),
+                        prop("check", "boolean", "With op=recalls: read the safety feeds now instead of waiting for the night (write)."),
+                        prop("hit", "string", "With op=recalls: the id of a hit to put away as not yours or dealt with (write)."),
+                        prop("words", "string", "Words the thing's name, shop or order number carry (find)."),
+                        prop("year", "string", "A year, such as 2019 (find, list)."),
+                        prop("shop", "string", "A shop's name or part of it (find, list)."),
+                        prop("limit", "integer", "How many lines (default 50, up to 500)."),
+                        prop("path", "string", "The file or folder to read (import)."),
+                        enumProp("kind", "amazon (the zip a data request returns) | mail (a mailbox file or folder, or .eml files) | bank (a statement as CSV) | google (Takeout's Play Store orders) | apple (the store transaction history from Apple's download); left out, the file's shape decides (import).", "amazon", "mail", "bank", "google", "apple"),
+                        prop("currency", "string", "The currency to assume when a record has none, such as USD or JPY (import)."),
+                        prop("file", "string", "The imported file to forget, as op=status lists it (forget)."),
+                        patronProp())));
         tools.add(tool("library_bookmarks",
                 "A browser's bookmarks as a starting point: the exported bookmarks file, Chrome's Bookmarks JSON, or lines of urls. Each page is "
                 + "fetched onto the shelves as a collection (folder=… takes one folder); one that cannot be read becomes a source request. "
@@ -635,6 +697,11 @@ public final class McpServer {
             case "library_questions" -> p.questions(args);
             case "library_bookmarks" -> p.bookmarks(args);
             case "library_settings" -> p.settings(args);
+            case "library_owned" -> p.owned(args);
+            case "library_my_shelf" -> p.myShelf(args);
+            case "library_prefs" -> p.prefs(args);
+            case "library_dna" -> p.dna(args);
+            case "library_react" -> p.react(args);
             case "library_meeting" -> p.meeting(args);
             case "library_bridges" -> p.bridges(args);
             case "library_frontier" -> p.frontier(args);

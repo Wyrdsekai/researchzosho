@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.ContentPolicy;
+
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
@@ -74,6 +76,14 @@ public interface Profile {
      * searched}); "" for nothing. Asked only for a run of this field.
      */
     default String knownBlock(LibraryStore store, String question, List<SearchLog.Entry> searched) { return ""; }
+
+    /**
+     * Machine-made evidence this field puts into a run of it before the workers start (0.6.0): what a deterministic step can compute
+     * from the library and the catalogues — the books field's candidate pool from the person's shelf, for one. The planner and the
+     * writer read it with what the library already holds, and the checks count it as evidence; {@code policy} is the run's, so that what
+     * is recorded on it (the catalogue's returns) is seen by the write-up's checks. "" for nothing. Asked only for a run of this field.
+     */
+    default String runEvidence(LibraryStore store, Researcher.Ask ask, ContentPolicy policy) throws IOException { return ""; }
 
     /**
      * The field's own reading of the graph as it is built: who is a person, who may be living. {@code g.wide()} is the field's own view

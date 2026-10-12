@@ -101,6 +101,7 @@ class SetupTest {
                 "big-model",                              // which model
                 "",                                       // no web search backend
                 "",                                       // no Podcast Index key
+                "",                                       // the country: the machine's own
                 "",                                       // no embeddings server
                 "n"                                       // no service
         )) + "\n";
@@ -120,7 +121,7 @@ class SetupTest {
         Path doc = home.resolve("lead.txt");
         Files.writeString(doc, "Lead paint was banned for residential use in the United States in 1978.");
         var acts = new FakeActs(); acts.claude = false;
-        String script = String.join("\n", List.of("", "", "", "", "", "", "n", doc.toString(), "when was lead paint banned")) + "\n";   // location, name, model, search, podcast key, embeddings, service, document, question
+        String script = String.join("\n", List.of("", "", "", "", "", "", "", "n", doc.toString(), "when was lead paint banned")) + "\n";   // location, name, model, search, podcast key, country, embeddings, service, document, question
         String out = run(home, script, new FakeProbe("http://localhost:8080", List.of("m"), false), acts, false, true, true);
         assertTrue(out.contains("Shelved lead.txt."), out.substring(Math.max(0, out.length() - 900)));
         assertTrue(out.contains("1978"), "the first answer shows the document: " + out.substring(Math.max(0, out.length() - 900)));

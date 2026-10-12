@@ -123,13 +123,13 @@ class FamilyOwnerTest {
         claim(store, "the owner of this library's brother", "lived-in", "Kobe", page, OWNER, "About the Morita shop: my brother lives in Kobe");
         // a claim the reader filed the wrong way round, whose words give a woman's sex to "the owner of this library's father": the
         // description's own word says he is a man, and the words of a stray claim do not make him a woman
-        claim(store, "Yoko Morita", "child-of", "the owner of this library's father", page, OWNER, "About the Morita shop: Yoko Morita's mother kept the books");
+        claim(store, "Yaeko Morita", "child-of", "the owner of this library's father", page, OWNER, "About the Morita shop: Yaeko Morita's mother kept the books");
         claim(store, "the owner of this library's mother's grandfather", "occupation", "miller", page, OWNER, "About the Morita shop: my mother's grandfather milled the flour");
         claim(store, "the owner of this library's father's father's father", "occupation", "farmer", page, OWNER, "About the Morita shop: my father's father's father farmed");
         // what the owner wrote beside three pages' addresses, filed as "About <the page's subject>: <the words>": each description is the page's subject
         claim(store, "Ichiro Hale", "relative-of", "the owner of this library's mother's uncle", "told://link-note/https://example.org/hale-ichiro", OWNER, "About Ichiro Hale - The Hale Family Site: my mother's uncle");
         claim(store, "the owner of this library's mother's uncle's father", "relative-of", "Tom Hale", "told://link-note/https://example.org/hale-tom", OWNER, "I think this is my mother's uncle's father");
-        claim(store, "Yoko Morita", "relative-of", "the owner of this library's father's father's younger brother", "told://link-note/https://example.org/morita-yoko", OWNER, "About Yoko Morita: my father's father's younger brother's daughter");
+        claim(store, "Yaeko Morita", "relative-of", "the owner of this library's father's father's younger brother", "told://link-note/https://example.org/morita-yaeko", OWNER, "About Yaeko Morita: my father's father's younger brother's daughter");
         claim(store, "the owner of this library's father's sister", "lived-in", "Kobe", "told://link-note/https://example.org/morita-yoshiko", OWNER, "About 森田良子 - Wikipedia: my father's sister, who lived in Kobe");
         claim(store, "森田良子", "sibling-of", "the owner of this library's father", "told://link-note/https://example.org/morita-yoshiko", OWNER, "About 森田良子 - Wikipedia: my father's sister, who lived in Kobe");
         return store;
@@ -209,7 +209,7 @@ class FamilyOwnerTest {
         assertEquals(FamilyLinks.Grade.probable, tom.grade(), "\"I think\": probable, not proved");
         assertEquals(entry(g, "森田健吾"), entry(g, "the owner of this library's father's father's younger brother"),
                 "your notes say 森田健吾 is 森田正一's younger brother, and 森田正一 your father's father: the walk takes the step your notes state");
-        assertNotEquals(entry(g, "Yoko Morita"), entry(g, "the owner of this library's father's father's younger brother"), "the note beside her page calls her his daughter, not him");
+        assertNotEquals(entry(g, "Yaeko Morita"), entry(g, "the owner of this library's father's father's younger brother"), "the note beside her page calls her his daughter, not him");
         assertEquals(entry(g, "遠藤源三郎"), entry(g, "the owner of this library's mother's grandfather"), "your notes call him your mother's grandfather, filed as a relative of your mother: the steps go on from her");
         assertEquals(entry(g, "森田源太"), entry(g, "the owner of this library's father's father's father"), "said two ways in one line, which agree");
         FamilyLinks.Link self = FamilyLinks.current(store).links().stream().filter(l -> l.why().startsWith("Your own notes say")).findFirst().orElseThrow();

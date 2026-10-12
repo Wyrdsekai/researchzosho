@@ -2378,7 +2378,7 @@ public final class FamilyNameQuestions {
                             for (String k : FamilyNames.keys(t)) others.addAll(byNameKey().getOrDefault(k, Set.of()));
                         for (String other : others) {
                             if (other.equals(p.id()) || !person(other) || !own.contains(other) || apart.contains(Graph.pair(p.id(), other)) || !(in(p.id()) || in(other))) continue;
-                            // an entry written by a name alone (a book's "Kano", the pool of what it wrote by that word) is nobody of that whole name
+                            // an entry written by a name alone (a book's "Tsuda", the pool of what it wrote by that word) is nobody of that whole name
                             if (nameAlone(other)) continue;
                             if (!done.add(Graph.pair(p.id(), other))) continue;
                             FamilySame.Comparison c = compare(p.id(), other);
@@ -2812,8 +2812,8 @@ public final class FamilyNameQuestions {
         }
 
         /**
-         * Whether an entry is written by a name alone, no whole name: a family name or a given name alone, with a title or without ("Kano",
-         * "Mr. Kano", 遠藤), a described person, or an entry the family's questions ask about as a family name alone. Such an entry holds what
+         * Whether an entry is written by a name alone, no whole name: a family name or a given name alone, with a title or without ("Tsuda",
+         * "Mr. Tsuda", 遠藤), a described person, or an entry the family's questions ask about as a family name alone. Such an entry holds what
          * sources wrote by that word, of one person or several, and is never "another person of that name" beside a whole name.
          */
         boolean nameAlone(String id) {

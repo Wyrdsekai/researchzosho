@@ -54,6 +54,14 @@ tasks.test {
     environment("RESEARCHZOSHO_RERANK", "off")
     environment("RESEARCHZOSHO_ENRICH", "both")
 
+    // and it must never WRITE it either: every test runs with a scratch user.home under the build folder
+    // (the settings tests set and cleared keys in the developer's real config file until 0.6.0)
+    val testHome = layout.buildDirectory.dir("test-home").get().asFile
+    doFirst { testHome.mkdirs() }
+    // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
+    maxHeapSize = "2g"
+    systemProperty("user.home", testHome.path)
+
     // GenealogyBoundaryTest writes its baseline when run with -Dboundary.write=true (the list only shrinks; never edit it by hand)
     systemProperty("boundary.write", System.getProperty("boundary.write") ?: "false")
 

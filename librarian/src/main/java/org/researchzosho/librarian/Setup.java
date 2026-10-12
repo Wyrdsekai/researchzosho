@@ -412,6 +412,16 @@ public final class Setup {
                 if (!sec.isBlank()) { Config.set("RESEARCHZOSHO_PODCASTINDEX_SECRET", sec.strip()); out.println("  Podcasts: the Podcast Index."); }
             }
         }
+        // shopping research is for the country the person buys in: its shops, currency and recall notices
+        String market = Config.get(Settings.MARKET);
+        if (market == null || market.isBlank()) {
+            String dflt = Locale.getDefault().getCountry(); if (dflt == null || !dflt.matches("^[A-Z]{2}$")) dflt = "US";
+            out.println("  Shopping research uses the shops, the currency and the recall notices of the country you buy in.");
+            String m = ask("  Which country? (two letters)", dflt);
+            String chosen = m.isBlank() ? dflt : m.strip();
+            if (Settings.refuse(Settings.named("market"), chosen).isEmpty()) { Settings.set(Settings.named("market"), chosen); out.println("  Shopping: " + chosen.toUpperCase(Locale.ROOT) + "."); }
+            else out.println("  That is not a country code; researchzosho settings set market JP sets it later.");
+        }
         String searx = Config.get("RESEARCHZOSHO_SEARXNG");
         String searxAt = searx != null && !searx.isBlank() ? searx : "http://localhost:" + Searx.DEFAULT_PORT;
         boolean haveSearx = probe.searxng(searxAt);

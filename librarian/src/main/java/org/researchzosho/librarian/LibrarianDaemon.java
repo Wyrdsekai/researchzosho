@@ -429,7 +429,16 @@ public final class LibrarianDaemon {
             if (Pages.isPage(path)) {
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie
                 Map<String, String> form = Pages.form(bodyText, x.getRequestHeaders().getFirst("Content-Type"));
-                Patrons.Patron who = patron(x, M.createObjectNode());
+                Patrons.Patron who;
+                try { who = patron(x, M.createObjectNode()); }
+                catch (ProtocolError e) {
+                    // the browser's cookie carries a token the library refuses now (removed since): forget it and go on as a visitor,
+                    // instead of refusing every page until the person finds the sign-out link (a browser stayed "Not allowed", 2026-10-09)
+                    String c = Pages.cookie(x, Pages.COOKIE);
+                    if (!"forbidden".equals(e.code) || c == null || c.isBlank() || x.getRequestHeaders().getFirst("Authorization") != null) throw e;
+                    x.getResponseHeaders().add("Set-Cookie", Pages.COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+                    who = Patrons.Patron.ANONYMOUS;
+                }
                 if (who.anonymous()) who = Patrons.Patron.WEB;   // someone in the browser who has not signed in; Patrons.check decides what that may do
                 Pages.handle(x, this, store, who, query(x), form);
                 return;
@@ -539,6 +548,8 @@ public final class LibrarianDaemon {
                     case "explain" -> p.explain(body);
                     case "serials" -> p.serials(body);
                     case "inbox" -> p.inbox(body);
+                    case "settings" -> p.settings(body);
+                    case "owned" -> p.owned(body);
                     default -> throw ProtocolError.notFound("route " + path);
                 };
             } else {

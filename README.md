@@ -88,6 +88,31 @@ each claim, where it came from, and whether it is accepted or still in dispute.
 document in it is shelved as a collection. Then ask a question that searches only those documents,
 or one that starts there and goes to the web afterwards for more.
 
+**Get book recommendations.** Ask for a book to read first on a subject, what a book covers, or what
+to read next. The recommendations come from the library catalogues (Open Library, Japan's National Diet Library
+and others), never from the model's memory, so every book named is a real one with a link to its
+record. It looks past the bestseller lists and says what each book covers and who it is for.
+
+**Use your own shelf.** Point it at your Calibre library and it learns what you go for: the
+subjects, the authors you come back to, the decades and languages. `researchzosho myshelf like
+"<title>"` recommends books on your shelf like one by what the texts say, not by who wrote them. A
+nightly reading of your books builds a card for each, which describes the book and nothing about
+you. Say which rows you liked and disliked, and the next lists move.
+
+**Know what you own.** Import your purchase records (the zip Amazon sends you, a mailbox of order
+confirmations, a card statement) and the library can tell what you already have. Every night it
+checks the open product-safety feeds against them, and a recall that may concern you waits in the
+inbox.
+
+**Research a purchase.** Ask what to buy and the run looks only at what shops list right now in your
+country, with the price, the datasheet, recall notices, repairability and what owners say. The table
+judges fit against your need, not popularity. For used, vintage or out-of-print things it asks eBay
+and gives you ready search links for the marketplaces no program may read.
+
+**Podcasts and videos.** A question about a podcast, a host or an episode reads what was said, with
+the time it was said, and cites the episode. Follow a show and its new episodes are noted as they
+arrive. A question about videos searches YouTube and the sites beside it and cites the moment.
+
 **Ongoing research, every night.** Every night it runs the searches you have declared ongoing. It
 looks into questions it could not answer before. It re-reads a few accepted claims against their
 sources. It notices new versions of papers you cite. It keeps a dated backup. On Sundays it leaves
@@ -159,6 +184,13 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_UPDATE` | `check` (default): say when a newer release exists; `auto`: the service updates itself after the housekeeping when idle; `off` |
 | `RESEARCHZOSHO_EXPLORER_PER_NIGHT` / `RESEARCHZOSHO_EXPLORER_TYPES` | how many open questions the housekeeping researches a night (default 2), and of which types (default report, asked, person) |
 | `RESEARCHZOSHO_PODCASTINDEX_KEY` / `RESEARCHZOSHO_PODCASTINDEX_SECRET` | the Podcast Index key and secret (api.podcastindex.org/signup, free): the open podcast directory and search by person. Apple's directory answers without them. `researchzosho podcast index download` keeps the directory's weekly file on the machine (1.8 GB) for searching and browsing shows by word, category and language without the API; `RESEARCHZOSHO_PODCASTINDEX_LOCAL=on` has the housekeeping refresh it. |
+| `RESEARCHZOSHO_YAHOO_JP_CLIENT_ID`, `RESEARCHZOSHO_RAKUTEN_APP_ID` + `RESEARCHZOSHO_RAKUTEN_ACCESS_KEY`, `RESEARCHZOSHO_ICECAT_USER`, `RESEARCHZOSHO_REDDIT_CLIENT_ID` + `RESEARCHZOSHO_REDDIT_CLIENT_SECRET` | the shops and catalogues a shopping question may ask, all free: Yahoo!ショッピング and 楽天市場 listings with prices (Japan), Open Icecat datasheets, what owners wrote on Reddit through an app of your own. Without them the run uses the open sources and points at shops. |
+| `calibre` | your Calibre library, its folder or its metadata.db, read and never changed: `researchzosho settings set calibre "~/Calibre Library"`. Your shelf, the books' cards and "like this one" come from it |
+| `market` | the country you buy in, as two letters; setup asks for it. A shopping run uses that country's shops, currency and recall notices |
+| `ebay_client_id` + `ebay_client_secret` | eBay listings and auctions in your market, for used, vintage and out-of-print things; free from eBay's developer program |
+| `cinii_appid` | Japanese books across the university libraries, with how many hold each; free from NII |
+| `dna_minutes` / `dna_share` | how long a night the library reads your books for their cards (20 unless set, 0 for none), and whether a pack of the cards, with nothing of you in it, is written once a week for you to share (off unless set) |
+| `recalls` | `off` stops the nightly check of the product-safety feeds against what you own |
 | `RESEARCHZOSHO_WHISPER` | a transcription server on another machine (an OpenAI-style `/v1/audio/transcriptions`); the local container when unset. `RESEARCHZOSHO_TRANSCRIBE_EPISODES` and `RESEARCHZOSHO_TRANSCRIBE_MINUTES` cap what one run transcribes (2 episodes, 120 minutes); `RESEARCHZOSHO_TRANSCRIBE_FOLLOWED_MINUTES` caps a night's transcription for followed podcasts (unset: none). `researchzosho settings` reads and changes every setting. |
 | `RESEARCHZOSHO_TROVE_KEY` / `RESEARCHZOSHO_DIGITALNZ_KEY` / `RESEARCHZOSHO_EUROPEANA_KEY` / `RESEARCHZOSHO_DPLA_KEY` | keys for the archives that want one: Trove (Australian newspapers), DigitalNZ (a higher rate for Papers Past), Europeana and DPLA (heritage items). The rest of the archives need none. |
 | `RESEARCHZOSHO_FETCH_PRIVATE` | `deny` to stop it fetching addresses on your own network |

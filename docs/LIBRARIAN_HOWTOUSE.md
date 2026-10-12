@@ -22,6 +22,9 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 10b. Archives, old newspapers, Japanese books, code, and other video sites
 10c. Podcasts
 10d. Settings
+10e. What you own
+10f. Shopping
+10g. Books
 11. The housekeeping
 12. Sharing the model
 12b. Talking to the Librarian
@@ -1246,6 +1249,204 @@ write access; the chat asks before it writes. A change takes effect at once, exc
 workers, which takes effect at the service's next restart. The settings live in the library's config
 file, which you may also edit by hand.
 
+## 10e. What you own
+
+The library can hold your own purchase records, and the research and the chat can then tell what you
+already have. Nothing needs this: a library with no records answers every shopping question from the
+open sources; with them it also knows what you own, what you bought it with, and what you kept.
+
+```
+researchzosho owned import ~/Downloads/Your\ Orders.zip    # the zip Amazon sends when you request your data
+researchzosho owned import ~/Mail/Inbox                     # a mailbox file, a folder of them, a Maildir, or .eml files
+researchzosho owned import ~/statement.csv --currency USD   # a bank or card statement
+researchzosho owned find usb hub                            # what, when, where, how much
+researchzosho owned find --year 2019 --shop amazon
+researchzosho owned                                         # what the ledger holds, and where each file's records begin
+researchzosho owned forget <file>                           # drop what one file added
+```
+
+The Amazon zip is the one you get from Account → Security and Privacy → Request your data; its order
+history carries every order with the product's name and ASIN, so those lines are exact. From a mailbox
+the library reads Amazon's, eBay's, PayPal's and 楽天市場's confirmations by their shape, and any other
+shop's by the subject and the prices in the text, so those lines are marked as read from the mail and
+may be off; a receipt for a ride or a meal becomes one line with its total; a shipped notice adds nothing
+to an order already there; replies and mail you sent yourself are passed over. A statement gives where
+and how much, never what. An import run twice adds nothing.
+
+Where a file's records begin is the file's first record, which is not when the account was opened: a
+shop's export may start years after your first order there, and a mailbox has what you kept. The ledger
+says "records begin", never "you started buying".
+
+**The recall watch.** Every night the housekeeping fetches the open product-safety feeds, the US CPSC and FDA, the EU
+Safety Gate, the UK OPSS and the OECD's portal, keeps them as files under the state folder, and matches them against
+what you own. A notice that may concern something in the ledger waits in the inbox and on the Owned page with how it
+matched: a barcode (exact), the brand and a model number (high), or the maker named in the notice and the words of the
+name (medium). Put one away when it is not yours or is dealt with. `researchzosho owned recalls` lists them,
+`owned recalls check` reads the feeds now, `owned recalls dismiss <id>` puts one away; the setting `recalls off` stops
+the nightly fetch. Canada's and Japan's recall sites have no machine feed and are not read.
+
+The same from the Owned page of the web app, from the chat ("what did I buy from Amazon in 2019?",
+"do I already have an HDMI cable?"), and for a program as `library_owned`. Importing needs the library's
+owner, since the file is on the library's machine; reading follows the library's access like everything
+else in it.
+
+## 10f. Shopping
+
+A question about what to buy makes the run a researcher for the purchase, not a ranker. The candidates come only from
+what shops list right now in your market, each with its price, shop and the time the price was seen; each is checked
+for its datasheet, its recall notices, its repairability and what owners say; the table judges fit against the need you
+stated, never popularity, and keeps to six rows; star counts and badges are mentioned as cues, never counted. Sites
+whose terms forbid machine reading (Amazon, Consumer Reports, Wirecutter, Which?, Stiftung Warentest, RTINGS, 価格.com
+and a few more) are pointed at by their address, never read, in every run.
+
+The market is the country you buy in (the setting `market`, asked at setup): one market per run unless you name more.
+For something used, vintage, handmade, out of print or at auction the run asks eBay with your keys and, for the
+marketplaces that cannot be read (Mercari, メルカリ, ヤフオク!, ラクマ, 日本の古本屋, AbeBooks), gives you a search link each
+with the words typed in; a watched search tells you when something new is listed.
+The shops are behind your own keys, all free:
+
+| setting | where to get it | what it gives |
+|---|---|---|
+| `yahoo_jp_client_id` | developer.yahoo.co.jp → アプリケーションの管理 → 新しいアプリケーションを開発 (a "Client ID") | Yahoo!ショッピング listings and prices (Japan) |
+| `rakuten_app_id` + `rakuten_access_key` | webservice.rakuten.co.jp → アプリID発行 (both come together) | 楽天市場 listings and prices (Japan) |
+| `icecat_user` | icecat.biz → Open Icecat, a free account; the setting is the user name | datasheets by brand and model, or barcode, for the brands that sponsor the open catalogue (Kingston, Philips, HP and others); a brand in the paid tier is reported as such |
+| `reddit_client_id` + `reddit_client_secret` | only an app made before Reddit closed its form to new personal apps in 2025 (the form now reloads without creating one; new credentials come by support ticket) | what owners wrote, through Reddit's API; without it the run reads the search engine's snippets of Reddit threads, pointed at and never fetched |
+| `ebay_client_id` + `ebay_client_secret` | developer.ebay.com → a keyset (the sandbox one at once; production by a short application) | eBay listings and auctions, every market |
+
+Without a key the run says what is missing and goes on with the open sources: the Open Facts databases for a barcode
+and a brand, iFixit for repairability, the recall feeds the library keeps, and the web for shops to point at. Outside
+Japan no shop answers without a key the library does not have yet, and the run points at the shop's own page instead.
+
+```
+researchzosho settings set yahoo_jp_client_id …      # or from the Settings page, or in the chat
+researchzosho research "which USB-C hub for a laptop with one port, under 5000 yen"
+```
+
+## 10g. Books
+
+The books field answers "what should I read" the way a librarian would: from the catalogues, with real books, a
+link to each one's record, and a word on what each covers and who it is for. It never names a book from the model's
+memory.
+
+"Which book on X should I read first", "a novel like these two", "おすすめの本は" make the run a books run. The candidates
+come from the catalogues, not from the run's memory: Open Library (by words, subject heading and author), NDL Search for
+Japanese books (by words, 件名 and NDC class), and a work's own record or openBD's description and table of contents. A
+title the catalogue did not return in the run is not named. The workers look past the bestsellers: subject headings,
+reading lists, syllabi, society and library lists, the "further reading" sections of long reviews, each title then looked
+up in the catalogue before it counts. The table has eight rows at most and says what each book covers in your terms, who
+it is for, the year and edition, the length, where it was found and the one reason it fits or falls short; ratings and
+edition counts are a column of cues. No keys are needed; with a CiNii appid (the setting `cinii_appid`, from NII's free
+developer registration) Japanese books are also found by 件名 and author across the university libraries, each with how
+many libraries hold it.
+
+In the chat, say what you are after and answer the questions it asks one at a time (the level, the language, what you
+have read on it already); the run is filed with every constraint in words. After the report, "more like the third one,
+shorter" is answered from the report's own table; a narrow follow-up run only for what the run never looked at.
+
+**Your own shelf.** Set `calibre` to your Calibre library (its folder or its metadata.db); it is read, never changed.
+
+```
+researchzosho settings set calibre "~/Calibre Library"
+researchzosho myshelf                      # the profile: what you rate highly, as a subject mix, authors, decades, sample titles
+researchzosho myshelf have "Anathem"       # already on the shelf, in the purchase ledger or on a holdings list?
+researchzosho myshelf liked space opera    # what you rated on a subject, best first
+researchzosho myshelf refresh --minutes 5  # read the catalogues of the authors you rate well now, instead of waiting for the night
+researchzosho myshelf dna "Anathem"        # a book's DNA: the text counted, and the model's reading of it over twelve windows
+researchzosho myshelf dna --minutes 60     # read the shelf for its DNA now, your picks first (the night does 20 minutes)
+researchzosho myshelf like "Anathem"       # the books on your shelf like it, by their DNA; the author's own works set aside
+researchzosho prefs                        # your preferences file, every line with where it came from
+researchzosho prefs draft                  # a file drafted from your shelf
+researchzosho prefs set prefer.mood gentle # a line of your own (weight.subject 2, roam 0.4, popularity none, words "…", exclude.author "…", avoid.kind business)
+researchzosho react like "Anathem" --about "Snow Crash"   # a reaction; --about names the book whose "like" list it was on
+researchzosho myshelf browse               # a spread of your labelled books to browse; react, and the next list moves
+researchzosho dna status                   # the DNA store: how many documents, how many labelled, whether you share
+researchzosho dna records --minutes 10     # the catalogue's subjects, editions and ratings joined to your books' documents now
+researchzosho dna pack export ~/books.jsonl.gz   # a pack of the labelled documents, the shared pool's format
+researchzosho podcast like "harbour hour"  # the episodes like one, among the transcripts the library holds
+```
+
+The profile is the books you added yourself. A day on which fifty or more books arrived is an import that came with the
+files, and those books count as holdings, never as taste; a book added on an ordinary day is one you chose. A star
+counts only when you gave it: a day with fifty or more ratings is an import too, and its stars are set aside (one shelf
+of 74,707 books held 3,462 stars, 3,410 of them from four such days, none given by its owner). The profile says how
+many books and ratings are yours and how many came with the files. It also lists the podcasts you follow, the searches
+you watch and the shops you buy from. A books run reads
+it as the `my_shelf` tool, checks every candidate against it and does not recommend what you have; the chat and MCP have it
+as `library_my_shelf`. A "what should I read next" run starts from the works of the authors you rate well that you do not
+have, then from the catalogue under the subjects you rated highly for breadth, what you own left out and each candidate's
+fit counted. The night housekeeping keeps the catalogue of each author you rate well on this machine, two minutes a night
+until all are on file and then as they go stale, so the run reads them without waiting. Measured on a shelf of 2,134 rated
+books: the authors reach a third of what the person went on to like, the subjects a sixteenth. With no library set, the
+run goes on from what you asked for.
+
+**A book's DNA.** For every book with an EPUB on the shelf the library keeps a card, its DNA, in three layers: what the
+catalogues say of it, what a program counts in the text, and what the model reads in it. The record: what the shelf and the
+catalogues say, each with its source. The measured: what a program counts from the whole text — length and chapters,
+sentence length and spread, dialogue share, vocabulary, a reading grade, person and tense, and the arc of the words'
+feeling through the book. The labelled: the model's reading of an excerpt (kind, audience, demand, themes, setting) and of
+twelve windows of 1,500 words spread over the text, each judged against an ordinary book of its kind — for fiction the
+readers'-advisory appeal terms (menacing, suspenseful, heart-warming, bleak, bittersweet, gentle, darkly humorous, lyrical,
+gritty, whimsical, haunting, upbeat, sardonic, nostalgic, violent, romantic), for nonfiction tone words (dry, wry, polemical,
+instructional, conversational, earnest, playful, urgent, reflective, technical, warm, scholarly, indignant, hopeful, bleak,
+intimate) — with pace, darkness, scale, humour, style, drive and two to four topics a window. The windows become the book's
+labels (each mood's share of windows; the scales' mean, spread and arc; the agreement between windows as the confidence,
+never the model's own word) and its signature (for every mood, topic and value: how often, where in the book, whether it
+grows; how the book moves). `researchzosho myshelf dna "<title>"` shows the card and makes the DNA when it is missing (the
+model takes about a minute a book). The night housekeeping reads the shelf for it, the books you went for first, for
+`dna_minutes` a night (20 unless set; 0 turns it off; `researchzosho tonight` says how long the next night will spend on it);
+`myshelf dna --minutes 60` reads now, at most 240 minutes a call. The documents are under
+`~/.researchzosho/dna`, one per book, keyed by the file's hash, and hold nothing of your stars or reactions: they describe
+the book, not you. The chat and MCP have the card as `library_my_shelf` op=dna. The record layer is filled from Open Library
+too — the subject headings, the work key, the edition and rating counts, the first year, found by ISBN first and then by title
+and author, each said to come from the catalogue — the labelled books first, two minutes a night, keyless (`dna records
+--minutes 10` does it now; a book the catalogue does not know is asked again after a month). A shelf's own tags are shop
+codes and "General"; the catalogue's subjects are what "like X" compares first.
+
+**"Like X".** `researchzosho myshelf like "<title>"` lists the books on your shelf like one by what the texts say: subject
+first (the themes and topics the model read, the subjects the shelf and the catalogues give), then kind, audience and demand,
+then mood and pace at a small weight. The measured form is left out of it: among books already alike in subject, closer in
+form read as *less* alike to the judge, so form serves "written like X" and not this. Every row says on which dimensions it
+is alike and on which not. The same author's and the same series' books are set aside into a side list — "more by the same
+author" is the old way of finding more, not a likeness. One well-known title stands in every list, so you can say whether you
+want more or fewer of those. The list is only as wide as the labelled store: the night housekeeping labels about one book a
+minute, your picks first. A research run has it as `my_shelf kind=like`, and a question that names a book on your shelf
+("something like The Harbour Ledger") has the list pushed in before the workers start.
+
+**Your preferences file.** Taste lives in `~/.researchzosho/prefs/books.json`, never in a book's document. `researchzosho prefs`
+shows it, every line with where it came from: the weights "like X" uses (subject 2, kind, audience and demand ½, mood ½, scale
+¼, form 0), what you prefer, avoid and leave out, the roam knob (0 keeps to the nearest, 1 wanders far), the popularity line
+(one well-known title in every list, none, or well-known preferred) and a line in your own words. `prefs draft` writes one from
+your shelf — the subjects you went for most, and from the labelled books among them the moods that recur, the kind that
+dominates and a pace when it leans one way, each line saying how many books it rests on. `prefs set <name> <value>` changes a
+line, `prefs unset` drops one, `prefs export <file>` and `prefs import <file>` carry it. The same ask under two preferences files
+gives lists that differ in the stated direction, which is the test of it.
+
+**Reactions.** `researchzosho react like "<title>"` (or dislike, seen, own) writes a reaction down with a snapshot of the
+book's DNA; `--about "<X>"` says it was a row of X's "like" list. A disliked book leaves later lists, a seen or owned one is
+marked, and the preferences file learns from the likes and dislikes: a mood or subject in three liked books is preferred, a
+kind disliked three times and never liked is avoided. The reactions given on rows of "like" lists are the judged pairs that will
+one day learn the weights — not before there are hundreds of them across dozens of books.
+
+**Browsing.** `researchzosho myshelf browse` is for "I'll know it when I see it": a spread of your labelled books across kind,
+mood, pace, scale and subject, each row as different from the last as the store allows, your preferences file as the prior (a
+prefer line lifts a book, an avoid line lowers it), one well-known title in, and what you reacted to left out. Each row says in
+a sentence what the book is. React to any, and the next list moves; `--seed N` brings the same list back.
+
+**The shared pool, and the pack.** The documents describe books, not you, so they can be handed on. `researchzosho dna pack
+export <file>` writes a pack of the labelled ones: the first line says the format (`rz-dna-pack-1`), the kind, when, the layers'
+versions and the count; then one document a line with the record, the measured and the labelled layers and a provenance line —
+no shelf ids, file paths, stars or reactions. `dna pack import <file>` reads one in: documents this machine lacks are added, its
+own are kept, one of another prompt version is set aside. `dna pack refresh` fetches the pack researchzosho.org announces when
+there is one (none is published yet; the format is ready for it). Contribution is opt-in: with the setting `dna_share` on, the
+night writes your pack to `~/.researchzosho/dna/outbox` once a week for you to send, named by `dna_contributor` or anonymous.
+
+**Podcasts, the second kind.** An episode whose transcript the library holds gets its DNA the same way: the record from the
+capture (the show, the episode, its date, its length from the last time stamp), the measured layer from the spoken words with the
+words a minute, the labelled layer over windows of the talk by the same questions. `researchzosho podcast like <words>` lists the
+episodes like one, the same show's other episodes set aside — more of the same show is the old way of finding more, as an
+author's other books are. `podcast dna --minutes 10` reads the transcripts now; the night spends a quarter of `dna_minutes` on
+them after the books. The chat and MCP have it as `library_dna`.
+
 ## 11. The housekeeping
 
 The housekeeping runs at three each morning, or when you run `researchzosho crews`. Its steps:
@@ -1935,6 +2136,16 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
   `researchzosho genealogy source <file name or address>` lists every fact that rests on one source, and
   which of them have no other source.
 
+- `books` is for questions about which book to read, what a book covers or what to read next. The answer comes
+  from the library catalogues; a book no catalogue returned in the run is not named. With your Calibre library
+  set, it knows your shelf and leaves out what you have. Section 10g.
+- `shopping` is for questions about what to buy. It looks only at what shops list right now in your market,
+  checks each candidate for its datasheet, recalls, repairability and what owners say, and judges fit against
+  your need, never popularity. Section 10f.
+- `youtube` is for questions about what is on YouTube: which channels make a kind of video, whether a channel
+  still posts, what is said in a video and at which moment, and which channels are like one you know. It needs
+  no account and no key. [YOUTUBE.md](YOUTUBE.md) has it in full.
+
 ## 15. Running it as a service
 
 ```
@@ -1960,7 +2171,12 @@ no encryption, and tokens travel in the clear.
 
 ## 16. The web pages
 
-Open `http://127.0.0.1:4649/` in a browser. The pages are:
+Open `http://127.0.0.1:4649/` in a browser. The menu is on the left, grouped: the library (Home, Ask, Search, Subjects,
+Map), the work (Inbox, Open questions, Runs, Research, Changes), what is yours (Chat, Owned, Settings) and each field's
+own pages. On a wide window it stays open beside the page; its button in the header shrinks it to a rail of symbols and
+back, and the browser remembers which. On a narrow window the same menu opens over the page from that button. The
+chat panel on the right has a drag edge: pull it to make the panel wider or narrower, and that is remembered too. The
+pages are dark; the switch at the bottom of the menu makes them light, and that is remembered as well. The pages are:
 
 | Page | What it shows |
 |---|---|
@@ -1975,7 +2191,13 @@ Open `http://127.0.0.1:4649/` in a browser. The pages are:
 | Runs | What the housekeeping will do tonight; research runs, running and finished. "Pause the runner" holds every run at its next turn until "Resume"; "Stop" beside a run ends that one. |
 | Research | Send a question, or sharpen it first. |
 | Settings | Every setting the library has, with what it is for and its value; change one from the form. A key is shown only as set or not. |
+| Owned | What you own, from your own purchase records: a search over it, and where each imported file's records begin. |
+| Chat | The conversation with the Librarian in full. On every other page the same conversation is a panel: beside the page when the window is wide, behind a Chat button at the bottom right when it is narrow. What you say in the panel and what it answers is the one conversation, the same as `researchzosho chat` in a terminal. The panel remembers whether you left it open. |
 | Map | The map. |
+
+A page is never cached by the browser, so what you see is the library as it is now. If a browser was signed in with a
+token the library refuses now, the page that refuses it also clears that sign-in; load the page again and you are an
+ordinary visitor, or sign in with another token.
 | Who is who | Family history: for each person in your family, the people the web shows under their name, with links. You tick the one who is your relative, or say none of them is, or leave it for later, and you can write something about the person. One person at a time; leave whenever you like, and the Inbox says how many still wait. At `/who`, for people who may write. |
 | Decisions | Family history: what only the family can settle, in one place. Names that may be one person, then two sources that disagree about one person, then who is who. Each answer says what it will do before you give it. At `/decide`, for people who may write. |
 
@@ -2088,7 +2310,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.5.5 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.6.0 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

@@ -43,7 +43,7 @@ class WhoPageTest {
             assertTrue(treeIn.contains("/tree?focus=%E6%A3%AE%E7%94%B0%E3%81%BE%E3%82%8A") && !treeIn.contains("not shown to readers"), "signed in, the owner's own living family is there: " + treeIn);
             assertTrue(PagesTest.get(c, base + "/tree?focus=" + Pages.enc("森田まり"), cookie).body().contains("<svg"), "and the tree draws around a living person");
             String home = PagesTest.get(c, base + "/", cookie).body();
-            assertTrue(home.contains("<a href=\"/tree\">Family tree</a><a href=\"/who\">Who is who</a>") && home.contains("<h2>Your family</h2>") && home.contains("2 questions are"), "a library that holds a family shows both pages in the menu and on the home page: " + home);
+            assertTrue(home.contains("<a href=\"/tree\" title=\"Family tree\">") && home.contains("<a href=\"/who\" title=\"Who is who\">") && home.indexOf("href=\"/tree\"") < home.indexOf("href=\"/who\"") && home.contains("<h2>Your family</h2>") && home.contains("2 questions are"), "a library that holds a family shows both pages in the menu and on the home page: " + home);
             String page = PagesTest.get(c, base + "/who", cookie).body();
             assertTrue(page.contains("<h2>森田まり</h2>") && page.contains("Question 1 of 2"), "the person whose pages agree with the family comes first: " + page);
             assertTrue(page.contains("an author of a book on bridges") && page.contains("facts from your library: <strong>1975</strong>") && page.contains("href=\"https://books.example/mari\""), page);

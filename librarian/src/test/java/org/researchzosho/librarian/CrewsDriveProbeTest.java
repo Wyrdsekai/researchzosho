@@ -61,6 +61,42 @@ class CrewsDriveProbeTest {
         } finally { loading.stop(0); slow.stop(0); }
     }
 
+    /** A server that answers 503 to its first {@code loads} requests and 200 after: llama-swap loading the model the probe asked for. */
+    private static HttpServer loadingThenAnswering(int loads, AtomicInteger asked) throws Exception {
+        HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        s.createContext("/v1/chat/completions", ex -> {
+            ex.getRequestBody().readAllBytes();
+            boolean loading = asked.incrementAndGet() <= loads;
+            byte[] out = (loading ? "{\"error\":\"loading\"}" : "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}").getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(loading ? 503 : 200, out.length);
+            ex.getResponseBody().write(out);
+            ex.close();
+        });
+        s.start();
+        return s;
+    }
+
+    @Test
+    void aServerLoadingItsModelIsAskedAgainUntilItAnswers() throws Exception {
+        // the probe itself makes a server that sleeps between uses load its model; 20 seconds was not enough for a 27B (28 s measured),
+        // so the first "like" or research ask of an evening was refused and the second one worked
+        long[] was = Crews.startingWaitsMs;
+        Crews.startingWaitsMs = new long[]{50, 50, 50, 50};
+        AtomicInteger asked = new AtomicInteger();
+        HttpServer s = loadingThenAnswering(2, asked);
+        try {
+            assertTrue(Crews.driveAnswers(url(s)), "loading, loading, then an answer: the drive answers");
+            assertEquals(3, asked.get(), "two probes found it loading, the third found the answer");
+            asked.set(0);
+            HttpServer never = loadingThenAnswering(100, asked);
+            try {
+                assertEquals(false, Crews.driveAnswers(url(never)), "a server that never finishes loading is not waited for forever");
+                assertEquals(5, asked.get(), "the first probe and one after each wait");
+                assertEquals(false, Crews.driveAnswersNow(url(never)), "the single probe does not wait");
+            } finally { never.stop(0); }
+        } finally { s.stop(0); Crews.startingWaitsMs = was; }
+    }
+
     @Test
     void nothingListeningIsDown() throws Exception {
         HttpServer s = router(0, 0);

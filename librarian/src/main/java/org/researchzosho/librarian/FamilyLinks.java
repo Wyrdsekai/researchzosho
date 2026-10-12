@@ -1671,7 +1671,7 @@ public final class FamilyLinks {
                 String value = FamilyNameHistory.written(f);
                 if (kind(e) != Kind.FULL || !kind.containsKey(e) || value.isBlank() || value.matches("(?i)^mrs\\.?\\s+.+")) continue;
                 for (String form : forms(value)) for (String k : keys(e, form)) out.computeIfAbsent(k, y -> new LinkedHashMap<>()).computeIfAbsent(e, y -> new LinkedHashSet<>()).addAll(sources(f.id()));
-                // and the other ways of writing the name the claim lists ("Rose Yamada" beside Rose Yoko Hale Yamada), case aside
+                // and the other ways of writing the name the claim lists ("Ruth Yamada" beside Ruth Yaeko Hale Yamada), case aside
                 for (FamilyNameHistory.Form x : FamilyNameHistory.formsOf(FamilyDetail.get(f, "forms"))) for (String form : forms(x.text())) for (String k : keys(e, form)) out.computeIfAbsent(k, y -> new LinkedHashMap<>()).computeIfAbsent(e, y -> new LinkedHashSet<>()).addAll(sources(f.id()));
             }
             // a Western given name a source writes in brackets beside one person's given name, and beside nobody else's

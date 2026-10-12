@@ -83,6 +83,39 @@ class RevisionAfterChecksTest {
     }
 
     @Test
+    void aTableRowWhoseBookNoCatalogueReturnedIsFlaggedAndARevisionThatStillNamesOneIsKeptAsMarked(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        String text = "## Answer\n\n| Book | Year |\n|---|---|\n| [A Fire Upon the Deep](https://openlibrary.org/works/OL1207691W) — Vernor Vinge | 1992 |\n"
+                + "| The Long Watch — David Feintuch | 1982 | [no catalogue record this run: \"The Long Watch\"]\n"
+                + "| Vatta's War — Elizabeth Moon | 1985 | [no catalogue record this run: \"Vatta's War\"]\n\nThat is all.";
+        List<Researcher.Flag> flags = Researcher.flagged(text);
+        assertEquals(2, flags.size(), flags.toString());
+        assertTrue(flags.get(0).sentence().startsWith("| The Long Watch") && flags.get(0).why().equals("no catalogue record this run: \"The Long Watch\""), flags.get(0).toString());
+        List<ObjectNode> revisions = List.of(
+                J.createObjectNode().put("n", 1).put("revised", "").put("why", "no record"),
+                J.createObjectNode().put("n", 2).put("revised", "| Trading in Danger — Elizabeth Moon | 2003 |").put("why", "the novel's title"));   // still no record: kept as marked
+        Researcher.Drive d = drive(revisions);
+        List<String> log = new ArrayList<>(), notes = new ArrayList<>();
+        Researcher r = new Researcher(d, d, new ResearcherTest.FakeTools(), log::add, 1, store);
+        r.catalogueTitles = Set.of("fire upon the deep", "/works/OL1207691W", "fire upon the deep|vinge");
+        Researcher.Revision rev = r.revise(text, EVIDENCE, REFS, new HashMap<>(), Set.of(), new Researcher.Budget(0), notes);
+        assertEquals(1, rev.changed(), rev.changes().toString()); assertEquals(1, rev.kept(), rev.changes().toString());
+        assertFalse(rev.text().contains("The Long Watch"), "the row with no record is left out: " + rev.text());
+        assertTrue(rev.text().contains("| Vatta's War — Elizabeth Moon | 1985 | [no catalogue record this run: \"Vatta's War\"]"), "kept as marked: " + rev.text());
+        assertTrue(rev.changes().get(1).contains("it still names a book no catalogue returned this run"), rev.changes().get(1));
+        assertTrue(rev.text().contains("| [A Fire Upon the Deep](https://openlibrary.org/works/OL1207691W) — Vernor Vinge | 1992 |"), rev.text());
+    }
+
+    @Test
+    void aFlaggedTableRowIsOneSentenceWhateverItsCellsHold() {
+        String marked = "## Answer\n\n| Book | Year |\n|---|---|\n| [Off Armageddon Reef](https://en.wikipedia.org/wiki/Off_Armageddon_Reef) – D. Weber | 2007, Tor | [no catalogue record this run: \"Off Armageddon Reef\" (its link is not a catalogue record)]\n| [Dauntless](https://openlibrary.org/works/OL8126362W) – J. Campbell | 2006 |\n\nThat is all.";
+        List<Researcher.Flag> flags = Researcher.flagged(marked);
+        assertEquals(1, flags.size(), flags.toString());
+        assertTrue(flags.get(0).sentence().startsWith("| [Off Armageddon Reef](https://en.wikipedia.org/wiki/Off_Armageddon_Reef) – D. Weber | 2007, Tor |"), "the whole row, not the part after \"D.\": " + flags.get(0).sentence());
+        assertTrue(marked.substring(flags.get(0).start(), flags.get(0).end()).startsWith("| [Off Armageddon") && marked.substring(flags.get(0).end()).startsWith("\n| [Dauntless]"), "the span is the line");
+    }
+
+    @Test
     void withNoTurnLeftTheFlaggedSentencesStandAsMarked(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         Researcher.Drive d = drive(List.of());

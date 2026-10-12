@@ -55,6 +55,8 @@ public final class Fetch {
             if (url == null || url.isBlank()) return null;
             if (refusedList && SourceRules.live().refused(url)) return "its site is on the person's refused-sources list";
             if (onSiteList(url)) return "its site is on " + SITE_LIST_NAME;
+            String terms = (siteList || refusedList) ? Terms.forbids(url) : null;   // a model's fetch, not the person's own act
+            if (terms != null) return "the terms of " + terms + " forbid machine reading; it is a page to point the person at by its address, never to read";
             return null;
         }
 

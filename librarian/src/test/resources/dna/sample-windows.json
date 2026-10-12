@@ -1,0 +1,107 @@
+{
+ "words": 6687,
+ "k": 12,
+ "w": 400,
+ "windows": [
+  {
+   "index": 0,
+   "of": 12,
+   "pos": 0.0,
+   "first": "A",
+   "last": "goes",
+   "words": 400
+  },
+  {
+   "index": 1,
+   "of": 12,
+   "pos": 0.091,
+   "first": "harbour!\"",
+   "last": "angry",
+   "words": 400
+  },
+  {
+   "index": 2,
+   "of": 12,
+   "pos": 0.182,
+   "first": "waited",
+   "last": "delight",
+   "words": 400
+  },
+  {
+   "index": 3,
+   "of": 12,
+   "pos": 0.273,
+   "first": "opened",
+   "last": "suddenly",
+   "words": 400
+  },
+  {
+   "index": 4,
+   "of": 12,
+   "pos": 0.364,
+   "first": "market",
+   "last": "coat",
+   "words": 400
+  },
+  {
+   "index": 5,
+   "of": 12,
+   "pos": 0.454,
+   "first": "island.",
+   "last": "stood",
+   "words": 400
+  },
+  {
+   "index": 6,
+   "of": 12,
+   "pos": 0.545,
+   "first": "gives",
+   "last": "carefully",
+   "words": 400
+  },
+  {
+   "index": 7,
+   "of": 12,
+   "pos": 0.636,
+   "first": "after",
+   "last": "carefully",
+   "words": 400
+  },
+  {
+   "index": 8,
+   "of": 12,
+   "pos": 0.727,
+   "first": "sadly",
+   "last": "their",
+   "words": 400
+  },
+  {
+   "index": 9,
+   "of": 12,
+   "pos": 0.818,
+   "first": "Knew",
+   "last": "he",
+   "words": 400
+  },
+  {
+   "index": 10,
+   "of": 12,
+   "pos": 0.909,
+   "first": "Quiet",
+   "last": "delight",
+   "words": 400
+  },
+  {
+   "index": 11,
+   "of": 12,
+   "pos": 1.0,
+   "first": "happy",
+   "last": "love.",
+   "words": 400
+  }
+ ],
+ "excerpt_words": 5005,
+ "excerpt_sha_len": 30925,
+ "excerpt_head": "[OPENING]\nA note A short closing note of a few dozen words, ",
+ "excerpt_tail": " then went fear thought us us hate when hopeless clock love."
+}
