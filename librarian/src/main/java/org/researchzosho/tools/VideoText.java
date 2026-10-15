@@ -1,6 +1,8 @@
 package org.researchzosho.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
@@ -114,6 +116,35 @@ public final class VideoText {
         if (n >= 100_000) return String.format(Locale.ROOT, "%dK", n / 1000);
         return String.format(Locale.ROOT, "%,d", n);
     }
+
+    /**
+     * Whether a title carries every word of {@code match} (case folded), or matches it as a pattern when it is written {@code /…/}: the
+     * filter a channel's whole list is read through, so a run can find every video a channel made about a subject.
+     */
+    public static boolean titleMatches(String title, String match) {
+        String t = title == null ? "" : title;
+        String m = match == null ? "" : match.strip();
+        if (m.isEmpty()) return true;
+        if (m.length() > 2 && m.startsWith("/") && m.endsWith("/")) {
+            try { return Pattern.compile(m.substring(1, m.length() - 1), Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(t).find(); }
+            catch (Exception e) { return false; }
+        }
+        String hay = t.toLowerCase(Locale.ROOT);
+        for (String w : m.toLowerCase(Locale.ROOT).split("\\s+")) if (!w.isEmpty() && !hay.contains(w)) return false;
+        return true;
+    }
+
+    /** The listing with only the entries whose titles match, and at most {@code limit} of them, the rest of the document as it was. */
+    public static ObjectNode entriesMatching(JsonNode listing, String match, int limit) {
+        ObjectNode out = J.createObjectNode();
+        listing.fields().forEachRemaining(e -> { if (!e.getKey().equals("entries")) out.set(e.getKey(), e.getValue()); });
+        ArrayNode kept = out.putArray("entries");
+        for (JsonNode e : listing.path("entries")) { if (kept.size() >= limit) break; if (titleMatches(e.path("title").asText(""), match)) kept.add(e); }
+        return out;
+    }
+
+    /** How many entries of a listing carry the match. */
+    public static int countMatching(JsonNode listing, String match) { int n = 0; for (JsonNode e : listing.path("entries")) if (titleMatches(e.path("title").asText(""), match)) n++; return n; }
 
     /** The entries of a yt-dlp search or listing as lines: videos, or channels. */
     public static String searchLines(JsonNode listing, boolean channels, LocalDate today) {

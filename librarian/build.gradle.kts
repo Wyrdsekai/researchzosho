@@ -58,6 +58,15 @@ tasks.test {
     // (the settings tests set and cleared keys in the developer's real config file until 0.6.0)
     val testHome = layout.buildDirectory.dir("test-home").get().asFile
     doFirst { testHome.mkdirs() }
+    // and a drive at a closed port is OFFERED to every test (a _DEFAULT is read only when nothing else is set, so a test's own
+    // Config.set still wins): a test that sets no drive would otherwise ask whatever answers at the box's default address (nothing
+    // on a CI runner; a 9B on the Mac mini, which read a fixture book for one test and would judge a short question for another,
+    // 2026-10-11). An offer in the environment and not a line in the scratch home's config, because the tests swap user.home for
+    // homes of their own and a line in one home is not seen from another; an offer and not RESEARCHZOSHO_DRIVE itself, because
+    // the tests set their stub drives through the config file and an environment variable outranks every one of them; localhost
+    // and not 127.0.0.1, because the fetcher refuses the drive's host as one of the library's own services and the fixtures are
+    // served at 127.0.0.1. SuiteHomeTest pins it; HomeStaysPut fails a class that leaves user.home swapped.
+    environment("RESEARCHZOSHO_DRIVE_DEFAULT", "http://localhost:2")
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)

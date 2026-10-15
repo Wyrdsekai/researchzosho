@@ -65,4 +65,21 @@ class WindowsTest {
         assertEquals(0.5, Py.round(0.5, 2)); assertEquals(1.0, Py.round(1.0, 1));
         assertEquals(1.0, Py.pstdev(List.of(1, 3)), 1e-12); assertEquals(2.0, Py.fmean(List.of(1, 2, 3)), 0.0); assertEquals(2.5, Py.median(List.of(1, 2, 3, 4)), 0.0);
     }
+
+    @Test void theBodyLeavesTheFrontAndTheBackMatterOut() {
+        String prose = "the harbour lay still under a thin rain and the boats knocked softly against the quay ".repeat(40);
+        StringBuilder index = new StringBuilder("Index\n"); for (int i = 0; i < 60; i++) index.append("Entry ").append(i).append(", ").append(10 + i).append(i % 3 == 0 ? "–" + (12 + i) : "").append('\n');
+        StringBuilder bib = new StringBuilder("Further Reading\n"); for (int i = 0; i < 45; i++) bib.append("Author ").append(i).append(". A Title. Press, ").append(1990 + i % 30).append(".\n");
+        List<String> chapters = List.of("The Harbour Ledger\nTamsin Vorle", "Copyright © 2021 by Tamsin Vorle. All rights reserved.", "Contents\nOne\nTwo", "", "One\n" + prose, "Two\n" + prose,
+                "Notes\n1. The quay was rebuilt in 1911.", "Selected Bibliography\nSmith, J. (2001). Harbours. Press.", index.toString(), "Nameless apparatus\n" + bib);
+        List<String> body = Windows.body(chapters);
+        assertEquals(List.of("One\n" + prose, "Two\n" + prose), body, "the title page (by its size), the copyright page, the contents, the notes, the bibliography, the index and a bibliography without a heading (by their shape) are out");
+        assertEquals(List.of("One\n" + prose, "Two\n" + prose), Windows.body(List.of("Title Page\nThe Harbour Ledger", "One\n" + prose, "Two\n" + prose, "Index\nAlder, 12")), "a heading tells the front matter as well");
+        List<String> plain = List.of("One\n" + prose, "Two\n" + prose, "Three\n" + prose);
+        assertEquals(plain, Windows.body(plain), "a book with no apparatus is whole");
+        List<String> mostlyIndex = List.of("One\n" + "word ".repeat(60), index.toString());
+        assertEquals(mostlyIndex, Windows.body(mostlyIndex), "a cut that would leave under half the words is not made");
+        assertEquals("Notes", Windows.heading("\n\n  Notes  \n1. x"));
+        assertTrue(Windows.back("Acknowledgements\nMy thanks go to") && Windows.back("索引\n…") && Windows.back("Appendix B: Tables\n…") && !Windows.back("Notes from a Small Island\n" + prose), "the whole heading, not a word of it");
+    }
 }

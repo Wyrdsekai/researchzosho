@@ -25,7 +25,7 @@ class PrefsTest {
         assertFalse(p.exists());
         assertEquals(2.0, p.weight("subject")); assertEquals(0.0, p.weight("form")); assertEquals(0.5, p.weight("mood")); assertEquals(0.2, p.roam()); assertEquals("one", p.popularity());
         assertTrue(p.text().startsWith("No preferences file yet; these are the defaults"), p.text());
-        assertTrue(p.text().contains("Weights in \"like X\" and browsing: subject 2, kind 0.5, audience 0.5, demand 0.5, mood 0.5, scale 0.25, form 0 (form stays at 0"), p.text());
+        assertTrue(p.text().contains("Weights in \"like X\" and browsing: subject 2, kind 0.5, audience 0.5, demand 0.5, setting 0, era 0, mood 0.5, scale 0.25, form 0 (form stays at 0"), p.text());
         assertEquals("The weight of subject is now 3.0.", p.set("weight.subject", "3", "you"));
         assertTrue(p.exists());
         assertEquals(3.0, Prefs.load(Dna.BOOK).weight("subject"));
@@ -37,7 +37,7 @@ class PrefsTest {
     @Test void aWrongSettingIsSaidBackPlainly() {
         Prefs p = Prefs.load(Dna.BOOK);
         assertEquals("a weight is a number, such as 2 or 0.5.", assertThrows(IOException.class, () -> p.set("weight.subject", "lots", "you")).getMessage());
-        assertEquals("the dimensions with a weight are subject, kind, audience, demand, mood, scale, form.", assertThrows(IOException.class, () -> p.set("weight.colour", "1", "you")).getMessage());
+        assertEquals("the dimensions with a weight are subject, kind, audience, demand, setting, era, mood, scale, form.", assertThrows(IOException.class, () -> p.set("weight.colour", "1", "you")).getMessage());
         assertEquals("roam is between 0 and 1.", assertThrows(IOException.class, () -> p.set("roam", "3", "you")).getMessage());
         assertEquals("popularity is one (one well-known title in every list), none (no such rule) or known (well-known titles preferred).", assertThrows(IOException.class, () -> p.set("popularity", "lots", "you")).getMessage());
         assertEquals("exclude takes author, subject, kind, series.", assertThrows(IOException.class, () -> p.set("exclude.colour", "red", "you")).getMessage());

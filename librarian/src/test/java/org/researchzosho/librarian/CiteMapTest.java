@@ -115,4 +115,27 @@ class CiteMapTest {
         // sentences: a dot inside a cited URL or after "et al." ends nothing
         assertEquals(List.of("Smith et al. found it (https://example.org/a.b).", " Then more."), CiteCheck.sentences("Smith et al. found it (https://example.org/a.b). Then more."));
     }
+
+    /** Stacked citations ("[1][2]") are alternatives: the clause holds when either source holds it (2026-10-13, the SCA report lost a true sentence). */
+    @Test
+    void stackedCitationsAreAlternativesAndTheClauseHoldsWhenEitherSourceHoldsIt(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        RawCapture.capture(store, "https://example.org/rules", "Rigid materials: steel of no less than 1.27 mm (18 gauge), or aluminum of no less than 1.89 mm (14 gauge), or high-impact-resistant plastics such as ABS of sufficient thickness.", "Rules", "test", "");
+        RawCapture.capture(store, "https://example.org/old", "An older summary of the armour policies, which says nothing of the thicknesses allowed for rigid pieces at all.", "Old", "test", "");
+        List<CiteCheck.Ref> refs = List.of(new CiteCheck.Ref(1, "https://example.org/rules", "", "Rules"), new CiteCheck.Ref(2, "https://example.org/old", "", "Old"));
+        Researcher.Drive judge = new Researcher.Drive() {
+            @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int max, String c) { throw new UnsupportedOperationException(); }
+            @Override public String classify(ArrayNode m, int max) { return m.get(0).path("content").asText().contains("similar rigidity") ? "{\"verdict\":\"supported\"}" : "{\"verdict\":\"unsupported\"}"; }
+            @Override public int contextWindow() { return 32_000; }
+        };
+        String text = "## Answer\n\nThe rules define a rigid material as steel of at least 1.27 mm or aluminium of at least 1.89 mm, or a high-impact plastic of similar rigidity [1][2]. "
+                + "The same page says every helm is inspected by a marshal each morning before the field opens [2][1].";
+        CiteCheck.Outcome o = CiteCheck.run(store, text, refs, judge, new Researcher.Budget(20));
+        assertEquals(2, o.checked(), o.problems().toString());
+        assertEquals(1, o.supported(), "the first clause: the mechanical pass or the judge finds it in [1] whatever [2] says: " + o.problems());
+        assertEquals(1, o.unsupported(), "the second clause: neither source says it");
+        assertFalse(o.text().contains("similar rigidity [1][2]. [not supported"), o.text());
+        assertTrue(o.text().contains("before the field opens [2][1]. [not supported by the cited source on check]"), o.text());
+        assertTrue(o.problems().stream().anyMatch(x -> x.startsWith("not supported by https://example.org/old nor https://example.org/rules")), o.problems().toString());
+    }
 }

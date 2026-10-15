@@ -321,7 +321,8 @@ public final class Labels {
      * vocabulary of the book's kind, aggregated. {@code progress} hears a line per step. Null when the text is too short to label.
      */
     public static ObjectNode label(List<String> chapters, Model model, Consumer<String> progress) throws Exception {
-        List<String> words = Windows.words(chapters);
+        List<String> body = Windows.body(chapters);   // the front and the back matter left out: the index is no window and no topic
+        List<String> words = Windows.words(body);
         if (words.size() < MIN_WORDS) return null;
         String excerpt = Windows.excerpt(words);
         ObjectNode book = null;
@@ -347,6 +348,8 @@ public final class Labels {
         out.put("windows_asked", windows.size());
         out.put("windows_unparsed", failed);
         out.put("words", words.size());
+        int given = 0; for (String c : chapters) if (c != null && !c.isBlank()) given++;
+        out.put("chapters_left_out", given - body.size());
         if (book != null) out.set("book", book); else out.putNull("book");
         return out;
     }

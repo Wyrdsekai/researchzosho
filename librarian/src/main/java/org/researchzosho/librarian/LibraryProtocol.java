@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -1542,6 +1544,36 @@ public final class LibraryProtocol {
      * it cited. {@code since} = the cursor from the previous call (0 = from the beginning).
      */
     /**
+     * library_share: the library reached from outside the house, from a conversation (write access). op=status says how it stands;
+     * op=public (the plain share: Funnel when Tailscale is logged in, else the quick tunnel now), op=tailscale (the lasting address), op=tailnet
+     * (the tailnet only) and op=cloudflare (mail=…) turn the relay on when its program is on the machine; op=off turns it
+     * off. Installing a program needs the person's yes on their own screen, so when one is missing the answer names the command that
+     * asks: /share in the chat, researchzosho share in a terminal.
+     */
+    public ObjectNode share(JsonNode args) throws IOException {
+        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.write);
+        String op = args.path("op").asText("status").strip().toLowerCase(Locale.ROOT);
+        List<String> a = new ArrayList<>();
+        switch (op) {
+            case "status" -> a.add("status");
+            case "off" -> a.add("off");
+            case "tailscale" -> a.add("--tailscale");
+            case "tailnet" -> a.add("--tailnet");
+            case "public", "on" -> { }
+            case "cloudflare" -> { a.add("--cloudflare"); if (!args.path("mail").asText("").isBlank()) { a.add("--mail"); a.add(args.path("mail").asText()); } }
+            default -> throw ProtocolError.invalidArgs("op is status, public, tailscale, tailnet, cloudflare or off.");
+        }
+        ByteArrayOutputStream steps = new ByteArrayOutputStream();
+        Share.Outcome o = Share.share(store, a, new PrintStream(steps, true, StandardCharsets.UTF_8));   // never asks: a tool has no keyboard
+        ObjectNode r = envelope();
+        r.put("op", op); r.put("ok", o.code() == 0); r.put("kind", Share.kind()); r.put("address", Share.address());
+        String text = (steps.toString(StandardCharsets.UTF_8) + o.text()).strip();
+        if (o.code() != 0 && !op.equals("status")) text += "\n\nTo install what is missing, the person says /share in the chat, or runs researchzosho share in a terminal: it asks before each step.";
+        r.put("text", text);
+        return r;
+    }
+
+    /**
      * Ask to be let in. No access is needed to ask, and the did comes in its own field because the caller has
      * no token yet to prove a patron object with. Returns the request id and the claim secret, once.
      */
@@ -2934,6 +2966,8 @@ public final class LibraryProtocol {
                     row.put("line", LikeX.line(m));
                 }
                 ArrayNode side = r.putArray("side"); for (ObjectNode s : res.side()) side.add(s.path("record").path("title").asText(""));
+                ArrayNode more = r.putArray("more");
+                for (var e : res.more().entrySet()) { ObjectNode m = more.addObject(); m.put("author", e.getKey()); ArrayNode ts = m.putArray("titles"); for (ObjectNode s : e.getValue()) ts.add(s.path("record").path("title").asText("")); }
                 r.put("text", LikeX.text(res));
                 r.put("summary", res.rows().isEmpty() ? "Nothing in the store compares with \"" + o.book().title() + "\" yet: " + (res.compared() == 0 ? "no book is labelled." : "every labelled book is by the same author or left out.") : res.rows().size() + " book(s) like \"" + o.book().title() + "\" among the " + res.compared() + " labelled on your shelf, the author's own works set aside.");
             }

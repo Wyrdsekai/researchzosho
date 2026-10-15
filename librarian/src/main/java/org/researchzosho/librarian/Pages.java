@@ -13,6 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.HexFormat;
+import java.security.SecureRandom;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -50,13 +52,15 @@ final class Pages {
 
     private static final ObjectMapper M = new ObjectMapper();
     static final String COOKIE = "rz_token";
+    /** The cookie a visitor who asked to be let in carries: the request's id and claim secret, until the owner answers. */
+    static final String ASK = "rz_ask";
 
     private Pages() { }
 
     static boolean isPage(String path) {
         return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/login") || path.equals("/logout") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/panel") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
+                || path.equals("/research") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/panel") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
                 || Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
     }
 
@@ -84,6 +88,11 @@ final class Pages {
                         String note = "";
                         try { chatPost(d, store, patron, form); } catch (RuntimeException e) { note = "The Librarian could not answer: " + e.getMessage(); }
                         send(x, 200, chatPanel(store, p, patron, note));
+                    } else if ("POST".equals(method) && "1".equals(form.get("page"))) {   // the Chat page's own script: the reply comes back as the page's changing part; the box to say the next thing is never sent back, so what is typed in it stays
+                        String note = "";
+                        try { chatPost(d, store, patron, form); } catch (RuntimeException e) { note = "The Librarian could not answer: " + e.getMessage(); }
+                        Librarian.Session s = chatSession(store, patron, form);
+                        send(x, 200, s == null ? "<p class=\"k\">" + esc(CHAT_SIGN_IN) + " <a href=\"/login\">Sign in</a></p>" : chatView(store, p, patron, s, note));
                     } else if ("POST".equals(method)) { chatPost(d, store, patron, form); redirect(x, "/chat"); }
                     else send(x, 200, chat(store, patron, q));
                 }
@@ -96,7 +105,22 @@ final class Pages {
                 case "/jobs" -> { if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron, q)); }
                 case "/explain" -> send(x, 200, explain(store, p, patron, q));
                 case "/download" -> download(x, store, patron, q);
-                case "/settings" -> { if ("POST".equals(method)) { String note = settingsPost(p, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); } else send(x, 200, settings(store, p, patron, q)); }
+                case "/settings" -> {
+                    String op = form.getOrDefault("op", "");
+                    if ("POST".equals(method) && op.equals("invite")) {
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        Invites.Invite inv = Invites.make(store, form.getOrDefault("name", ""), Patrons.levelOf(form.getOrDefault("level", "read")));
+                        send(x, 200, settings(store, p, patron, Map.of("join", inv.link())));   // the link is shown once, on the page, never in an address
+                    }
+                    else if ("POST".equals(method) && op.equals("reader-link")) {
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        try { send(x, 200, settings(store, p, patron, Map.of("join", SignIn.renewLink(store, form.getOrDefault("did", "").strip())))); }
+                        catch (IOException e) { redirect(x, "/settings?note=" + URLEncoder.encode(e.getMessage(), StandardCharsets.UTF_8)); }
+                    }
+                    else if ("POST".equals(method) && op.startsWith("reader-")) { String note = readersPost(store, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); }
+                    else if ("POST".equals(method)) { String note = settingsPost(p, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); }
+                    else send(x, 200, settings(store, p, patron, q));
+                }
                 case "/owned" -> { if ("POST".equals(method)) { ownedPost(p, patron, form); redirect(x, "/owned"); } else send(x, 200, owned(store, p, patron, q)); }
                 case "/map" -> { Patrons.check(store, patron, Patrons.Level.read); send(x, 200, page(store, patron, "Map", MapPage.body(q.getOrDefault("focus", "")), 0, null, true)); }
                 case "/research" -> {
@@ -105,18 +129,18 @@ final class Pages {
                     else if (q.containsKey("sharpen")) send(x, 200, sharpenPoll(store, patron, q.get("sharpen"), q.getOrDefault("field", "")));
                     else send(x, 200, researchForm(store, patron, q.getOrDefault("q", ""), null, q.getOrDefault("field", "")));
                 }
-                case "/login" -> {
-                    if ("POST".equals(method)) {
-                        Patrons.Entry e = Patrons.resolve(store, form.getOrDefault("token", ""));
-                        if (e == null) { send(x, 403, loginPage(store, "That token does not match anyone. Make one with `researchzosho reader token <did>` on the computer where the library lives.")); return; }
-                        x.getResponseHeaders().add("Set-Cookie", COOKIE + "=" + form.get("token").strip() + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=31536000");
-                        redirect(x, "/");
-                    } else send(x, 200, loginPage(store, null));
+                case "/login" -> { if ("POST".equals(method)) SignIn.login(x, store, form); else send(x, 200, SignIn.loginPage(store, null, x)); }
+                case "/login/code" -> { if ("POST".equals(method)) SignIn.code(x, store, form); else redirect(x, "/login"); }
+                case "/login/passkey/options" -> SignIn.passkeyOptions(x, store, patron, false);
+                case "/login/passkey" -> SignIn.passkeyAssert(x, store);
+                case "/logout" -> { String c = cookie(x, COOKIE); if (c != null && !c.isBlank()) Accounts.signOut(store, c); clearCookie(x); redirect(x, "/"); }
+                case "/join" -> SignIn.join(x, store, method, q, form);   // a link the person who keeps the library sent: the invited person chooses a password and is signed in
+                case "/account" -> {
+                    if ("POST".equals(method)) { String note = SignIn.accountPost(x, store, patron, form); redirect(x, "signout-all".equals(form.get("op")) && cookie(x, COOKIE) != null ? "/" : "/account?note=" + enc(note)); }
+                    else send(x, 200, SignIn.account(store, patron, q, x));
                 }
-                case "/logout" -> {
-                    x.getResponseHeaders().add("Set-Cookie", COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
-                    redirect(x, "/");
-                }
+                case "/account/passkey/options" -> SignIn.passkeyOptions(x, store, patron, true);
+                case "/account/passkey" -> SignIn.passkeyRegister(x, store, patron);
                 default -> {
                     Profile.Page own;
                     if (path.startsWith("/entry/")) send(x, 200, entry(store, p, patron, path.substring("/entry/".length())));
@@ -131,12 +155,17 @@ final class Pages {
             send(x, 200, page(store, patron, "Declined by the model", "<p>" + esc(declined.statement()) + "</p>"));
         } catch (ProtocolError e) {
             int status = LibrarianDaemon.status(e.code);
-            String hint = "forbidden".equals(e.code) && patron.anonymous() ? " <a href=\"/login\">Sign in with a token</a> to do this." : "";
+            if ("forbidden".equals(e.code) && onDoor(x) && (patron.web() || patron.anonymous()) && cookie(x, COOKIE) == null) {
+                // through the door, a visitor is shown the way in rather than a refusal: sign in, or ask
+                send(x, 403, SignIn.loginPage(store, "This library is shared with named readers. Sign in with your name and password, or ask to be let in.", x));
+                return;
+            }
+            String hint = "forbidden".equals(e.code) && patron.anonymous() ? " <a href=\"/login\">Sign in</a> to do this." : "";
             String c = cookie(x, COOKIE);
             if ("forbidden".equals(e.code) && c != null && !c.isBlank()) {
                 // the browser sent a sign-in that is refused now (a token removed or denied since): forget it here, so the next load is a plain visit
-                x.getResponseHeaders().add("Set-Cookie", COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
-                hint = " <b>This browser was signed in with a token the library refuses now; that sign-in has been cleared.</b> <a href=\"" + esc(path) + "\">Load the page again</a> to visit as everyone does, or <a href=\"/login\">sign in</a> with another token.";
+                clearCookie(x);
+                hint = " <b>This browser was signed in with a sign-in the library refuses now; that sign-in has been cleared.</b> <a href=\"" + esc(path) + "\">Load the page again</a> to visit as everyone does, or <a href=\"/login\">sign in</a> again.";
             }
             send(x, status, page(store, patron, "forbidden".equals(e.code) ? "Not allowed" : "not_found".equals(e.code) ? "Not found" : "Something went wrong", "<p class=\"err\">" + esc(e.getMessage()) + hint + "</p>"));
         }
@@ -601,6 +630,16 @@ final class Pages {
         for (String told : UncheckedPages.tell(store)) b.append("<p class=\"notice\">").append(esc(told)).append("</p>");   // pages saved before their check, and pages a later check removed
         List<Recalls.Hit> recallHits = Recalls.hits(store, true);
         if (!recallHits.isEmpty()) b.append("<p class=\"notice\">").append(recallHits.size()).append(" recall notice(s) may concern something you own. <a href=\"/owned\">See them on the Owned page</a>, where each can be put away.</p>");
+        if (mayWrite(store, patron)) {
+            List<AccessRequests.Request> asking = new ArrayList<>();
+            for (AccessRequests.Request r : AccessRequests.list(store)) if (r.state().equals("pending")) asking.add(r);
+            if (!asking.isEmpty()) {
+                b.append("<h2>Asking to be let in</h2><table><tr><th>who</th><th>note</th><th>asked</th><th></th></tr>\n");
+                for (AccessRequests.Request r : asking) b.append("<tr><td>").append(esc(r.name().isEmpty() ? r.did() : r.name())).append(r.did().startsWith("did:mail:") ? " <small>" + esc(r.did().substring(9)) + "</small>" : "").append("</td><td>").append(esc(r.note())).append("</td><td>").append(esc(r.date())).append("</td><td>")
+                 .append("<form class=\"inline\" method=\"post\" action=\"/inbox\"><input type=\"hidden\" name=\"request\" value=\"").append(esc(r.id())).append("\"><button name=\"do\" value=\"let-in-read\">Let in to read</button> <button name=\"do\" value=\"let-in-write\">Let in to write</button> <input name=\"why\" size=\"18\" placeholder=\"why not\"> <button name=\"do\" value=\"refuse\" class=\"quiet\">Refuse</button></form></td></tr>\n");
+                b.append("</table>\n");
+            }
+        }
         b.append("<p class=\"k\">Claims waiting for your decision: new claims, and accepted claims whose review is out of date. Accept puts a claim into every answer from now on. Dispute records your reason. Retire stops using the claim but keeps the record. Tick any number, then choose.</p>");
         if (all.isEmpty()) { b.append("<p>No claims are waiting. New claims appear here after a research run.</p>"); return page(store, patron, "Inbox", b.toString()); }
         b.append("<form method=\"get\" action=\"/inbox\" class=\"inline\">");
@@ -700,6 +739,20 @@ final class Pages {
              .append("</td><td>").append(esc(s.path("what").asText())).append(s.has("choices") ? " <small>(" + esc(String.join(", ", toStrings(s.path("choices")))) + ")</small>" : "").append("</td></tr>\n");
         }
         b.append("</table>\n<p>The same from a terminal: <code>researchzosho settings</code>; and in the chat, in a sentence.</p>\n");
+        if (mayWrite(store, patron)) {
+            b.append("<h2>Readers</h2><p class=\"k\">Who may read and write this library. Invite a person by name: the link, opened within seven days, lets them choose a password; then they sign in with their name and it, from any phone or computer. \"New link\" is for a forgotten password; \"Set\" puts in a password you typed for them.</p>\n");
+            String joined = q.getOrDefault("join", "");
+            if (!joined.isEmpty()) b.append("<p class=\"note\">Send this link; it works once, for seven days: <code>").append(esc(joined)).append("</code></p>\n");
+            b.append("<form method=\"post\" action=\"/settings\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"invite\"><label>Name <input name=\"name\" size=\"24\"></label> <label>May <select name=\"level\"><option value=\"read\">read</option><option value=\"write\">write</option></select></label> <button>Invite</button></form>\n");
+            Patrons.Policy pol = Patrons.load(store);
+            b.append("<table><tr><th>who</th><th>may</th><th>signs in with</th><th></th></tr>\n<tr><td><i>anyone not listed</i></td><td>").append(pol.dflt()).append("</td><td></td><td></td></tr>\n");
+            for (Patrons.Entry e : pol.listed()) {
+                Accounts.Account acc = Accounts.byDid(store, e.did());
+                String ways = acc == null ? (e.tokenHash() == null ? "nothing yet" : "a token (a program)") : acc.ways();
+                b.append("<tr><td>").append(esc(e.name().isEmpty() ? e.did() : e.name())).append(" <small>").append(esc(e.did())).append("</small></td><td>").append(e.level()).append("</td><td>").append(esc(ways)).append("</td><td><form class=\"inline\" method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"did\" value=\"").append(esc(e.did())).append("\"><button name=\"op\" value=\"reader-read\" class=\"quiet\">read</button> <button name=\"op\" value=\"reader-write\" class=\"quiet\">write</button> <button name=\"op\" value=\"reader-deny\" class=\"quiet\">deny</button> <button name=\"op\" value=\"reader-remove\" class=\"quiet\">remove</button> <button name=\"op\" value=\"reader-link\" class=\"quiet\">new link</button> <input type=\"password\" name=\"password\" size=\"12\" placeholder=\"a password\" autocomplete=\"off\"> <button name=\"op\" value=\"reader-password\" class=\"quiet\">set</button></form></td></tr>\n");
+            }
+            b.append("</table>\n<p class=\"k\">The same from a terminal: <code>researchzosho reader invite \"a name\" read</code>, <code>reader link \"a name\"</code>, <code>reader password \"a name\"</code>, <code>reader list</code>, <code>reader allow</code>, <code>reader remove</code>. Your own account: <a href=\"/account\">Account</a>.</p>\n");
+        }
         return page(store, patron, "Settings", b.toString(), 0, null, true);
     }
 
@@ -790,6 +843,14 @@ final class Pages {
     /** The ticked claims decided. */
     static void inboxPost(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
         Patrons.check(store, patron, Patrons.Level.write);
+        String decision = form.getOrDefault("do", "");
+        if (decision.startsWith("let-in-") || decision.equals("refuse")) {
+            // someone asking to be let in: the owner's answer from the inbox's buttons
+            String id = form.getOrDefault("request", "").strip();
+            if (decision.equals("refuse")) AccessRequests.deny(store, id, form.getOrDefault("why", "").strip());
+            else AccessRequests.approve(store, id, decision.endsWith("write") ? Patrons.Level.write : Patrons.Level.read);
+            return;
+        }
         Council c = new Council(store);
         List<String> ids = new ArrayList<>();
         for (var e : form.entrySet()) if (e.getKey().startsWith("f") && e.getKey().substring(1).matches("\\d+") && !e.getValue().isBlank()) ids.add(e.getValue());
@@ -1385,15 +1446,33 @@ final class Pages {
                            .replace(esc(Explain.UNSUPPORTED_MARK), "<span class=\"mark bad\">the sources do not say this</span>");
     }
 
-    private static String loginPage(LibraryStore store, String note) throws IOException {
-        StringBuilder b = new StringBuilder();
-        if (note != null) b.append("<p class=\"err\">").append(esc(note)).append("</p>");
-        if (!WebAccess.signInRequired()) b.append("<p>").append(esc(WebAccess.OPEN_NOTICE)).append(" Signing in only puts your name on what you send. ")
-                .append(esc(WebAccess.OPEN_HOWTO).replace("run: ", "Run <code>")).append("</code> on the computer where the library lives to change that.</p>");
-        else b.append("<p class=\"k\">You can read without signing in, if the library allows it. To ask for research you need to sign in. Paste your token; it stays in this browser only.</p>");
-        b.append("<form method=\"post\" action=\"/login\" class=\"stack\"><label>Token<br><input name=\"token\" size=\"60\" autofocus></label><button>Sign in</button></form>");
-        b.append("<p class=\"k\">To make a token, on the computer where the library lives:</p><pre>").append(esc(Patrons.TOKEN_HOWTO)).append("</pre>");
-        return page(store, Patrons.Patron.ANONYMOUS, "Sign in", b.toString());
+    /** The sign-in page's waiting line, as the tests read it (the page itself is {@link SignIn}). */
+    static final String WAITING = SignIn.WAITING;
+
+    /** A visitor who asked to be let in, on a later load: the owner's answer ({@link SignIn#collectAsk}). */
+    static boolean collectAsk(HttpExchange x, LibraryStore store, String ask) { return SignIn.collectAsk(x, store, ask); }
+
+    static String randomHex(int bytes) { byte[] b = new byte[bytes]; new SecureRandom().nextBytes(b); return HexFormat.of().formatHex(b); }
+
+    /** The readers list on the Settings page: a change from its buttons. */
+    private static String readersPost(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.write);
+        String op = form.getOrDefault("op", ""), did = form.getOrDefault("did", "").strip();
+        if (did.isEmpty()) return "Which reader? Go back and try again.";
+        switch (op) {
+            case "reader-remove" -> { Patrons.remove(store, did); Accounts.remove(store, did); return did + " removed."; }
+            case "reader-password" -> {
+                Patrons.Entry e = Patrons.byDid(store, did);
+                if (e == null) return did + " is not on the readers list.";
+                try {
+                    if (Accounts.byDid(store, did) == null) Accounts.create(store, did, e.name().isEmpty() ? did : e.name(), form.getOrDefault("password", ""));
+                    else Accounts.setPassword(store, did, form.getOrDefault("password", ""));
+                } catch (IOException ex) { return ex.getMessage(); }
+                return (e.name().isEmpty() ? did : e.name()) + " signs in with that password now.";
+            }
+            case "reader-read", "reader-write", "reader-deny" -> { Patrons.Level l = Patrons.Level.valueOf(op.substring(7)); Patrons.set(store, did, null, l); return did + (l == Patrons.Level.deny ? " is denied." : " may " + l + "."); }
+            default -> { return "That is not a change the readers list knows."; }
+        }
     }
 
     // ---- pieces ----
@@ -1577,7 +1656,7 @@ final class Pages {
     // ---- /chat: the page front of the Librarian ----
 
     /** What a reader who has not signed in is told on the chat page: the conversations are kept per person, so there is none to open. */
-    static final String CHAT_SIGN_IN = "Sign in to talk with the Librarian. The person who keeps this library gives you a token for the sign-in page. "
+    static final String CHAT_SIGN_IN = "Sign in to talk with the Librarian. The person who keeps this library lets you in with a link; after that your name and password sign you in. "
             + "Someone who may only read has conversations of their own, which nobody else sees. Someone who may write shares the conversations of the person who keeps the library.";
 
     /**
@@ -1596,30 +1675,69 @@ final class Pages {
                 + "Session <code>").append(esc(s.id)).append("</code> · <a href=\"/chat?new=1\">new conversation</a>");
         List<String> ids = Librarian.Session.list(store, patron);
         if (ids.size() > 1) { b.append(" · earlier: "); int n = 0; for (String id : ids) { if (id.equals(s.id)) continue; if (n++ >= 5) break; b.append("<a href=\"/chat?session=").append(enc(id)).append("\">").append(esc(id.substring(2, Math.min(id.length(), 18)))).append("</a> "); } }
+        b.append("</p><div id=\"chat-view\" class=\"chat-view\">").append(chatView(store, new LibraryProtocol(store), patron, s, "")).append("</div>");
+        b.append("<form id=\"chat-say\" class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
+         .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required autocomplete=\"off\"><button>Send</button></form>")
+         .append("<p class=\"k\">The reply appears when the model has finished. This can take a while; you can type the next thing meanwhile. A research run you start here shows its progress above, and the chat says when it is done.</p>")
+         .append("<script>").append(CHAT_PAGE_JS).append("</script>");
+        return page(store, patron, "Chat", "<div class=\"chat-page\">" + b + "</div>");
+    }
+
+    /**
+     * The Chat page's changing part: the conversation, the runs it follows, a waiting question's two buttons. The page's script puts a
+     * reply here in place of what was there, so the box to say the next thing is never redrawn and what is typed in it stays (2026-10-12).
+     */
+    static String chatView(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s, String note) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        StringBuilder b = new StringBuilder();
         // the runs this conversation started: a finished one is announced once, in the conversation itself
-        LibraryProtocol lp = new LibraryProtocol(store);
         for (String jobId : s.watched()) {
             try { RunProgress.View v = RunProgress.of(lp.job(args(patron).put("job_id", jobId)).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, args(patron).path("patron"))); if (!v.active()) s.told(jobId, v); } catch (Exception ignored) { }
         }
-        b.append("</p><div id=\"chat-scroll\" class=\"chat-scroll\">").append(transcript(s, Integer.MAX_VALUE)).append("</div>");
-        if (!s.watched().isEmpty()) {
-            // the runs still going: their stage, time and percent, refreshed in place so what is being typed stays
-            b.append("<div id=\"runs-strip\" data-session=\"").append(esc(s.id)).append("\">").append(runsStrip(lp, patron, s)).append("</div>")
-             .append("<script>(function(){var el=document.getElementById('runs-strip');if(!el)return;setInterval(function(){fetch('/chat/runs?session='+encodeURIComponent(el.dataset.session)).then(function(r){return r.text()}).then(function(t){el.innerHTML=t}).catch(function(){})},15000)})();</script>");
-        }
+        b.append("<div id=\"chat-scroll\" class=\"chat-scroll\">").append(transcript(s, Integer.MAX_VALUE)).append("</div>");
+        if (!note.isEmpty()) b.append("<p class=\"k note\">").append(esc(note)).append("</p>");   // under the latest turn, where the eye is
+        // the runs still going: their stage, time and percent; the page's script refreshes the strip alone, in place
+        if (!s.watched().isEmpty()) b.append("<div id=\"runs-strip\" data-session=\"").append(esc(s.id)).append("\">").append(runsStrip(lp, patron, s)).append("</div>");
         if (!Librarian.stillWaiting(store, s).isEmpty()) {
             // the Librarian asked a question that ends in (y/N) and still waits: two buttons answer it; with no answer the run starts as it was filed
             b.append("<p>")
-             .append("<form class=\"inline\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"y\"><button>Yes</button></form> ")
-             .append("<form class=\"inline\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"n\"><button class=\"quiet\">No</button></form>")
+             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"y\"><button>Yes</button></form> ")
+             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"n\"><button class=\"quiet\">No</button></form>")
              .append(" <span class=\"k\">No answer within ").append(Librarian.OFFER_MINUTES).append(" minutes counts as no.</span></p>");
         }
-        b.append("<form class=\"big\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
-         .append("<input name=\"say\" autofocus placeholder=\"Ask the Librarian…\" required><button>Send</button></form>")
-         .append("<p class=\"k\">The reply appears when the model has finished. This can take a while. A research run you start here shows its progress above, and the chat says when it is done.</p>")
-         .append("<script>(function(){var s=document.getElementById('chat-scroll');if(!s)return;function end(){s.scrollTop=s.scrollHeight}end();window.addEventListener('load',end)})();</script>");
-        return page(store, patron, "Chat", "<div class=\"chat-page\">" + b + "</div>");
+        return b.toString();
     }
+
+    /** The conversation a form names, else the patron's latest; null when there is none (not signed in). */
+    static Librarian.Session chatSession(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        Librarian.Session s = form.get("session") == null ? null : Librarian.Session.resume(store, form.get("session"), patron);
+        return s != null ? s : Librarian.Session.latest(store, patron);
+    }
+
+    /**
+     * The Chat page's script. The box of turns opens at the latest one. The strip of runs refreshes itself in place. A turn is sent from
+     * the page, and the reply replaces the changing part; the buttons are held while the model works, the box is not. The box to say the
+     * next thing is never redrawn, so what is being typed stays; the draft is kept by the browser for this tab as well, so a reload, or
+     * the panel's link to the whole conversation, brings it back. Before this a reply came as a whole new page and took the typing with it (2026-10-12).
+     */
+    static final String CHAT_PAGE_JS = "(function(){var view=document.getElementById('chat-view'),form=document.getElementById('chat-say');if(!view||!form)return;"
+            + "var inp=form.querySelector('input[name=say]'),dkey='rz.chat.draft',busy=false,timer=null;"
+            + "function box(){return document.getElementById('chat-scroll')}function end(){var s=box();if(s)s.scrollTop=s.scrollHeight}"
+            + "try{var d0=sessionStorage.getItem(dkey);if(d0&&!inp.value)inp.value=d0}catch(e){}"
+            + "inp.addEventListener('input',function(){try{sessionStorage.setItem(dkey,inp.value)}catch(e){}});"
+            + "function poll(){if(timer)clearTimeout(timer);timer=null;if(!document.getElementById('runs-strip'))return;"
+            + "timer=setTimeout(function(){var el=document.getElementById('runs-strip');if(!el)return;fetch('/chat/runs?session='+encodeURIComponent(el.dataset.session),{credentials:'same-origin'}).then(function(r){return r.text()}).then(function(t){var now=document.getElementById('runs-strip');if(now)now.innerHTML=t;poll()}).catch(function(){poll()})},15000)}"
+            + "function hold(on){var bs=document.querySelectorAll('.chat-page button');for(var i=0;i<bs.length;i++){bs[i].disabled=on}}"
+            + "function wire(){var fs=view.querySelectorAll('form.page-say');for(var i=0;i<fs.length;i++){fs[i].addEventListener('submit',send)}}"
+            + "function send(ev){ev.preventDefault();if(busy)return;var f=ev.target,src=f.querySelector('input[name=say]'),words=(src.value||'').trim();if(!words)return;"
+            + "var fd=new URLSearchParams(new FormData(f));fd.append('page','1');busy=true;hold(true);"
+            + "if(src===inp){inp.value='';try{sessionStorage.removeItem(dkey)}catch(e){}}"
+            + "var t=view.querySelector('.chat');if(t&&src.type!=='hidden'){var w=document.createElement('div');w.className='say me';w.innerHTML='<b>You</b><p></p>';w.querySelector('p').textContent=words;t.appendChild(w)}"
+            + "var th=document.createElement('p');th.className='k thinking';th.textContent='The Librarian is thinking\u2026 this can take a while. You can type the next thing meanwhile.';(box()||view).appendChild(th);end();"
+            + "fetch('/chat',{method:'POST',body:fd,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(!r.ok)throw new Error(String(r.status));return r.text()})"
+            + ".then(function(h){var had=document.activeElement;view.innerHTML=h;busy=false;hold(false);wire();end();poll();if(had===document.body||(had&&had.form===form))inp.focus()})"
+            + ".catch(function(){th.textContent='The reply did not arrive here; the conversation keeps it. Reload the page in a moment.';busy=false;hold(false)})}"
+            + "form.addEventListener('submit',send);wire();end();window.addEventListener('load',end);poll()})();";
 
     /** The conversation's turns as HTML, the last {@code limit} messages: what was said, what the Librarian answered, what it looked up. */
     static String transcript(Librarian.Session s, int limit) {
@@ -1655,7 +1773,7 @@ final class Pages {
              .append("<form class=\"inline panel-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"y\"><button>Yes</button></form> ")
              .append("<form class=\"inline panel-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"n\"><button class=\"quiet\">No</button></form></p>");
         }
-        b.append("<form class=\"panel-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
+        b.append("<form id=\"panel-say\" class=\"panel-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
          .append("<input name=\"say\" placeholder=\"Ask the Librarian…\" required autocomplete=\"off\"><button>Send</button></form>")
          .append("<p class=\"k\">Session <code>").append(esc(s.id)).append("</code> · <a href=\"/chat?new=1\">new conversation</a> · <a href=\"/chat\">the whole conversation</a></p>");
         return b.toString();
@@ -1670,19 +1788,35 @@ final class Pages {
              + "<script>" + CHAT_PANEL_JS + "</script>";
     }
 
+    /**
+     * The panel's script. Its content comes from the server whole, but the box to say the next thing is kept: the content is rebuilt
+     * around the box already there, so what is typed in it, its caret and its focus stay through a reply and through the refresh the
+     * panel does every half minute while a run is going; only the conversation's id is taken from the new box. The buttons are held
+     * while the model works, the box is not. The draft is kept by the browser for this tab, under the same key as the Chat page's (2026-10-12).
+     */
     static final String CHAT_PANEL_JS = "(function(){var panel=document.getElementById('lib-chat'),body=document.getElementById('lib-chat-body'),tog=document.getElementById('lib-chat-toggle'),close=document.getElementById('lib-chat-close');if(!panel||!body||!tog)return;"
-            + "var key='rz.chat.open',mq=window.matchMedia('(min-width: 1100px)');function wide(){return mq.matches}function down(){var p=body.querySelector('.panel-scroll')||body;p.scrollTop=p.scrollHeight}"
+            + "var key='rz.chat.open',dkey='rz.chat.draft',mq=window.matchMedia('(min-width: 1100px)'),busy=false,timer=null;function wide(){return mq.matches}function down(){var p=body.querySelector('.panel-scroll')||body;p.scrollTop=p.scrollHeight}"
             + "function lay(){document.body.classList.toggle('chat-open',!panel.hidden&&wide())}"
             + "function setOpen(o){panel.hidden=!o;lay();try{localStorage.setItem(key,o?'1':'0')}catch(e){}if(o)load()}"
-            + "function load(){fetch('/chat/panel',{credentials:'same-origin'}).then(function(r){return r.text()}).then(function(h){body.innerHTML=h;wire();down()}).catch(function(){body.innerHTML='<p class=\"k\">The library did not answer.</p>'})}"
+            + "function say(){return document.getElementById('panel-say')}"
+            + "function show(h){var old=say(),t=document.createElement('div');t.innerHTML=h;var nw=t.querySelector('#panel-say');"
+            + "if(!old||!nw){body.innerHTML=h}else{var ks=Array.prototype.slice.call(body.childNodes);for(var i=0;i<ks.length;i++){if(ks[i]!==old)body.removeChild(ks[i])}"
+            + "var ns=Array.prototype.slice.call(t.childNodes),before=true;for(var j=0;j<ns.length;j++){if(ns[j]===nw){before=false;continue}if(before)body.insertBefore(ns[j],old);else body.appendChild(ns[j])}"
+            + "var sid=nw.querySelector('input[name=session]'),osid=old.querySelector('input[name=session]');if(sid&&osid)osid.value=sid.value}"
+            + "var inp=say()?say().querySelector('input[name=say]'):null;if(inp&&!inp.dataset.kept){inp.dataset.kept='1';try{var d0=sessionStorage.getItem(dkey);if(d0&&!inp.value)inp.value=d0}catch(e){}inp.addEventListener('input',function(){try{sessionStorage.setItem(dkey,inp.value)}catch(e){}})}"
+            + "wire();down()}"
+            + "function load(){fetch('/chat/panel',{credentials:'same-origin'}).then(function(r){return r.text()}).then(show).catch(function(){if(!say())body.innerHTML='<p class=\"k\">The library did not answer.</p>'})}"
             + "function wire(){var forms=body.querySelectorAll('form.panel-say');for(var i=0;i<forms.length;i++){forms[i].addEventListener('submit',send)}"
-            + "var runs=body.querySelector('[data-watching=\"1\"]');if(runs){setTimeout(function(){if(!panel.hidden)load()},30000)}}"
-            + "function send(ev){ev.preventDefault();var f=ev.target,inp=f.querySelector('input[name=say]'),words=(inp.value||'').trim();if(!words)return;"
-            + "var fd=new URLSearchParams(new FormData(f));fd.append('panel','1');var btns=body.querySelectorAll('button,input');for(var i=0;i<btns.length;i++){btns[i].disabled=true}"
-            + "var t=body.querySelector('.chat');if(t&&inp.type!=='hidden'){var w=document.createElement('div');w.className='say me';w.innerHTML='<b>You</b><p></p>';w.querySelector('p').textContent=words;t.appendChild(w)}"
-            + "var th=document.createElement('p');th.className='k thinking';th.textContent='The Librarian is thinking\u2026 this can take a while; the page stays usable.';body.appendChild(th);down();"
-            + "fetch('/chat',{method:'POST',body:fd,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){return r.text()}).then(function(h){body.innerHTML=h;wire();down();var i2=body.querySelector('input[name=say]');if(i2)i2.focus()})"
-            + ".catch(function(){th.textContent='The reply did not arrive here; the conversation keeps it. Close and reopen the panel in a moment.'})}"
+            + "if(timer)clearTimeout(timer);timer=null;if(body.querySelector('[data-watching=\"1\"]')){timer=setTimeout(function(){if(!panel.hidden&&!busy)load()},30000)}}"
+            + "function hold(on){var bs=body.querySelectorAll('button');for(var i=0;i<bs.length;i++){bs[i].disabled=on}}"
+            + "function send(ev){ev.preventDefault();if(busy)return;var f=ev.target,src=f.querySelector('input[name=say]'),words=(src.value||'').trim();if(!words)return;"
+            + "var fd=new URLSearchParams(new FormData(f));fd.append('panel','1');busy=true;hold(true);"
+            + "var main=say(),inp=main?main.querySelector('input[name=say]'):null;if(src===inp){inp.value='';try{sessionStorage.removeItem(dkey)}catch(e){}}"
+            + "var t=body.querySelector('.chat');if(t&&src.type!=='hidden'){var w=document.createElement('div');w.className='say me';w.innerHTML='<b>You</b><p></p>';w.querySelector('p').textContent=words;t.appendChild(w)}"
+            + "var th=document.createElement('p');th.className='k thinking';th.textContent='The Librarian is thinking\u2026 this can take a while; the page stays usable, and you can type the next thing.';(body.querySelector('.panel-scroll')||body).appendChild(th);down();"
+            + "fetch('/chat',{method:'POST',body:fd,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){return r.text()})"
+            + ".then(function(h){var had=document.activeElement;busy=false;show(h);hold(false);var i2=say()?say().querySelector('input[name=say]'):null;if(i2&&(had===document.body||(had&&had.form===f)))i2.focus()})"
+            + ".catch(function(){th.textContent='The reply did not arrive here; the conversation keeps it. Close and reopen the panel in a moment.';busy=false;hold(false)})}"
             + "tog.addEventListener('click',function(){setOpen(panel.hidden)});if(close)close.addEventListener('click',function(){setOpen(false)});"
             + "var wkey='rz.chat.width',grip=document.getElementById('lib-chat-resize');function setW(px){px=Math.max(260,Math.min(px,Math.round(window.innerWidth*0.6)));document.body.style.setProperty('--chatw',px+'px');return px}"
             + "var w0=null;try{w0=parseInt(localStorage.getItem(wkey),10)}catch(e){}if(w0>0)setW(w0);"
@@ -1719,8 +1853,7 @@ final class Pages {
         String words = form.getOrDefault("say", "").strip();
         if (words.isEmpty()) return;
         Patrons.check(store, patron, Patrons.Level.read);
-        Librarian.Session s = form.get("session") == null ? null : Librarian.Session.resume(store, form.get("session"), patron);
-        if (s == null) s = Librarian.Session.latest(store, patron);
+        Librarian.Session s = chatSession(store, patron, form);
         if (s == null) throw ProtocolError.forbidden(CHAT_SIGN_IN);
         new Librarian(store, d.chatDrive(), patron, s).say(words);
     }
@@ -1769,7 +1902,7 @@ final class Pages {
         String meta = refresh > 0 ? "<meta http-equiv=\"refresh\" content=\"" + refresh + (to == null ? "" : ";url=" + esc(to)) + "\">" : "";
         String who = patron.web() && !WebAccess.signInRequired() ? "open to everyone · <a href=\"/login\">sign in</a>"
                 : patron.web() || patron.anonymous() ? "<a href=\"/login\">sign in</a>"
-                : esc(patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/logout\">sign out</a>";
+                : esc(patron.person() && "the person".equals(patron.name()) ? "you" : patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/account\">account</a> · <a href=\"/logout\">sign out</a>";
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><script>(function(){var t=null;try{t=localStorage.getItem('rz.theme')}catch(e){}if(t==='light')document.documentElement.setAttribute('data-theme','light')})();</script><style>" + CSS + "</style></head><body" + ("Chat".equals(title) ? " class=\"fill\"" : "") + ">"
                 + "<header><button id=\"nav-toggle\" class=\"nav-toggle\" type=\"button\" aria-controls=\"site-nav\" title=\"Menu\">&#9776;</button>"
@@ -1809,7 +1942,7 @@ final class Pages {
             + ".chat-toggle{position:fixed;right:1.2em;bottom:1.2em;z-index:20;border-radius:2em;padding:.55em 1.2em;background:var(--accent);color:#fff;border:0;font:inherit;font-weight:bold;box-shadow:0 2px 8px rgba(0,0,0,.25);cursor:pointer}"
             + ".chat-panel{position:fixed;top:0;right:0;bottom:0;width:min(28em,100vw);z-index:19;background:var(--bg);border-left:1px solid var(--line);display:flex;flex-direction:column;box-shadow:-4px 0 16px rgba(0,0,0,.15)}.chat-panel[hidden]{display:none}"
             + ".chat-panel-head{display:flex;align-items:center;gap:.8em;padding:.6em .9em;border-bottom:1px solid var(--line)}.chat-panel-head b{flex:1}.chat-panel-head button{font-size:1.1em;line-height:1;padding:.1em .5em}"
-            + ".chat-page{flex:1;min-height:0;display:flex;flex-direction:column}.chat-scroll{flex:1;min-height:6em;overflow:auto;border:1px solid var(--line);border-radius:.4em;padding:.4em .8em;background:var(--bg)}.chat-page form.big{background:var(--bg);padding:.6em 0;margin:0}body.fill{height:100vh;height:100dvh;display:flex;flex-direction:column}body.fill>header,body.fill>footer{flex:none}body.fill>main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding-bottom:1em}"
+            + ".chat-page{flex:1;min-height:0;display:flex;flex-direction:column}.chat-scroll{flex:1;min-height:6em;overflow:auto;border:1px solid var(--line);border-radius:.4em;padding:.4em .8em;background:var(--bg)}.chat-page form.big{background:var(--bg);padding:.6em 0;margin:0}.chat-view{flex:1;min-height:0;display:flex;flex-direction:column}.chat-page p.thinking{font-style:italic}body.fill{height:100vh;height:100dvh;display:flex;flex-direction:column}body.fill>header,body.fill>footer{flex:none}body.fill>main{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;box-sizing:border-box;padding-bottom:1em}"
             + ".chat-panel-body{flex:1;display:flex;flex-direction:column;min-height:0;padding:.6em .9em;font-size:.95em}.chat-panel-body .panel-scroll{flex:1;min-height:0;overflow:auto}.chat-panel-body .chat{margin:0}.chat-panel-body form.panel-say{display:flex;gap:.4em;margin:.6em 0}.chat-panel-body form.panel-say.inline{display:inline-flex;margin:0 .3em 0 0}.chat-panel-body form.panel-say input[name=say]{flex:1;min-width:0}.chat-panel-body p.thinking{font-style:italic}"
             + ".nav-toggle{font:inherit;font-size:1.25em;line-height:1;padding:.15em .5em;background:none;border:1px solid var(--line);border-radius:.3em;color:var(--ink);cursor:pointer}"
             + ".site-nav{display:none;padding:.8em 1.2em;border-bottom:1px solid var(--line)}body.nav-open .site-nav{display:block}"
@@ -1837,6 +1970,18 @@ final class Pages {
         return m;
     }
 
+    /** Whether the request came through the shared door, where the relay in front is HTTPS. */
+    static boolean onDoor(HttpExchange x) { return Boolean.TRUE.equals(x.getAttribute(LibrarianDaemon.DOOR)); }
+
+    /**
+     * The sign-in cookie: Secure on the shared door, Lax everywhere — with Strict, a join link clicked in a message signed the browser in
+     * and then showed the home page as a visitor, because the cookie is withheld on the redirect that follows a cross-site click.
+     */
+    static void setCookie(HttpExchange x, String token) { x.getResponseHeaders().add("Set-Cookie", COOKIE + "=" + token + "; Path=/; HttpOnly; SameSite=Lax" + (onDoor(x) ? "; Secure" : "") + "; Max-Age=31536000"); }
+    static void clearCookie(HttpExchange x) { x.getResponseHeaders().add("Set-Cookie", COOKIE + "=; Path=/; HttpOnly; SameSite=Lax" + (onDoor(x) ? "; Secure" : "") + "; Max-Age=0"); }
+    static void clearAsk(HttpExchange x) { x.getResponseHeaders().add("Set-Cookie", ASK + "=; Path=/; HttpOnly; SameSite=Lax" + (onDoor(x) ? "; Secure" : "") + "; Max-Age=0"); }
+    static void redirectTo(HttpExchange x, String to) throws IOException { redirect(x, to); }
+
     static String cookie(HttpExchange x, String name) {
         List<String> all = x.getRequestHeaders().get("Cookie");
         if (all == null) return null;
@@ -1847,13 +1992,22 @@ final class Pages {
         return null;
     }
 
-    private static void send(HttpExchange x, int status, String html) throws IOException {
+    /** A JSON answer, for the passkey calls the page's script makes. */
+    static void sendJson(HttpExchange x, int status, JsonNode body) throws IOException {
+        byte[] bytes = M.writeValueAsBytes(body);
+        x.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+        x.getResponseHeaders().set("Cache-Control", "no-store");
+        x.sendResponseHeaders(status, bytes.length);
+        try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
+    }
+
+    static void send(HttpExchange x, int status, String html) throws IOException {
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
         x.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         x.getResponseHeaders().set("Cache-Control", "no-store");   // every page is the library as it is now; a browser must never show an old one (a denial kept showing after access opened, 2026-10-09)
         // no scripts, except: the map (its own script, its own data), the runs strip, the chat panel beside a page, and a pick form (the "all" and group boxes tick the others
         // with an inline handler; with scripts blocked they ticked nothing, 2026-09-09)
-        x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>") || html.contains("id=\"runs-strip\"") || html.contains("id=\"lib-chat\"") || html.contains("id=\"chat-scroll\"") || html.contains("id=\"site-nav\"")
+        x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>") || html.contains("id=\"runs-strip\"") || html.contains("id=\"lib-chat\"") || html.contains("id=\"chat-scroll\"") || html.contains("id=\"site-nav\"") || html.contains("id=\"signin\"") || html.contains("id=\"passkey-add\"")
                 ? "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'"
                 : html.contains("class=\"pick\"")
                 ? "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'"
@@ -1862,7 +2016,7 @@ final class Pages {
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
     }
 
-    private static void redirect(HttpExchange x, String to) throws IOException {
+    static void redirect(HttpExchange x, String to) throws IOException {
         x.getResponseHeaders().set("Location", to);
         x.sendResponseHeaders(303, -1);
         x.close();
@@ -1881,7 +2035,7 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         b.append(navGroup("Library", navLink("/", "Home", "⌂") + navLink("/ask", "Ask", "?") + navLink("/search", "Search", "⌕") + navLink("/subjects", "Subjects", "☷") + navLink("/map", "Map", "⊞")));
         b.append(navGroup("Work", navLink("/inbox", "Inbox", "✉") + navLink("/questions", "Open questions", "⁇") + navLink("/jobs", "Runs", "▶") + navLink("/research", "Research", "⚗") + navLink("/changes", "Changes", "↻")));
-        b.append(navGroup("Yours", navLink("/chat", "Chat", "❝") + (yours ? navLink("/owned", "Owned", "◆") + navLink("/settings", "Settings", "⚙") : "")));
+        b.append(navGroup("Yours", navLink("/chat", "Chat", "❝") + (yours ? navLink("/owned", "Owned", "◆") + navLink("/settings", "Settings", "⚙") : "") + (SignIn.hasAccountPage(patron) ? navLink("/account", "Account", "☺") : "")));
         String fields = fieldMenu(store, patron);
         b.append("<div class=\"nav-group nav-look\"><b>Look</b><button type=\"button\" id=\"theme-toggle\" class=\"theme-toggle\" title=\"Light or dark\"><span class=\"ico\">☾</span><span class=\"lbl\">Dark</span></button></div>");
         if (!fields.isEmpty()) b.append(navGroup("Fields", fields.replaceAll("<a href=\"([^\"]*)\">([^<]*)</a>", "<a href=\"$1\" title=\"$2\"><span class=\"ico\">$2</span><span class=\"lbl\">$2</span></a>")));

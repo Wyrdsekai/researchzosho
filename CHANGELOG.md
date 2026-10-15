@@ -1,5 +1,69 @@
 # Changelog
 
+## 0.6.1
+
+With this release you sign in with a name and a password, you can reach the library from outside your
+home for free, and a question about a craft, a sport or a hobby comes back with the kit as well as the
+how. Each change below is in full in the guide, LIBRARIAN_HOWTOUSE.md.
+
+### New
+
+- **Sign in with a name and a password.** No more tokens to paste. Make your own account with
+  `researchzosho account set`; the library also asks for it when you turn sign-in on or share the
+  library. On the library's own computer your browser needs no sign-in. From any other phone or
+  computer, your name and password get you in.
+- **Inviting someone is one link.** `researchzosho reader invite "Ann" read` prints a link. Ann opens
+  it within seven days, chooses her password, and from then on signs in with her name and it. Someone
+  with no link can ask from the sign-in page, choosing a password as they ask; you say yes or no from
+  the Inbox.
+- **Passkeys and one-time codes.** On the Account page, add a passkey: your fingerprint, your face or a
+  security key signs you in, with nothing to type. Or add a one-time code from an authenticator app, as a
+  second step after your password; the page shows a QR code to scan. A passkey needs an https address,
+  which `share` gives, or the library's own computer.
+- **Readers at a glance.** The Settings page and `researchzosho reader list` show who may read or write
+  and how each person signs in. A forgotten password is one new link away: `reader link "Ann"`. Or type
+  a password for them: `reader password "Ann"`. Programs keep using tokens. After ten wrong passwords at a
+  name, the next tries wait ten minutes.
+- **Reach the library from outside your home.** `researchzosho share` makes it reachable within half a
+  minute, free, with no port opened at home: the library dials out to an encrypted relay. The first time
+  it uses a Cloudflare quick tunnel, whose address changes when the service restarts. `share --tailscale`
+  gives an address that lasts; it installs Tailscale for you, asking before each step. `share --tailnet`
+  keeps the library to your own devices, where you are signed in as you arrive. `share status` shows the
+  address and `share off` stops it. In the chat, say `/share`. Anyone with the link sees only the sign-in
+  page.
+- **The command line from another computer.** `researchzosho connect <address> <token>` points the
+  commands on that computer at your shared library, and `researchzosho mcp` there lets Claude Code or
+  Codex use it. `connect off` goes back to the computer's own library.
+- **Crafts, hobbies, sports, martial arts and trades.** Ask how to do or make something, and the answer
+  comes with the kit: every material and tool, what it is for, what stands in for it, and where to get it.
+  For a sport or a martial art, the gear in the order you need it, what must fit you, where to learn, and
+  what the law says in your country. For a community you want to join, such as the SCA, a reenactment
+  society or a HEMA club: how to join, what its rules ask of your equipment, how members make their own,
+  and where they buy. The library knows about four thousand kinds of doing, with their Japanese names.
+- **Research runs follow the model server.** How many runs go at once, and how many readers each uses,
+  are read from the server: a llama.cpp server says how many calls it answers at once, and the library
+  takes one run per three of those, with up to three readers a run. The service and the installer say
+  what they chose; `job.workers` and `research.workers` set your own numbers.
+- **YouTube reads cost less.** A video's details and captions come in one request, and the captions are
+  kept, so asking about the same video again asks YouTube for nothing. A channel's whole list of videos
+  can be read at once, or only the videos whose titles match words you give. `researchzosho video status`
+  says what is kept.
+
+### Fixed
+
+- **What you type in the chat stays.** A reply or a refresh no longer clears the box. A reload brings
+  unsent text back.
+- **Better "books like this" lists.** Subjects are compared as whole phrases. The index and notes at the
+  back of a book are no longer read as part of it. Books of the same kind come first, and at most two
+  books by one author appear, with the rest under the author's name. Each row says where and when the
+  book is set; that changes the order only if you give it a weight in your preferences.
+- **Works with vLLM and other model servers.** Calls to a vLLM or uvicorn server used to fail with an
+  empty error. They work now, and a research report written against vLLM comes back whole.
+- **The Inbox lists claims oldest first, always.** On a Mac, two claims recorded a moment apart could
+  come out in the wrong order.
+- **The test suite leaves your running model alone.** It no longer talks to whatever model answers at
+  the computer's usual address.
+
 ## 0.6.0
 
 With this release the library makes recommendations, as part of its research. Ask for a book, a podcast episode

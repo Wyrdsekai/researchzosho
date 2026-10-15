@@ -6,6 +6,8 @@ import org.researchzosho.tools.VideoText;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
@@ -70,8 +72,15 @@ public final class Video {
     public static final int PROXY_PORT = 18888;
     /** The token provider's port on this machine; inside the tunnel's network it is 4416. */
     public static final int POT_PORT = 14416;
-    /** The least time between two calls to YouTube: three hundred an hour was measured without a block; this keeps under it. */
+    /** The least time between two SEARCHES at YouTube: three hundred an hour was measured without a block; this keeps under it. */
     public static final long PACE_MS = 12_000;
+    /**
+     * The least time between two READS of a video — its details and its captions in one call — or of a channel's list or feed, call start
+     * to call start. Measured on this route on 2026-10-12 (docs/AFTER_0_6.md §6): two hundred videos read with their captions, a hundred
+     * 8.4 s apart (one bot check among them, no block) and a hundred 6.1 s apart (none); and 718 at 4.8 s apart on another exit the same
+     * day (none). Five seconds sits on that measured rate; searches keep {@link #PACE_MS}.
+     */
+    public static final long READ_PACE_MS = 5_000;
     /**
      * The transcription server for videos without usable captions: faster-whisper behind an OpenAI-style speech API (speaches, MIT), the
      * CPU build. Its model downloads on first use. RESEARCHZOSHO_WHISPER_MODEL names another model; the default is small enough for a
@@ -90,13 +99,24 @@ public final class Video {
     /** Fetches a web address to a file. Tests replace it. */
     public interface Downloader { void fetch(String url, Path to) throws Exception; }
 
-    public static volatile Runner runner = (cmd, timeout) -> {
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-        byte[] out;
-        try (InputStream in = p.getInputStream()) { out = in.readAllBytes(); }
-        if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) { p.destroyForcibly(); return new Result(124, new String(out, StandardCharsets.UTF_8) + "\n(timed out after " + timeout.toSeconds() + " s)"); }
-        return new Result(p.exitValue(), new String(out, StandardCharsets.UTF_8));
-    };
+    public static volatile Runner runner = (cmd, timeout) -> run(new ProcessBuilder(cmd), timeout);
+
+    /** Runs a command with the limit on the whole of it. The output is read on its own thread, so a command that keeps its pipe open while it
+     *  waits for something (tailscale serve polling for an approval held the CLI for ever on 2026-10-13) is ended at the limit, its output so far
+     *  kept; stdin is empty, so a command that asks a question gets its answer at once instead of waiting for a keyboard nobody is at. */
+    static Result run(ProcessBuilder pb, Duration timeout) throws Exception {
+        pb.redirectErrorStream(true).redirectInput(ProcessBuilder.Redirect.from(new File(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "NUL" : "/dev/null")));
+        Process p = pb.start();
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        Thread reader = new Thread(() -> { try (InputStream in = p.getInputStream()) { in.transferTo(buf); } catch (IOException ignored) { } }, "command-output");
+        reader.setDaemon(true); reader.start();
+        boolean done = p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        if (!done) { p.descendants().forEach(ProcessHandle::destroyForcibly); p.destroyForcibly(); }
+        reader.join(done ? 5_000 : 2_000);
+        String out = buf.toString(StandardCharsets.UTF_8);
+        if (!done) return new Result(124, out + "\n(timed out after " + timeout.toSeconds() + " s)");
+        return new Result(p.exitValue(), out);
+    }
     static volatile Downloader downloader = (url, to) -> {
         HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).connectTimeout(Duration.ofSeconds(20)).build();
         HttpResponse<InputStream> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(5))
@@ -437,10 +457,13 @@ public final class Video {
      * answer, so that no request ever leaves from this machine's own address. Paced: a call waits until {@value #PACE_MS} ms have passed
      * since the last. A refusal from YouTube is noted with the time, for {@link #refusal()}.
      */
-    public static Result ytdlp(List<String> args, Duration timeout) {
+    public static Result ytdlp(List<String> args, Duration timeout) { return ytdlp(args, timeout, paceMs); }
+
+    /** The same, at a pace of the caller's: {@link #readPaceMs} for reading one video or one channel, {@link #paceMs} for a search. */
+    public static Result ytdlp(List<String> args, Duration timeout, long pace) {
         if (!installed()) return new Result(3, "the video helper is not installed: researchzosho video install");
         if (!providerAnswers()) return new Result(3, "the video helper is not running (its token provider does not answer): researchzosho video start");
-        pace();
+        pace(pace);
         List<String> cmd = new ArrayList<>(command());
         cmd.addAll(args);
         try {
@@ -458,7 +481,7 @@ public final class Video {
      */
     public static String fetchThroughTunnel(String url, Duration timeout) {
         if (!installed() || !providerAnswers()) return null;
-        pace();
+        pace(readPaceMs);
         try { return fetcher.get(url, timeout); }
         catch (Exception e) {
             if (refused(e.getMessage())) noteRefusal(e.getMessage());
@@ -466,15 +489,47 @@ public final class Video {
         }
     }
 
-    /** The pace, in milliseconds; a test with a stand-in for yt-dlp sets it to nothing. */
+    /** The pace of a search, in milliseconds; a test with a stand-in for yt-dlp sets it to nothing. */
     public static volatile long paceMs = PACE_MS;
+    /** The pace of a read (a video's details and captions, a channel's list or feed), in milliseconds; a test sets it to nothing. */
+    public static volatile long readPaceMs = READ_PACE_MS;
+
+    // ── the captions kept ─────────────────────────────────────────────────────────────────────────────
+
+    /** Where the caption tracks read are kept: {@code <id>.<lang>.json3}, written by yt-dlp in the same call as the details, or by the fetch. */
+    public static Path captionsDir() {
+        Path d = dir().resolve("captions");
+        try { Files.createDirectories(d); } catch (IOException ignored) { }
+        return d;
+    }
+
+    /** The kept track for a video in a language — the language's own, else YouTube's original-language track ({@code -orig}) — or null. */
+    public static Path keptCaption(String videoId, String language) {
+        if (videoId == null || language == null || language.isBlank()) return null;
+        for (String lang : new String[]{language, language + "-orig"}) {
+            Path p = captionsDir().resolve(videoId + "." + lang + ".json3");
+            if (Files.isRegularFile(p)) return p;
+        }
+        return null;
+    }
+
+    /** Keeps a track fetched by its address, so the next question about the video reads it from here. */
+    public static void keepCaption(String videoId, String language, String json3) {
+        try { Files.writeString(captionsDir().resolve(videoId + "." + language + ".json3"), json3); } catch (IOException ignored) { }
+    }
+
+    /** How many caption tracks are kept. */
+    public static int captionsHeld() {
+        try (java.util.stream.Stream<Path> s = Files.list(captionsDir())) { return (int) s.filter(p -> p.getFileName().toString().endsWith(".json3")).count(); }
+        catch (IOException e) { return 0; }
+    }
 
     /**
      * One call every twelve seconds across every process on the machine, not only this one: the service's research run and a
      * {@code researchzosho youtube …} typed by hand share one tunnel and one address at YouTube. The last call's time lives in a
      * file in the helper's folder, held under a file lock while the wait is measured and the new time written.
      */
-    private static void pace() {
+    private static void pace(long paceMs) {
         synchronized (Video.class) {
             Path stamp = dir().resolve("pace");
             try (FileChannel ch = FileChannel.open(stamp, StandardOpenOption.CREATE, StandardOpenOption.READ, StandardOpenOption.WRITE); FileLock lock = ch.lock()) {
@@ -508,11 +563,7 @@ public final class Video {
         if (runner != DEFAULT) return runner.run(cmd, timeout);
         ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
         pb.environment().put("PATH", dir().resolve("bin") + java.io.File.pathSeparator + pb.environment().getOrDefault("PATH", ""));
-        Process p = pb.start();
-        byte[] out;
-        try (InputStream in = p.getInputStream()) { out = in.readAllBytes(); }
-        if (!p.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS)) { p.destroyForcibly(); return new Result(124, new String(out, StandardCharsets.UTF_8) + "\n(timed out after " + timeout.toSeconds() + " s)"); }
-        return new Result(p.exitValue(), new String(out, StandardCharsets.UTF_8));
+        return run(pb, timeout);
     }
     private static final Runner DEFAULT = runner;
 
@@ -561,6 +612,7 @@ public final class Video {
         sb.append("  tunnel (").append(CONTAINER_VPN).append("): ").append(state(CONTAINER_VPN)).append(state(CONTAINER_VPN).equals("running") ? (tunnelAnswers() ? ", YouTube answers through it" : ", YouTube does not answer through it") : "").append('\n');
         sb.append("  token provider (").append(CONTAINER_POT).append("): ").append(state(CONTAINER_POT)).append(state(CONTAINER_POT).equals("running") ? (providerAnswers() ? ", answers" : ", does not answer") : "").append('\n');
         sb.append("  yt-dlp: ").append(Files.exists(ytdlp()) ? ytdlp().toString() : "not installed").append('\n');
+        if (installed()) { int held = captionsHeld(); sb.append("  captions kept: ").append(held == 0 ? "none yet" : held + " track" + (held == 1 ? "" : "s")).append(" (").append(captionsDir()).append(")\n"); }
         String ws = state(CONTAINER_WHISPER);
         sb.append("  transcription (").append(CONTAINER_WHISPER).append(", ").append(whisperModel()).append("): ").append(ws).append(ws.equals("running") ? (transcriptionReady() ? ", answers" : ", not answering yet (its model downloads on first use)") : "").append('\n');
         String refusal = refusal();

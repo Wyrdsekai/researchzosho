@@ -16,7 +16,7 @@ import java.util.Collections;
  * Read live from the user config file (a value set in the environment is fixed for the process — put
  * these in the file, {@code researchzosho research …} does):
  * <ul>
- *   <li>{@code research.workers} — parallel workers per ask (default 3); a running ask follows at its next turn.</li>
+ *   <li>{@code research.workers} — parallel workers per ask (unset: up to 3, or the model server's slots when fewer, {@link ModelSlots}); a running ask follows at its next turn.</li>
  *   <li>{@code research.pause} — on: queued asks wait, a running ask holds at its next turn.</li>
  *   <li>{@code research.window} — {@code 22:00-07:00}: asks are picked up only inside the window; a running ask finishes.</li>
  * </ul>
@@ -31,7 +31,7 @@ public final class ResearchSettings {
 
     private ResearchSettings() { }
 
-    public static int workers() { return Math.max(1, Config.liveInt(WORKERS, 3)); }
+    public static int workers() { return ModelSlots.readers(); }
     public static boolean paused() { return Config.liveOn(PAUSE, false); }
     public static String window() { String w = Config.live(WINDOW); return w == null || w.isBlank() || w.equalsIgnoreCase("off") ? "" : w.strip(); }
     /** Whether an ask may be picked up now. */

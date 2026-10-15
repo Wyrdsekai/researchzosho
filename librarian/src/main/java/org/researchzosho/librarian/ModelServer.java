@@ -265,7 +265,7 @@ public final class ModelServer {
         Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING);
     };
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build();
 
     /** Whether a proxy answers at {@code base}: llama-swap's /health says OK; any other server's model list will do. */
     public static Predicate<String> health = base -> {

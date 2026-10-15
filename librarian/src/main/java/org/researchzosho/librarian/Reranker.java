@@ -31,7 +31,7 @@ public final class Reranker {
     }
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
 
     private Reranker() { }
 

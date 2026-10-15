@@ -417,7 +417,7 @@ class ModelServerTest {
             String r = ModelServer.install(null, "all", 20, false, new PrintStream(new ByteArrayOutputStream()));
             assertTrue(r.startsWith("!checksum mismatch for gpt-oss-20b-F16.gguf"), r);
             assertFalse(Files.exists(home.resolve("models/gpt-oss-20b-F16.gguf")), "nothing kept");
-            assertNull(Config.get("RESEARCHZOSHO_DRIVE"), "the drive was not touched");
+            assertNull(Config.stored("RESEARCHZOSHO_DRIVE"), "the drive was not touched (the file; the test task offers one through the environment)");
         } finally {
             System.setProperty("user.home", realHome);
             Config.invalidate();

@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 /** The video helper: the tunnel's settings from a WARP profile, the docker command lines, the yt-dlp command, and what counts as a refusal — without docker or the network. */
 class VideoTest {
@@ -135,5 +136,20 @@ class VideoTest {
     void theDownloadsAreNamedForThisMachine() {
         String deno = Video.denoUrl();
         assertTrue(deno == null || deno.startsWith("https://github.com/denoland/deno/releases/latest/download/deno-") && deno.endsWith(".zip"), String.valueOf(deno));
+    }
+
+    /** The runner's limit is a limit on the whole command: a command that prints and then holds its pipe open (tailscale serve polling for an
+     *  approval, 2026-10-13) is ended at the limit with what it printed kept; one that asks a question gets an empty stdin and ends by itself. */
+    @Test
+    void theRunnersLimitEndsACommandThatHoldsItsPipeOpen() throws Exception {
+        assumeFalse(System.getProperty("os.name", "").toLowerCase().contains("win"));
+        long t = System.nanoTime();
+        Video.Result r = Video.runner.run(List.of("sh", "-c", "echo waiting for approval; sleep 30"), Duration.ofSeconds(1));
+        long ms = (System.nanoTime() - t) / 1_000_000;
+        assertEquals(124, r.code(), r.out());
+        assertTrue(r.out().contains("waiting for approval") && r.out().contains("timed out after 1 s"), r.out());
+        assertTrue(ms < 5_000, "ended at the limit, not when the sleep ended: " + ms + " ms");
+        Video.Result q = Video.runner.run(List.of("sh", "-c", "read answer; echo got:$answer"), Duration.ofSeconds(5));
+        assertEquals(0, q.code(), q.out()); assertEquals("got:", q.out().strip(), "an empty stdin answers a question at once");
     }
 }

@@ -17,9 +17,10 @@ run can use that up before lunch. So the library reads YouTube the way a browser
   device (no account, no sign-in) and runs a WireGuard tunnel in a container that only this helper's
   traffic uses. YouTube sees the tunnel, not your home address. If YouTube refuses the tunnel, the
   refusal is yours to read, and your own address is untouched.
-- **It paces itself.** One request every twelve seconds, which is the rate we measured YouTube to accept
-  from a tunnel all day. A research run with twenty YouTube calls takes four minutes longer than it would
-  without; that is the price.
+- **It paces itself.** One search every twelve seconds, which is the rate we measured YouTube to accept
+  from a tunnel all day; reading a video — its details and its captions come in one request — or a channel's
+  list, one every five seconds, measured on the same tunnel with a hundred videos in a row. A research run
+  with twenty YouTube calls takes a few minutes longer than it would without; that is the price.
 - **It keeps data, never media.** Titles, descriptions, upload days, view and subscriber counts with the day
   they were read, captions, and the transcript of a video's audio when there are no captions. The audio
   it transcribes is deleted when the transcript is written. No video is downloaded.
@@ -62,6 +63,8 @@ Five commands, for when you want to look something up rather than have a run do 
 researchzosho youtube search iaido kata okuiai            # videos, with channel, length, views and day
 researchzosho youtube channels iaido                      # channels, with subscribers, small ones included
 researchzosho youtube uploads @IaidoArchives              # a channel's latest uploads with their days
+researchzosho youtube uploads @IaidoArchives --all        # every upload, newest first (a thousand in one request)
+researchzosho youtube uploads @IaidoArchives --match okuiai   # every upload whose title carries the words (or /a pattern/)
 researchzosho youtube video https://www.youtube.com/watch?v=… --transcript
 researchzosho youtube like @IaidoArchives                 # channels that make what this channel makes
 ```
@@ -71,7 +74,10 @@ or its eleven-character id.
 
 `video … --transcript` prints what is said as timed lines, `[5:12] …`, from the uploader's own captions
 when there are some, else from YouTube's automatic captions, else from the library's own transcription
-of the audio. Each line says where it came from.
+of the audio. Each line says where it came from. The captions come in the same request as the video's
+details and are kept under the helper's folder (`researchzosho video status` says how many), so a second
+question about the same video asks YouTube for nothing. With `--match`, a run can do what a harvest does:
+list a channel once, keep the uploads about a subject, then read each with `video … --transcript`.
 
 **Channels like this one.** `youtube like` has the model write six search phrasings from the channel's description and
 newest titles (never the channel's name), runs each as a channel search and a video search, and ranks the channels found by how

@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.Config;
@@ -26,10 +27,15 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class FamilyTitlesAndOrderTest {
 
+    private String home;
+
+    @BeforeEach void keepHome() { home = System.getProperty("user.home"); }   // FamilyAskingTest.seconds swaps it for a scratch one
+
     @AfterEach void restore() {
         GenealogyProfile.useReader(null);
         Interaction.OVERRIDE = null;
         Interaction.INPUT = null;
+        System.setProperty("user.home", home);
         Config.invalidate();
     }
 

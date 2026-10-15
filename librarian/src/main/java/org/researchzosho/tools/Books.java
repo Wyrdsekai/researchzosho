@@ -46,7 +46,7 @@ public final class Books {
     public static boolean ciniiOn() { return !setting(CINII_KEY).isEmpty(); }
 
     /** One book as a catalogue lists it. */
-    public record Book(String source, String title, List<String> authors, String year, List<String> subjects, List<String> isbns, int editions, int ratings, String ratingAverage, String publisher, String language, String url, String note) { }
+    public record Book(String source, String title, List<String> authors, String year, List<String> subjects, List<String> places, List<String> times, List<String> isbns, int editions, int ratings, String ratingAverage, String publisher, String language, String url, String note) { }
 
     /** A work's own record: the description, every subject, the places and times it is about. */
     public record Work(String title, String description, List<String> subjects, List<String> places, List<String> times, String firstPublished, String url) { }
@@ -63,7 +63,7 @@ public final class Books {
 
     // ---- Open Library ----
 
-    static final String FIELDS = "key,title,author_name,first_publish_year,edition_count,ratings_count,ratings_average,subject,language,isbn,publisher,number_of_pages_median";
+    static final String FIELDS = "key,title,author_name,first_publish_year,edition_count,ratings_count,ratings_average,subject,place,time,language,isbn,publisher,number_of_pages_median";
 
     /** Open Library by words ({@code q}), by subject heading, by author, or any of them together; {@code language} as ISO 639-2 (eng, jpn). */
     public static List<Book> openLibrary(String q, String subject, String author, String language, int limit, String sort) throws IOException {
@@ -79,10 +79,13 @@ public final class Books {
             List<String> authors = new ArrayList<>(), subjects = new ArrayList<>(), isbns = new ArrayList<>();
             doc.path("author_name").forEach(a -> authors.add(a.asText()));
             int n = 0; for (JsonNode s : doc.path("subject")) { if (n++ >= 12) break; subjects.add(s.asText()); }
+            List<String> places = new ArrayList<>(), times = new ArrayList<>();   // where and when the work is set, as the catalogue has them
+            n = 0; for (JsonNode s : doc.path("place")) { if (n++ >= 8) break; places.add(s.asText()); }
+            n = 0; for (JsonNode s : doc.path("time")) { if (n++ >= 8) break; times.add(s.asText()); }
             n = 0; for (JsonNode i : doc.path("isbn")) { if (n++ >= 3) break; isbns.add(i.asText()); }
             String lang = doc.path("language").size() > 0 ? doc.path("language").get(0).asText("") : "";
             String publisher = doc.path("publisher").size() > 0 ? doc.path("publisher").get(0).asText("") : "";
-            out.add(new Book("Open Library", doc.path("title").asText(""), authors, doc.path("first_publish_year").asText(""), subjects, isbns, doc.path("edition_count").asInt(0),
+            out.add(new Book("Open Library", doc.path("title").asText(""), authors, doc.path("first_publish_year").asText(""), subjects, places, times, isbns, doc.path("edition_count").asInt(0),
                     doc.path("ratings_count").asInt(0), doc.has("ratings_average") ? String.format(Locale.ROOT, "%.1f", doc.path("ratings_average").asDouble()) : "", publisher, lang,
                     BASE.get("openlibrary") + doc.path("key").asText(""), doc.has("number_of_pages_median") ? doc.path("number_of_pages_median").asInt() + " pages" : ""));
         }
@@ -124,7 +127,7 @@ public final class Books {
             for (int j = 0; j < ids.getLength(); j++) { Element x = (Element) ids.item(j); if (x.getAttribute("xsi:type").contains("ISBN") && isbns.size() < 3) isbns.add(x.getTextContent().strip()); }
             String issued = text(e, "dcterms:issued"); if (issued.isEmpty()) issued = text(e, "dc:date");
             String link = text(e, "guid"); if (link.isEmpty()) link = text(e, "link");
-            out.add(new Book("NDL Search", text(e, "dc:title").isEmpty() ? text(e, "title") : text(e, "dc:title"), authors, issued.length() >= 4 ? issued.substring(0, 4) : issued, subjects, isbns, 0, 0, "",
+            out.add(new Book("NDL Search", text(e, "dc:title").isEmpty() ? text(e, "title") : text(e, "dc:title"), authors, issued.length() >= 4 ? issued.substring(0, 4) : issued, subjects, List.of(), List.of(), isbns, 0, 0, "",
                     text(e, "dc:publisher"), "jpn", link, ndcClass.isEmpty() ? "" : "NDC " + ndcClass));
         }
         return out;
@@ -155,7 +158,7 @@ public final class Books {
             String publisher = pub.isArray() ? (pub.size() > 0 ? pub.get(0).asText("") : "") : pub.asText("");
             String year = it.path("dc:date").asText(""); if (year.isEmpty()) year = it.path("prism:publicationDate").asText("");
             int owners = it.path("cinii:ownerCount").asInt(0);
-            out.add(new Book("CiNii Books", it.path("title").asText(""), authors, year.length() >= 4 ? year.substring(0, 4) : year, List.of(), isbns, 0, 0, "", publisher, "jpn",
+            out.add(new Book("CiNii Books", it.path("title").asText(""), authors, year.length() >= 4 ? year.substring(0, 4) : year, List.of(), List.of(), List.of(), isbns, 0, 0, "", publisher, "jpn",
                     it.path("@id").asText(""), owners > 0 ? "held by " + owners + " Japanese librar" + (owners == 1 ? "y" : "ies") : ""));
         }
         return out;

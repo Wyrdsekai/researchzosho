@@ -48,14 +48,21 @@ public final class Patrons {
 
     /** The two commands that make the owner's token, as the sign-in page shows them. ReaderCommandsTest runs them word for word. */
     public static final String TOKEN_HOWTO = "researchzosho reader allow did:key:me write \"Me\"\nresearchzosho reader token did:key:me";
+    /** The one command that lets a person in with a link, as the sign-in page shows it. */
+    public static final String INVITE_HOWTO = "researchzosho reader invite \"A name\" read";
 
     /** The caller, as carried on every protocol call. Absent fields make an anonymous patron. */
     public record Patron(String did, String name, String runtime) {
         public static final Patron ANONYMOUS = new Patron("", "", "");
         /** The person who keeps the library, acting locally (the CLI, the chat): always write. */
         public static final Patron PERSON = new Patron("person", "the person", "local");
+        /** The same person in a browser: signed in to their account, or on the library's own computer. */
+        public static final Patron OWNER_WEB = new Patron("person", "the person", "web");
         /** Someone in the browser while the pages are open (no sign-in asked): may do what the person may. */
         public static final Patron WEB = new Patron("web", "someone in the browser", "web");
+        /** The same two, come through the shared door: nobody unlisted gets in there, whatever the library's default says. */
+        public static final Patron DOOR_WEB = new Patron("web", "someone in the browser", "door");
+        public static final Patron DOOR_ANONYMOUS = new Patron("", "", "door");
 
         public static Patron from(JsonNode args) {
             JsonNode p = args == null ? null : args.get("patron");
@@ -66,6 +73,8 @@ public final class Patrons {
         public boolean anonymous() { return did.isEmpty(); }
         public boolean person() { return "person".equals(did); }
         public boolean web() { return "web".equals(did); }
+        /** Whether the caller came through the shared door (a relay in front of it). */
+        public boolean door() { return "door".equals(runtime); }
         /** The writer label on anything this patron submits. */
         public String writer() { return person() ? "person" : anonymous() ? "patron:anonymous" : "patron:" + did; }
         /** For circulation lines: who asked. */
@@ -126,6 +135,8 @@ public final class Patrons {
     /** Throws {@code forbidden} when the patron's level is below {@code need}. */
     public static void check(LibraryStore store, Patron patron, Level need) throws IOException {
         if (patron.person()) return;   // the keeper of the library, on their own machine
+        // through the shared door only a listed reader gets in, whatever the default says: the door faces the world, the main port faces the house
+        if (patron.door() && (patron.anonymous() || patron.web())) throw ProtocolError.forbidden("Through the shared door only a listed reader gets in. Sign in with your name and password, or ask to be let in from the sign-in page.");
         if (patron.web() && !WebAccess.signInRequired()) return;   // the pages are open: a browser counts as the person
         Level have = load(store).levelFor(patron);
         // the sign-in is on: a browser that has not signed in reads at most, whatever the default says — that is what
@@ -196,6 +207,16 @@ public final class Patrons {
         write(store, new Policy(pol.dflt(), out));
         return token;
     }
+
+    /** The listed reader with this did, or null. */
+    public static Entry byDid(LibraryStore store, String did) throws IOException {
+        if (did == null || did.isBlank()) return null;
+        for (Entry e : load(store).listed()) if (e.did().equals(did)) return e;
+        return null;
+    }
+
+    /** The did a relay's login names — a tailnet login, a mail address — as a reader let in through the shared door is listed by it. */
+    public static String loginDid(String login) { return "did:mail:" + login.strip().toLowerCase(Locale.ROOT); }
 
     /** The listed patron a bearer token proves, or null. */
     public static Entry resolve(LibraryStore store, String token) throws IOException {

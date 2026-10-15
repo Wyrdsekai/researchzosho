@@ -440,7 +440,7 @@ public final class Surveys {
         for (Finding f : store.scanFindings().findings()) {
             if (!f.title().startsWith(name + ": ")) continue;
             boolean ours = f.notes() != null && f.notes().stream().anyMatch(x -> "survey".equals(x.kind()));
-            if (ours && (best == null || f.recordedAt().compareTo(best.recordedAt()) > 0)) best = f;
+            if (ours && (best == null || Council.moment(f.recordedAt()).compareTo(Council.moment(best.recordedAt())) > 0)) best = f;   // the newest by the moment, not its text
         }
         return best;
     }

@@ -47,7 +47,7 @@ public final class YoutubeProfile implements Profile {
 
     @Override public String register() {
         String how = tools()
-                ? "Judge a channel by what it makes and whether it still posts: its latest uploads and their days (channel_uploads), what its videos "
+                ? "Judge a channel by what it makes and whether it still posts: its latest uploads and their days (channel_uploads; with match=<words>, every upload it made about a subject), what its videos "
                 + "show or say (video_details), and who is in them. Subscribers and views are shown with their day and never ranked on: YouTube's own "
                 + "search leans on them and hides the small and the new, so search channels as well as videos (video_search with kind=channels), "
                 + "read past the first page, and search again in the languages the subject is spoken in. A video is a source like a page: cite "

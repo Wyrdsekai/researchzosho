@@ -28,7 +28,9 @@ class CrewsDriveProbeTest {
             byte[] out;
             int code;
             if (delayMs > 0) { try { Thread.sleep(delayMs); } catch (InterruptedException ignored) { } }
-            if (loadingStatus != 0) { code = loadingStatus; out = "{\"error\":\"loading\"}".getBytes(StandardCharsets.UTF_8); }
+            if (ex.getRequestHeaders().getFirst("Upgrade") != null) { body = ""; }   // uvicorn (vLLM) drops the body of a request that asks for an HTTP/2 upgrade, 2026-10-13
+            if (body.isEmpty()) { code = 400; out = "{\"error\":{\"message\":\"1 validation error: {'type': 'missing', 'loc': 'body', 'msg': 'Field required'}\",\"code\":400}}".getBytes(StandardCharsets.UTF_8); }
+            else if (loadingStatus != 0) { code = loadingStatus; out = "{\"error\":\"loading\"}".getBytes(StandardCharsets.UTF_8); }
             else if (!body.contains("\"model\"")) { code = 404; out = "{\"error\":\"no model named\"}".getBytes(StandardCharsets.UTF_8); }
             else { code = 200; out = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"}}]}".getBytes(StandardCharsets.UTF_8); }
             ex.sendResponseHeaders(code, out.length);

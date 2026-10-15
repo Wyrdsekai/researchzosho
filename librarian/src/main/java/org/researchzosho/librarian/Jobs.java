@@ -71,8 +71,8 @@ public final class Jobs {
     /** How long a run the service held for the person's yes waits for it. */
     public static final long HELD_MS = 24L * 60 * 60 * 1000;
 
-    /** How many model jobs run at once — the drive's parallel slots minus what interactive chat needs. */
-    static final int WORKERS = Config.getInt("RESEARCHZOSHO_JOB_WORKERS", 1);
+    /** How many research runs the service runs at once: the number set, else one per three of the model server's slots ({@link ModelSlots}). */
+    static int workersNow() { return ModelSlots.runs(); }
 
     /** Drives, comma-separated; worker i takes drive i mod n, so more drives are more research per night. */
     public static List<String> drives(String fallback) {

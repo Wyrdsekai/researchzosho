@@ -1232,7 +1232,12 @@ public final class Researcher {
         if (!leftOut.isEmpty()) {
             out.append("\n\n## Found and not in the answer above\n\nWritten by the library, not by the model. Each of these was noted during the research, with its source, "
                     + "and the answer neither cites that source nor says the same thing. Read them with the answer: what was left out may matter to you.\n\n");
-            for (String l : leftOut.stream().distinct().limit(40).toList()) out.append("- ").append(l).append('\n');
+            // a rule among them first: a requirement the notes found and the answer does not carry is what a reader acts on (a kingdom's covering
+            // rule for plastic armour sat here under the SCA answer, 2026-10-13)
+            List<String> ruleLines = new ArrayList<>(), otherLines = new ArrayList<>();
+            for (String l : leftOut.stream().distinct().limit(40).toList()) (RULE_WORDS.matcher(l).find() ? ruleLines : otherLines).add(l);
+            if (!ruleLines.isEmpty()) { out.append("Rules among them, which the answer does not carry:\n\n"); for (String l : ruleLines) out.append("- ").append(l).append('\n'); if (!otherLines.isEmpty()) out.append("\nThe rest:\n\n"); }
+            for (String l : otherLines) out.append("- ").append(l).append('\n');
         }
         runStats.put("noted_left_out", leftOut.size());
         if (rows > 0) out.append("\n\n").append(table);
@@ -1264,6 +1269,8 @@ public final class Researcher {
     }
 
     /** A mark the checks left in the text, with its reason. */
+    /** The words of a requirement: a note with one of these, left out of the answer, is listed before the rest. */
+    static final Pattern RULE_WORDS = Pattern.compile("(?i)\\b(must|required|requires?|may not|must not|not acceptable|not permitted|prohibited|forbidden|minimum|at least|no less than|no more than|only if|shall|is mandatory|are mandatory)\\b");
     static final Pattern CHECK_MARK = Pattern.compile(" ?\\[(not supported by the cited source on check|cites a source that was not read this run|no catalogue record this run: [^\\]]*|number not in any note or source read this run: [^\\]]*)\\]");
     /** How many flagged sentences one revision turn is given; the rest stand as marked. */
     static final int REVISE_MOST = 12;
@@ -1373,8 +1380,9 @@ public final class Researcher {
         StringBuilder u = new StringBuilder();
         u.append("You wrote a research report; its checks flagged the sentences below, each with the reason. Revise each with revise(n, revised, why): "
                 + "a sentence that says only what the evidence below supports. Cite a source [n] only where that source says it. A claim that nothing read "
-                + "this run supports: say that it could not be verified in this run, or leave it out (revised = \"\"). Keep every number exactly as the "
-                + "evidence states it. Write in the report's language. One revise call per sentence, all in this turn.\n\nTHE FLAGGED SENTENCES:\n");
+                + "this run supports: say that it could not be verified in this run, or leave it out (revised = \"\"). A sentence flagged on one of several "
+                + "citations keeps what its other sources say, with their citations: leave out only what no source read this run supports. Keep every number "
+                + "exactly as the evidence states it. Write in the report's language. One revise call per sentence, all in this turn.\n\nTHE FLAGGED SENTENCES:\n");
         int k = 0;
         for (Flag f : sent) u.append(++k).append(". ").append(f.sentence()).append("\n   flagged: ").append(f.why()).append('\n');
         u.append("\nEVIDENCE (the research notes):\n").append(Acquisitions.compress(evidence, 12_000));
@@ -1430,7 +1438,14 @@ public final class Researcher {
             String fails = revisionFails(f, revised[i], evidence, refs, textByRef, unread, budget);
             if (!fails.isEmpty()) { kept++; changes.add(0, "kept as marked: \"" + was + "\" — the revision \"" + Acquisitions.compress(revised[i], 200) + "\" did not pass: " + fails); continue; }
             changed++;
-            String reason = why[i] == null || why[i].isEmpty() ? "" : " (" + Acquisitions.compress(why[i], 160) + ")";
+            // the writer's reason is the writer's, said so; when it claims a source was not read and the library did read it, the library says that too
+            // (the SCA report of 2026-10-13 printed "Sources [11] and [15] were not read this run" over three true sentences; both had been read)
+            String reason = why[i] == null || why[i].isEmpty() ? "" : " (the writer's reason: " + Acquisitions.compress(why[i], 160) + ")";
+            if (!reason.isEmpty() && why[i].toLowerCase(Locale.ROOT).contains("not read")) {
+                List<String> read = new ArrayList<>();
+                for (CiteCheck.Ref r : CiteCheck.citedRefs(f.sentence(), refs)) if (!unread.contains(r.n())) read.add("[" + r.n() + "]");
+                if (!read.isEmpty()) reason = reason.substring(0, reason.length() - 1) + " — the library did read " + String.join(", ", read) + " this run)";
+            }
             if (revised[i].isEmpty()) {
                 int end = f.end();
                 while (end < text.length() && text.charAt(end) == ' ') end++;

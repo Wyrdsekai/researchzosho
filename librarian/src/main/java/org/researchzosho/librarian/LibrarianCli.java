@@ -148,7 +148,17 @@ public final class LibrarianCli {
               stats [<n>]                  the research runs side by side: turns, rounds, citation checks, sources, fetches. The last n rows (default 20) and the totals
               bib <id…>                    BibTeX for everything a claim or report cites (DOI / arXiv / PubMed looked up)
               perspectives <question…>     who studies this and what each would ask. Sub-questions for a research run
-              web [status | signin on|off]  the web pages: open to everyone by default. signin on asks for a reader token before a question can be sent
+              web [status | signin on|off]  the web pages: open to everyone by default. signin on asks for a sign-in (name and password) before a question can be sent
+              account [set [--name N --password P] | reset | status]
+                                           your own account, to sign in from any phone or computer: set makes or changes it (asks for the name and
+                                           password); reset takes away the password, passkeys, one-time code and every signed-in browser
+              connect <address> <token> · connect off · connect
+                                           point these commands at a library elsewhere (the address `share` printed there, the token a reader got):
+                                           ask, search, get, read, established, research, jobs, status, changes, subjects, questions, map,
+                                           perspectives, inbox and mcp go there; the folder's verbs say to run them on the library's computer
+              share [status | off | --public | --cloudflare [--mail <address…>] | --door N]
+                                           reach the library from outside your home, behind a relay it dials out to: Tailscale on your tailnet
+                                           (reachable now; --tailscale for an address that lasts, --tailnet for your tailnet only), or a Cloudflare quick tunnel. Free; nothing is installed for you
               records [list | test <source> <query…> | key <source> <key> | login <source>]
                                            the collections of records a research run searches by name: newspapers, patents, scanned books, archive catalogues. test searches one now
               sources [list | trust <host> [why] | ban <host> [why] | forget <host>]
@@ -206,7 +216,9 @@ public final class LibrarianCli {
               subjects drop <n|slug>…      throw proposals away. `all` clears the list
               abstract [drive] [subject…]  write or rewrite the summary of each subject
               enrich [drive] [N]           add model-written context to saved pages (N files, 0=all)
-              reader [list|allow <did> <deny|read|write> [name…]|deny <did>|remove <did>|default <level>|token <did>|webhook …]
+              reader [list|invite "<name>" [read|write]|link "<name>"|password "<name>"|allow <did> <deny|read|write> [name…]|deny <did>|remove <did>|default <level>|token <did>|webhook …]
+                                    invite: one link, opened within seven days, with which a person chooses their password; link: a new one (a forgotten
+                                    password); password: one you type for them
               reader requests · approve <R-id> [read|write] · deny <R-id> [why]     access requests, and your answer
                                            who may read and write (deny|read|write); `token` makes a bearer token for a program (`patron` is the same verb)
               serve [--host H] [--port P] [--crew-hour H|--no-crews]
@@ -228,9 +240,15 @@ public final class LibrarianCli {
             case "list" -> {
                 var id = store.identity();
                 System.out.println("library " + id.id() + " — " + id.name() + " (contract " + LibraryProtocol.CONTRACT + ")");
+                Accounts.Account owner = Accounts.owner(store);
+                System.out.println("you: " + (owner == null ? "no account yet (researchzosho account set makes one)" : "\"" + owner.name() + "\" — signs in with " + owner.ways()));
                 var pol = Patrons.load(store);
                 System.out.println("default: " + pol.dflt() + "   (anonymous and unlisted users)");
-                for (var e : pol.listed()) System.out.println("- " + e.did() + " — " + (e.name().isEmpty() ? "(unnamed)" : e.name()) + " — " + e.level());
+                for (var e : pol.listed()) {
+                    Accounts.Account acc = Accounts.byDid(store, e.did());
+                    String ways = acc == null ? (e.tokenHash() == null ? "nothing yet (researchzosho reader link or reader password)" : "a token (a program)") : acc.ways();
+                    System.out.println("- " + e.did() + " — " + (e.name().isEmpty() ? "(unnamed)" : e.name()) + " — " + e.level() + " — signs in with " + ways);
+                }
                 if (pol.listed().isEmpty()) System.out.println("(no users listed — " + Patrons.file(store) + ")");
             }
             case "allow", "add" -> {
@@ -249,7 +267,41 @@ public final class LibrarianCli {
             case "remove" -> {
                 if (args.length < 4) { System.err.println("usage: researchzosho reader remove <did>"); return 2; }
                 Patrons.remove(store, args[3]);
+                Accounts.remove(store, args[3]);
                 System.out.println(args[3] + " removed (falls back to default)");
+            }
+            case "invite" -> {
+                // one step for a person: the id, the token and a link that signs them in once
+                Patrons.Level lvl = Patrons.Level.read; List<String> name = new ArrayList<>();
+                for (int i = 3; i < args.length; i++) { Patrons.Level l = Patrons.levelOf(args[i]); if (l != null && l != Patrons.Level.deny && i > 3) lvl = l; else name.add(args[i]); }
+                String n = String.join(" ", name).strip();
+                if (n.isEmpty()) { System.err.println("usage: researchzosho reader invite \"<name>\" [read|write]   for example: " + Patrons.INVITE_HOWTO); return 2; }
+                Invites.Invite inv = Invites.make(store, n, lvl);
+                System.out.println(n + " may " + lvl + ". Send them this link; it works once, for " + Invites.DAYS + " days:");
+                System.out.println("  " + inv.link());
+                System.out.println("When they open it they choose a password, and from then on sign in with their name and it. Their id is " + inv.did() + "; a program of theirs gets a token with: researchzosho reader token " + inv.did());
+            }
+            case "link" -> {
+                // a new link for a listed reader: a forgotten password, or a reader from before accounts
+                String who = args.length > 3 ? String.join(" ", Arrays.asList(args).subList(3, args.length)).strip() : "";
+                Patrons.Entry e = readerNamed(store, who);
+                if (e == null) { System.err.println(who.isEmpty() ? "usage: researchzosho reader link \"<name or did>\"" : who + " is not on the readers list (researchzosho reader list shows it)."); return 2; }
+                String link = SignIn.renewLink(store, e.did());
+                System.out.println((e.name().isEmpty() ? e.did() : e.name()) + "'s old password, passkeys and sign-ins are gone. Send them this link; it works once, for " + Invites.DAYS + " days, and lets them choose a new password:");
+                System.out.println("  " + link);
+            }
+            case "password" -> {
+                String who = args.length > 3 ? args[3] : "";
+                Patrons.Entry e = readerNamed(store, who);
+                if (e == null) { System.err.println(who.isEmpty() ? "usage: researchzosho reader password \"<name or did>\" [<password>]" : who + " is not on the readers list (researchzosho reader list shows it)."); return 2; }
+                String pw = args.length > 4 ? args[4] : null;
+                if (pw == null) {
+                    if (!Interaction.interactive()) { System.err.println("Give the password as the last word, or run this at a terminal to type it unseen."); return 2; }
+                    pw = Interaction.readSecret("A password for " + (e.name().isEmpty() ? e.did() : e.name()) + ":");
+                }
+                if (Accounts.byDid(store, e.did()) == null) Accounts.create(store, e.did(), e.name().isEmpty() ? e.did() : e.name(), pw);
+                else Accounts.setPassword(store, e.did(), pw);
+                System.out.println((e.name().isEmpty() ? e.did() : e.name()) + " signs in with that password now, as \"" + Accounts.byDid(store, e.did()).name() + "\".");
             }
             case "token" -> {
                 if (args.length < 4) { System.err.println("usage: researchzosho reader token <did>"); return 2; }
@@ -308,9 +360,19 @@ public final class LibrarianCli {
                     default -> { System.err.println("usage: researchzosho reader webhook list | add <did> <url> [--secret s] [--events a,b] | remove <did> <url>"); return 2; }
                 }
             }
-            default -> { System.err.println("usage: researchzosho reader list | allow <did> <deny|read|write> [name…] | remove <did> | default <deny|read|write> | token <did> | requests | approve <R-id> [read|write] | deny <did>|<R-id> [why] | webhook …"); return 2; }
+            default -> { System.err.println("usage: researchzosho reader list | invite \"<name>\" [read|write] | link \"<name>\" | password \"<name>\" [<password>] | allow <did> <deny|read|write> [name…] | remove <did> | default <deny|read|write> | token <did> | requests | approve <R-id> [read|write] | deny <did>|<R-id> [why] | webhook …"); return 2; }
         }
         return 0;
+    }
+
+    /** The listed reader a name or a did names (the name as the person signs in with it), or null. */
+    static Patrons.Entry readerNamed(LibraryStore store, String who) throws IOException {
+        if (who == null || who.isBlank()) return null;
+        Patrons.Entry e = Patrons.byDid(store, who);
+        if (e != null) return e;
+        String login = Accounts.login(who);
+        for (Patrons.Entry x : Patrons.load(store).listed()) if (Accounts.login(x.name()).equals(login)) return x;
+        return null;
     }
 
     /** graph merge and graph unmerge. */
@@ -454,12 +516,13 @@ public final class LibrarianCli {
 
     /** `librarian serve` — the daemon; blocks until killed. */
     static int serve(LibraryStore store, String[] args, String baseUrl, String model) throws Exception {
-        String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; int hour = 3; Path log = null;
+        String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; int hour = 3; Path log = null; int door = -1;
         try {
             for (int i = 2; i < args.length; i++) {
                 switch (args[i]) {
                     case "--host" -> host = flagValue(args, i++);
                     case "--port" -> port = flagInt(args, i++);
+                    case "--door" -> door = flagInt(args, i++);   // the shared door, on loopback, for a relay only (researchzosho share)
                     case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour nightly maintenance runs), or a negative number to turn it off"); return 2; } }
                     case "--no-crews" -> hour = -1;
                     case "--log" -> log = Path.of(flagValue(args, i++));
@@ -467,7 +530,7 @@ public final class LibrarianCli {
                 }
             }
         } catch (IllegalArgumentException e) {
-            System.err.println("usage: researchzosho serve [--host H] [--port N] [--crew-hour H|--no-crews] [--log FILE] — " + e.getMessage()); return 2;
+            System.err.println("usage: researchzosho serve [--host H] [--port N] [--door N] [--crew-hour H|--no-crews] [--log FILE] — " + e.getMessage()); return 2;
         }
         DriveClient.service = true;   // this process's lines go to the service's log, not to a person's terminal
         if (log != null) {
@@ -483,14 +546,17 @@ public final class LibrarianCli {
         try { String sm = ModelServer.suggestionNotice(); if (!sm.isEmpty()) System.out.println("  " + sm); } catch (Exception ignored) { }
         // what an update owes the library: things an earlier version saved wrongly are fixed by this one, once per version
         try { Repairs.Outcome fixed = Repairs.onceFor(store, Version.number() == null ? "dev" : Version.number()); if (fixed != null && !fixed.repaired().isEmpty()) { System.out.println("  repaired after the update: " + fixed.summary()); for (String r : fixed.repaired()) System.out.println("    " + r); } } catch (Exception e) { System.out.println("  repair skipped: " + e.getMessage()); }
-        LibrarianDaemon d = LibrarianDaemon.start(store, host, port, baseUrl, model, hour);
+        LibrarianDaemon d = LibrarianDaemon.start(store, host, port, baseUrl, model, hour, door);
         Service.recordPid();
         var id = store.identity();
         System.out.println("The Librarian is at " + d.url() + "  (" + id.id() + " — " + id.name() + ", contract " + LibraryProtocol.CONTRACT + ")");
         System.out.println("  drive " + baseUrl + Crews.driveLine(baseUrl));
-        System.out.println("  research runs: " + d.describeWorkers() + "  (RESEARCHZOSHO_JOB_WORKERS, RESEARCHZOSHO_JOB_DRIVES)");
+        System.out.println("  research runs: " + d.describeWorkers());
         System.out.println(hour < 0 ? "  nightly maintenance: off" : "  nightly maintenance: daily at " + String.format("%02d:00", hour) + " local (catalog/crews.log)");
         System.out.println("  tokens: researchzosho reader token <did>");
+        if (d.doorPort() >= 0) System.out.println("  shared door: http://127.0.0.1:" + d.doorPort() + "  (for a relay only; a relay's identity headers are trusted here and nowhere else)");
+        Share.supervise(store, d).start();   // opens the door and runs the tunnel while `share` is on; nothing while it is off
+        System.out.println("  " + Share.statusLine());
         d.join();
         return 0;
     }
@@ -518,9 +584,15 @@ public final class LibrarianCli {
 
     static int dispatch(String[] args, String baseUrl, String model) {
         if (args.length < 2) { System.err.print(USAGE); return 2; }
-        LibraryStore store = LibraryStore.open();
         String verb = args[1];
         if (verb.equals("--version") || verb.equals("version") || verb.equals("-V")) { System.out.println("researchzosho " + Version.string()); return 0; }
+        // the command line from elsewhere: connected to a library on another computer, the verbs with a protocol call go over the wire
+        // and the folder's verbs refuse; the library setting is an address then, so nothing below must open it as a folder
+        try {
+            if (verb.equals("connect")) return Remote.connect(args, System.out, System.err);
+            if (Remote.connected()) return Remote.run(args, System.out, System.err);
+        } catch (IOException e) { System.err.println(e.getMessage()); return 1; }
+        LibraryStore store = LibraryStore.open();
         if (verb.equals("setup")) {
             boolean yes = false, service = true, claude = true; int port = LibrarianDaemon.DEFAULT_PORT;
             for (int i = 2; i < args.length; i++) {
@@ -782,11 +854,23 @@ public final class LibrarianCli {
                     switch (op) {
                         case "search" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube search <words…>"); return 2; } System.out.println(forPerson(new VideoSearchTool().execute(M.createObjectNode().put("query", rest).put("limit", 10)))); return 0; }
                         case "channels" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube channels <words…>"); return 2; } System.out.println(forPerson(new VideoSearchTool().execute(M.createObjectNode().put("query", rest).put("kind", "channels").put("limit", 10)))); return 0; }
-                        case "uploads" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube uploads <channel>"); return 2; } System.out.println(forPerson(new ChannelUploadsTool().execute(M.createObjectNode().put("channel", rest)))); return 0; }
+                        case "uploads" -> {
+                            if (rest.isBlank()) { System.err.println("usage: researchzosho youtube uploads <channel> [--all] [--match <words…>]"); return 2; }
+                            List<String> words = new ArrayList<>(Arrays.asList(rest.split(" ")));
+                            boolean all = words.remove("--all");
+                            String match = ""; int at = words.indexOf("--match");
+                            if (at >= 0) { match = String.join(" ", words.subList(at + 1, words.size())).strip(); words = words.subList(0, at); }
+                            String channel = String.join(" ", words).strip();
+                            if (channel.isEmpty()) { System.err.println("usage: researchzosho youtube uploads <channel> [--all] [--match <words…>]"); return 2; }
+                            ObjectNode o = M.createObjectNode().put("channel", channel);
+                            if (all) o.put("all", true);
+                            if (!match.isEmpty()) o.put("match", match);
+                            System.out.println(forPerson(new ChannelUploadsTool().execute(o))); return 0;
+                        }
                         case "video" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube video <address> [--transcript]"); return 2; }
                             boolean t = rest.contains("--transcript"); System.out.println(forPerson(new VideoDetailsTool().execute(M.createObjectNode().put("video", rest.replace("--transcript", "").strip()).put("transcript", t)))); return 0; }
                         case "like" -> { if (rest.isBlank()) { System.err.println("usage: researchzosho youtube like <channel>"); return 2; } System.out.println(forPerson(new ChannelsLikeTool().execute(M.createObjectNode().put("channel", rest).put("limit", 15)))); return 0; }
-                        default -> { System.err.println("usage: researchzosho youtube [search <words…> | channels <words…> | uploads <channel> | video <address> [--transcript] | like <channel>]"); return 2; }
+                        default -> { System.err.println("usage: researchzosho youtube [search <words…> | channels <words…> | uploads <channel> [--all] [--match <words…>] | video <address> [--transcript] | like <channel>]"); return 2; }
                     }
                 }
                 case "video" -> {
@@ -925,21 +1009,53 @@ public final class LibrarianCli {
                     Files.write(out, f.bytes());
                     System.out.println("wrote " + out + " (" + f.bytes().length + " bytes)");
                 }
+                case "share" -> {
+                    Share.Outcome o = Share.share(store, Arrays.asList(args).subList(2, args.length));
+                    System.out.println(o.text());
+                    return o.code();
+                }
                 case "web" -> {
                     String op = args.length > 2 ? args[2] : "status";
                     if (op.equals("signin") && args.length > 3 && (args[3].equals("on") || args[3].equals("off"))) {
+                        if (args[3].equals("on") && Accounts.owner(store) == null) {
+                            // the owner's own account first, or they are locked out of their own pages from any other computer
+                            System.out.println("First, your own account, so you can sign in from any other phone or computer with your name and password.");
+                            System.out.println(Accounts.setupOwner(store, List.of()));
+                        }
                         Config.set(WebAccess.SIGNIN, args[3]);
                         System.out.println(args[3].equals("on")
-                                ? "web.signin = on — a browser reads at the library's default level and needs a reader token to send questions (make one: researchzosho reader token <did>)"
+                                ? "web.signin = on — a browser signs in with a name and password (or a passkey); without one it reads at the library's default level. On this computer your own browser is you (web.local = owner)."
                                 : "web.signin = off — " + WebAccess.OPEN_NOTICE);
                         return 0;
                     }
                     if (op.equals("status") || op.equals("signin")) {
-                        System.out.println("web.signin = " + (WebAccess.signInRequired() ? "on — a browser needs a reader token to send questions" : "off — " + WebAccess.OPEN_NOTICE));
+                        Accounts.Account owner = Accounts.owner(store);
+                        System.out.println("web.signin = " + (WebAccess.signInRequired() ? "on — a browser signs in with a name and password" : "off — " + WebAccess.OPEN_NOTICE));
+                        System.out.println("  your account: " + (owner == null ? "none yet (researchzosho account set)" : "\"" + owner.name() + "\", " + owner.ways()));
                         System.out.println("  pages: http://127.0.0.1:" + LibrarianDaemon.DEFAULT_PORT + "/ when the service runs on the default port");
                         return 0;
                     }
                     System.err.println("usage: researchzosho web [status | signin on|off]"); return 2;
+                }
+                case "account" -> {
+                    String op = args.length > 2 ? args[2] : "status";
+                    switch (op) {
+                        case "set" -> { System.out.println(Accounts.setupOwner(store, Arrays.asList(args).subList(3, args.length))); return 0; }
+                        case "reset" -> {
+                            if (Accounts.owner(store) == null) { System.out.println("There is no account to reset."); return 0; }
+                            Accounts.reset(store, Accounts.OWNER);
+                            System.out.println("Your password, passkeys and one-time code are taken away and every browser is signed out. Set a new password: researchzosho account set");
+                            return 0;
+                        }
+                        case "status" -> {
+                            Accounts.Account a = Accounts.owner(store);
+                            if (a == null) { System.out.println("No account yet for the person who keeps this library. Make one: researchzosho account set   (then you sign in from any phone or computer with your name and password)"); return 0; }
+                            System.out.println("You sign in as \"" + a.name() + "\" with " + a.ways() + "; " + (a.sessions().isEmpty() ? "no browser is signed in." : a.sessions().size() + (a.sessions().size() == 1 ? " browser is" : " browsers are") + " signed in."));
+                            System.out.println("  Passkeys and the one-time code are added on the account page (Account, in the pages' menu). researchzosho account reset takes everything away.");
+                            return 0;
+                        }
+                        default -> { System.err.println("usage: researchzosho account [status | set [--name <name> --password <password>] | reset]"); return 2; }
+                    }
                 }
                 case "peer", "peers" -> { return peer(store, args); }
                 case "directory" -> { return directory(store, args); }
@@ -1248,6 +1364,7 @@ public final class LibrarianCli {
         System.out.println("  reports: " + invs + "   saved pages: " + raw);
         long waiting = AccessRequests.pending(store);
         if (waiting > 0) System.out.println("  access requests waiting: " + waiting + "   (researchzosho reader requests)");
+        System.out.println("  " + Share.statusLine());
         System.out.println("  subjects: " + Cataloger.vocabulary(store).size()
                 + "   saved searches: " + Serials.shelves(store).size());
         System.out.println("  " + SearchByMeaning.standing().sentence());
@@ -1339,7 +1456,12 @@ public final class LibrarianCli {
         }
         switch (args[2]) {
             case "workers" -> {
-                if (args.length < 4 || !args[3].matches("\\d+") || Integer.parseInt(args[3]) < 1) { System.err.println("usage: researchzosho research workers <n≥1>"); return 2; }
+                if (args.length >= 4 && args[3].equalsIgnoreCase("auto")) {
+                    Config.set(ResearchSettings.WORKERS, "auto");
+                    System.out.println("research.workers = auto: " + ModelSlots.current().readers() + " readers a run, from what the model server answers at once. A running question follows at its next turn");
+                    return 0;
+                }
+                if (args.length < 4 || !args[3].matches("\\d+") || Integer.parseInt(args[3]) < 1) { System.err.println("usage: researchzosho research workers <n≥1>|auto"); return 2; }
                 Config.set(ResearchSettings.WORKERS, args[3]);
                 System.out.println("research.workers = " + args[3] + ". A running question follows at its next turn");
             }
@@ -1543,11 +1665,17 @@ public final class LibrarianCli {
             line = line.strip();
             if (line.isEmpty() && !lib.waitingForAnswer()) continue;   // while the library waits for a (y/N) answer, Enter is no
             if (Librarian.QUIT.contains(line)) break;
-            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /runs (the research runs this chat follows) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
+            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /runs (the research runs this chat follows) · /share [status|off|--tailscale|--tailnet|--cloudflare] (reach the library from outside your home) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
             if (line.equals("/new")) { lib.leaveUnanswered(); session = Librarian.Session.open(store); current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
             if (line.equals("/runs")) { LibraryProtocol lp2 = new LibraryProtocol(store); List<String> w = session.watched(); if (w.isEmpty()) System.out.println("  no research run is being followed in this conversation"); for (String jobId : w) { var a2 = new ObjectMapper().createObjectNode().put("job_id", jobId); a2.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli"); try { System.out.println("  " + RunProgress.line(RunProgress.of(lp2.job(a2).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp2, a2.path("patron"))))); } catch (Exception e) { System.out.println("  " + jobId + ": " + e.getMessage()); } } continue; }
             if (line.equals("/sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } continue; }
             if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
+            if (line.equals("/share") || line.startsWith("/share ")) {
+                // the library reached from outside, from the chat: the same command, asking on this screen before it installs anything
+                Share.Outcome o = Share.share(store, Arrays.asList(line.split("\\s+")).subList(1, line.split("\\s+").length), System.out);
+                System.out.println(o.text());
+                continue;
+            }
             if (fieldCommand(store, line)) continue;
             if (line.startsWith("/")) { System.out.println("  not a command; /help lists them"); continue; }
             System.out.print("  …"); System.out.flush();

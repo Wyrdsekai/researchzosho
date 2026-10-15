@@ -30,7 +30,7 @@ class WhoPageTest {
         HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
         String base = "http://127.0.0.1:" + d.port();
         try {
-            WebAccess.OVERRIDE = Boolean.TRUE;   // the sign-in is on: the page acts on the library, and a reader who has not signed in may only read
+            WebAccess.OVERRIDE = Boolean.TRUE; WebAccess.LOCAL_OVERRIDE = false;   // the sign-in is on: the page acts on the library, and a reader who has not signed in may only read
             assertEquals(403, PagesTest.get(c, base + "/who", null).statusCode());
             assertFalse(PagesTest.get(c, base + "/inbox", null).body().contains("questions about your family"), "a reader who has not signed in is not told who waits");
             String cookie = PagesTest.post(c, base + "/login", "token=" + token, null).headers().firstValue("set-cookie").orElseThrow().split(";")[0];
@@ -72,6 +72,6 @@ class WhoPageTest {
             assertTrue(done.contains("There are no questions waiting for you") && done.contains("confirmed: an author of a book on bridges"), done);
             assertTrue(PagesTest.get(c, base + "/who?person=" + Pages.enc("森田まり"), cookie).body().contains("Your earlier answer for this person"));
             assertFalse(PagesTest.get(c, base + "/inbox", cookie).body().contains("questions about your family"));
-        } finally { d.stop(); WebAccess.OVERRIDE = null; }
+        } finally { d.stop(); WebAccess.OVERRIDE = null; WebAccess.LOCAL_OVERRIDE = null; }
     }
 }

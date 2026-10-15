@@ -379,6 +379,14 @@ public final class McpServer {
                         prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER."),
                         prop("value", "string", "The value to write (set)."),
                         patronProp())));
+        tools.add(tool("library_share",
+                "The library reached from outside the house (write access): op=status says how it stands; op=tailscale, op=public (Tailscale Funnel: anyone with the link) "
+                + "or op=cloudflare (a quick tunnel; mail=… lets only listed addresses through) turns the relay on when its program is on the machine, only when the person "
+                + "asked for it in this conversation; op=off turns it off. A missing program is installed by the person on their own screen: researchzosho share, or /share in the chat.",
+                schema(new String[]{},
+                        enumProp("op", "status (default) | tailscale | public | cloudflare | off.", "status", "tailscale", "public", "cloudflare", "off"),
+                        prop("mail", "string", "For cloudflare: the addresses or *@domains let through, comma-separated."),
+                        patronProp())));
         tools.add(tool("library_my_shelf",
                 "The person's own shelf: their Calibre library (the calibre setting), the podcasts they follow, what they bought. op=profile: what they went for — the books they added one by one (a day of fifty or more additions is an import: holdings, not taste) and any they rated themselves — "
                 + "the subject mix among the liked books with its tilt against the whole shelf, the authors rated well more than once, decades, languages, sample "
@@ -697,6 +705,7 @@ public final class McpServer {
             case "library_questions" -> p.questions(args);
             case "library_bookmarks" -> p.bookmarks(args);
             case "library_settings" -> p.settings(args);
+            case "library_share" -> p.share(args);
             case "library_owned" -> p.owned(args);
             case "library_my_shelf" -> p.myShelf(args);
             case "library_prefs" -> p.prefs(args);

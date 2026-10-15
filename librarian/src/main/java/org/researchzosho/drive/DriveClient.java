@@ -97,12 +97,21 @@ public final class DriveClient {
     }
 
     private final String baseUrl;
+    /** What kind of server answers at the base URL, learnt from how it tells its context window: "llama.cpp" (/props), "ollama" (/api/show),
+     *  "models" (/v1/models with a context length — vLLM, FreeToken), "" until asked. A vLLM-style server gets tool_choice=auto where the
+     *  caller asked for "required": vLLM makes "required" a guided JSON decoding, and a model whose template speaks XML tool calls then
+     *  answers with a wrong, empty call (the writer's done() came back as a 755-token note() with no report, 2026-10-13); at "auto" the same
+     *  model wrote the whole report into done(). llama.cpp's "required" is a grammar the model writes freely under, and stays. */
+    private volatile String serverStyle = "";
     private final String model;
     /** One HTTP client for every DriveClient: each client owns a selector thread and an executor, and a client per
      *  instance (a Researcher's drive per job, a chat turn's drive per page post) leaked threads until the macOS CI
      *  runner failed with "pthread_create failed (EAGAIN)" at its 472nd HttpClient (2026-09-14). */
     static { HttpSettings.apply(); }   // before the first client: the pool's idle limit is read once, JVM-wide
-    private static final HttpClient SHARED_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    // HTTP/1.1, stated: Java's client tries an HTTP/2 upgrade first (Connection: Upgrade, Upgrade: h2c), and a model server on uvicorn — vLLM — reads
+    // such a request with no body and answers 400 "body: Field required" to every call (2026-10-13); llama.cpp ignores the upgrade. The same in
+    // every client that speaks to a model, embedding or reranking server.
+    private static final HttpClient SHARED_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
     private final HttpClient http;
     private final ObjectMapper json = new ObjectMapper();
     // Tolerant reader for SALVAGED tool calls (text-mode recovery, below): the re-emitted JSON can still
@@ -241,6 +250,17 @@ public final class DriveClient {
      *  guessing HIGH overflows the window mid-run, and only one of those is recoverable. */
     private static final int FALLBACK_CTX = 8192;
 
+    /** Whether the server is the /v1/models kind (vLLM, FreeToken), asked once; the question is separate from the context window, which a setting may force. */
+    boolean vllmStyle() {
+        if (serverStyle.isEmpty() && bedrock == null) {
+            if (fromLlamaCppProps() != null) serverStyle = "llama.cpp";
+            else if (fromOllamaShow() != null) serverStyle = "ollama";
+            else if (fromModelsContextLength() != null) { serverStyle = "models"; log.info("a vLLM-style server: tool calls are asked for with tool_choice=auto, never required (required is guided JSON decoding there, which this model's XML tool calls do not survive)"); }
+            else serverStyle = "unknown";
+        }
+        return serverStyle.equals("models");
+    }
+
     public int contextWindow() {
         // An explicit setting wins: the operator knows what they launched the server with, and a
         // server's self-report can be the model's maximum rather than the context it was started with.
@@ -250,16 +270,19 @@ public final class DriveClient {
         if (bedrock != null) return Bedrock.contextWindow(model, Config.getInt("RESEARCHZOSHO_BEDROCK_CONTEXT", 0));
 
         Integer n = fromLlamaCppProps();
-        if (n != null) return n;
+        if (n != null) { serverStyle = "llama.cpp"; return n; }
 
         n = fromOllamaShow();
         if (n != null) {
+            serverStyle = "ollama";
             log.info("context window {} (from ollama /api/show; llama.cpp /props not served here)", n);
             return n;
         }
 
         n = fromModelsContextLength();
         if (n != null) {
+            if (!serverStyle.equals("models")) log.info("a vLLM-style server: tool calls are asked for with tool_choice=auto, never required (required is guided JSON decoding there, which this model's XML tool calls do not survive)");
+            serverStyle = "models";
             log.info("context window {} (from /v1/models context_length — FreeToken/vLLM style)", n);
             return n;
         }
@@ -470,6 +493,7 @@ public final class DriveClient {
         if (tools != null && !tools.isEmpty()) {
             body.set("tools", tools);
             toolChoice = wantToolChoice;
+            if ("required".equals(toolChoice) && vllmStyle()) toolChoice = "auto";
             body.put("tool_choice", toolChoice);
         }
         body.put("max_tokens", maxTokens);

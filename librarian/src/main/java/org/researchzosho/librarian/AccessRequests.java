@@ -24,8 +24,10 @@ public final class AccessRequests {
     static final int MAX_PENDING = 50;
     static final int DAYS = 30;
 
-    public record Request(String id, String date, String state, String did, String name, String note, String claimHash, String token, String level, String reason) {
-        Request with(String state, String token, String level, String reason) { return new Request(id, date, state, did, name, note, claimHash, token, level, reason); }
+    public record Request(String id, String date, String state, String did, String name, String note, String claimHash, String token, String level, String reason, String password) {
+        public Request(String id, String date, String state, String did, String name, String note, String claimHash, String token, String level, String reason) { this(id, date, state, did, name, note, claimHash, token, level, reason, ""); }
+        Request with(String state, String token, String level, String reason) { return new Request(id, date, state, did, name, note, claimHash, token, level, reason, password); }
+        Request withPassword(String hash) { return new Request(id, date, state, did, name, note, claimHash, token, level, reason, hash); }
     }
 
     public record Filed(String id, String claim, boolean fresh) { }
@@ -42,7 +44,7 @@ public final class AccessRequests {
             if (!line.startsWith("- ")) continue;
             String[] p = line.substring(2).split(" \\| ", -1);
             if (p.length < 10) continue;
-            Request r = new Request(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9]);
+            Request r = new Request(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p.length > 10 ? p[10] : "");
             if (r.state().equals("pending") && LocalDate.parse(r.date()).isBefore(cutoff)) r = r.with("lapsed", "", "", "not answered within " + DAYS + " days");
             out.add(r);
         }
@@ -52,9 +54,9 @@ public final class AccessRequests {
     private static void write(LibraryStore store, List<Request> all) throws IOException {
         Files.createDirectories(file(store).getParent());
         StringBuilder sb = new StringBuilder("# Access requests — who asked to be let in, and what you decided (the owner's file)\n\n"
-                + "`- id | date | state | did | name | note | claim-hash | token-until-claimed | level | reason`\n\n");
+                + "`- id | date | state | did | name | note | claim-hash | token-until-claimed | level | reason | password-until-let-in`\n\n");
         for (Request r : all) {
-            sb.append("- ").append(String.join(" | ", r.id(), r.date(), r.state(), c(r.did()), c(r.name()), c(r.note()), r.claimHash(), r.token() == null ? "" : r.token(), r.level() == null ? "" : r.level(), c(r.reason()))).append('\n');
+            sb.append("- ").append(String.join(" | ", r.id(), r.date(), r.state(), c(r.did()), c(r.name()), c(r.note()), r.claimHash(), r.token() == null ? "" : r.token(), r.level() == null ? "" : r.level(), c(r.reason()), r.password() == null ? "" : r.password())).append('\n');
         }
         Files.writeString(file(store), sb.toString(), StandardCharsets.UTF_8);
     }
@@ -62,9 +64,15 @@ public final class AccessRequests {
     private static String c(String s) { return s == null ? "" : s.replace("|", "/").replaceAll("\\s+", " ").strip(); }
 
     /** File a request. Returns the id and, when new, the claim secret (shown once; only its hash is kept). */
-    public static synchronized Filed request(LibraryStore store, String did, String name, String note) throws IOException {
+    public static synchronized Filed request(LibraryStore store, String did, String name, String note) throws IOException { return request(store, did, name, note, "", false); }
+
+    /** The same with the password the person chose as they asked (its hash), kept until they are let in and their account made. */
+    public static synchronized Filed request(LibraryStore store, String did, String name, String note, String passwordHash) throws IOException { return request(store, did, name, note, passwordHash, false); }
+
+    /** {@code again}: a fresh link for a did already listed (the owner renewing a reader's way in). */
+    static synchronized Filed request(LibraryStore store, String did, String name, String note, String passwordHash, boolean again) throws IOException {
         if (did == null || did.isBlank() || did.equals("person")) throw new IOException("a request needs your did");
-        for (Patrons.Entry e : Patrons.load(store).listed()) if (e.did().equals(did)) throw new IOException("that did is already a reader here");
+        if (!again) for (Patrons.Entry e : Patrons.load(store).listed()) if (e.did().equals(did)) throw new IOException("that did is already a reader here");
         List<Request> all = list(store);
         for (Request r : all) if (r.did().equals(did) && r.state().equals("pending")) return new Filed(r.id(), "", false);
         long pending = all.stream().filter(r -> r.state().equals("pending")).count();
@@ -75,10 +83,16 @@ public final class AccessRequests {
         byte[] b = new byte[24];
         new SecureRandom().nextBytes(b);
         String claim = Base64.getUrlEncoder().withoutPadding().encodeToString(b);
-        all.add(new Request(id, LocalDate.now().toString(), "pending", did, name == null ? "" : name, note == null ? "" : note, Patrons.sha256(claim), "", "", ""));
+        all.add(new Request(id, LocalDate.now().toString(), "pending", did, name == null ? "" : name, note == null ? "" : note, Patrons.sha256(claim), "", "", "", passwordHash == null ? "" : passwordHash));
         write(store, all);
         store.circulate("access-request", id + " from " + did + (name == null || name.isBlank() ? "" : " (" + name + ")"));
         return new Filed(id, claim, true);
+    }
+
+    /** The request with this id, or null. */
+    public static synchronized Request byId(LibraryStore store, String id) throws IOException {
+        for (Request r : list(store)) if (r.id().equals(id)) return r;
+        return null;
     }
 
     public static synchronized long pending(LibraryStore store) throws IOException {
@@ -96,6 +110,7 @@ public final class AccessRequests {
             Patrons.set(store, r.did(), r.name(), level);
             String token = Patrons.issueToken(store, r.did());
             found = r.with("approved", token, level.name(), "");
+            if (r.password() != null && !r.password().isEmpty()) { Accounts.createHashed(store, r.did(), r.name(), r.password()); found = found.withPassword(""); }   // the account, with the password they chose
             all.set(i, found);
         }
         if (found == null) throw new IOException("no request " + id);

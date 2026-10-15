@@ -46,8 +46,15 @@ public final class Council {
             rows.add(new Row(f.id(), f.state(), f.claimType(), SourceTier.strongest(f.sources()),
                     f.title(), f.recordedAt(), stale));
         }
-        rows.sort((a, b) -> { int c = a.recordedAt().compareTo(b.recordedAt()); return c != 0 ? c : a.id().compareTo(b.id()); });   // two findings in one second: the id decides, on every OS
+        // oldest first by the moment itself, never by its text: a moment ending in zeros prints shorter ("…01.12Z" against "…01.123456Z") and
+        // sorted after the later one as text (the Mac mini's export suite, 2026-10-12); two findings in one instant: the id decides, on every OS
+        rows.sort((a, b) -> { int c = moment(a.recordedAt()).compareTo(moment(b.recordedAt())); return c != 0 ? c : a.id().compareTo(b.id()); });
         return rows;
+    }
+
+    /** A recorded moment as an instant; one that does not parse sorts first, as the oldest. */
+    static Instant moment(String recordedAt) {
+        try { return Instant.parse(recordedAt); } catch (Exception e) { return Instant.MIN; }
     }
 
     /** Promote to accepted, signed by the person. */

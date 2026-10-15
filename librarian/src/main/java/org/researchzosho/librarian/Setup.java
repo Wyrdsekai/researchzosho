@@ -374,6 +374,8 @@ public final class Setup {
                 model = settleModel(base, key, there, there == null || there.isEmpty() ? model : null);
             }
             Config.set("RESEARCHZOSHO_DRIVE", base);
+            ModelSlots.Plan plan = ModelSlots.probe(base, Config.get("RESEARCHZOSHO_MODEL", "local-model"));
+            out.println("  Research: " + plan.describe() + ". The settings job.workers and research.workers change that.");
             if (model != null && !model.isBlank()) Config.set("RESEARCHZOSHO_MODEL", model);
             if (key != null && !key.isBlank()) Config.set("RESEARCHZOSHO_API_KEY", key);
         } else {
@@ -532,6 +534,7 @@ public final class Setup {
         out.println("       researchzosho add <file>      shelve a document, or a folder with --collection");
         out.println("       researchzosho status           what is there, and what is waiting for you");
         out.println("       researchzosho video install    read YouTube too (channels, what is said in a video and when); needs Docker");
+        out.println("       researchzosho share            reach the library from outside your home (Tailscale, or a Cloudflare tunnel); it installs what it needs, asking first");
         return 0;
     }
 }

@@ -29,6 +29,17 @@ class CouncilTest {
     }
 
     @Test
+    void oldestFirstIsByTheMomentNotItsText() throws Exception {
+        // a moment ending in zeros prints shorter: as text "…01.12Z" sorts after "…01.123456Z", as moments it is the earlier one
+        store = new LibraryStore(tmp.resolve("lib")); store.init();
+        for (String[] f : new String[][]{{"F-0001-short", "2026-10-12T22:00:01.12Z"}, {"F-0002-long", "2026-10-12T22:00:01.123456Z"}, {"F-0003-later", "2026-10-12T22:00:02Z"}})
+            store.write(new Finding(f[0], f[0], List.of(), Finding.State.draft, Finding.ClaimType.synthesis, Finding.Confidence.medium, "model:test", f[1], "2026-09-02",
+                    Finding.Volatility.slow, "", List.of(new Finding.Source("https://note.com/x", "n/a", "s")), List.of(), null, "Claim body.\n"));
+        assertEquals(List.of("F-0001-short", "F-0002-long", "F-0003-later"), new Council(store).inbox().stream().map(Council.Row::id).toList(), "the inbox, oldest first, by the moment");
+        assertTrue(Council.moment("not a moment").isBefore(Council.moment("2026-10-12T22:00:01.12Z")), "a moment that does not parse sorts first");
+    }
+
+    @Test
     void inboxListsDraftsAndStaleReviewsOldestFirst() throws Exception {
         store = new LibraryStore(tmp.resolve("lib")); store.init();
         Finding a = draft("F-0001-a", "First draft", Finding.State.draft, null);

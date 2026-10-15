@@ -10,14 +10,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 /**
  * One video, read: its details (who, when, how long, chapters, description, which caption languages exist) and, when asked, its
  * transcript as timed lines, so that a moment can be cited as {@code watch?v=…&t=312s} and checked. The transcript comes from the
  * captions when YouTube gives them (the uploader's own first, else the automatic ones) and otherwise from the library's own
- * transcription of the audio.
+ * transcription of the audio. One call reads both (0.6.1): yt-dlp writes the caption track into the library's caption folder in the
+ * same call as the details, with its own token for the caption request, so a video costs one request and not two; a track kept there
+ * from an earlier read is not asked for again; the track's address, fetched by hand, is the second try and the audio the third.
  */
 public final class VideoDetailsTool implements Tool {
 
@@ -51,7 +57,13 @@ public final class VideoDetailsTool implements Tool {
     @Override public String execute(JsonNode args) {
         String id = VideoText.videoId(args.path("video").asText(""));
         if (id == null) return "ERROR: not a YouTube video: give its address (https://www.youtube.com/watch?v=…) or its 11-character id";
-        Video.Result r = Video.ytdlp(List.of("--skip-download", "--dump-single-json", "https://www.youtube.com/watch?v=" + id), Duration.ofMinutes(3));
+        boolean wantTranscript = args.path("transcript").asBoolean(false);
+        String asked = args.path("language").asText("").strip();
+        List<String> a = new ArrayList<>(List.of("--skip-download", "--dump-single-json"));
+        boolean kept = wantTranscript && !asked.isEmpty() && Video.keptCaption(id, asked) != null;
+        if (wantTranscript && !kept) a.addAll(List.of("--no-simulate", "--write-subs", "--write-auto-subs", "--sub-format", "json3", "--sub-langs", subLangs(asked), "-o", Video.captionsDir().resolve("%(id)s").toString()));
+        a.add("https://www.youtube.com/watch?v=" + id);
+        Video.Result r = Video.ytdlp(a, Duration.ofMinutes(3), Video.readPaceMs);
         if (r.code() != 0) return "ERROR: " + VideoSearchTool.failure(r);
         JsonNode d;
         try { d = J.readTree(r.out().substring(r.out().indexOf('{'))); }
@@ -60,8 +72,8 @@ public final class VideoDetailsTool implements Tool {
         String details = VideoText.detailLines(d, today);
         StringBuilder sb = new StringBuilder("video " + id + " (YouTube's own text, fenced):\n" + Fence.open("VIDEO") + "\n" + details);
         String whole = null;
-        if (args.path("transcript").asBoolean(false)) {
-            String language = args.path("language").asText("");
+        if (wantTranscript) {
+            String language = asked;
             if (language.isBlank()) language = d.path("language").asText("en");
             List<VideoText.Line> lines = lines(d, id, language);
             String[] route = {""};
@@ -89,18 +101,34 @@ public final class VideoDetailsTool implements Tool {
         }
     }
 
+    /** The caption languages one call writes: the one asked for and YouTube's original-language track; without a language, English and the original. */
+    static String subLangs(String asked) { return asked == null || asked.isBlank() ? "en,en-orig,.*-orig" : asked + "," + asked + "-orig"; }
+
     /** Where the last transcript's lines came from, for the note beside it. */
     private static final ThreadLocal<String> LAST_ROUTE = new ThreadLocal<>();
 
-    /** The timed lines for a language: from the captions, else from the library's own transcription; empty when neither can be had. */
+    /**
+     * The timed lines for a language: from the track kept in the caption folder (written by this call, or by an earlier read), else from
+     * the track's address fetched through the tunnel and kept, else from the library's own transcription; empty when none can be had.
+     */
     static List<VideoText.Line> lines(JsonNode d, String id, String language) {
         LAST_ROUTE.set(null);
+        String route = d.path("subtitles").has(language) ? "the uploader's captions" : "YouTube's automatic captions";
+        Path kept = Video.keptCaption(id, language);
+        if (kept != null) {
+            try {
+                List<VideoText.Line> lines = VideoText.linesFromJson3(Files.readString(kept));
+                if (!lines.isEmpty()) { LAST_ROUTE.set(route); return lines; }
+            } catch (IOException ignored) {
+                // an unreadable track: asked for as if it were not there
+            }
+        }
         String url = VideoText.captionUrl(d, language);
         if (url != null) {
             String json3 = Video.fetchThroughTunnel(url, Duration.ofSeconds(90));
             if (json3 != null) {
                 List<VideoText.Line> lines = VideoText.linesFromJson3(json3);
-                if (!lines.isEmpty()) { LAST_ROUTE.set(d.path("subtitles").has(language) ? "the uploader's captions" : "YouTube's automatic captions"); return lines; }
+                if (!lines.isEmpty()) { Video.keepCaption(id, language, json3); LAST_ROUTE.set(route); return lines; }
             }
         }
         List<VideoText.Line> spoken = Video.transcribe(id, language);

@@ -22,7 +22,7 @@ import java.util.List;
  * {@code researchzosho embed start|stop|status|test} and the setup wizard use this.
  */
 public final class Embed {
-    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
 
     public static final String CONTAINER = "researchzosho-embed";
     public static final String MODEL = "Qwen/Qwen3-Embedding-0.6B";

@@ -36,7 +36,7 @@ class RecordFillTest {
         s.createContext("/search.json", ex -> {
             String q = URLDecoder.decode(ex.getRequestURI().getRawQuery(), StandardCharsets.UTF_8); asked.add(q);
             String body;
-            if (q.contains("q=isbn:9780000000011")) body = "{\"docs\":[{\"key\":\"/works/OL1W\",\"title\":\"The Salt Road\",\"author_name\":[\"Tamsin Vorle\"],\"first_publish_year\":2019,\"edition_count\":7,\"ratings_count\":12,\"ratings_average\":3.9,\"subject\":[\"Walking\",\"Hokkaido (Japan)\",\"Travel\"],\"isbn\":[\"9780000000011\"]}]}";
+            if (q.contains("q=isbn:9780000000011")) body = "{\"docs\":[{\"key\":\"/works/OL1W\",\"title\":\"The Salt Road\",\"author_name\":[\"Tamsin Vorle\"],\"first_publish_year\":2019,\"edition_count\":7,\"ratings_count\":12,\"ratings_average\":3.9,\"place\":[\"Hokkaido (Japan)\",\"Japan\"],\"time\":[\"21st century\"],\"subject\":[\"Walking\",\"Hokkaido (Japan)\",\"Travel\"],\"isbn\":[\"9780000000011\"]}]}";
             else if (q.contains("q=Moths of the Northern Islands") && q.contains("author=Idris Quell")) body = "{\"docs\":[{\"key\":\"/works/OL2W\",\"title\":\"Moths of the Northern Islands: A Field Guide\",\"author_name\":[\"I. Quell\"],\"first_publish_year\":2015,\"edition_count\":2,\"ratings_count\":0,\"subject\":[\"Moths\",\"Natural history\"]},{\"key\":\"/works/OL9W\",\"title\":\"Something Else\",\"author_name\":[\"Nobody\"]}]}";
             else body = "{\"docs\":[]}";
             byte[] b = body.getBytes(StandardCharsets.UTF_8); ex.sendResponseHeaders(200, b.length); ex.getResponseBody().write(b); ex.close();
@@ -63,8 +63,13 @@ class RecordFillTest {
             int n = asked.size();
             assertEquals("2 of the 3 documents carry the catalogue's record; tonight 0 filled, 0 not in the catalogue", RecordFill.nightly(60_000, () -> false));
             assertEquals(n, asked.size(), "nothing is asked twice");
-            // the subjects now count in "like X"
+            // the subjects now count in "like X", and so do the places and the times
             assertTrue(LikeX.subjectTokens(k1).contains("hokkaido"));
+            assertEquals(List.of("Hokkaido (Japan)", "Japan"), List.of(k1.path("record").path("places").get(0).asText(), k1.path("record").path("places").get(1).asText()));
+            assertEquals("21st century", k1.path("record").path("times").get(0).asText());
+            assertTrue(LikeX.places(k1).containsAll(List.of("hokkaido", "japan")), LikeX.places(k1).toString());
+            assertTrue(LikeX.eras(k1).contains("21st century"), LikeX.eras(k1).toString());
+            assertTrue(k2.path("record").path("places").isArray() && k2.path("record").path("places").isEmpty(), "a record the catalogue places nowhere still says so, and is not filled again");
         } finally { s.stop(0); }
     }
 }

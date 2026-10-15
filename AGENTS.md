@@ -57,6 +57,11 @@ negative.
   neither). How the model is shared is a live setting, not a constant.
 - **Nothing runs from the user's config in a test.** Tests set `user.home` to a temp directory and
   call `Config.invalidate()`. A test that writes `~/.researchzosho/config` has escaped.
+- **No test asks the model at the computer's usual address.** The test task offers every test a drive
+  at a closed port (`RESEARCHZOSHO_DRIVE_DEFAULT=http://localhost:2`, read only when nothing else sets
+  one), so a test that sets no drive gets "nothing answers" on every machine, the same as on a CI
+  runner. A test that needs a model starts its own stub and sets it. A test that swaps `user.home`
+  puts it back: a class that leaves it swapped is failed by name.
 - **No machine names, home paths or credentials in the tree.** The public export runs a scanner.
   Read its findings. Do not trust a clean result.
 - **Public prose is for people who are not programmers.** The README, the guide, CONTRIBUTING and the

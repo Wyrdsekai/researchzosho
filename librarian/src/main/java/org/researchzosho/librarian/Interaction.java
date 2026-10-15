@@ -42,6 +42,17 @@ public final class Interaction {
         return new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)).readLine();
     }
 
+    /** A password typed at the terminal, not shown as it is typed where the terminal can hide it; null at the end of the input. */
+    public static String readSecret(String prompt) throws IOException {
+        System.out.print(prompt + " ");
+        System.out.flush();
+        if (INPUT == null) {
+            Console c = System.console();
+            if (c != null) { char[] pw = c.readPassword(); System.out.println(); return pw == null ? null : new String(pw); }
+        }
+        return readLine();
+    }
+
     /** A reader of what the person types, for a sitting of several questions. */
     public static BufferedReader reader() {
         if (INPUT != null) return INPUT;

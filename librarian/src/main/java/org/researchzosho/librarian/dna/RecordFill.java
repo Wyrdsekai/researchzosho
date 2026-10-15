@@ -30,7 +30,7 @@ public final class RecordFill {
     /** Whether the document's record has been filled from the catalogue (or the catalogue said it has nothing, lately). */
     public static boolean filled(ObjectNode doc) {
         ObjectNode r = (ObjectNode) doc.path("record");
-        if (r.path("sources").has("openlibrary")) return true;
+        if (r.path("sources").has("openlibrary")) return r.has("places");   // filled before the places and the times were kept (0.6.0): once more
         String miss = r.path("sources").path("openlibrary_miss").asText("");
         if (miss.isEmpty()) return false;
         try { return Instant.parse(miss).toEpochMilli() > System.currentTimeMillis() - RETRY_MISS_MS; } catch (Exception e) { return false; }
@@ -49,6 +49,8 @@ public final class RecordFill {
         ObjectNode sources = r.has("sources") && r.path("sources").isObject() ? (ObjectNode) r.path("sources") : r.putObject("sources");
         if (hit == null) { sources.put("openlibrary_miss", Instant.now().toString()); return false; }
         ArrayNode subjects = r.putArray("subjects"); for (String s : hit.subjects()) subjects.add(s);
+        ArrayNode places = r.putArray("places"); for (String s : hit.places()) places.add(s);   // where and when it is set: the setting and the era in "like X"
+        ArrayNode times = r.putArray("times"); for (String s : hit.times()) times.add(s);
         r.put("ol_key", hit.url().replaceFirst("^.*/works/", "/works/"));
         r.put("edition_count", hit.editions()); r.put("ratings_count", hit.ratings());
         if (!hit.ratingAverage().isEmpty()) r.put("ratings_average", hit.ratingAverage());
@@ -85,7 +87,7 @@ public final class RecordFill {
         for (List<ObjectNode> batch : List.of(labelled, Dna.all(Dna.BOOK))) {
             for (ObjectNode d : batch) {
                 if (!done.add(d.path("key").asText())) continue;
-                if (d.path("record").path("sources").has("openlibrary")) { carry++; continue; }
+                if (d.path("record").path("sources").has("openlibrary") && d.path("record").has("places")) { carry++; continue; }
                 if (filled(d)) continue;   // a miss the catalogue gave lately: not asked again this month
                 if (System.currentTimeMillis() > until || stop.getAsBoolean()) break;
                 try { if (fill(d)) { found++; carry++; } else missed++; Dna.write(d); } catch (IOException e) { failed++; if (failed >= 5) break; }

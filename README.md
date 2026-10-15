@@ -109,6 +109,12 @@ country, with the price, the datasheet, recall notices, repairability and what o
 judges fit against your need, not popularity. For used, vintage or out-of-print things it asks eBay
 and gives you ready search links for the marketplaces no program may read.
 
+**Ask how to do or make something.** A craft, a hobby, a sport, a martial art or a trade. The answer
+comes with the kit: every material and tool, what it is for, what stands in for it, and where to get
+it. For a sport or a martial art, the gear in the order you need it and where to learn. For a
+community you want to join, such as the SCA or a reenactment society, how to join and what its rules
+ask of your equipment.
+
 **Podcasts and videos.** A question about a podcast, a host or an episode reads what was said, with
 the time it was said, and cites the episode. Follow a show and its new episodes are noted as they
 arrive. A question about videos searches YouTube and the sites beside it and cites the moment.
@@ -130,6 +136,17 @@ or SilverBullet can import.
 
 **Let other programs use it.** Claude Code, Codex, Gemini CLI and any other MCP host can ask the
 library directly. A small HTTP service with Python and Java clients covers everything else.
+
+**Reach it from outside your home.** `researchzosho share` makes the library reachable now, behind an
+encrypted relay (a Cloudflare quick tunnel at first, Tailscale Funnel for an address that lasts),
+free, with no port opened at home: anyone with the link sees the sign-in page, and only a person you
+invited gets in, with their name and password, a passkey, or a one-time code as a second step. Invite
+a person with one link; they choose their password when they open it.
+
+**Sign in simply.** No tokens to paste. You make your account once, with a name and a password, and
+sign in from any phone or computer. On the library's own computer your browser needs no sign-in. Add
+a passkey, so your fingerprint or face signs you in, or a one-time code from an authenticator app as
+a second step. Programs still use tokens.
 
 ## Getting started
 
@@ -218,7 +235,8 @@ npx -y @wyrdsekai/researchzosho-mcp        # any client that runs npm packages; 
 gemini mcp add -t http librarian http://127.0.0.1:4649/rpc -H "Authorization: Bearer <token>"
 ```
 
-`researchzosho reader token <did>` makes the token. Every session can then use the library.
+`researchzosho reader token <did>` makes the token: programs sign in with tokens, people with a name and
+password. Every session can then use the library.
 
 ## What to use it with
 

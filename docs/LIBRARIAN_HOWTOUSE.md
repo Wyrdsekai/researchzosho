@@ -1403,12 +1403,16 @@ and author, each said to come from the catalogue — the labelled books first, t
 codes and "General"; the catalogue's subjects are what "like X" compares first.
 
 **"Like X".** `researchzosho myshelf like "<title>"` lists the books on your shelf like one by what the texts say: subject
-first (the themes and topics the model read, the subjects the shelf and the catalogues give), then kind, audience and demand,
-then mood and pace at a small weight. The measured form is left out of it: among books already alike in subject, closer in
-form read as *less* alike to the judge, so form serves "written like X" and not this. Every row says on which dimensions it
-is alike and on which not. The same author's and the same series' books are set aside into a side list — "more by the same
-author" is the old way of finding more, not a likeness. One well-known title stands in every list, so you can say whether you
-want more or fewer of those. The list is only as wide as the labelled store: the night housekeeping labels about one book a
+first (the themes and topics the model read and the subjects the shelf and the catalogues give, kept as phrases — "artificial
+intelligence" is one subject, not two words — and the index, notes and bibliography at the back of a book are no part of its
+reading), then kind, audience and demand, then where and when the book is set (from the catalogue and from the model's
+reading), then mood and pace at a small weight. The measured form is left out of it: among books already alike in subject,
+closer in form read as *less* alike to the judge, so form serves "written like X" and not this. Every row says on which
+dimensions it is alike and on which not. Books of the same kind come first; a book of another kind is listed only when it
+shares a subject, never for its mood alone, so a list ends short rather than wander. At most two books by one author stand in
+a list, and the rest are set aside under the author's name; the same author's and the same series' books as the one you named
+are set aside into a side list — "more by the same author" is the old way of finding more, not a likeness. One well-known
+title stands in every list, so you can say whether you want more or fewer of those. The list is only as wide as the labelled store: the night housekeeping labels about one book a
 minute, your picks first. A research run has it as `my_shelf kind=like`, and a question that names a book on your shelf
 ("something like The Harbour Ledger") has the list pushed in before the workers start.
 
@@ -1591,7 +1595,8 @@ Research runs use the same model, and usually the same graphics card, as everyth
 computer. You can change these settings while a run is in progress:
 
 ```
-researchzosho research workers 2              # how many readers work at once (default 3)
+researchzosho research workers 2              # how many readers work at once (unset: up to 3, see below)
+researchzosho research workers auto           # back to the rule
 researchzosho research pause                  # hold everything at the next step
 researchzosho research resume
 researchzosho research stop J-0031             # end one run within seconds; a queued one never starts
@@ -1599,6 +1604,15 @@ researchzosho research window 22:00-07:00     # only start runs in these hours
 researchzosho research window off
 researchzosho research                        # show the settings and what is running
 ```
+
+How many runs go at once, and how many readers each run uses, follow the model server unless you set
+them. A llama.cpp server says how many calls it answers at once (its slots); Ollama is taken as one
+and vLLM as eight. One run gets up to three readers, and there is one run per three slots, at least
+one of each: four slots mean one run at a time with three readers, six slots two runs. `researchzosho
+status` says what is in use and why. Set `job.workers` for the runs (it takes effect at the next
+restart) and `research.workers` for the readers (a running run follows at its next turn) to choose
+your own numbers. A second request does not fail: it waits in the queue, and the pages say how many
+are ahead of it.
 
 The Runs page has the same controls: "Pause the runner" and "Resume", and a "Stop" beside each run
 that is queued or running. A stop ends a run within seconds, whatever it is doing, also when it is
@@ -2076,6 +2090,14 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
   source, a repository or a package index, the research run searches GitHub and the package indexes
   directly, by best match and by most recent push. It judges a project by its last push, its licence and
   its own README, not by its stars, and gives the answer as a table.
+- `crafts` is for doing and making: any craft or hobby, a repair, a build. It joins a run by the words of
+  doing ("how do I make", "what do I need to", "pattern for", "作り方") and answers with the how and the kit:
+  every material and tool, what it is for, what substitutes for it, and where to get it. For an old way of
+  doing something it gives how it was done, how to do it now, and the modern stand-in for each historical
+  material with the reason. It carries a list of the kinds of doing that the open taxonomies name, about
+  thirteen hundred of them, with Japan's designated crafts by category and prefecture and the Heritage
+  Crafts Red List with each craft's risk band; the run is told what the list knows of the kind you asked
+  about. The list is made by `scripts/crafts-kinds.py`, never by hand.
 - `genealogy` adds family relations, adoption and household heads included. It acts only on the
   family history you ask for: its own commands and pages, and a research run asked for in genealogy
   mode (`research ask … --genealogy`, the box on the Research page, `field: "genealogy"`, or a yes to the
@@ -2166,8 +2188,76 @@ researchzosho service install --host 0.0.0.0
 ```
 
 It then also answers on the computer's network address, for example `http://192.168.1.20:4649/`.
-Read section 16 on sign-in before you do this. Do not expose the service to the internet. There is
-no encryption, and tokens travel in the clear.
+Read section 16 on sign-in before you do this. Do not open that address to the internet itself:
+there is no encryption on it, and tokens would travel in the clear. To reach the library from
+outside your home, use `share`, below.
+
+### From outside your home
+
+```
+researchzosho share                      # reachable now: a Cloudflare quick tunnel (no account), or Tailscale Funnel once Tailscale is set up
+researchzosho share --tailscale          # the address that lasts: installs Tailscale, logs in, Funnel (the better long-term setup)
+researchzosho share --tailnet            # the same, on your tailnet only
+researchzosho share --cloudflare         # the quick tunnel even when Tailscale is set up (free; no account)
+researchzosho share --cloudflare --mail ann@example.com,*@example.org   # only these get through, with a one-time code
+researchzosho share status               # the address, the door, the tunnel
+researchzosho share off
+```
+
+`share` puts the library behind an encrypted relay that the library dials out to, so no port is
+opened at your home and it works behind a carrier's NAT. With neither program on the computer it
+installs what it needs, asking before each step: Tailscale the way Tailscale installs it (its own
+script on Linux, Homebrew on a Mac, and Homebrew first when the Mac has none; winget on Windows),
+then `tailscale up`, which shows a link to log in with. The installer asks for your password on the
+screen; the library never does. Or cloudflared, one program fetched into the library's own folder,
+with no account and no password. Nothing is installed without your yes (`--yes` answers for a
+script). The same from the chat: say `/share`. The service opens a second door on this computer
+(`127.0.0.1:4651`) that only the relay points at; `4649` stays as it is.
+
+**The plain `share`** makes the library reachable now. With Tailscale set up and logged in on the
+computer it uses Tailscale Funnel, the address that lasts. Otherwise it fetches `cloudflared` into
+the library's own folder, no account and nothing asked, and opens a quick tunnel: you are reachable
+within half a minute at an `https://….trycloudflare.com` address, which `share` prints. That
+address changes whenever the service restarts the tunnel, so send an invite when the person can
+open it straight away; for an address that lasts, run `share --tailscale`.
+
+**With Tailscale** (`share --tailscale`, the better long-term setup): the library installs it,
+asking before each step, runs `tailscale up` with its login link, and uses Funnel. The library is
+reached at an `https://…ts.net` address from anywhere, and that address never changes: anyone with
+the link sees the sign-in page and nothing else; a reader gets in with their name and password (or
+a passkey), and nobody without an account gets in. Funnel and HTTPS certificates are each approved once in the admin
+console, and on Linux `share` sets `sudo tailscale set --operator=$USER` once; when Tailscale
+refuses, `share` says the exact next step. Once Tailscale is set up, the plain `share` uses it.
+`share --tailnet` keeps the same address to your tailnet only; there Tailscale tells the library
+who is arriving, so a reader you listed under their login (`did:mail:<login>`) is signed in as they
+arrive, and anyone else can ask to be let in with their name filled in. A personal tailnet is free
+for six people. A paid or business tailnet uses the same command.
+
+**With Cloudflare** (the fallback): install `cloudflared`, then `share --cloudflare`. The service runs
+a quick tunnel and keeps it running; its `https://….trycloudflare.com` address changes at every start,
+so `share status` and the Settings page show the one in force, and join links use it. With `--mail`,
+only the listed addresses get through, after a one-time code from Cloudflare; without it, anyone
+with the address reaches the sign-in page. A quick tunnel is meant for light use and has no uptime
+promise. A named Cloudflare Tunnel you already have works too: point its ingress at `127.0.0.1:4651`.
+
+In either case the first `share` turns sign-in on. Through the door, only a reader you listed gets
+in: invite people by name (`reader invite`, section 16), or let them in when they ask. Nothing you
+do on this computer changes: the pages at `127.0.0.1:4649` work as before.
+
+**From another computer.** With ResearchZosho installed there too, and no library of its own needed:
+
+```
+researchzosho connect https://mylibrary.tail1234.ts.net <token>   # the address share printed, a token from reader token
+researchzosho ask how were the gears cut                            # and search, get, read, established, research ask,
+researchzosho research ask "…"                                       #   jobs, status, changes, subjects, questions, map,
+researchzosho connect                                               #   perspectives, inbox: they all go to that library
+researchzosho connect off                                           # back to this computer's own library
+```
+
+`researchzosho mcp` while connected relays Claude Code, Codex or Gemini on that computer to the
+library, with the token, so they get its tools without a service of their own. The verbs that touch a
+library's folder or its computer (setup, service, model, add, reader, share, settings…) say to run
+them on the library's computer.
 
 ## 16. The web pages
 
@@ -2192,7 +2282,7 @@ pages are dark; the switch at the bottom of the menu makes them light, and that 
 | Research | Send a question, or sharpen it first. |
 | Settings | Every setting the library has, with what it is for and its value; change one from the form. A key is shown only as set or not. |
 | Owned | What you own, from your own purchase records: a search over it, and where each imported file's records begin. |
-| Chat | The conversation with the Librarian in full. On every other page the same conversation is a panel: beside the page when the window is wide, behind a Chat button at the bottom right when it is narrow. What you say in the panel and what it answers is the one conversation, the same as `researchzosho chat` in a terminal. The panel remembers whether you left it open. |
+| Chat | The conversation with the Librarian in full. On every other page the same conversation is a panel: beside the page when the window is wide, behind a Chat button at the bottom right when it is narrow. What you say in the panel and what it answers is the one conversation, the same as `researchzosho chat` in a terminal. The panel remembers whether you left it open. A reply arrives in place, on the page and in the panel, and what you have typed in the box stays. |
 | Map | The map. |
 
 A page is never cached by the browser, so what you see is the library as it is now. If a browser was signed in with a
@@ -2209,10 +2299,46 @@ As shipped, anyone can use the pages, and the home page says so. To require a si
 question can be sent:
 
 ```
-researchzosho web signin on
-researchzosho reader token <did>         # make a token for a person; they enter it once on the sign-in page
+researchzosho web signin on                      # asks for your own name and password first, if you have no account yet
+researchzosho account set                        # make or change your account any time (asks; or --name N --password P)
+researchzosho reader invite "Ann Example" read   # one link: she opens it within seven days and chooses her password
+researchzosho reader link "Ann Example"          # a new link, for a forgotten password
+researchzosho reader password "Ann Example"      # a password you type for her
+researchzosho reader token <did>                 # a token, for a program
 researchzosho web signin off
 ```
+
+A person signs in with their name and password, from any phone or computer. On the library's own
+computer your browser is you, with no sign-in (`web.local = signin` in the settings turns that off,
+for a computer other people use). `share` asks for your account before it opens the library, so you
+can get in from outside yourself.
+
+`reader invite` prints a link. Send it to the person; when they open it, they choose a password, and
+from then on they sign in with their name and it. They stay signed in for a year in that browser. The
+Settings page has the same under Readers: who may read and write, how each signs in, an Invite form,
+and buttons to change a reader's level, remove them, give them a new link, or set a password you typed.
+
+A person with no link can ask from the sign-in page: "Ask to be let in", with their name, a password of
+their choosing and a note. The request appears at the top of your Inbox, with "Let in to read", "Let in
+to write" and "Refuse". When you let them in, their next visit signs them in, with the password they
+chose; nothing is sent anywhere. The same request can come from a program through
+`library_request_access`, and `reader requests`, `reader approve` and `reader deny` answer it from the
+terminal.
+
+**The Account page** (Account, in the menu) is where a person changes their name or password, adds a
+passkey, sets up a one-time code, and signs every browser out. A passkey signs you in with your
+fingerprint, your face, your phone or a security key, with nothing to type; it is made for the address
+you are at and works there. The browser only offers it at an address with a name, not a number:
+the https address `share` gives, or `http://localhost:4649/` on the library's own computer (not
+`127.0.0.1`, and not a home-network number like `192.168.1.20`; the page says so). The one-time code is a second step after the password: the
+page shows a QR code and the same secret as letters; scan it with an authenticator app (Google
+Authenticator, Microsoft Authenticator, Aegis, 1Password and the like), type the code the app shows,
+and from then on the library asks for the code of the moment after your password. A passkey needs no
+code. `researchzosho account reset` takes away your own password, passkeys and code and signs every
+browser out, for a fresh start; `reader link` does the same for a reader.
+
+Passwords are kept as salted, stretched hashes, never as themselves. Ten wrong passwords at a name
+make the next tries wait ten minutes.
 
 Programs are open too, as shipped. Anyone who can reach the service can read, ask, and file runs.
 To restrict that, set the default level for callers not on the list:
@@ -2310,7 +2436,7 @@ claude mcp add --scope user librarian -- npx -y @wyrdsekai/researchzosho-mcp
 
 The library also runs as a container, `ghcr.io/wyrdsekai/researchzosho:<version>`. The library and
 the settings are on volumes, and the pages are on 4649. The `docker-compose.yml` in the repository
-runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.6.0 mcp`
+runs it beside an embedder. `docker run -i --rm -v $PWD/library:/library ghcr.io/wyrdsekai/researchzosho:0.6.1 mcp`
 runs the same MCP server over stdio, from the container. The model server stays outside. Name it in
 `RESEARCHZOSHO_DRIVE`.
 

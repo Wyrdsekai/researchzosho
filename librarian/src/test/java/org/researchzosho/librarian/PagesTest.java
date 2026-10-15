@@ -41,7 +41,7 @@ class PagesTest {
     void aBrowserThatMayNotStartResearchIsToldSoAndNothingIsWrittenDown(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Patrons.set(store, "did:key:me", "Me", Patrons.Level.write);
-        WebAccess.OVERRIDE = Boolean.TRUE;   // the sign-in is on, and this browser has not signed in
+        WebAccess.OVERRIDE = Boolean.TRUE; WebAccess.LOCAL_OVERRIDE = false;   // the sign-in is on, and this browser has not signed in (and is not the owner's own, though it comes from this machine)
         LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
         HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
         try {
@@ -50,7 +50,7 @@ class PagesTest {
             assertTrue(r.body().contains("Not allowed"), r.body());
             assertFalse(Files.exists(Fields.suggestionsFile(store)), "a browser that may not send the question writes nothing down about it");
             assertFalse(Fields.seen(store, "Who were my great-grandfather's parents, and where did they farm?", "genealogy"), "and the owner is still told about the question");
-        } finally { d.stop(); WebAccess.OVERRIDE = null; }
+        } finally { d.stop(); WebAccess.OVERRIDE = null; WebAccess.LOCAL_OVERRIDE = null; }
     }
 
     @Test
@@ -193,7 +193,7 @@ class PagesTest {
             assertEquals(200, open.statusCode());
             assertTrue(open.body().contains("No model is answering"), "it got as far as the drive check, so it was allowed: " + open.body());
             // with the sign-in on: refused without a token, and the page says how to sign in
-            WebAccess.OVERRIDE = Boolean.TRUE;
+            WebAccess.OVERRIDE = Boolean.TRUE; WebAccess.LOCAL_OVERRIDE = false;
             var refused = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", null);
             assertEquals(403, refused.statusCode());
             assertTrue(refused.body().contains("/login"), refused.body());
@@ -215,7 +215,7 @@ class PagesTest {
             var filed = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", cookie);
             assertEquals(200, filed.statusCode());
             assertTrue(filed.body().contains("No model is answering"), filed.body());
-        } finally { d.stop(); Explain.DRIVES = Explain::configuredDrive; WebAccess.OVERRIDE = null; }
+        } finally { d.stop(); Explain.DRIVES = Explain::configuredDrive; WebAccess.OVERRIDE = null; WebAccess.LOCAL_OVERRIDE = null; }
     }
 
     @Test

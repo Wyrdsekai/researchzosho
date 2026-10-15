@@ -132,7 +132,7 @@ class RunProgressTest {
             Librarian.Session quiet = Librarian.Session.open(store);
             quiet.append(M.createObjectNode().put("role", "user").put("content", "hello"));   // a conversation exists once something is said in it
             var plain = c.send(HttpRequest.newBuilder(URI.create(base + "/chat?session=" + quiet.id)).GET().build(), HttpResponse.BodyHandlers.ofString());
-            assertFalse(plain.body().contains("runs-strip"));
+            assertFalse(plain.body().contains("id=\"runs-strip\""), "no strip for a conversation that follows nothing");
             String quietCsp = plain.headers().firstValue("content-security-policy").orElse("");
             assertTrue(quietCsp.startsWith("default-src 'none'") && !quietCsp.contains("http"), quietCsp);
         } finally { d.stop(); Explain.DRIVES = drives; }

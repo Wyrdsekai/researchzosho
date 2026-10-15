@@ -46,7 +46,10 @@ class DriveSharedServerTest {
             byte[] out; int code = 200;
             if (path.equals("/props") && slots != null) out = ("{\"default_generation_settings\":{\"n_ctx\":32768},\"total_slots\":" + slots + "}").getBytes(StandardCharsets.UTF_8);
             else if (path.equals("/lora-adapters") && slots != null) out = (adapter ? "[{\"id\":0,\"path\":\"/adapters/floor.gguf\",\"scale\":1.0}]" : "[]").getBytes(StandardCharsets.UTF_8);
-            else if (path.equals("/v1/chat/completions")) {
+            else if (path.equals("/v1/chat/completions") && ex.getRequestHeaders().getFirst("Upgrade") != null) {
+                // uvicorn (vLLM) reads no body from a request that asks for an HTTP/2 upgrade: the client must speak HTTP/1.1 outright (2026-10-13)
+                code = 400; out = "{\"error\":{\"message\":\"1 validation error: {'type': 'missing', 'loc': 'body', 'msg': 'Field required'}\",\"code\":400}}".getBytes(StandardCharsets.UTF_8);
+            } else if (path.equals("/v1/chat/completions")) {
                 bodies.add(M.readTree(ex.getRequestBody().readAllBytes()));
                 most.accumulateAndGet(now.incrementAndGet(), Math::max);
                 try { Thread.sleep(200); } catch (InterruptedException ignored) { }

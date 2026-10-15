@@ -262,84 +262,96 @@ public final class CiteCheck {
             if (sentence.matches("^\\[\\d{1,3}\\]\\s*\\S*://.*") || sentence.matches("^(\\[\\d{1,3}\\]\\s*[^|]*\\|\\s*)+.*")) continue;   // a reference line, or a "[1] url | [2] url" list
             List<Marker> ms = markers(sentence);
             if (ms.isEmpty()) continue;
-            // every marker that names a source closes a clause; the others are asides
-            List<int[]> spans = new ArrayList<>();   // [start of the clause, end of the marker]
-            List<Ref> mapped = new ArrayList<>();
+            // every marker that names a source closes a clause; the others are asides. Markers stacked with nothing between them ("[11][8]") are
+            // alternatives for the one clause before them: the clause holds when any of them holds it (a sentence with two stacked sources was
+            // read whole against the second alone, which lacked the numbers, and marked; the writer then dropped a true sentence, 2026-10-13)
+            List<int[]> spans = new ArrayList<>();   // [start of the clause, end of its last marker]
+            List<List<Ref>> mapped = new ArrayList<>();
             int clauseStart = 0;
             for (Marker mk : ms) {
                 Ref ref = map(mk.inner(), refs);
                 if (ref == null) continue;
                 if (mk.end() <= clauseStart) continue;   // a marker inside one already taken, as in "(Field 1866 [3])": the outer one closed that clause; cutting from 143 to 103 lost a finished run (2026-09-17)
-                spans.add(new int[]{clauseStart, mk.end()});
-                mapped.add(ref);
+                boolean stacked = !spans.isEmpty() && sentence.substring(spans.get(spans.size() - 1)[1], mk.start()).isBlank();
+                if (stacked) { spans.get(spans.size() - 1)[1] = mk.end(); mapped.get(mapped.size() - 1).add(ref); }
+                else { spans.add(new int[]{clauseStart, mk.end()}); mapped.add(new ArrayList<>(List.of(ref))); }
                 clauseStart = mk.end();
             }
             if (mapped.isEmpty()) { unmapped++; continue; }
             StringBuilder out = new StringBuilder();
             int copied = 0;
             for (int i = 0; i < mapped.size(); i++) {
-                Ref ref = mapped.get(i);
+                List<Ref> alts = mapped.get(i);
                 int[] span = spans.get(i);
                 String clause = sentence.substring(span[0], span[1]).replaceFirst("^[\\s;:,—–-]+", "").strip();   // the clause, not the joint before it
                 if (clause.length() < 25 && mapped.size() > 1) clause = sentence.substring(0, span[1]).strip();   // a short clause reads with what leads to it
-                String source;
-                try {
-                    Path p = RawCapture.find(store, VideoText.withoutMoment(ref.locator()));   // a cited moment: the video's capture
-                    String code = p == null ? CodeTool.textOf(store, ref.locator()) : null;   // a repository's file, as read_code read it
-                    if (p == null && code == null) {
-                        // no capture: a source a worker noted from a search result but never fetched cannot be checked — unmapped, unmarked
-                        // (five of six "not read" marks fell on sources with quoted evidence rows, 2026-09-12). Only the writer's own URL,
-                        // one no worker noted or read, is marked (jmlon's verify.py drops these before any model call).
-                        if (!unread.contains(ref.n())) { unmapped++; continue; }
-                        unretrieved++;
-                        problems.add("cites a source that was not read this run: " + ref.locator() + " — " + Acquisitions.compress(clause, 100));
-                        int at = span[1] < sentence.length() && span[1] == sentence.length() - 1 && ".!?".indexOf(sentence.charAt(span[1])) >= 0 ? span[1] + 1 : span[1];
-                        out.append(sentence, copied, at).append(" [cites a source that was not read this run]");
-                        copied = at;
-                        continue;
-                    }
-                    source = code != null ? code : RawCapture.read(p)[2];
-                    // a claim about what is said at a moment is read against the transcript's lines around that moment: the moment the
-                    // sentence itself cites, else the one the reference list names for the video
-                    int at = -1;
-                    Matcher cm = URL.matcher(clause);
-                    if (cm.find()) at = VideoText.momentSeconds(cm.group());
-                    if (at < 0) at = VideoText.momentSeconds(ref.locator());
-                    if (at >= 0) source = VideoText.momentWindow(source, at, 90);
-                } catch (Exception e) { unmapped++; continue; }
-                // the mechanical pass first: numbers that sit in the source, or an eight-word run of the clause, settle it at no cost
-                String mech = mechanical(clause, source);
-                if (mech.equals("supported")) { checked++; supported++; mechanical++; continue; }
+                int markAt = span[1] < sentence.length() && span[1] == sentence.length() - 1 && ".!?".indexOf(sentence.charAt(span[1])) >= 0 ? span[1] + 1 : span[1];   // the marker follows the citation; a citation that closes the sentence keeps its full stop first
+                // the sources this clause cites that were read this run; one nobody read is noted, and the clause is marked for it only when it is the
+                // writer's own URL and no alternative was read (five of six "not read" marks fell on sources with quoted evidence rows, 2026-09-12)
+                List<Ref> readable = new ArrayList<>(); List<Ref> unreadHere = new ArrayList<>(); Map<Ref, String> sources = new LinkedHashMap<>();
+                for (Ref ref : alts) {
+                    try {
+                        Path p = RawCapture.find(store, VideoText.withoutMoment(ref.locator()));   // a cited moment: the video's capture
+                        String code = p == null ? CodeTool.textOf(store, ref.locator()) : null;   // a repository's file, as read_code read it
+                        if (p == null && code == null) { if (unread.contains(ref.n())) unreadHere.add(ref); continue; }
+                        String source = code != null ? code : RawCapture.read(p)[2];
+                        // a claim about what is said at a moment is read against the transcript's lines around that moment: the moment the
+                        // sentence itself cites, else the one the reference list names for the video
+                        int at = -1;
+                        Matcher cm = URL.matcher(clause);
+                        if (cm.find()) at = VideoText.momentSeconds(cm.group());
+                        if (at < 0) at = VideoText.momentSeconds(ref.locator());
+                        if (at >= 0) source = VideoText.momentWindow(source, at, 90);
+                        readable.add(ref); sources.put(ref, source);
+                    } catch (Exception e) { /* this source could not be read: the others may */ }
+                }
+                if (readable.isEmpty()) {
+                    if (unreadHere.isEmpty()) { unmapped++; continue; }
+                    unretrieved++;
+                    problems.add("cites a source that was not read this run: " + unreadHere.get(0).locator() + " — " + Acquisitions.compress(clause, 100));
+                    out.append(sentence, copied, markAt).append(" [cites a source that was not read this run]");
+                    copied = markAt;
+                    continue;
+                }
+                // the mechanical pass first, against every alternative: numbers that sit in the source, or an eight-word run of the clause, settle it at no cost
+                boolean settled = false;
+                for (Ref ref : readable) if (mechanical(clause, sources.get(ref)).equals("supported")) { settled = true; break; }
+                if (settled) { checked++; supported++; mechanical++; continue; }
                 if (!budget.take()) { problems.add("cite-check stopped after " + checked + " check(s): the ask's budget is spent; " + (unmapped) + " unmapped so far"); stopped = true; break; }
                 checked++;
-                String verdict;
-                try { verdict = judge(judge, clause, excerpt(source, clause)); }
-                catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // the marks so far stand; this sentence is unchecked
-                if (verdict.equals("unsupported") && !numbers(clause).isEmpty() && numbersInSource(clause, source) && overlapInSource(clause, source, 5)) {
-                    // the judge's no against the source's own words: set aside, counted as a false negative, not marked
-                    overruled++; verdict = "supported";
-                    problems.add("judge overruled (the source holds the clause's numbers and words): " + Acquisitions.compress(clause, 100));
-                } else if (verdict.equals("unsupported") && budget.take()) {
-                    // a second opinion that must QUOTE: a paraphrase the first read missed is found by asking for the passage, and the
-                    // passage is checked verbatim against the source — 8 of 20 marks were wrong, 4 on text on the page (2026-09-12)
-                    String quote;
-                    try { quote = supportingQuote(judge, clause, excerpt(source, clause)); }
-                    catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // unchecked, not marked on the first read alone
-                    if (!quote.isEmpty() && overlapInSource(quote, source, Math.min(5, Math.max(3, norm(quote).split(" ").length)))) {
+                boolean held = false; List<String> failed = new ArrayList<>();
+                for (Ref ref : readable) {
+                    String source = sources.get(ref);
+                    String verdict;
+                    try { verdict = judge(judge, clause, excerpt(source, clause)); }
+                    catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // the marks so far stand; this sentence is unchecked
+                    if (verdict.equals("unsupported") && !numbers(clause).isEmpty() && numbersInSource(clause, source) && overlapInSource(clause, source, 5)) {
+                        // the judge's no against the source's own words: set aside, counted as a false negative, not marked
                         overruled++; verdict = "supported";
-                        problems.add("judge overruled on a second read (the source says: \"" + Acquisitions.compress(quote, 100) + "\"): " + Acquisitions.compress(clause, 80));
+                        problems.add("judge overruled (the source holds the clause's numbers and words): " + Acquisitions.compress(clause, 100));
+                    } else if (verdict.equals("unsupported") && budget.take()) {
+                        // a second opinion that must QUOTE: a paraphrase the first read missed is found by asking for the passage, and the
+                        // passage is checked verbatim against the source — 8 of 20 marks were wrong, 4 on text on the page (2026-09-12)
+                        String quote;
+                        try { quote = supportingQuote(judge, clause, excerpt(source, clause)); }
+                        catch (Declined d) { declined = d; problems.add(declinedHere(clause)); stopped = true; break; }   // unchecked, not marked on the first read alone
+                        if (!quote.isEmpty() && overlapInSource(quote, source, Math.min(5, Math.max(3, norm(quote).split(" ").length)))) {
+                            overruled++; verdict = "supported";
+                            problems.add("judge overruled on a second read (the source says: \"" + Acquisitions.compress(quote, 100) + "\"): " + Acquisitions.compress(clause, 80));
+                        }
                     }
+                    if (verdict.equals("supported")) { held = true; break; }
+                    if (verdict.equals("unsupported")) failed.add(ref.locator());
+                    // cannot-tell: neither counted nor marked — an excerpt can miss the passage
                 }
-                if (verdict.equals("supported")) supported++;
-                else if (verdict.equals("unsupported")) {
+                if (stopped) break;
+                if (held) supported++;
+                else if (failed.size() == readable.size()) {
                     unsupported++;
-                    problems.add("not supported by " + ref.locator() + ": " + Acquisitions.compress(clause, 120));
-                    // the marker follows the citation it failed; a citation that closes the sentence keeps its full stop first
-                    int at = span[1] < sentence.length() && span[1] == sentence.length() - 1 && ".!?".indexOf(sentence.charAt(span[1])) >= 0 ? span[1] + 1 : span[1];
-                    out.append(sentence, copied, at).append(" [not supported by the cited source on check]");
-                    copied = at;
+                    problems.add("not supported by " + String.join(" nor ", failed) + ": " + Acquisitions.compress(clause, 120));
+                    out.append(sentence, copied, markAt).append(" [not supported by the cited source on check]");
+                    copied = markAt;
                 }
-                // cannot-tell: neither counted nor marked — an excerpt can miss the passage
             }
             if (copied > 0) { out.append(sentence.substring(copied)); marked.put(sentence, out.toString()); }
             // ") ." — a citation closing a sentence whose stop sits after it — has the marker right after the stop, so the old

@@ -65,19 +65,29 @@ public final class LibrarianDaemon {
     private final LibraryStore store;
     private final HttpServer server;
     private final String driveUrl;
+    private final String driveSetting;   // what the drive setting said when the daemon started, or null
     private final String model;
     private final Jobs jobs;
     private Thread crews;
+    /** The shared door: a second loopback listener that only a relay points at; null without one. */
+    private HttpServer door;
+    /** Request attributes: set on the door, so the pages know the cookie wants Secure and the identity headers may be read. */
+    public static final String DOOR = "rz.door", IDENTITY_LOGIN = "rz.identity.login", IDENTITY_NAME = "rz.identity.name", BODY = "rz.body";
 
     private LibrarianDaemon(LibraryStore store, HttpServer server, String driveUrl, String model) {
         this.store = store; this.server = server; this.driveUrl = driveUrl; this.model = model;
-        this.jobs = new Jobs(store, this::runJob, () -> Jobs.drives(driveNow()), Jobs.WORKERS);
+        this.driveSetting = Config.get("RESEARCHZOSHO_DRIVE");
+        this.jobs = new Jobs(store, this::runJob, () -> Jobs.drives(driveNow()), Jobs.workersNow());
     }
 
-    /** The model server the library is set to now (`model use` changes it while the service runs); the one it started with otherwise. */
+    /**
+     * The model server the library is set to now (`model use` changes it while the service runs); the one it started with until
+     * the setting moves. The one it started with is the setting itself in the service, or an address given on the command line,
+     * or a test's stub: none of them is to be swapped for whatever the config file held at the start.
+     */
     String driveNow() {
         String d = Config.get("RESEARCHZOSHO_DRIVE");
-        return d == null || d.isBlank() ? driveUrl : d;
+        return d == null || d.isBlank() || d.equals(driveSetting) ? driveUrl : d;
     }
 
     /** The model a job asks for, fixed when the job starts so that one run never changes models halfway. */
@@ -382,6 +392,15 @@ public final class LibrarianDaemon {
 
     /** Bind and start. {@code port} 0 = ephemeral (tests). {@code crewHour} < 0 = no nightly crews. */
     public static LibrarianDaemon start(LibraryStore store, String host, int port, String driveUrl, String model, int crewHour) throws IOException {
+        return start(store, host, port, driveUrl, model, crewHour, -1);
+    }
+
+    /**
+     * The same, with the shared door: {@code doorPort} 0 = ephemeral (tests), -1 = none. The door is a second listener on this machine's
+     * loopback that only a relay (tailscale serve, a cloudflared tunnel) points at; the identity headers a relay adds are trusted there and
+     * nowhere else, since on the main port any program on the machine could write them (docs/AFTER_0_6.md §5).
+     */
+    public static LibrarianDaemon start(LibraryStore store, String host, int port, String driveUrl, String model, int crewHour, int doorPort) throws IOException {
         Lease lease = Lease.acquire(store);   // one daemon per library; refused with the holder's pid otherwise
         HttpServer s;
         try { s = HttpServer.create(new InetSocketAddress(host, port), 0); } catch (IOException e) { lease.close(); throw e; }
@@ -396,6 +415,7 @@ public final class LibrarianDaemon {
         s.createContext("/", d::handle);
         s.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-http"); t.setDaemon(true); return t; }));
         s.start();
+        if (doorPort >= 0) { try { d.openDoor(doorPort); } catch (IOException e) { d.stop(); throw e; } }
         // once per library, before any run: the runs of fields that act only when asked, from before runs were recorded, go into the ledger
         try { Fields.Migrated m = Fields.migrate(store); if (m != null) Crews.log(store, "upgrade", "fields ledger: " + m.fromLog() + " run(s) from the research log, " + m.byCommand() + " filed by a field's own command, " + m.fromQuestions() + " that researched a question a field's own command filed" + (m.notes().isEmpty() ? "" : ". " + String.join(" ", m.notes())), 0); }
         catch (IOException e) { Crews.log(store, "upgrade", "the fields ledger could not be written: " + e.getMessage() + ". researchzosho profile runs upgrade tries again", 0); }
@@ -410,12 +430,27 @@ public final class LibrarianDaemon {
     }
 
     public int port() { return server.getAddress().getPort(); }
+    /** The shared door's port, or -1 without one. */
+    public int doorPort() { HttpServer d = door; return d == null ? -1 : d.getAddress().getPort(); }
+
+    /** Opens the shared door at a port on this machine's loopback (0 = any free one); nothing when it is open. The service's watcher calls this when `share` is on. */
+    public synchronized void openDoor(int port) throws IOException {
+        if (door != null) return;
+        HttpServer d2 = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        d2.createContext("/", x -> { x.setAttribute(DOOR, Boolean.TRUE); handle(x); });
+        d2.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-door"); t.setDaemon(true); return t; }));
+        d2.start();
+        door = d2;
+    }
+
+    /** Closes the shared door; nothing when it is closed. */
+    public synchronized void closeDoor() { HttpServer d = door; if (d == null) return; door = null; d.stop(0); }
     public String url() { return "http://" + server.getAddress().getHostString() + ":" + port(); }
     private Lease lease;
-    public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (lease != null) lease.close(); }
+    public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
-        return jobs.workers() + " worker(s) on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
+        return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
     }
     public void join() throws InterruptedException { Thread.currentThread().join(); }
 
@@ -429,6 +464,7 @@ public final class LibrarianDaemon {
             if (Pages.isPage(path)) {
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie
                 Map<String, String> form = Pages.form(bodyText, x.getRequestHeaders().getFirst("Content-Type"));
+                x.setAttribute(BODY, bodyText);   // the passkey calls post JSON, not a form
                 Patrons.Patron who;
                 try { who = patron(x, M.createObjectNode()); }
                 catch (ProtocolError e) {
@@ -436,10 +472,12 @@ public final class LibrarianDaemon {
                     // instead of refusing every page until the person finds the sign-out link (a browser stayed "Not allowed", 2026-10-09)
                     String c = Pages.cookie(x, Pages.COOKIE);
                     if (!"forbidden".equals(e.code) || c == null || c.isBlank() || x.getRequestHeaders().getFirst("Authorization") != null) throw e;
-                    x.getResponseHeaders().add("Set-Cookie", Pages.COOKIE + "=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+                    Pages.clearCookie(x);
                     who = Patrons.Patron.ANONYMOUS;
                 }
-                if (who.anonymous()) who = Patrons.Patron.WEB;   // someone in the browser who has not signed in; Patrons.check decides what that may do
+                if (who.anonymous()) who = Boolean.TRUE.equals(x.getAttribute(DOOR)) ? Patrons.Patron.DOOR_WEB : Patrons.Patron.WEB;   // someone in the browser who has not signed in; Patrons.check decides what that may do
+                // a visitor who asked to be let in: once the owner has let them in, their next load signs them in and loads again as them
+                if (who.web()) { String ask = Pages.cookie(x, Pages.ASK); if (ask != null && !ask.isBlank() && Pages.collectAsk(x, store, ask)) { Pages.redirectTo(x, x.getRequestURI().toString()); return; } }
                 Pages.handle(x, this, store, who, query(x), form);
                 return;
             }
@@ -601,22 +639,48 @@ public final class LibrarianDaemon {
         String runtime = claimed != null && claimed.isObject() ? claimed.path("runtime").asText("") : "";
         if (auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
             Patrons.Entry e = Patrons.resolve(store, auth.substring(7));
-            if (e == null) throw ProtocolError.forbidden("That token does not match any user. The library owner makes tokens with `researchzosho reader token <did>`.");
+            if (e == null) {
+                // not a program's token: a browser signed in to an account (the cookie holds the session's secret)
+                Accounts.Account a = Accounts.bySession(store, auth.substring(7));
+                if (a != null) {
+                    if (!a.owner()) {
+                        Patrons.Entry listed = Patrons.byDid(store, a.did());
+                        if (listed == null || listed.level() == Patrons.Level.deny) throw ProtocolError.forbidden("This account is no longer a reader of this library. Ask the person who keeps it.");
+                    }
+                    return new Patrons.Patron(a.did(), a.name(), runtime.isEmpty() ? (Boolean.TRUE.equals(x.getAttribute(DOOR)) ? "door" : "web") : runtime);
+                }
+                throw ProtocolError.forbidden("That token does not match any user. The library owner makes tokens with `researchzosho reader token <did>`.");
+            }
             if (claimed != null && claimed.isObject() && !claimed.path("did").asText("").isBlank()
                     && !claimed.path("did").asText().equals(e.did())) {
                 throw ProtocolError.forbidden("The token belongs to " + e.did() + ", not to the did in the request.");
             }
             return new Patrons.Patron(e.did(), e.name(), runtime.isEmpty() ? "http" : runtime);
         }
+        if (Boolean.TRUE.equals(x.getAttribute(DOOR))) {
+            // through the shared door a relay says who the caller is: tailscale serve adds the tailnet login and name, a cloudflared quick
+            // tunnel with a mail list the address Cloudflare Access checked. A listed reader with that login is signed in; anyone else is a
+            // visitor, who may ask to be let in with their name filled in. On the main port these headers mean nothing.
+            String login = x.getRequestHeaders().getFirst("Tailscale-User-Login"), name = x.getRequestHeaders().getFirst("Tailscale-User-Name");
+            if (login == null || login.isBlank()) { login = x.getRequestHeaders().getFirst("Cf-Access-Authenticated-User-Email"); name = null; }
+            if (login != null && !login.isBlank()) {
+                x.setAttribute(IDENTITY_LOGIN, login.strip()); x.setAttribute(IDENTITY_NAME, name == null || name.isBlank() ? login.strip() : name.strip());
+                Patrons.Entry e = Patrons.byDid(store, Patrons.loginDid(login));
+                if (e != null && e.level() != Patrons.Level.deny) return new Patrons.Patron(e.did(), e.name().isEmpty() ? login.strip() : e.name(), runtime.isEmpty() ? "door" : runtime);
+            }
+        }
         if (claimed != null && claimed.isObject() && !claimed.path("did").asText("").isBlank()) {
             throw ProtocolError.forbidden("A did sent over http needs a bearer token (Authorization: Bearer …). Leave out the patron to call anonymously.");
         }
-        return Patrons.Patron.ANONYMOUS;
+        // a browser on the library's own computer, on the main port, is the person who keeps it (the setting web.local; never through the door)
+        if (!Boolean.TRUE.equals(x.getAttribute(DOOR)) && Pages.isPage(x.getRequestURI().getPath()) && WebAccess.signInRequired() && WebAccess.localOwner()
+                && x.getRemoteAddress() != null && x.getRemoteAddress().getAddress() != null && x.getRemoteAddress().getAddress().isLoopbackAddress()) return Patrons.Patron.OWNER_WEB;
+        return Boolean.TRUE.equals(x.getAttribute(DOOR)) ? Patrons.Patron.DOOR_ANONYMOUS : Patrons.Patron.ANONYMOUS;
     }
 
     static ObjectNode patronNode(Patrons.Patron p) {
         ObjectNode o = M.createObjectNode();
-        if (p.anonymous()) return o;
+        if (p.anonymous()) { if (p.door()) o.put("runtime", "door"); return o; }   // the door's mark rides along: nobody unlisted gets in there
         o.put("did", p.did()); o.put("name", p.name()); o.put("runtime", p.runtime());
         return o;
     }

@@ -34,7 +34,7 @@ public final class Prefs {
     public static final int VERSION = 1;
     /** The dimensions "like X" weighs, with the settled default weights: subject first, the fixed dimensions behind it, mood and scale small, form out. */
     public static final Map<String, Double> DEFAULT_WEIGHTS = new LinkedHashMap<>();
-    static { DEFAULT_WEIGHTS.put("subject", 2.0); DEFAULT_WEIGHTS.put("kind", 0.5); DEFAULT_WEIGHTS.put("audience", 0.5); DEFAULT_WEIGHTS.put("demand", 0.5); DEFAULT_WEIGHTS.put("mood", 0.5); DEFAULT_WEIGHTS.put("scale", 0.25); DEFAULT_WEIGHTS.put("form", 0.0); }
+    static { DEFAULT_WEIGHTS.put("subject", 2.0); DEFAULT_WEIGHTS.put("kind", 0.5); DEFAULT_WEIGHTS.put("audience", 0.5); DEFAULT_WEIGHTS.put("demand", 0.5); DEFAULT_WEIGHTS.put("setting", 0.0); DEFAULT_WEIGHTS.put("era", 0.0); DEFAULT_WEIGHTS.put("mood", 0.5); DEFAULT_WEIGHTS.put("scale", 0.25); DEFAULT_WEIGHTS.put("form", 0.0); }
     public static final List<String> POPULARITY = List.of("one", "none", "known");
     public static final List<String> PREFER_DIMS = List.of("mood", "subject", "kind", "pace", "author"), EXCLUDE_DIMS = List.of("author", "subject", "kind", "series");
 
