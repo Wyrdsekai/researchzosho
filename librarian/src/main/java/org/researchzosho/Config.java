@@ -2,14 +2,18 @@ package org.researchzosho;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Settings, from a config file or the environment.
@@ -41,10 +45,19 @@ public final class Config {
             "RESEARCHZOSHO_TOKEN", "CODEZAIKU_LIBRARIAN_TOKEN",
             "RESEARCHZOSHO_XMX", "CODEZAIKU_LIBRARIAN_XMX");
 
-    private static final Map<String, String> FILE = new LinkedHashMap<>();
-    private static volatile boolean loaded = false;
-    private static Path loadedFrom = null;
-    private static volatile long loadedMtime = -1;   // the user config's mtime at load; -1 = it did not exist
+    /**
+     * What the config file said when it was last read: the settings, the file they came from and the user config's mtime then (-1: it did
+     * not exist). One immutable value, swapped whole. Before 0.6.1 the settings were one map that a change cleared and a reload refilled in
+     * place, so a thread reading while another thread changed a setting saw no settings at all: the share watcher read "share off" while the
+     * tunnel wrote its address, stopped the tunnel and started another (the CI failure of 2026-10-15), and a research run starting at that
+     * moment would have found no model set.
+     */
+    private record Snapshot(Map<String, String> file, Path from, long mtime) { }
+    private static volatile Snapshot snapshot;
+    /** Counts the changes; a load that overlapped one returns what it read to its caller but does not keep it. */
+    private static final AtomicLong CHANGES = new AtomicLong();
+    /** Loading has a lock of its own, so a read never waits behind a write (writes hold {@code Config.class}). */
+    private static final Object LOAD = new Object();
 
     /**
      * A LIVE read: the user config file is re-read when it changed since it was loaded, so a setting
@@ -67,8 +80,8 @@ public final class Config {
     }
 
     static void reloadIfChanged() {
-        long m = mtime(userConfigPath());
-        if (loaded && m != loadedMtime) invalidate();
+        Snapshot s = snapshot;
+        if (s != null && mtime(userConfigPath()) != s.mtime()) invalidate();
     }
 
     private static long mtime(Path p) {
@@ -99,7 +112,9 @@ public final class Config {
     }
 
     private static String raw(String envKey) {
-        ensureLoaded();
+        Snapshot s = loaded();
+        Map<String, String> file = s.file();
+        Path loadedFrom = s.from();
         String key = normalize(envKey);
         for (String c : candidates(key)) {
             String v = env(c);
@@ -113,7 +128,7 @@ public final class Config {
         fileKeys.add(key);
         if (!legacyFile && LEGACY_ALIAS.containsKey(key)) fileKeys.add(normalize(LEGACY_ALIAS.get(key)));
         for (String c : fileKeys) {
-            String v = FILE.get(c);
+            String v = file.get(c);
             if (v != null && !v.isBlank()) return v;
         }
         for (String c : candidates(key)) {
@@ -125,10 +140,10 @@ public final class Config {
 
     /** The value the config FILE holds for a key, ignoring the environment: what `set` wrote. Null when the file has none. */
     public static String stored(String envKey) {
-        ensureLoaded();
+        Map<String, String> file = loaded().file();
         String key = normalize(envKey);
-        String v = FILE.get(key);
-        if ((v == null || v.isBlank()) && LEGACY_ALIAS.containsKey(key)) v = FILE.get(normalize(LEGACY_ALIAS.get(key)));
+        String v = file.get(key);
+        if ((v == null || v.isBlank()) && LEGACY_ALIAS.containsKey(key)) v = file.get(normalize(LEGACY_ALIAS.get(key)));
         return v == null || v.isBlank() ? null : v;
     }
 
@@ -191,8 +206,7 @@ public final class Config {
 
     /** Which file the settings came from, or null when none was found. */
     public static Path source() {
-        ensureLoaded();
-        return loadedFrom;
+        return loaded().from();
     }
 
     /** The per-user config path, whether or not it exists yet. */
@@ -219,10 +233,18 @@ public final class Config {
         return (!Files.isDirectory(now) && Files.isDirectory(was)) ? was : now;
     }
 
-    private static void ensureLoaded() {
-        if (loaded) return;
-        synchronized (Config.class) {
-            if (loaded) return;
+    /** The settings as the file says now: the snapshot, read again first when there is none. */
+    private static Snapshot loaded() {
+        Snapshot s = snapshot;
+        if (s != null) return s;
+        synchronized (LOAD) {
+            s = snapshot;
+            if (s != null) return s;
+            long changes = CHANGES.get();
+            // the mtime BEFORE the content: a write landing between the two is seen as a change at the next live read, never hidden behind it
+            long mtime = mtime(userConfigPath());
+            Map<String, String> file = new LinkedHashMap<>();
+            Path from = null;
             for (Path p : new Path[]{userConfigPath(), Paths.get("/etc/researchzosho/config")}) {
                 // a folder is no config file: said once, and the settings stay as they are without one, instead of every command ending in an error
                 if (p != null && Files.isDirectory(p)) {
@@ -230,17 +252,20 @@ public final class Config {
                     continue;
                 }
                 if (p != null && Files.isReadable(p)) {
-                    read(p);
-                    loadedFrom = p;
+                    read(p, file);
+                    from = p;
                     break;
                 }
             }
-            loadedMtime = mtime(userConfigPath());
-            loaded = true;
+            s = new Snapshot(Collections.unmodifiableMap(file), from, mtime);
+            // kept only when no change landed while reading: the file is replaced whole, so what was read is complete either way, but it may
+            // already be the old one, and a kept old snapshot would be served to every reader that does not look at the file's time
+            if (CHANGES.get() == changes) snapshot = s;
+            return s;
         }
     }
 
-    private static void read(Path p) {
+    private static void read(Path p, Map<String, String> into) {
         try {
             for (String raw : Files.readAllLines(p)) {
                 String line = raw.trim();
@@ -253,7 +278,7 @@ public final class Config {
                         && ((val.startsWith("\"") && val.endsWith("\""))
                          || (val.startsWith("'") && val.endsWith("'"))))
                     val = val.substring(1, val.length() - 1);
-                if (!key.isEmpty()) FILE.put(key, val);
+                if (!key.isEmpty()) into.put(key, val);
             }
         } catch (IOException e) {
             throw new UncheckedIOException("could not read " + p, e);
@@ -268,8 +293,12 @@ public final class Config {
         return PREFIX + k;
     }
 
-    /** Set a key in the user config file, preserving comments, ordering and the spelling already used. */
-    public static void set(String key, String value) throws IOException {
+    /**
+     * Set a key in the user config file, preserving comments, ordering and the spelling already used. One change at a time in this process,
+     * and the file is replaced whole (written beside it, then moved over it), so another thread or another program reading it sees the old
+     * file or the new one, never a half-written one.
+     */
+    public static synchronized void set(String key, String value) throws IOException {
         Path cfg = userConfigPath();
         Files.createDirectories(cfg.getParent());
         String want = normalize(key);
@@ -291,8 +320,23 @@ public final class Config {
             if (!lines.isEmpty() && !lines.get(lines.size() - 1).isBlank()) lines.add("");
             lines.add(shorthand(want) + " = " + value);
         }
-        Files.writeString(cfg, String.join("\n", lines) + "\n");
+        Path tmp = cfg.resolveSibling(cfg.getFileName() + ".writing-" + ProcessHandle.current().pid());
+        Files.writeString(tmp, String.join("\n", lines) + "\n");
+        // the file holds keys: the new one keeps the old one's permissions, which a freshly made file would not
+        try { if (Files.exists(cfg)) Files.setPosixFilePermissions(tmp, Files.getPosixFilePermissions(cfg)); } catch (UnsupportedOperationException ignored) { }
+        try { Files.move(tmp, cfg, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
+        catch (AtomicMoveNotSupportedException e) { Files.move(tmp, cfg, StandardCopyOption.REPLACE_EXISTING); }
         invalidate();
+    }
+
+    /** Set a key only while it still holds {@code expected} (an absent key counts as ""): what a thread that wrote a value uses to take it back,
+     *  so it never wipes a newer value another thread wrote since. True when it was set. */
+    public static synchronized boolean replace(String key, String expected, String value) throws IOException {
+        invalidate();
+        String now = stored(key);
+        if (!(now == null ? "" : now).equals(expected == null ? "" : expected)) return false;
+        set(key, value);
+        return true;
     }
 
     /** RESEARCHZOSHO_JOB_WORKERS → job.workers, the form the starter config uses. */
@@ -301,11 +345,8 @@ public final class Config {
         return k.toLowerCase(Locale.ROOT).replace('_', '.');
     }
 
-    public static synchronized void invalidate() {
-        FILE.clear();
-        loaded = false;
-        loadedFrom = null;
-    }
+    /** Read the file again at the next look. Readers holding the old snapshot finish with it: nobody sees an empty one. */
+    public static void invalidate() { CHANGES.incrementAndGet(); snapshot = null; }
 
     private Config() { }
 }

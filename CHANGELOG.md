@@ -59,6 +59,9 @@ how. Each change below is in full in the guide, LIBRARIAN_HOWTOUSE.md.
   book is set; that changes the order only if you give it a weight in your preferences.
 - **Works with vLLM and other model servers.** Calls to a vLLM or uvicorn server used to fail with an
   empty error. They work now, and a research report written against vLLM comes back whole.
+- **A setting changed at the wrong moment no longer blanks the others.** For an instant after any setting was written, another part
+  of the library reading the settings could see none at all. On a slow machine this made the sharing relay stop and start again
+  by itself. Settings are now swapped in whole, and the config file is replaced in one step.
 - **The Inbox lists claims oldest first, always.** On a Mac, two claims recorded a moment apart could
   come out in the wrong order.
 - **The test suite leaves your running model alone.** It no longer talks to whatever model answers at

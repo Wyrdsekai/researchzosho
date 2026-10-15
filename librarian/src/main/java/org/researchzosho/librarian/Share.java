@@ -489,6 +489,7 @@ public final class Share {
         /** Runs the tunnel once and waits for it to end; {@code out} hears the lines when a person is watching. */
         void runOnce(PrintStream out) {
             List<String> cmd = tunnelCommand.apply(door);
+            String mine = null;   // the address this run wrote, the only one its ending may take back
             try {
                 Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
                 process = p;
@@ -501,6 +502,7 @@ public final class Share {
                         if (m.find()) {
                             String url = m.group();
                             Config.set(ADDRESS, url);
+                            mine = url;
                             state("up", url);
                             Crews.log(store, "share", "the quick tunnel is at " + url, 0);
                             if (out != null) out.println("The library is at " + url + " until this ends.");
@@ -512,7 +514,8 @@ public final class Share {
                 if (!stopping) Crews.log(store, "share", "the tunnel could not run: " + e.getMessage(), 0);
             } finally {
                 process = null;
-                try { Config.set(ADDRESS, ""); } catch (IOException ignored) { }
+                // the address goes with this run, unless a newer tunnel has written its own since (a stopped tunnel ends while the next one starts)
+                try { if (mine != null) Config.replace(ADDRESS, mine, ""); } catch (IOException ignored) { }
                 state(stopping ? "stopped" : "ended", "");
             }
         }
