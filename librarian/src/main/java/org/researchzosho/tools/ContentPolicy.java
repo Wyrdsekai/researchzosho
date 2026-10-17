@@ -147,7 +147,7 @@ public final class ContentPolicy {
     public String cannotCheckStatement() {
         return "The research stopped, because the page check cannot run on this model server. The library checks every page a run reads before the model sees it, "
                 + "and the model did not answer the check's yes-or-no question for the last " + CANNOT_CHECK_AFTER + " pages, although it answers the research itself, "
-                + "so every page would have been left out and nothing read. "
+                + "so every page would have been left out and nothing read. A model that thinks before it answers was asked twice, the second time with room to think. "
                 + (lastWhy.isBlank() ? "" : "What the server did: " + lastWhy + ". ")
                 + "What to set: if the server refuses a temperature, set RESEARCHZOSHO_TEMP=none; if the model thinks before it answers and its server ignores enable_thinking, "
                 + "set RESEARCHZOSHO_DRIVE_TEMPLATE_KWARGS to the setting that turns its thinking off on that server; if a hosted service filters the check's question, "

@@ -276,6 +276,13 @@ public final class DriveClient {
     static final int HOSTED_CTX = 128_000;
     /** A quick ask's output budget on a hosted API: room for the least thinking the model does and the answer after it. */
     static final int QUICK_FLOOR = 4096;
+    /**
+     * The output budget a decision is asked again with when the model thought through the small one and gave no answer: room for the
+     * thinking and the one word after it. A server that takes none of the thinking-off fields (Ollama's OpenAI-style endpoint, 2026-10-17:
+     * gpt-oss and gemma4 think by default, chat_template_kwargs and think are ignored there, and a 4-token page check came back empty on
+     * every page until the run stopped) still answers this way; qwen3 8B answered in 268 tokens.
+     */
+    static final int THINKING_ROOM = 2048;
 
     /** Whether the server is the /v1/models kind (vLLM, FreeToken), asked once; the question is separate from the context window, which a setting may force. */
     boolean vllmStyle() {
@@ -1095,6 +1102,11 @@ public final class DriveClient {
         }
         try {
             if (hostedApi()) hostedShape(body, baseUrl);
+            // Ollama's OpenAI-style endpoint takes neither chat_template_kwargs nor think; its word for no thinking is this one (measured
+            // 2026-10-17: gemma4 and qwen3 answer the 4-token ask with it, gpt-oss thinks regardless). Sent when the server is known to
+            // be Ollama; the kind is learnt below, after a first empty answer, never by probing a server that may not be answering at all.
+            else if (serverStyle.equals("ollama")) body.put("reasoning_effort", "none");
+            for (int attempt = 1; ; attempt++) {
             HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
                     .timeout(limit).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
@@ -1115,12 +1127,28 @@ public final class DriveClient {
             JsonNode parsed = json.readTree(resp.body());
             learnPace(t0);
             raiseDecline(parsed);
-            JsonNode msg = parsed.path("choices").path(0).path("message");
+            JsonNode choice = parsed.path("choices").path(0);
+            JsonNode msg = choice.path("message");
             String content = msg.path("content").asText("");
             String reasoning = msg.path("reasoning_content").asText(msg.path("reasoning").asText(""));   // OpenRouter's name for it is reasoning
+            boolean thoughtItAway = content.isBlank() && (!reasoning.isBlank() || "length".equals(choice.path("finish_reason").asText("")));
+            if (thoughtItAway && attempt == 1 && body.path("max_tokens").asInt(0) < THINKING_ROOM) {
+                // the thinking-off field was not taken and the model thought through the budget: once more with room to think, and the
+                // answer read after it; the first ask cost nothing to speak of (the budget was the small one)
+                log.info("decision: the model thought through its {}-token budget and gave no answer; asked again with {} tokens of room", body.path("max_tokens").asInt(0), THINKING_ROOM);
+                if (!hostedApi()) {
+                    // the server just answered, so asking what it is costs little: an Ollama server gets its own word from here on
+                    if (serverStyle.isEmpty()) vllmStyle();
+                    if (serverStyle.equals("ollama")) body.put("reasoning_effort", "none");
+                }
+                body.put("max_tokens", THINKING_ROOM);
+                limit = decisionLimitFor(body.toString().length(), THINKING_ROOM);
+                continue;
+            }
             if (content.isBlank() && !reasoning.isBlank()) CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer");
             if (content.isBlank()) content = reasoning;
             return content;
+            }
         } catch (Declined d) {
             throw d;   // a decline is the model's answer, never an empty one
         } catch (Stopping.Requested stop) {

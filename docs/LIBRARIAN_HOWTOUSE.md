@@ -580,9 +580,11 @@ How it works:
   model answers the check, the page is left out. When that happens for three pages in a row while
   the model answers the research itself, the run stops and says why and what to set: the check
   asks with the same temperature and template settings as the research, so `RESEARCHZOSHO_TEMP=none`
-  (a server that refuses a temperature) or `RESEARCHZOSHO_DRIVE_TEMPLATE_KWARGS` (a model that
-  thinks before it answers) usually mends it. A check asked while you wait, when you add a page or
-  send a question, takes at most thirty seconds.
+  (a server that refuses a temperature) usually mends it. A model that thinks before it answers is
+  handled: an Ollama server is told not to think, and on any server a check that comes back empty
+  after thinking is asked once more with room to think, and the answer is read after the thinking.
+  A check asked while you wait, when you add a page or send a question, takes at most thirty
+  seconds.
 - A page, a reading list or bookmarks that you add yourself are your own choice. Only the last
   question is asked about them, and neither the site list nor your refused sources stop them. When
   no model answers that question, the page is saved all the same and marked "not checked yet: no

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.4
+
+### Fixed
+
+- Bug fix: research runs stopped early when the model server was Ollama and the model was one that thinks before it answers,
+  such as gpt-oss, gemma4 or qwen3. Ollama ignores the setting that turns thinking off, so the library's page check got no
+  answer, and after three pages the run gave up. The page check now works with these models.
+
 ## 0.6.3
 
 ### Fixed
