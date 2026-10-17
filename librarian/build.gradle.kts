@@ -70,6 +70,10 @@ tasks.test {
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)
+    // a pooled client connection outlives the test daemon's idle close (JDK HttpServer, 30 s): a request written on it is never answered,
+    // and a test with no request timeout then hangs the whole suite (PagesTest, 2026-10-15, an hour under a loaded box). The pool drops
+    // a connection idle for a second, so every request after a pause takes a fresh one.
+    systemProperty("jdk.httpclient.keepalive.timeout", "1")
 
     // GenealogyBoundaryTest writes its baseline when run with -Dboundary.write=true (the list only shrinks; never edit it by hand)
     systemProperty("boundary.write", System.getProperty("boundary.write") ?: "false")

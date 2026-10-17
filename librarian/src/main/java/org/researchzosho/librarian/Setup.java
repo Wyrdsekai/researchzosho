@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.researchzosho.Config;
+import org.researchzosho.drive.anthropic.Anthropic;
+import org.researchzosho.drive.openai.OpenAI;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -113,8 +115,14 @@ public final class Setup {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build();
         return new Probe() {
             @Override public List<String> models(String base, String key) {
+                if (Anthropic.is(base)) {
+                    try { List<String> ids = new ArrayList<>(); for (Anthropic.Model m : new Anthropic(Anthropic.base(base), key).models()) ids.add(m.id()); return ids; } catch (RuntimeException e) { return null; }
+                }
+                if (OpenAI.is(base)) {
+                    try { return new OpenAI(OpenAI.base(base), key).models(); } catch (RuntimeException e) { return null; }
+                }
                 try {
-                    var b = HttpRequest.newBuilder(URI.create(Config.driveBase(base) + "/v1/models")).timeout(Duration.ofSeconds(6)).GET();
+                    var b = HttpRequest.newBuilder(URI.create(Config.v1(Config.driveBase(base)) + "/models")).timeout(Duration.ofSeconds(6)).GET();
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
                     if (r.statusCode() / 100 != 2) return null;
@@ -129,7 +137,7 @@ public final class Setup {
                     body.put("model", model); body.put("max_tokens", 400);   // a reasoning model spends its first tokens thinking; 12 left nothing for the word
                     ArrayNode msgs = body.putArray("messages");
                     msgs.addObject().put("role", "user").put("content", "Reply with the single word: ready");
-                    var b = HttpRequest.newBuilder(URI.create(Config.driveBase(base) + "/v1/chat/completions")).timeout(Duration.ofSeconds(60))
+                    var b = HttpRequest.newBuilder(URI.create(Config.v1(Config.driveBase(base)) + "/chat/completions")).timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
@@ -352,7 +360,13 @@ public final class Setup {
                 if (r.startsWith("!")) out.println("  not set up: " + r.substring(1));
                 else { base = ModelServer.URL; model = r; }
             }
-            String typed = base != null ? "" : ask("  Where is your model server? (an address such as http://localhost:11434 or https://api.openai.com/v1, or leave blank)", "");
+            String typed = base != null ? "" : ask("  Where is your model server? (an address such as http://localhost:11434; or type anthropic, openrouter, openai, gemini, nebius or huggingface for a hosted model; or leave blank)", "");
+            if (typed.strip().equalsIgnoreCase("anthropic") || typed.strip().equalsIgnoreCase("claude")) { typed = Anthropic.BASE; out.println("  Claude through Anthropic's API (a key from platform.claude.com; a research run costs about $1.50 on Sonnet with caching)."); if (model == null || model.isBlank()) model = "claude-sonnet-5-5"; }
+            else if (typed.strip().equalsIgnoreCase("openrouter")) { typed = "https://openrouter.ai/api/v1"; out.println("  OpenRouter (a key from openrouter.ai; one key, many models — pick a model id from openrouter.ai/models that supports tool calling)."); }
+            else if (typed.strip().equalsIgnoreCase("openai")) { typed = OpenAI.BASE; out.println("  OpenAI through its Responses API (a key from platform.openai.com; a model such as gpt-6.1-sol, or gpt-6-luna for a cheap one)."); if (model == null || model.isBlank()) model = "gpt-6.1-sol"; }
+            else if (typed.strip().equalsIgnoreCase("nebius")) { typed = "https://api.tokenfactory.nebius.com/v1"; out.println("  Nebius Token Factory (a key from tokenfactory.nebius.com; open models such as deepseek-ai/DeepSeek-V4.1-Flash, hosted in the EU)."); }
+            else if (typed.strip().equalsIgnoreCase("huggingface") || typed.strip().equalsIgnoreCase("hf")) { typed = "https://router.huggingface.co/v1"; out.println("  Hugging Face Inference Providers (a fine-grained token with the Inference Providers permission; a model id such as deepseek-ai/DeepSeek-V4.1-Flash, with :cheapest or :fastest on the end to pick the provider)."); }
+            else if (typed.strip().equalsIgnoreCase("gemini") || typed.strip().equalsIgnoreCase("google")) { typed = "https://generativelanguage.googleapis.com/v1beta/openai"; out.println("  Gemini through its OpenAI-style address (a key from AI Studio; a model such as gemini-3.8-flash)."); if (model == null || model.isBlank()) model = "gemini-3.8-flash"; }
             if (!typed.isBlank()) {
                 base = typed;
                 if (!local(base) && (key == null || key.isBlank())) {

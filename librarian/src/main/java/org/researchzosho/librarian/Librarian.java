@@ -49,7 +49,7 @@ public class Librarian {
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
             "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
-            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_owned", "library_my_shelf", "library_share");
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_models", "library_owned", "library_my_shelf", "library_share");
 
     /** How long a run the chat asked about waits for the person's answer before it starts as ordinary research. */
     static final int OFFER_MINUTES = Config.getInt("RESEARCHZOSHO_OFFER_MINUTES", 10);
@@ -650,6 +650,7 @@ public class Librarian {
             Map.entry("library_bookmarks", "A browser's bookmarks: the pages fetched onto the shelves as a collection; folder=… takes one folder, watch=true re-reads them nightly."),
             Map.entry("library_owned", "What the person owns, from their own purchase records: op=find words=… (year, shop) looks up what was bought, when, where and for how much; op=status says what the ledger holds; op=recalls lists the recall notices that may concern what is owned (hit=<id> puts one away after the person said so); op=import path=… reads a file on this machine after the person named it in this conversation. A reference, never a requirement."),
             Map.entry("library_my_shelf", "The person's own shelf, read from their Calibre library, their follows and their purchases: op=profile says what they went for (the books they added one by one — a bulk import counts as holdings, not taste — and any they rated themselves: the subject mix with its tilt against the shelf, the authors chosen more than once, decades, sample titles, podcasts followed, shops bought from); op=have title=… (author=…) says whether a book is already on the shelf, in the ledger or on a holdings list — check every book before recommending it; op=liked words=… lists the books they went for on a subject, best first (stars narrows to what they rated themselves); op=refresh reads the catalogues of the authors rated well now, after the person asked. A rating counts only when the person gave it. A reference, never a requirement."),
+            Map.entry("library_models", "The models this library can run on, by name: op=list; op=add with name, drive (a host word), model, prices; op=remove; op=key with host and value. A research run names one with model=<name>."),
             Map.entry("library_settings", "The library's settings: op=list shows every setting and its value (a key only as set or not); op=set name=… value=… changes one, after the person said so in this conversation; a blank value unsets it."),
             Map.entry("library_share", "The library reached from outside the house: op=status how it stands; op=tailscale, op=public (anyone with the link) or op=cloudflare (mail=…) turns the relay on, after the person asked for it; op=off turns it off. Installing a missing program is the person's own step: tell them to say /share."),
             Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
@@ -831,6 +832,7 @@ public class Librarian {
                 case "library_questions" -> protocol.questions(args);
                 case "library_bookmarks" -> protocol.bookmarks(args);
                 case "library_settings" -> protocol.settings(args);
+                case "library_models" -> protocol.models(args);
                 case "library_share" -> protocol.share(args);
                 case "library_owned" -> protocol.owned(args);
                 case "library_my_shelf" -> protocol.myShelf(args);
@@ -960,6 +962,16 @@ public class Librarian {
         }
 
         /** A new session, named by the moment it began. */
+        /** The named model this session talks to (researchzosho models), kept beside the session; "" for the library's default. */
+        public String model() {
+            try { Path m = file.resolveSibling(file.getFileName().toString() + ".model"); return Files.exists(m) ? Files.readString(m).strip() : ""; } catch (IOException e) { return ""; }
+        }
+        public void model(String name) throws IOException {
+            Path m = file.resolveSibling(file.getFileName().toString() + ".model");
+            if (name == null || name.isBlank() || name.strip().equalsIgnoreCase(ModelEntries.DEFAULT)) Files.deleteIfExists(m);
+            else { Files.createDirectories(m.getParent()); Files.writeString(m, name.strip()); }
+        }
+
         public static Session open(LibraryStore store) throws IOException { return open(dir(store)); }
 
         /** A new session in this caller's own folder, or null for a reader who has none. */

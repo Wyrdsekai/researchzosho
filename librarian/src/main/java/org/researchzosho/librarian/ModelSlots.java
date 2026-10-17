@@ -50,7 +50,7 @@ public final class ModelSlots {
         if (slots == null && model != null && !model.isBlank()) slots = totalSlots(base + "/upstream/" + URLEncoder.encode(model, StandardCharsets.UTF_8).replace("+", "%20") + "/props");
         if (slots != null) return plan(slots, "llama.cpp says so");
         if (answers(base + "/api/tags")) return plan(OLLAMA_GUESS, "a guess for Ollama, which answers one call at a time unless OLLAMA_NUM_PARALLEL says more");
-        if (answers(base + "/v1/models")) return plan(VLLM_GUESS, "a guess for a vLLM-style server");
+        if (answers(Config.v1(base) + "/models")) return plan(VLLM_GUESS, "a guess for a vLLM-style server");
         return plan(0, "the model server did not answer; the usual numbers until it does");
     }
 

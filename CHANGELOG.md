@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.2
+
+You can now keep several models, on your own computer or from a service, and either pick one for each
+question or let the library choose. Each report says what it cost. The guide, LIBRARIAN_HOWTOUSE.md, has
+the details; MODELS.md says which models did best in our tests.
+
+### New
+
+- **Several models, by name.** `researchzosho models add <name> …` keeps a model with its address, its prices and, if
+  you like, a monthly spending limit. `ask … --model <name>` runs one question on it; the web form and the chat offer
+  the same choice.
+- **Let the library choose.** `--model auto` picks the model for the job and says why: the cheapest one that is good
+  enough and, when you are waiting, quick enough. A free model on your own computer wins whenever it qualifies. Once
+  two models are saved, this is what happens when you name none.
+- **What a run cost.** Each report says which model researched it and what that cost. `researchzosho spend` adds it up
+  by month. A run that would go past a model's monthly limit does not start.
+- **Which model, measured.** MODELS.md lists the models we tried, local ones first, with what each got right, how long
+  it took and what it cost, at the prices of 16 October 2026.
+- **Claude and OpenAI, directly.** Type `anthropic` or `openai` in setup with your key. Each is talked to the way it
+  works best, which makes a Claude run less than half its old price.
+- **Other services.** OpenRouter, Gemini, Nebius, Hugging Face and DeepSeek work with a key. The library waits when a
+  service says it is busy, and is not thrown by a model that thinks before it answers.
+- **Dated sources.** A page with no date gets one from its own text, and when two sources are editions of one document
+  the newer one is used.
+
+### Fixed
+
+- Research on your own computer no longer re-reads most of its prompt every turn, so a run is quicker.
+- A research worker can no longer run on for forty minutes writing a single note.
+- With Claude as the model, the check that reads each cited sentence against its source works again; it had been
+  answering "cannot tell" to nearly everything.
+
 ## 0.6.1
 
 With this release you sign in with a name and a password, you can reach the library from outside your

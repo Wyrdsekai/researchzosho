@@ -673,7 +673,36 @@ public final class Researcher {
      * Run one ask. {@code known} is the library's context block for the question ("" when none). The run works under its stop: when a
      * person asks for it, whatever the run is waiting for ends, and the run ends as {@link Stopped} and returns nothing to file.
      */
+    /** The tokens this run's calls used: {prompt, cached, completion}, counted on every thread of the run. */
+    final long[] usage = new long[3];
+    final long startedMs = System.currentTimeMillis();
+    /** The named model this run runs on, when the service said; its prices make the run's cost. */
+    ModelEntries.Entry entry;
+    public void entry(ModelEntries.Entry e) { this.entry = e; }
+    public long[] usage() { synchronized (usage) { return usage.clone(); } }
+    /** What the run cost at the entry's prices, in dollars; 0 without prices. */
+    public double cost() { long[] u = usage(); return entry == null ? 0 : entry.cost(u[0], u[1], u[2]); }
+    /** The sentence under the question: who researched it and what it cost. "" when no entry is known. */
+    /** Why best judgement chose this run's model, when it did; "" otherwise. */
+    String why = "";
+    public void why(String w) { this.why = w == null ? "" : w; }
+
+    public String researchedBy() {
+        if (entry == null) return "";
+        long[] u = usage();
+        String tokens = u[0] >= 1_000_000 ? String.format(Locale.ROOT, "%.1f M", u[0] / 1e6) : String.format(Locale.ROOT, "%,d", u[0]);
+        String cache = u[0] > 0 && u[1] > 0 ? ", " + Math.round(100.0 * u[1] / u[0]) + " % of it from the cache" : "";
+        String cost = entry.prices() == null ? "" : String.format(Locale.ROOT, ", about $%.2f at the entry's prices", cost());
+        return "Researched by " + entry.name() + " (" + entry.model() + " via " + entry.host() + "): " + tokens + " prompt tokens" + cache + ", " + String.format(Locale.ROOT, "%,d", u[2]) + " written" + cost + "." + (why.isEmpty() ? "" : " Chosen by best judgement: " + why + ".");
+    }
+
     public Result run(Ask ask, String known) {
+        DriveClient.countInto(usage);
+        try { return runCounted(ask, known); }
+        finally { DriveClient.stopCounting(); }
+    }
+
+    private Result runCounted(Ask ask, String known) {
         BooleanSupplier stop = () -> stopWhen.getAsBoolean();
         Result r;
         try { r = Stopping.within(stop, () -> running(ask, known)); }
@@ -768,8 +797,14 @@ public final class Researcher {
         // 4. Synthesis
         progress("synthesis");
         String evidenceText = String.join("\n\n", evidence);
+        // what the library can say about the sources' editions — a date read from a document's own text, two sources that look like
+        // editions of one document — goes to the writer as computed fact; the writer decides (the local 27B wrote three times from
+        // an October 2023 handbook with the June 2026 one captured beside it, 2026-10-15)
+        List<String> pieces = new ArrayList<>(evidence);
+        String editions = store == null ? "" : Editions.block(store, notedSources(evidenceText));
+        if (!editions.isEmpty()) { pieces.add(editions); if (editions.contains("EDITIONS OF ONE DOCUMENT")) { notes.add("editions: two sources look like editions of one document; the writer was told which is newer"); log.accept(notes.get(notes.size() - 1)); } }
         Synthesis syn;
-        try { syn = synthesize(ask, knownBlock, evidence, budget); }
+        try { syn = synthesize(ask, knownBlock, pieces, budget); }
         catch (Declined d) { return declinedRun(d.at("to write the report"), budget, evidenceText, subCount, rounds, notes); }
         notes.add("synthesis: " + (syn.done ? "finished" : "cut off") + ", " + syn.sections.size() + " section(s)");
         log.accept(notes.get(notes.size() - 1));
@@ -790,6 +825,8 @@ public final class Researcher {
         runStats.put("critic_ran", runStats.has("critic_gaps"));
         runStats.put("unaffordable_gaps", openAll.size());
         runStats.put("sources_noted", notedSources(evidenceText).size());
+        { long[] u = usage(); runStats.put("tokens_prompt", u[0]); runStats.put("tokens_cached", u[1]); runStats.put("tokens_completion", u[2]); }
+        if (entry != null) { runStats.put("model_entry", entry.name()); runStats.put("model", entry.model()); runStats.put("host", entry.host()); if (entry.prices() != null) runStats.put("cost", Math.round(cost() * 100) / 100.0); }
         runStats.put("fetches_distinct", fetchedInRun.size());
         runStats.put("fetches_served_from_run", servedFromRun.get());
         runStats.put("shelf_reads", readsInRun.get());
@@ -799,6 +836,12 @@ public final class Researcher {
     // ---- the shelf ----
 
     /** What filing an ask produced: the investigation id when admitted, else the gate's reason. */
+    /** The lines under the question: what the run let in, and who researched it and at what cost. */
+    static String questionNote(String letIn, String by) {
+        String a = letIn == null ? "" : letIn.strip(), b = by == null ? "" : by.strip();
+        return a.isEmpty() ? b : b.isEmpty() ? a : a + "\n\n" + b;
+    }
+
     public record Filed(String investigationId, String reason, Result result) {
         public boolean admitted() { return investigationId != null; }
         /** The model declined the run: nothing was filed, and {@code reason} is the statement that says so. */
@@ -889,7 +932,8 @@ public final class Researcher {
                 id -> {
                     for (String f : asked) Fields.record(store, id, jobId, f, how);
                     if (!letIn.isEmpty()) ContentOffer.record(store, id, jobId, letIn, allowHow);   // before the report, as the fields ledger is
-                }, ContentOffer.reportSentence(letIn), researcher.title);
+                }, questionNote(ContentOffer.reportSentence(letIn), researcher.researchedBy()), researcher.title);
+        if (researcher.entry != null) { try { Spend.record(store, jobId, inv.id(), researcher.entry, researcher.usage(), researcher.cost(), (System.currentTimeMillis() - researcher.startedMs) / 1000, "filed", ask.maxTurns() > 0 && ask.maxTurns() <= 12 ? "quick" : "research"); } catch (IOException e) { researcher.log.accept("spend: not recorded (" + e.getMessage() + ")"); } }
         // the research log: every search this run made, under the question's subject, with the report it belongs to
         List<SearchLog.Entry> made = new ArrayList<>();
         for (SearchLog.Entry e : researcher.searches()) made.add(new SearchLog.Entry(e.date(), ask.question(), e.where(), e.query(), e.fromYear(), e.toYear(), e.found(), inv.id(), e.status()));
@@ -1090,6 +1134,10 @@ public final class Researcher {
         Map<String, Integer> numberOfLocator = new HashMap<>();
         List<String> dated = new ArrayList<>();
         SourceRules rules = SourceRules.load(store);
+        Map<String, Editions.Doc> editionDocs = Editions.describe(store, primary);
+        Map<String, Integer> numberOfPrimary = new HashMap<>();
+        for (int i = 0; i < primary.size(); i++) numberOfPrimary.put(primary.get(i), i + 1);
+        Map<String, String> olderEditions = Editions.olderEditions(editionDocs, numberOfPrimary);
         int n = 0;
         for (List<String> group : byWork.values()) {
             n++;
@@ -1117,7 +1165,8 @@ public final class Researcher {
             boolean notedByWorker = group.stream().anyMatch(noted::contains);
             references.append('[').append(n).append("] ").append(edition.isEmpty() ? (title.isEmpty() ? "" : title + " — ") : edition + " — ").append(loc)
                       .append(!citedInText && !notedByWorker ? "  (read by a worker, not noted, not cited)" : "")
-                      .append(published.isEmpty() ? "" : "  (published " + published + ageNote(published) + ")")
+                      .append(published.isEmpty() ? (editionDocs.containsKey(loc) ? "  (dated " + editionDocs.get(loc).dated().text() + ", from its own text)" : "") : "  (published " + published + ageNote(published) + ")")
+                      .append(olderEditions.containsKey(loc) ? "  (looks like an earlier edition of " + olderEditions.get(loc) + ")" : "")
                       .append(rule == null ? "" : rule.kind().equals("trust") ? "  (a source you trust)" : "  (ON YOUR REFUSED LIST)");
             for (String l : group) if (!l.equals(loc) && !l.startsWith("cite:") && l.contains("://")) references.append("  also ").append(l);
             references.append(same).append('\n');
@@ -1614,7 +1663,17 @@ public final class Researcher {
      * Returns null when the budget was spent before its first turn: a worker with no turn to read anything
      * answered from memory (measured, J-0007: one turn, {@code done} only, a 444-character summary of nothing).
      */
+    /** The next worker's number, for its slot on a llama.cpp server; counted up over the run. */
+    private final AtomicInteger workerSeq = new AtomicInteger();
+
     String investigate(Ask ask, String sub, Budget budget) {
+        DriveClient.pinSlot(workerSeq.getAndIncrement(), workersNow());
+        DriveClient.countInto(usage);   // a worker's thread counts for the run
+        try { return investigateOnSlot(ask, sub, budget); }
+        finally { DriveClient.unpinSlot(); DriveClient.stopCounting(); }
+    }
+
+    private String investigateOnSlot(Ask ask, String sub, Budget budget) {
         Notebook notebook = new Notebook();
         DoneTool done = new DoneTool("done",
                 "Finish this sub-investigation. Pass a short SUMMARY of what the sources established and what "
@@ -1691,7 +1750,7 @@ public final class Researcher {
             try {
                 turnsRun++;
                 try (var step = Declines.step("research this sub-question with the tools, note what the sources show, and finish with a summary: " + Acquisitions.compress(sub, 300), true)) {
-                    assistant = chat(history, deadline ? (closingNote ? noteAndDone : onlyDone) : all, outBudget(history, nctx));
+                    assistant = chat(history, deadline ? (closingNote ? noteAndDone : onlyDone) : all, workerOutBudget(history, nctx));
                 }
             } catch (Stopped e) {
                 throw e;   // a person stopped the run: out of the worker, out of the round, out of the run
@@ -2632,6 +2691,13 @@ public final class Researcher {
      * 512. A FIXED budget was the first live defect — a thinking model spends its reasoning inside max_tokens,
      * and at 1500 two workers' closing tool call was cut off, leaving an empty summary.
      */
+    /** The most a worker's turn may write: a tool call or a summary, never a report. The local 27B once ran a note's text on to 49,152 tokens —
+     *  the whole half-window budget — in one 42-minute call (run E, 2026-10-15); at this cap the same fault costs seven minutes. */
+    static final int WORKER_OUT_MAX = 8_192;
+
+    /** A worker turn's output budget: the window's share, capped at {@link #WORKER_OUT_MAX}. */
+    static int workerOutBudget(ArrayNode history, int nctx) { return Math.min(WORKER_OUT_MAX, outBudget(history, nctx)); }
+
     static int outBudget(ArrayNode history, int nctx) {
         int ctx = Math.max(nctx, 8000);
         int in = 0;

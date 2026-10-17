@@ -157,12 +157,29 @@ public final class LibrarianDaemon {
         stallWatch = t;
     }
 
-    /** One job, on the model the library is set to when it starts: `model use` meanwhile changes the next job's, never this one's halfway. */
+    /** The named model the job runs on (researchzosho models), looked up when the job starts; the default entry when none was named. */
+    private static final ThreadLocal<ModelEntries.Entry> JOB_ENTRY = new ThreadLocal<>();
+    /** Why best judgement chose the job's model, for the report; empty when the model was named. */
+    private static final ThreadLocal<String> JOB_WHY = new ThreadLocal<>();
+
+    /** One job, on the model the library is set to when it starts — or on the named model its ask chose: `model use` meanwhile changes the next job's, never this one's halfway. */
     private String dispatch(ObjectNode job, String drive) {
-        JOB_MODEL.remove();
-        JOB_MODEL.set(model());
-        try { return dispatchNow(job, drive); }
-        finally { JOB_MODEL.remove(); }
+        JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove();
+        String named = job.path("args").path("model_entry").asText("");
+        ModelEntries.Entry entry;
+        if (named.equalsIgnoreCase(Auto.NAME)) {
+            // best judgement, made now: the keys, caps and history as they stand when the run starts
+            Auto.Pick pick = Auto.choose(store, Auto.Job.research(job.path("args").path("quick").asBoolean(false)));
+            entry = pick.entry();
+            JOB_WHY.set(pick.why());
+            ((ObjectNode) job.path("args")).put("model_why", pick.why());
+            log.info("{}: {}", job.path("id").asText(""), pick.why());
+        } else entry = named.isEmpty() ? null : ModelEntries.get(named);
+        if (!named.isEmpty() && entry == null) throw new IllegalStateException("No model is named " + named + " any more. researchzosho models lists the names; ask again with one of them.");
+        JOB_MODEL.set(entry == null ? model() : entry.model());
+        JOB_ENTRY.set(entry == null ? ModelEntries.defaultEntry() : entry);
+        try { return dispatchNow(job, entry == null ? drive : entry.drive()); }
+        finally { JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove(); }
     }
 
     private String dispatchNow(ObjectNode job, String drive) {
@@ -171,7 +188,14 @@ public final class LibrarianDaemon {
         String d = drive == null || drive.isEmpty() ? driveNow() : drive;
         switch (kind) {
             case "research" -> {
-                if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The question was saved but cannot run. Send it again when a model is up.");
+                // a cap on the named model: a run that would start past it is refused with the figure, before any call is made
+                ModelEntries.Entry entry = JOB_ENTRY.get();
+                if (entry != null && entry.cap() > 0) {
+                    double spent = Spend.monthTotal(store, entry.name());
+                    if (spent >= entry.cap()) throw new IllegalStateException("The model " + entry.name() + " has spent " + Spend.dollars(spent) + " this month against its cap of " + Spend.dollars(entry.cap()) + ". The run is not started. Raise the cap (researchzosho models set " + entry.name() + " --cap <dollars>) or ask again with another model.");
+                }
+                boolean answers = entry != null && !entry.name().equals(ModelEntries.DEFAULT) ? Crews.driveState(d, entry.model(), java.time.Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : Crews.driveAnswers(d);
+                if (!answers) throw new IllegalStateException("No model is answering at " + d + (entry != null && !entry.name().equals(ModelEntries.DEFAULT) ? " for " + entry.name() + " (" + entry.model() + ")" : "") + ". The question was saved but cannot run. Send it again when a model is up.");
                 try { contentCheckBeforeRun(job, a); }
                 catch (IOException e) { throw new IllegalStateException("The library could not be written: " + e.getMessage(), e); }
                 String writer = job.path("patron").asText("").isEmpty() ? "patron:anonymous" : "patron:" + job.path("patron").asText();
@@ -253,6 +277,8 @@ public final class LibrarianDaemon {
         long t0 = System.currentTimeMillis();
         RunTrace trace = RunTrace.open(store, jobId);
         Researcher researcher = researcher(drive, trace);
+        researcher.entry(JOB_ENTRY.get() == null ? ModelEntries.defaultEntry() : JOB_ENTRY.get());   // the run's model, for its report and its cost
+        researcher.why(JOB_WHY.get());
         if (a.hasNonNull("title")) researcher.title(a.get("title").asText());
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
         try {
@@ -377,6 +403,13 @@ public final class LibrarianDaemon {
 
     /** The seat the Librarian talks from: the judge drive when one is set, else the workers' drive. */
     Researcher.Drive chatDrive() { return Researcher.watchedChat(driveNow(), model()); }   // watched: when the model declines, the chat says so
+
+    /** The seat for one chat session: the named model the session chose with /model, else the library's. */
+    Researcher.Drive chatDrive(Librarian.Session session) {
+        String named = session == null ? "" : session.model();
+        ModelEntries.Entry e = named.isEmpty() ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.chat()).entry() : ModelEntries.get(named);
+        return e == null ? chatDrive() : Researcher.watchedChat(e.drive(), e.model());
+    }
 
     /** The runner for a job, its drives seen through the job's trace when there is one. */
     private Researcher researcher(String drive, RunTrace trace) {
@@ -615,9 +648,20 @@ public final class LibrarianDaemon {
         Patrons.check(store, patron, Patrons.Level.write);
         LibraryProtocol.helpBeforeTooShort(body, way);   // a short question about harming oneself gets the help, not "too short"
         LibraryProtocol.validateResearch(body);
-        boolean any = false;
-        for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveNow() : d)) { any = true; break; }
-        if (!any) throw ProtocolError.unavailable("No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
+        // a run on a named model is asked of that model's own server, by its own model id; otherwise of the library's drives
+        String named = body.path("model").asText("").strip();
+        if (named.isEmpty() && Auto.isDefault()) named = Auto.NAME;   // nothing named, and there is a choice: best judgement
+        // auto: the model best judgement would pick now is the one probed; the pick itself is made again when the run starts
+        ModelEntries.Entry entry = named.isEmpty() || named.equalsIgnoreCase(ModelEntries.DEFAULT) ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.research(body.path("quick").asBoolean(false))).entry() : ModelEntries.get(named);
+        if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
+        if (!named.isEmpty() && !named.equalsIgnoreCase(ModelEntries.DEFAULT) && !named.equalsIgnoreCase(Auto.NAME) && entry == null) throw ProtocolError.invalidArgs("No model is named " + named + ". The names are: " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");
+        if (entry != null) {
+            if (Crews.driveState(entry.drive(), entry.model(), java.time.Duration.ofSeconds(20)) != Crews.DriveState.ANSWERS) throw ProtocolError.unavailable("No model answers at " + entry.drive() + " for " + entry.name() + " (" + entry.model() + ")." + (entry.hosted() && DriveClient.hostKey(entry.host()) == null ? " No key is kept for " + entry.host() + ": researchzosho models key " + entry.host() + " <key>." : " Research needs one."));
+        } else {
+            boolean any = false;
+            for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveNow() : d)) { any = true; break; }
+            if (!any) throw ProtocolError.unavailable("No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
+        }
         ObjectNode r = new LibraryProtocol(store).research(body, way);
         jobs.pickUp();
         r.put("queued_ahead", Math.max(0, jobs.queued() - 1) + jobs.running().size());

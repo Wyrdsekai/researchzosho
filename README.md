@@ -48,7 +48,7 @@ This is The Research Harness For The Rest Of Us.
 
 → **[BEDROCK.md](docs/BEDROCK.md)**: using the models in your own AWS account (Amazon Bedrock) with your own AWS sign-in
 
-→ **[MODELS.md](docs/MODELS.md)**: which model to run, by your graphics card's VRAM, from what we measured
+→ **[MODELS.md](docs/MODELS.md)**: which model to run, from what we measured: the local models by your graphics card's VRAM first, then the hosted ones by what they got right, how long a run took and what it cost
 
 ---
 

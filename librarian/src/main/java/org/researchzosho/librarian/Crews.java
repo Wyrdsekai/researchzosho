@@ -37,6 +37,8 @@ import org.researchzosho.librarian.dna.PodcastDna;
 import org.researchzosho.librarian.dna.Pool;
 import org.researchzosho.librarian.dna.RecordFill;
 import org.researchzosho.librarian.dna.ShelfDna;
+import org.researchzosho.drive.anthropic.Anthropic;
+import org.researchzosho.drive.openai.OpenAI;
 import org.researchzosho.drive.aws.Bedrock;
 import org.slf4j.LoggerFactory;
 import org.researchzosho.drive.Declined;
@@ -368,18 +370,26 @@ public final class Crews {
     static DriveState driveState(String driveUrl, String model, Duration timeout) {
         if (driveUrl == null || driveUrl.isBlank()) return DriveState.DOWN;
         if (Bedrock.is(driveUrl)) return bedrockState(driveUrl, model, timeout);
+        if (Anthropic.is(driveUrl)) return anthropicState(driveUrl, model);
+        if (OpenAI.is(driveUrl)) return openaiState(driveUrl, model);
         try {
             var client = PROBE_HTTP;
             var body = new ObjectMapper().createObjectNode();
             body.put("model", model == null || model.isBlank() ? "local-model" : model);
             body.putArray("messages").addObject().put("role", "user").put("content", "hi");
-            body.put("max_tokens", 1);
-            var req = HttpRequest.newBuilder(URI.create(driveUrl.replaceAll("/+$", "") + "/v1/chat/completions"))
+            // a hosted reasoning model cannot answer in one token: it is asked as a quick decision (no reasoning, or little) under a budget
+            // it will not reach — OpenAI's API answers 400 "could not finish the message" to a one-token budget (2026-10-15)
+            if (DriveClient.hostedApi(driveUrl)) { body.put("max_tokens", 1024); body.putObject("chat_template_kwargs").put("enable_thinking", false); }
+            else body.put("max_tokens", 1);
+            body = DriveClient.hostedShape(body, driveUrl);   // the fields this API takes
+            var rb = HttpRequest.newBuilder(URI.create(Config.v1(driveUrl) + "/chat/completions"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
-                    .build();
-            var res = client.send(req, HttpResponse.BodyHandlers.ofString());
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
+            // a hosted API wants the key on the probe too (OpenRouter, OpenAI, Gemini answered 401 to a probe without it, 2026-10-15)
+            String key = DriveClient.keyFor(driveUrl);
+            if (key != null) rb.header("Authorization", "Bearer " + key);
+            var res = client.send(rb.build(), HttpResponse.BodyHandlers.ofString());
             if (res.statusCode() == 200 && res.body().contains("\"choices\"")) return DriveState.ANSWERS;
             return res.statusCode() == 503 ? DriveState.STARTING : DriveState.DOWN;
         } catch (HttpTimeoutException e) {
@@ -392,6 +402,26 @@ public final class Crews {
     /** Bedrock is asked for one token, and a yes is remembered for five minutes: each question there is on somebody's AWS bill. */
     private static volatile long bedrockAnsweredAt = 0;
     private static volatile String bedrockAnsweredFor = "";
+
+    /** OpenAI's API answers when the key opens its models list; asked at most every five minutes. */
+    private static DriveState openaiState(String driveUrl, String model) {
+        String key = driveUrl + "\t" + model;
+        if (key.equals(bedrockAnsweredFor) && System.currentTimeMillis() - bedrockAnsweredAt < 300_000) return DriveState.ANSWERS;
+        OpenAI o = new OpenAI(OpenAI.base(driveUrl), DriveClient.keyFor(OpenAI.base(driveUrl)));
+        if (o.reachable()) { bedrockAnsweredFor = key; bedrockAnsweredAt = System.currentTimeMillis(); return DriveState.ANSWERS; }
+        LoggerFactory.getLogger(Crews.class).warn("openai does not answer: the key does not open the models list");
+        return DriveState.DOWN;
+    }
+
+    /** Anthropic's API answers when the key opens its models list; asked at most every five minutes. */
+    private static DriveState anthropicState(String driveUrl, String model) {
+        String key = driveUrl + "\t" + model;
+        if (key.equals(bedrockAnsweredFor) && System.currentTimeMillis() - bedrockAnsweredAt < 300_000) return DriveState.ANSWERS;
+        Anthropic a = new Anthropic(Anthropic.base(driveUrl), DriveClient.keyFor(Anthropic.base(driveUrl)));
+        if (a.reachable()) { bedrockAnsweredFor = key; bedrockAnsweredAt = System.currentTimeMillis(); return DriveState.ANSWERS; }
+        LoggerFactory.getLogger(Crews.class).warn("anthropic does not answer: the key does not open the models list");
+        return DriveState.DOWN;
+    }
 
     private static DriveState bedrockState(String driveUrl, String model, Duration timeout) {
         String key = driveUrl + "\t" + model;

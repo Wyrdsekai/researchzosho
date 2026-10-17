@@ -370,6 +370,20 @@ public final class McpServer {
                         prop("title", "string", "A name for the list."),
                         prop("limit", "integer", "How many questions to take (default all, up to 200)."),
                         patronProp())));
+        tools.add(tool("library_models",
+                "The models this library can run on, by name: list them; add one (a name, a host address or word — anthropic, openai, openrouter, gemini, nebius, huggingface — a model id, prices per million tokens as in/out/cache, an effort, a monthly cap in dollars); remove one; keep a host's key. A key is never returned. Write access.",
+                schema(new String[]{},
+                        enumProp("op", "list (default) | add | remove | key", "list", "add", "remove", "key"),
+                        prop("name", "string", "With add or remove: the entry's name — letters, digits and hyphens."),
+                        prop("drive", "string", "With add: the host's address, or a word: anthropic, openai, openrouter, gemini, nebius, huggingface."),
+                        prop("model", "string", "With add: the model id on that host."),
+                        prop("prices", "string", "With add, optional: dollars per million tokens as in/out or in/out/cache, for example 0.024/0.72/0.005."),
+                        prop("effort", "string", "With add, optional: the reasoning effort the host takes (low, medium, high …)."),
+                        prop("cap", "string", "With add, optional: dollars a month; a run that would start past it is refused."),
+                        prop("note", "string", "With add, optional: a note shown beside the entry."),
+                        prop("host", "string", "With key: the host (openrouter.ai) or its word."),
+                        prop("value", "string", "With key: the key; blank forgets it."),
+                        patronProp())));
         tools.add(tool("library_settings",
                 "The library's settings (write access): op=list shows every setting with what it is for and its value, a key only as set or not; "
                 + "op=set with name and value writes one (name as the key, or without its RESEARCHZOSHO_ prefix; a blank value, or op=unset, unsets it). "
@@ -603,6 +617,7 @@ public final class McpServer {
                         enumProp("sources", "both (the shelves first, then the web — default) | shelves (the person's own corpus only, no web) | web.", "both", "shelves", "web"),
                         arrayProp("collections", "Optional: names of the person's collections (folders shelved with `researchzosho add <dir>`) to search."),
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
+                        prop("model", "string", "Optional: the named model to run on, one of the library's model entries by name (library_models op=list names them), or auto for best judgement, which is the default when more than one is named. Each entry is a host, a model id and its prices; the run's report says which ran it and what it cost."),
                         prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
                         allowProp(),
                         localeProp(),
@@ -705,6 +720,7 @@ public final class McpServer {
             case "library_questions" -> p.questions(args);
             case "library_bookmarks" -> p.bookmarks(args);
             case "library_settings" -> p.settings(args);
+            case "library_models" -> p.models(args);
             case "library_share" -> p.share(args);
             case "library_owned" -> p.owned(args);
             case "library_my_shelf" -> p.myShelf(args);

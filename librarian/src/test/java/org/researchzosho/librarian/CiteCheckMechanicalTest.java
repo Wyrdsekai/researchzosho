@@ -103,4 +103,26 @@ class CiteCheckSecondOpinionTest {
         assertNull(CiteCheck.map("SIGIR 2025", refs), "one word and a year name nothing");
         assertTrue(CiteCheck.sentences("## Sources\n[1] https://sigir.example/paper-2025 | [2] https://other.example/x\n").size() >= 2);
     }
+
+    @Test
+    void aJudgeThatExplainedInsteadOfAnsweringInJsonIsReadByItsLastVerdictWord() {
+        // Claude answered the cite-check's JSON ask in prose on 2026-10-15, and every such answer read as cannot-tell
+        assertEquals("supported", CiteCheck.verdictInProse("The source names the Chatelaine and the Seneschal, so the sentence is supported."));
+        assertEquals("unsupported", CiteCheck.verdictInProse("The source says 16, the sentence says 18: unsupported."));
+        assertEquals("unsupported", CiteCheck.verdictInProse("Not supported: the source says nothing of loaner gear."));
+        assertEquals("cannot-tell", CiteCheck.verdictInProse("The excerpt covers membership only; cannot tell."));
+        assertEquals("cannot-tell", CiteCheck.verdictInProse("It is supported in part, but the excerpt does not cover the rest, so: cannot-tell."), "the last verdict word is the verdict");
+        assertEquals("cannot-tell", CiteCheck.verdictInProse("")); assertEquals("cannot-tell", CiteCheck.verdictInProse(null));
+    }
+
+    @Test
+    void theExcerptIsAsLongAsTheSettingSays() {
+        String page = "x".repeat(10_000) + " rattan handbook " + "y".repeat(10_000);
+        assertEquals(page, CiteCheck.excerpt(page, "the rattan handbook says", 30_000), "a judge with a big window reads the whole page");
+        String cut = CiteCheck.excerpt(page, "the rattan handbook says", 6_000);
+        assertTrue(cut.length() < page.length() && cut.contains("rattan handbook"), "a local judge gets the head and the passage around the sentence's words: " + cut.length());
+        assertTrue(CiteCheck.EXCERPT_CHARS >= 2_000);
+        assertEquals(6_000, CiteCheck.excerptFor("http://localhost:8080")); assertEquals(6_000, CiteCheck.excerptFor(""));
+        assertEquals(24_000, CiteCheck.excerptFor("https://api.anthropic.com")); assertEquals(24_000, CiteCheck.excerptFor("https://openrouter.ai/api/v1")); assertEquals(24_000, CiteCheck.excerptFor("https://api.openai.com"));
+    }
 }

@@ -122,7 +122,7 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
                 DriveClient.forgetUsage();
                 try { out = delegate.classify(messages, maxTokens); return out; }
                 catch (RuntimeException e) { error = e.getMessage(); throw e; }   // a decline among them: the line says what the model declined
-                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); finish(line, t0, r, error); }
+                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); r.put("head", head(out)); finish(line, t0, r, error); }
             }
             @Override public String prose(ArrayNode messages, int maxTokens) {
                 long t0 = System.nanoTime();
@@ -133,10 +133,12 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
                 DriveClient.forgetUsage();
                 try { out = delegate.prose(messages, maxTokens); return out; }
                 catch (RuntimeException e) { error = e.getMessage(); throw e; }
-                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); finish(line, t0, r, error); }
+                finally { ObjectNode r = M.createObjectNode(); r.put("content_chars", out == null ? 0 : out.length()); r.put("head", head(out)); finish(line, t0, r, error); }
             }
             @Override public int contextWindow() { return delegate.contextWindow(); }
             @Override public DeclineJudge declineJudge() { return delegate.declineJudge(); }
+            /** The start of a decision's reply, so a plan read as one sub-question can be read back (MiniMax M3 through OpenRouter, 2026-10-16: 4,000 characters the planner could not read, and only their count in the trace). */
+            private static String head(String s) { return s == null ? "" : s.length() > 400 ? s.substring(0, 400) : s; }
             private void finish(ObjectNode line, long t0, ObjectNode reply, String error) {
                 long ms = (System.nanoTime() - t0) / 1_000_000;
                 line.put("latency_ms", ms);
@@ -145,7 +147,7 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
                 if (u != null) { line.putObject("usage").put("prompt_tokens", u[0]).put("completion_tokens", u[1]); trace.promptTokens.addAndGet(u[0]); trace.completionTokens.addAndGet(u[1]); }
                 if (reply != null) {
                     ObjectNode r = line.putObject("reply");
-                    if (reply.has("content_chars")) r.put("content_chars", reply.get("content_chars").asInt());
+                    if (reply.has("content_chars")) { r.put("content_chars", reply.get("content_chars").asInt()); if (reply.has("head")) r.put("head", reply.get("head").asText()); }
                     else {
                         r.put("content_chars", reply.path("content").asText("").length());
                         ArrayNode calls = r.putArray("tool_calls");

@@ -37,6 +37,7 @@ import java.util.function.LongSupplier;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Recalls;
 import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
 import org.researchzosho.librarian.dna.Dna;
 import org.researchzosho.librarian.dna.ShelfDna;
 import org.researchzosho.Version;
@@ -729,6 +730,21 @@ final class Pages {
         String note = q.getOrDefault("note", "");
         if (!note.isEmpty()) b.append("<p class=\"note\">").append(esc(note)).append("</p>\n");
         b.append("<p>These are the settings of this library, from ").append(esc(r.path("config_file").asText())).append(". A change takes effect at once, except where a setting says otherwise. A key is shown only as set or not.</p>\n");
+        // the models by name, and what the runs cost on them
+        {
+            java.util.Map<String, ModelEntries.Entry> entries = ModelEntries.all();
+            b.append("<h2>Models</h2><p class=\"k\">The models a run may use, by name (researchzosho models adds one; the research form, /model in the chat and the MCP tool pick one).</p><table><tr><th>name</th><th>model</th><th>host</th><th>prices per M</th><th>cap</th><th>key</th></tr>");
+            for (ModelEntries.Entry e : entries.values()) b.append("<tr><td>").append(esc(e.name())).append("</td><td>").append(esc(e.model())).append("</td><td>").append(esc(e.host())).append("</td><td>").append(esc(e.pricesText())).append("</td><td>").append(e.cap() > 0 ? Spend.dollars(e.cap()) + " a month" : "").append("</td><td>").append(!e.hosted() ? "none needed" : DriveClient.hostKey(e.host()) != null || (e.name().equals(ModelEntries.DEFAULT) && Config.get("RESEARCHZOSHO_API_KEY") != null) ? "kept" : "<b>none</b>").append("</td></tr>");
+            b.append("</table>");
+            com.fasterxml.jackson.databind.node.ObjectNode sum = Spend.summary(store);
+            if (!sum.path("hosts").isEmpty()) {
+                b.append("<h2>Spend</h2><p class=\"k\">What research runs cost at each model's list prices, this month (").append(esc(sum.path("month").asText())).append(") and in all: the library's arithmetic on the servers' token counts, not a bill.</p><table><tr><th>host</th><th>this month</th><th>in all</th></tr>");
+            for (com.fasterxml.jackson.databind.JsonNode row : sum.path("hosts")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append(" (").append(row.path("runs_month").asInt()).append(" run").append(row.path("runs_month").asInt() == 1 ? "" : "s").append(")</td><td>").append(Spend.dollars(row.path("all").asDouble())).append(" (").append(row.path("runs_all").asInt()).append(")</td></tr>");
+                b.append("</table><table><tr><th>named model</th><th>this month</th><th>in all</th><th>cap</th></tr>");
+                for (com.fasterxml.jackson.databind.JsonNode row : sum.path("entries")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append("</td><td>").append(Spend.dollars(row.path("all").asDouble())).append("</td><td>").append(row.has("cap") ? Spend.dollars(row.path("cap").asDouble()) : "").append("</td></tr>");
+                b.append("</table>");
+            }
+        }
         b.append("<form method=\"post\" action=\"/settings\"><p><label>Setting <select name=\"name\">");
         for (JsonNode s : r.path("settings")) b.append("<option value=\"").append(esc(s.path("name").asText())).append("\">").append(esc(s.path("name").asText())).append("</option>");
         b.append("</select></label> <label>Value <input name=\"value\" size=\"50\" placeholder=\"leave empty to unset\"></label> <button type=\"submit\">Save</button></p></form>\n");
@@ -1066,6 +1082,7 @@ final class Pages {
         String mode = sent.getOrDefault("mode", "broad"), sources = sent.getOrDefault("sources", "both");
         b.append("<label>How<br><select name=\"mode\"><option value=\"broad\">broad — cover the whole topic</option><option value=\"depth\"").append(mode.equals("depth") ? " selected" : "").append(">deep — go into detail on the best sources</option></select></label>");
         b.append("<label>Where to read <small>(this library: the documents you added and what earlier runs found; the web: everything else, the archives and the podcasts included)</small><br><select name=\"sources\"><option value=\"both\">this library and the web</option><option value=\"shelves\"").append(sources.equals("shelves") ? " selected" : "").append(">this library only</option><option value=\"web\"").append(sources.equals("web") ? " selected" : "").append(">the web only</option></select></label>");
+        b.append(modelChoice(sent.getOrDefault("model", "")));
         b.append("<label>Limits, if you want any (0 = no limit)<br><input name=\"max_turns\" value=\"").append(num(sent.get("max_turns"))).append("\" size=\"6\"> model turns &nbsp; <input name=\"max_minutes\" value=\"").append(num(sent.get("max_minutes"))).append("\" size=\"6\"> minutes</label>");
         // harm_ok: the person's yes to researching it after the help was shown, carried so that the help is not shown twice
         for (String hidden : List.of("quick", "follow_up_to", "back", "harm_ok")) if (sent.containsKey(hidden) && !sent.get(hidden).isBlank()) b.append("<input type=\"hidden\" name=\"").append(hidden).append("\" value=\"").append(esc(sent.get(hidden))).append("\">");
@@ -1182,6 +1199,19 @@ final class Pages {
         return page(store, patron, "Before you send it", b.toString());
     }
 
+    /** The model to run on, when the library has more than its default: a dropdown of the named models, the default first. */
+    static String modelChoice(String chosen) {
+        Map<String, ModelEntries.Entry> all = ModelEntries.all();
+        if (all.size() < 2) return "";
+        StringBuilder b = new StringBuilder("<label>Which model<br><select name=\"model\">");
+        b.append("<option value=\"auto\"").append(Auto.NAME.equals(chosen) || (chosen.isEmpty() && Auto.isDefault()) ? " selected" : "").append(">auto — best judgement picks, and says why</option>");
+        for (ModelEntries.Entry e : all.values()) {
+            String label = e.name().equals(ModelEntries.DEFAULT) ? "default — " + e.model() + " via " + e.host() : e.name() + " — " + e.model() + " via " + e.host() + (e.prices() == null ? "" : ", $" + e.pricesText() + " per M");
+            b.append("<option value=\"").append(esc(e.name())).append("\"").append(e.name().equals(chosen) ? " selected" : "").append(">").append(esc(label)).append("</option>");
+        }
+        return b.append("</select> <small>researchzosho models adds one</small></label>").toString();
+    }
+
     private static String researchPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
         Patrons.check(store, patron, Patrons.Level.write);   // before anything is written down about the question
         String once = form.getOrDefault("once", "");
@@ -1198,6 +1228,8 @@ final class Pages {
         body.put("sources", form.getOrDefault("sources", "both"));
         body.put("max_turns", num(form.get("max_turns"))); body.put("max_minutes", num(form.get("max_minutes")));
         if ("1".equals(form.get("quick"))) body.put("quick", true);
+        String modelEntry = form.getOrDefault("model", "").strip();
+        if (!modelEntry.isEmpty() && !modelEntry.equals(ModelEntries.DEFAULT)) body.put("model", modelEntry);
         String field = form.getOrDefault("field", "").strip();
         if (!field.isEmpty()) body.put("field", field);
         else if (!"1".equals(form.get("told")) && question.length() >= 12) {
@@ -1855,7 +1887,18 @@ final class Pages {
         Patrons.check(store, patron, Patrons.Level.read);
         Librarian.Session s = chatSession(store, patron, form);
         if (s == null) throw ProtocolError.forbidden(CHAT_SIGN_IN);
-        new Librarian(store, d.chatDrive(), patron, s).say(words);
+        // /model <name>: this session talks to that named model from now on; /model alone lists them. Answered by the library, not the model.
+        if (words.equals("/model") || words.startsWith("/model ")) {
+            String name = words.length() > 6 ? words.substring(6).strip() : "";
+            String answer;
+            if (name.isEmpty()) { StringBuilder b = new StringBuilder("The models this library can talk to" + (s.model().isEmpty() ? "" : " (this chat uses " + s.model() + ")") + ":"); for (ModelEntries.Entry e : ModelEntries.all().values()) b.append("\n").append(e.line()); answer = b.append("\n/model <name> switches this chat to one.").toString(); }
+            else if (name.equalsIgnoreCase(Auto.NAME)) { s.model(Auto.NAME); answer = Auto.choose(store, Auto.Job.chat()).why() + " — this chat uses best judgement from now on."; }
+            else { ModelEntries.Entry e = ModelEntries.get(name); if (e == null) answer = "No model is named " + name + ". /model lists them (or auto)."; else { s.model(e.name()); answer = "This chat now uses " + e.line() + "."; } }
+            ObjectNode said = M.createObjectNode(); said.put("role", "user"); said.put("content", words); s.append(said);
+            ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", answer); s.append(reply);
+            return;
+        }
+        new Librarian(store, d.chatDrive(s), patron, s).say(words);
     }
 
     /** Paragraphs from the Librarian's plain text, ids linked. */

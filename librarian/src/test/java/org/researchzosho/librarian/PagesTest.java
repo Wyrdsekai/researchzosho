@@ -27,12 +27,12 @@ class PagesTest {
     }
 
     static HttpResponse<String> get(HttpClient c, String url, String cookie) throws Exception {
-        var b = HttpRequest.newBuilder(URI.create(url)).GET();
+        var b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).GET();
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
     static HttpResponse<String> post(HttpClient c, String url, String form, String cookie) throws Exception {
-        var b = HttpRequest.newBuilder(URI.create(url)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
+        var b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }

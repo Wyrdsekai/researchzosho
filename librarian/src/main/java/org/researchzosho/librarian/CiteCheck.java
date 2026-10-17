@@ -1,5 +1,9 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.aws.Bedrock;
+import org.researchzosho.drive.anthropic.Anthropic;
+import org.researchzosho.drive.openai.OpenAI;
 import org.researchzosho.tools.Entities;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -40,6 +44,16 @@ public final class CiteCheck {
     private static final ObjectMapper M = new ObjectMapper();
     /** How many cited sentences to read at most; 0 (the default) = every one. A turn ceiling on the ask bounds it anyway. */
     static final int MAX_CHECKS = Config.getInt("RESEARCHZOSHO_CITECHECK_MAX", 0);
+    /** How much of a source the judge reads, in characters: the whole of a short page, else its head and the passages around the sentence's
+     *  words. 6,000 fits a local model's window beside the sentence; a hosted judge with a large window can be given the whole page, and
+     *  then "cannot tell from the excerpt" is rarer (a quarter of the cited sentences on 2026-10-15, with the excerpt the only reason). */
+    static final int EXCERPT_CHARS = Math.max(2000, Config.getInt("RESEARCHZOSHO_CITECHECK_EXCERPT", 0) > 0 ? Config.getInt("RESEARCHZOSHO_CITECHECK_EXCERPT", 0) : excerptFor(Config.get("RESEARCHZOSHO_JUDGE_DRIVE", Config.get("RESEARCHZOSHO_DRIVE", ""))));
+
+    /** How much of a source a judge on that drive reads when nothing is set: a hosted API has the window for four times what a local model gets. */
+    static int excerptFor(String judgeDrive) {
+        String d = judgeDrive == null ? "" : judgeDrive;
+        return DriveClient.hostedApi(d) || Anthropic.is(d) || OpenAI.is(d) || Bedrock.is(d) ? 24_000 : 6_000;
+    }
     /** Abbreviations whose period ends no sentence. */
     private static final java.util.Set<String> ABBREV = java.util.Set.of("al", "e.g", "i.e", "cf", "vs", "etc", "no", "pp", "fig", "vol", "ca", "approx");
 
@@ -398,7 +412,7 @@ public final class CiteCheck {
             String raw;
             try (var step = Declines.step("say whether a source supports a sentence of a report, as JSON")) { raw = judge.classify(msgs, 60); }
             int a = raw.indexOf('{'), b = raw.lastIndexOf('}');
-            if (a < 0 || b <= a) return "cannot-tell";
+            if (a < 0 || b <= a) return verdictInProse(raw);
             JsonNode j = M.readTree(raw.substring(a, b + 1));
             String v = j.path("verdict").asText("cannot-tell").toLowerCase(Locale.ROOT).strip();
             return v.equals("supported") || v.equals("unsupported") ? v : "cannot-tell";
@@ -410,8 +424,19 @@ public final class CiteCheck {
     }
 
     /** The part of a long source most likely to bear on the sentence: windows around its rarest words, capped. */
-    static String excerpt(String source, String sentence) {
-        if (source.length() <= 6000) return source;
+    /** A judge that explained instead of answering in JSON: its last verdict word counts, when it gave one; "cannot-tell" when it did not. */
+    static String verdictInProse(String raw) {
+        Matcher m = Pattern.compile("\\b(unsupported|not supported|supported|cannot[- ]tell)\\b", Pattern.CASE_INSENSITIVE).matcher(raw == null ? "" : raw);
+        String last = null;
+        while (m.find()) last = m.group(1).toLowerCase(Locale.ROOT);
+        if (last == null) return "cannot-tell";
+        return last.equals("supported") ? "supported" : last.startsWith("cannot") ? "cannot-tell" : "unsupported";
+    }
+
+    static String excerpt(String source, String sentence) { return excerpt(source, sentence, EXCERPT_CHARS); }
+
+    static String excerpt(String source, String sentence, int chars) {
+        if (source.length() <= chars) return source;
         List<String> words = new ArrayList<>();
         Matcher w = Pattern.compile("[\\p{L}\\p{N}]{5,}").matcher(sentence.toLowerCase(Locale.ROOT));
         while (w.find()) words.add(w.group());
@@ -428,7 +453,7 @@ public final class CiteCheck {
             if (s < last) continue;
             sb.append(source, s, Math.min(source.length(), s + 900)).append("\n…\n");
             last = s + 900;
-            if (sb.length() > 6000) break;
+            if (sb.length() > chars) break;
         }
         return sb.toString();
     }

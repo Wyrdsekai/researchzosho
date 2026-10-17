@@ -296,7 +296,7 @@ class ShareTest {
             // the quick tunnel: started by the watcher, its address read into the setting; ended when share goes off
             Config.set(Share.SHARE, "cloudflare");
             until(() -> Share.address().equals("https://abc-def-ghi.trycloudflare.com"), "the tunnel's address is read from its output: " + Share.address());
-            assertTrue(Files.readString(Share.stateFile()).contains("\"state\":\"up\""));
+            until(() -> { try { return Files.readString(Share.stateFile()).contains("\"state\":\"up\""); } catch (Exception e) { return false; } }, "the state file says up (the address is set a moment before it is written; read as false once under a load of 18 on 2026-10-15)");
             assertTrue(Share.statusLine().contains("quick tunnel at https://abc-def-ghi.trycloudflare.com"));
             Config.set(Share.SHARE, "off");
             until(() -> d.doorPort() < 0, "the door closes when share is off");

@@ -6,7 +6,9 @@ the library already holds works without a model.
 
 The choice depends on **VRAM**: the memory on your graphics card, not the computer's RAM. `nvidia-smi`
 shows it on Linux and Windows. On a Mac with Apple silicon the card shares the machine's unified
-memory, so read the tiers against about two thirds of that. This page is the measured list.
+memory, so read the tiers against about two thirds of that. This page has a measured recommendation
+for both kinds: the local models by card, first, and then the hosted models by what they got right,
+how long a run took and what it cost.
 `researchzosho models` prints the row for the card it finds, with the command that serves it.
 `researchzosho model install` sets up the top row of that tier on demand. The model comes up when a
 run needs it and goes away after twenty idle minutes. The embeddings model (Qwen3-Embedding-0.6B,
@@ -103,11 +105,66 @@ have it found. On a Mac, llama.cpp's Metal build runs the same files. `model ins
 launchd agent. On Windows, the Vulkan build runs on any card. `model install` sets it up as a logon
 task.
 
-## A hosted API instead
+## Hosted models, measured (October 2026)
 
-Any OpenAI-compatible endpoint works. `RESEARCHZOSHO_DRIVE` is the base address. `RESEARCHZOSHO_MODEL`
-is the model name the provider expects. `RESEARCHZOSHO_API_KEY` is the key. Your documents go to that
-server and nowhere else. `researchzosho setup` asks for these and checks them with one question.
+Any OpenAI-compatible endpoint works, and the Claude API and OpenAI's own API have clients of their own.
+Name one with `researchzosho models add <name> <host word> <model id> --prices in/out[/cache]`, keep its
+key with `models key <host> --file <file>`, and pick it per run with `--model <name>`, or let `auto`
+choose. Your documents go to that server and nowhere else.
+
+**Every price and cost on this page is from the providers' lists as read on 16 October 2026.** They change their
+prices often, so read the list before you count on a figure, and keep your own current with
+`researchzosho models set <name> --prices in/out/cache`; the costs the library reports use the prices you gave it.
+
+The picks, from the runs below:
+
+- **Cheapest that is right: DeepSeek V4.1 Flash through OpenRouter.** 41 to 44 of the 46 facts in three
+  runs, none wrong, about 11 minutes and 5 cents a run. `models add deepseek openrouter deepseek/deepseek-v4.1-flash --prices 0.032/0.144/0.002`
+- **Fastest that is right: the same model through Nebius.** 43 of 46, 7 minutes, 90 cents.
+  `models add deepseek-fast nebius deepseek-ai/DeepSeek-V4.1-Flash --prices 0.30/1.20/0.30`
+- **The careful one: Kimi K3 through OpenRouter.** 45 of 46, 13 minutes, about $2.30. GPT-6.1 Sol direct
+  and Claude Fable 5.1 are level with it at 44, Sol for $2.50 and Fable for $10.
+  `models add kimi openrouter moonshotai/kimi-k3 --prices 0.30/11.94/0.21`
+- **Free: the local Qwen3.8 27B.** 23 to 26 of 46 with one wrong, 40 to 47 minutes on one 24 GB card.
+  It reads fewer pages in the time and its write-up names fewer facts; what it names is right.
+
+The runs: one research question with 46 facts that a 2026 handbook settles, the same seed library, the
+same tools, one run each unless noted, the write-up read against the key by two judges. Costs are at
+the providers' list prices of 16 October 2026, OpenRouter's from its public model list, applied to the tokens the
+servers reported.
+
+| model, host | facts of 46, Fable then Sonnet | minutes | cost a run |
+|---|---|---|---|
+| Kimi K3, OpenRouter (three runs) | 45, 44 · 38 to 45 | 13 | $2.21 to $2.41 |
+| GPT-6.1 Sol, OpenAI direct (three runs) | 44, 44 · 40 to 44 | 15 to 17 | $2.25 to $2.56 |
+| Claude Fable 5.1, direct | 44, 44 | 10 | $10.37 |
+| GLM 5.3 Flash, OpenRouter | 44, 44 | 31 | $0.33 |
+| DeepSeek V4.1 Flash, OpenRouter (three runs) | 37, 42 · 41 to 44 | 11 to 12 | $0.05 to $0.06 |
+| DeepSeek V4.1 Flash, Nebius | 43, 41 | 7 | $0.90 |
+| Claude Sonnet 5.5, direct | 41, 40 | 9 | $1.81 |
+| Gemini 4 Argon, Google | 41 | 41 | $1.83 |
+| DeepSeek V4.1 Flash, Hugging Face router (cheapest provider) | 39, 38 (1 wrong) | 8 | $0.76 |
+| MiniMax M3, OpenRouter | 39, 37 | 11 | $0.14 |
+| GPT-6 Luna, OpenRouter | 38, 34 (1 wrong) | 15 | $0.10 |
+| DeepSeek V4 Pro, OpenRouter | 37, 35 (1 wrong) | 13 | $0.43 |
+| Claude Opus 5.5, direct | 36, 36 | 10 | $3.16 |
+| Claude Haiku 5.5, direct | 30, 22 | 6 | $0.08 |
+| Qwen3.8 27B, OpenRouter (the local model, unquantised) | 28, 26 (2 wrong) | 37 | $0.78 |
+| Gemini 3.8 Flash, Google | 28, 21 (3 to 4 wrong) | 15 | $0.95 |
+| GLM-5.3, OpenRouter | 27, 22 (2 to 3 wrong) | 16 | $0.66 |
+| Nemotron 3 Ultra, OpenRouter | 26, 25 (2 wrong) | 19 | $0.97 |
+| local Qwen3.8 27B, 4-bit, one card (three runs) | 23 to 26 (1 wrong) | 40 to 47 | free |
+| GPT-6 Luna, OpenAI direct (three runs) | 23, 29, 19 | 8 to 12 | $0.09 to $0.12 |
+| MiMo-V2.6-Pro, OpenRouter | 20, 11 (1 to 6 wrong) | 41 | $0.59 |
+| Hy4 preview, OpenRouter | 19, 13 (2 wrong) | 18 | $0.90 |
+
+What the table says. The frontier models are level with each other at the top; the difference between
+them is price, and it is a factor of two hundred between DeepSeek Flash and Fable for the same facts. A host
+changes speed and price more than it changes the answer: the same DeepSeek model gave the same facts
+through OpenRouter, Nebius and Hugging Face. GPT-6 Luna is not reliable from run to run and MiMo, Hy4
+and the big GLM-5.3 trail their smaller or cheaper relatives. Prices are the providers' of 16 October
+2026 and move; `researchzosho models set <name> --prices …` keeps yours current, and `researchzosho spend`
+says what your runs came to.
 
 ## Two models
 

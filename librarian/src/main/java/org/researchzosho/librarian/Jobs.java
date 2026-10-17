@@ -802,11 +802,17 @@ public final class Jobs {
                     String kind = j.path("kind").asText();
                     boolean defer = false;
                     if ("crews".equals(kind) && index != 0) { defer = true; wait = 2_000; }
-                    if ("research".equals(kind) && !drive.isEmpty() && !Crews.driveAnswersNow(drive)) {
+                    // a run on a named model (researchzosho models) waits for that model's own server, by its own model id, not the library's
+                    String named = j.path("args").path("model_entry").asText("");
+                    ModelEntries.Entry entry = named.isEmpty() ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.research(j.path("args").path("quick").asBoolean(false))).entry() : ModelEntries.get(named);
+                    if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
+                    String waitOn = entry != null ? entry.drive() : drive;
+                    boolean answers = entry != null ? Crews.driveState(entry.drive(), entry.model(), java.time.Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : drive.isEmpty() || Crews.driveAnswersNow(drive);
+                    if ("research".equals(kind) && !waitOn.isEmpty() && !answers) {
                         defer = true; wait = 30_000;
                         // say so on the record: a model server that sleeps between uses (llama-swap, Ollama) answers after a
                         // start, and a run that sits a minute after a quiet night should read as waiting, not stuck
-                        if (!j.has("waiting")) { j.put("waiting", "no model answers at " + drive + " yet; asked again every 30 s, the run starts the moment it does"); writeActive(j); }
+                        if (!j.has("waiting")) { j.put("waiting", "no model answers at " + waitOn + (entry != null ? " for " + entry.name() : "") + " yet; asked again every 30 s, the run starts the moment it does"); writeActive(j); }
                     }
                     boolean held = "research".equals(kind) && (ResearchSettings.paused() || !ResearchSettings.openNow());
                     if (held) { defer = true; wait = 30_000; }   // the person's pause or window: the ask waits, the crews still run
@@ -824,7 +830,7 @@ public final class Jobs {
                     if (j != null) {
                         j.remove("waiting");
                         j.put("state", "running"); j.put("started_at", Instant.now().toString());
-                        if (!drive.isEmpty()) j.put("drive", drive);
+                        if (entry != null) j.put("drive", entry.drive()); else if (!drive.isEmpty()) j.put("drive", drive);   // the job record names the server it ran on
                         writeActive(j);
                         running.add(id);
                     }
@@ -894,6 +900,8 @@ public final class Jobs {
         if (j.hasNonNull("started_at")) r.put("started_at", j.get("started_at").asText());
         if (j.hasNonNull("ended_at")) r.put("ended_at", j.get("ended_at").asText());
         if (j.hasNonNull("drive")) r.put("drive", j.get("drive").asText());
+        if (j.path("args").hasNonNull("model_entry")) r.put("model", j.path("args").path("model_entry").asText());
+        if (j.path("args").hasNonNull("model_why")) r.put("model_why", j.path("args").path("model_why").asText());
         long start = j.hasNonNull("started_at") ? Instant.parse(j.get("started_at").asText()).toEpochMilli() : Instant.parse(j.path("queued_at").asText()).toEpochMilli();
         long end = j.hasNonNull("ended_at") ? Instant.parse(j.get("ended_at").asText()).toEpochMilli() : System.currentTimeMillis();
         r.put("elapsed_s", Math.max(0, (end - start) / 1000));

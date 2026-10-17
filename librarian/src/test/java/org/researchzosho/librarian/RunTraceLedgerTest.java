@@ -53,6 +53,8 @@ class RunTraceLedgerTest {
         assertEquals("web_fetch", first.path("reply").path("tool_calls").get(0).path("name").asText());
         assertTrue(first.has("latency_ms"));
         assertEquals("classify", M.readTree(lines.get(2)).path("kind").asText());
+        assertEquals("yes", M.readTree(lines.get(2)).path("reply").path("head").asText(), "the start of a decision's reply is on the trace, not only its length");
+        assertEquals(3, M.readTree(lines.get(2)).path("reply").path("content_chars").asInt());
         assertEquals("compaction", M.readTree(lines.get(3)).path("capture").asText());
         assertEquals(3, t.totals().path("calls").asInt());
         assertEquals(1, t.totals().path("compactions").asInt());

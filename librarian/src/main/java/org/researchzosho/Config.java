@@ -111,6 +111,13 @@ public final class Config {
         return u.replaceAll("/+$", "");
     }
 
+    /** The OpenAI-style API's root under a model server's address: the address plus {@code /v1}, except Gemini's, whose OpenAI-style root
+     *  ({@code …/v1beta/openai}) carries no {@code /v1} of its own. */
+    public static String v1(String base) {
+        String b = base == null ? "" : base.strip().replaceAll("/+$", "");
+        return b.endsWith("/openai") ? b : b + "/v1";
+    }
+
     private static String raw(String envKey) {
         Snapshot s = loaded();
         Map<String, String> file = s.file();
@@ -136,6 +143,15 @@ public final class Config {
             if (v != null) return v;
         }
         return null;
+    }
+
+    /** Every key the config FILE holds under a prefix ("RESEARCHZOSHO_ENTRY_"), normalized, with its value; the environment is not read. */
+    public static Map<String, String> storedWithPrefix(String envPrefix) {
+        String want = normalize(envPrefix);
+        if (want.endsWith("_")) { } else want = want + "_";
+        Map<String, String> out = new java.util.TreeMap<>();
+        for (Map.Entry<String, String> e : loaded().file().entrySet()) if (e.getKey().startsWith(want) && e.getValue() != null && !e.getValue().isBlank()) out.put(e.getKey(), e.getValue());
+        return out;
     }
 
     /** The value the config FILE holds for a key, ignoring the environment: what `set` wrote. Null when the file has none. */

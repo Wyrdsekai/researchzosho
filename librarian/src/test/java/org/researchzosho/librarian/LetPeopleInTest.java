@@ -31,14 +31,14 @@ class LetPeopleInTest {
     static HttpClient client() { return HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(); }
 
     static HttpResponse<String> get(HttpClient c, String url, String cookie, String... headers) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).GET();
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).GET();
         if (cookie != null) b.header("Cookie", cookie);
         for (int i = 0; i + 1 < headers.length; i += 2) b.header(headers[i], headers[i + 1]);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     static HttpResponse<String> post(HttpClient c, String url, String form, String cookie, String... headers) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
         if (cookie != null) b.header("Cookie", cookie);
         for (int i = 0; i + 1 < headers.length; i += 2) b.header(headers[i], headers[i + 1]);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());

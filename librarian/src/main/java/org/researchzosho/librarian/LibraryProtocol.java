@@ -33,6 +33,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.researchzosho.drive.DriveClient;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 import org.researchzosho.tools.DocText;
@@ -1183,6 +1184,41 @@ public final class LibraryProtocol {
         return r;
     }
 
+    /**
+     * library_models: the models a library can run on, by name — list; add (name, drive, model, prices, effort, cap, note); remove (name);
+     * key (host, value — a blank value forgets it). A key is never returned, only whether one is kept.
+     */
+    public ObjectNode models(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String op = args.path("op").asText("list").strip().toLowerCase();
+        ObjectNode r = envelope();
+        try {
+            switch (op) {
+                case "list" -> { r.set("models", ModelEntries.list(M)); r.put("config_file", Config.userConfigPath().toString()); }
+                case "add" -> {
+                    String name = args.path("name").asText("").strip();
+                    ModelEntries.Entry e = ModelEntries.put(name, args.hasNonNull("drive") ? args.path("drive").asText() : null, args.hasNonNull("model") ? args.path("model").asText() : null,
+                            args.hasNonNull("prices") ? args.path("prices").asText() : null, args.hasNonNull("effort") ? args.path("effort").asText() : null,
+                            args.hasNonNull("cap") ? args.path("cap").asText() : null, args.hasNonNull("note") ? args.path("note").asText() : null, args.hasNonNull("tier") ? args.path("tier").asText() : null);
+                    r.put("name", e.name()); r.put("line", e.line()); r.put("key", DriveClient.hostKey(e.host()) != null);
+                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : ""));
+                }
+                case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(java.util.Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
+                case "key" -> {
+                    String host = args.path("host").asText("").strip();
+                    if (host.isEmpty()) throw ProtocolError.invalidArgs("key needs the host (openrouter.ai, or a word: openrouter, anthropic, openai, gemini, nebius, huggingface).");
+                    String h = DriveClient.hostOf(ModelEntries.hostAddress(host)); if (h == null) h = host.toLowerCase(java.util.Locale.ROOT);
+                    String value = args.path("value").asText("").strip();
+                    Config.set(DriveClient.hostKeySetting(h), value);
+                    r.put("host", h); r.put("set", !value.isEmpty()); r.put("note", value.isEmpty() ? "The key for " + h + " is forgotten." : "A key is kept for " + h + " (ends with …" + value.substring(Math.max(0, value.length() - 3)) + "). It goes to that host and nowhere else.");
+                }
+                default -> throw ProtocolError.invalidArgs("op is list, add, remove or key.");
+            }
+        } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        return r;
+    }
+
     public ObjectNode bookmarks(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
@@ -1842,6 +1878,13 @@ public final class LibraryProtocol {
         a.put("question", question); a.put("mode", mode); a.put("max_turns", maxTurns); a.put("max_minutes", maxMinutes);
         if (!readIn.isEmpty()) { ArrayNode ri = a.putArray("read_in"); readIn.forEach(ri::add); }
         if (quick) a.put("quick", true);
+        // the named model this run runs on (researchzosho models): the service looks it up when the run starts
+        String entryName = args.path("model").asText("").strip().toLowerCase(java.util.Locale.ROOT);
+        if (entryName.isEmpty() && Auto.isDefault()) entryName = Auto.NAME;   // nothing named, and there is a choice: best judgement, made when the run starts
+        if (!entryName.isEmpty() && !entryName.equals(ModelEntries.DEFAULT)) {
+            if (!entryName.equals(Auto.NAME) && ModelEntries.get(entryName) == null) throw ProtocolError.invalidArgs("No model is named " + entryName + ". The names are: auto, " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");
+            a.put("model_entry", entryName);
+        }
         // "this one first": a full run, with the full limits, ahead of the others waiting — quick is a lookup with short limits, not this
         boolean priority = args.path("priority").asBoolean(false);
         if (priority) a.put("priority", true);

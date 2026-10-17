@@ -49,8 +49,9 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
   `RESEARCHZOSHO_RUNTIME=1` asks for it outright.
 - A model server that speaks the OpenAI chat API. This can be a local server (llama.cpp, Ollama, LM
   Studio) or a hosted API with a key (OpenAI, DeepSeek, Gemini, OpenRouter and any other that speaks
-  the OpenAI chat API). Setup asks for the address and, for a hosted API, the key. Without a model
-  you can still ask what the library has and read it. Research runs need the model.
+  the OpenAI chat API), or Claude through Anthropic's own API. Setup asks for the address and, for a
+  hosted API, the key. Without a model you can still ask what the library has and read it. Research
+  runs need the model. Hosted models are described below.
   `researchzosho models` reads your card's memory and prints the best choice for it, with the
   command that serves it. Setup prints the same when it finds no model server.
   Size matters. On the same five questions, a 27B-class model and a 9B both get the facts right.
@@ -96,6 +97,84 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
   than the model: the same 0.6B model does 13 chunks a second under llama.cpp and 115 under Text
   Embeddings Inference on the same card. A library of a thousand documents re-indexes in two minutes
   instead of twenty.
+
+### Hosted models
+
+Which hosted model is worth it is measured: [MODELS.md](MODELS.md) has the picks and the table, after the
+local list. A hosted model needs an address and a key, which setup asks for, or which you set with
+`researchzosho settings set drive <address>` and `settings set api_key <key>`, and `settings set model
+<name>`. What to know for each:
+
+- **Anthropic (Claude).** Address `https://api.anthropic.com` (setup takes the word `anthropic`), a key
+  from platform.claude.com, a model such as `claude-sonnet-5-5`, `claude-haiku-5-5` or `claude-opus-5-5`.
+  The library uses Anthropic's own API, with prompt caching: a research run sends the whole
+  conversation with every call, and most of it is read back from the cache at a twentieth of the price.
+  A run costs about $1.50 on Sonnet, about $3 on Opus and about ten cents on Haiku. The setting
+  `anthropic_effort` (low, medium, high, xhigh, max) chooses how hard the model thinks; unset is the
+  model's own default. Rate limits are built in: the library waits as long as Anthropic asks and
+  watches the minute's token allowance.
+- **OpenRouter.** Address `https://openrouter.ai/api/v1` (setup takes the word `openrouter`), a key from
+  openrouter.ai, and a model id from openrouter.ai/models that supports tool calling, for example
+  `deepseek/deepseek-v4.1-flash` or `z-ai/glm-5.3-flash`, which cost cents a run, or
+  `anthropic/claude-sonnet-5.5` at Anthropic's own price. The library asks OpenRouter for a provider
+  that takes tool calls, waits out a rate limit as the answer asks, and reads an error a provider
+  puts inside a successful answer. Free models are limited to 50 requests a day, or 1,000 once you
+  have bought $10 of credit; a research run is about 110 requests.
+- **OpenAI.** Address `https://api.openai.com` (setup takes the word `openai`), a key from
+  platform.openai.com, a model such as `gpt-6.1-sol` (about $2 a run) or `gpt-6-luna` (about 10 cents).
+  The library uses OpenAI's Responses API, which its current models need for tool calls: their
+  reasoning is carried from one call to the next. Caching is automatic. The setting `openai_effort`
+  (none to max; each model takes some of these) chooses how hard the model reasons; unset is the
+  model's own default. The models list does not say how long a model's context is, so the library
+  takes 272,000 tokens, the standard-price tier; `RESEARCHZOSHO_OPENAI_CONTEXT` sets another.
+- **Gemini.** Address `https://generativelanguage.googleapis.com/v1beta/openai/`, a key from AI Studio,
+  a model such as `gemini-3.8-flash`. Google calls this endpoint a beta.
+- **Groq.** Fast, but its plans allow 8,000 tokens a minute and 200,000 a day at the start, and one
+  research call averages 16,000 tokens, so it suits the chat and short asks, not research runs.
+
+- **Nebius Token Factory.** Address `https://api.tokenfactory.nebius.com/v1` (setup takes the word `nebius`), a key
+  from tokenfactory.nebius.com, open models such as `deepseek-ai/DeepSeek-V4.1-Flash` or `zai-org/GLM-5.3-Flash`, hosted
+  in the EU. Its limits start around 60 requests and 400,000 tokens a minute and grow as you use them; no prompt
+  caching, so a run costs its whole token count.
+- **Hugging Face Inference Providers.** Address `https://router.huggingface.co/v1` (setup takes the word `huggingface`),
+  a fine-grained token with the "Make calls to Inference Providers" permission, and a model id such as
+  `deepseek-ai/DeepSeek-V4.1-Flash`, with `:cheapest`, `:fastest` or a provider's name on the end to choose among the
+  fifteen providers behind it. Billed at the provider's price with no markup.
+
+### Best judgement: `auto`
+
+With several models named, `--model auto` (or `/model auto` in the chat, or `auto` in the research form) picks one for the job and says
+why: `auto chose deepseek: tier A for a tier-A research job, about 10 minutes, about $0.13; fable about $2.50, dearer or slower`. The rule:
+among the named models that have a key and are under their cap, those below the tier the job needs are dropped; when somebody is
+waiting, a quick ask or a chat turn, those slower than the wait you accept are dropped; the cheapest of the rest is taken, so a free local
+model wins whenever it clears the tier and the wait. A research run needs tier A, a chat turn B. Tiers come from what the models did on
+the scouting question, or you set one: `researchzosho models set mimo --tier B`. Once a second model is named, auto is the default when
+none is named; `researchzosho settings set auto off` restores the old behaviour. `auto.wait_minutes` (5), `auto.max_dollars` and
+`auto.local_only` are the knobs; `researchzosho models auto` shows the pick without running anything.
+
+### Named models, chosen per run
+
+A library can keep several models by name and run each question on the one you pick:
+
+```
+researchzosho models add deepseek openrouter deepseek/deepseek-v4.1-flash --prices 0.032/0.144/0.002
+researchzosho models add fable anthropic claude-fable-5-1 --prices 10/50/0.25 --cap 50
+researchzosho models key openrouter <key>        # or --file ~/openrouterapi.txt
+researchzosho models                             # lists them; models test <name> asks the host
+researchzosho research ask "…" --model deepseek
+```
+
+The same choice is the dropdown on the web page's research form, `/model deepseek` in the chat (for the rest of that
+session; `/model` alone lists them), and `model` on the MCP research tool. A key is kept once per host and goes to that
+host only. The library's own drive and model are the entry called `default`.
+
+Each report says under its question who researched it and what it cost at the entry's prices, from the tokens the server
+counted. `researchzosho spend` adds the runs up by host and by model, this month and in all. An entry with `--cap <dollars>`
+refuses a run that would start past that figure in the month, and says so.
+
+The log's `usage ←` lines say what each call cost in tokens and how much the cache served;
+`researchzosho stats` adds them up for a run. Every hosted model sees what the research reads, so
+`db add` and the family's own texts warn you that rows and texts will be sent there.
 
 ## 2. Setup
 

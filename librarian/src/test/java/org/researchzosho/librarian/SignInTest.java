@@ -51,7 +51,7 @@ class SignInTest {
     static HttpResponse<String> get(HttpClient c, String url, String cookie) throws Exception { return LetPeopleInTest.get(c, url, cookie); }
     static HttpResponse<String> post(HttpClient c, String url, String form, String cookie) throws Exception { return LetPeopleInTest.post(c, url, form, cookie); }
     static HttpResponse<String> postJson(HttpClient c, String url, String json, String cookie) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json));
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json));
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }

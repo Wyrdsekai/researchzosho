@@ -182,7 +182,10 @@ public final class LibrarianCli {
               search [status|start|stop|test <query>|papers <query>]   which web search service answers. SearXNG through Docker. Papers by DOI
               video [status|install|start|stop|test <query>]   the keyless YouTube route: a WARP tunnel and a token provider through Docker, yt-dlp in the library's own environment
               youtube [search|channels <words…>|uploads <channel>|video <address> [--transcript]|like <channel>]   YouTube for a person: search, a channel's uploads, a video with its transcript, channels like one
-              models [--all]               which model fits this machine's graphics card, measured, with the command that runs it
+              models [--all]               the models a run may use, by name, then which model fits this machine's graphics card
+              models add <name> <address or word> <model> [--prices in/out/cache] [--cap dollars]   a named model: deepseek via openrouter, fable via anthropic
+              models key <host or word> <key | --file path>   keep a host's key; models remove <name>; models test <name>
+              spend                        what research runs cost this month and in all, by host and by named model
               bedrock models|test <model>|use <model> [--region r] [--profile p] [--embed]
                                            the models of your own AWS account (Amazon Bedrock) as this library's model. Sign in to AWS first
               model install|status|use <address> [<model>]|switch [<name>]|prune|stop|uninstall
@@ -624,9 +627,12 @@ public final class LibrarianCli {
             }
             switch (verb) {
                 case "models" -> {
-                    // which model to run on this card: measured, with the command that serves it
+                    // the named models a run may use (add, remove, key, test, list), then which model to run on this card: measured, with the command that serves it
+                    if (args.length > 2 && java.util.Set.of("add", "set", "remove", "key", "test", "list").contains(args[2].toLowerCase())) return modelsCommand(store, args);
+                    int rc = modelsCommand(store, new String[]{args[0], args[1], "list"});
+                    System.out.println();
                     System.out.print(Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describe(Models.cardGb()));
-                    return 0;
+                    return rc;
                 }
                 case "name" -> {
                     // the library's name, on its pages and in every answer; the folder's name until set
@@ -781,6 +787,17 @@ public final class LibrarianCli {
                     }
                 }
                 case "settings" -> { return settingsCommand(store, args); }
+                case "spend" -> {
+                    com.fasterxml.jackson.databind.node.ObjectNode sum = Spend.summary(store);
+                    System.out.println("What research runs cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".");
+                    for (String part : new String[]{"hosts", "entries"}) {
+                        if (sum.path(part).isEmpty()) continue;
+                        System.out.println(part.equals("hosts") ? "  By host:" : "  By named model:");
+                        for (com.fasterxml.jackson.databind.JsonNode r : sum.path(part)) System.out.println("    " + r.path("name").asText() + ": " + Spend.dollars(r.path("month").asDouble()) + " this month (" + r.path("runs_month").asInt() + " run" + (r.path("runs_month").asInt() == 1 ? "" : "s") + "), " + Spend.dollars(r.path("all").asDouble()) + " in all (" + r.path("runs_all").asInt() + ")" + (r.has("cap") ? ", cap " + Spend.dollars(r.path("cap").asDouble()) + " a month" : ""));
+                    }
+                    if (sum.path("hosts").isEmpty()) System.out.println("  No run has been recorded yet. A run on a named model with prices (researchzosho models) is counted when it files its report.");
+                    return 0;
+                }
                 case "podcast" -> { return podcastCommand(store, args); }
                 case "owned" -> { return ownedCommand(store, args); }
                 case "myshelf" -> { return myShelfCommand(store, args); }
@@ -1467,10 +1484,10 @@ public final class LibrarianCli {
             }
             case "ask" -> {
                 // file a question from the command line, as the person; the service picks it up within seconds
-                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
+                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--model <name>] [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
                 List<String> words = new ArrayList<>();
                 List<String> allow = new ArrayList<>();
-                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag"; boolean quick = false, priority = false; int maxTurns = -1, maxMinutes = -1;
+                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag", modelEntry = ""; boolean quick = false, priority = false; int maxTurns = -1, maxMinutes = -1;
                 try {
                     for (int i = 3; i < args.length; i++) {
                         switch (args[i]) {
@@ -1483,6 +1500,7 @@ public final class LibrarianCli {
                             case "--max-turns" -> maxTurns = flagInt(args, i++);
                             case "--max-minutes" -> maxMinutes = flagInt(args, i++);
                             case "--field" -> { if (i + 1 >= args.length) throw new IllegalArgumentException("--field needs the name of a field, for example --field science"); field = args[++i]; }
+                            case "--model" -> { if (i + 1 >= args.length) throw new IllegalArgumentException("--model needs the name of a model, for example --model deepseek (researchzosho models lists them)"); modelEntry = args[++i]; }
                             case "--allow" -> {
                                 if (i + 1 >= args.length) throw new IllegalArgumentException("--allow needs what to let in: explicit, howto, or both as explicit,howto");
                                 for (String a : args[++i].split(",")) if (!a.isBlank()) allow.add(a.strip().toLowerCase(Locale.ROOT));
@@ -1498,6 +1516,7 @@ public final class LibrarianCli {
                 String q = String.join(" ", words).strip();
                 ObjectNode ask = new ObjectMapper().createObjectNode();
                 ask.put("question", q); ask.put("mode", mode); ask.put("sources", sources);
+                if (!modelEntry.isEmpty()) ask.put("model", modelEntry);
                 if (quick) ask.put("quick", true);
                 if (priority) ask.put("priority", true);
                 if (maxTurns >= 0) ask.put("max_turns", maxTurns);
@@ -1665,8 +1684,23 @@ public final class LibrarianCli {
             line = line.strip();
             if (line.isEmpty() && !lib.waitingForAnswer()) continue;   // while the library waits for a (y/N) answer, Enter is no
             if (Librarian.QUIT.contains(line)) break;
-            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /runs (the research runs this chat follows) · /share [status|off|--tailscale|--tailnet|--cloudflare] (reach the library from outside your home) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
+            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /model <name> (which model this chat talks to) · /runs (the research runs this chat follows) · /share [status|off|--tailscale|--tailnet|--cloudflare] (reach the library from outside your home) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
             if (line.equals("/new")) { lib.leaveUnanswered(); session = Librarian.Session.open(store); current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
+            if (line.equals("/model") || line.startsWith("/model ")) {
+                String entryName = line.length() > 6 ? line.substring(6).strip() : "";
+                if (entryName.isEmpty()) { for (ModelEntries.Entry e : ModelEntries.all().values()) System.out.println("  " + e.line()); System.out.println("  /model <name> switches this chat to one" + (session.model().isEmpty() ? "" : "; this chat uses " + session.model())); continue; }
+                if (entryName.equalsIgnoreCase(Auto.NAME)) {
+                    Auto.Pick pick = Auto.choose(store, Auto.Job.chat());
+                    drive = Researcher.watchedChat(pick.entry().drive(), pick.entry().model()); lib = new Librarian(store, drive, Librarian.person(), session); session.model(Auto.NAME);
+                    System.out.println("  " + pick.why());
+                    continue;
+                }
+                ModelEntries.Entry e = ModelEntries.get(entryName);
+                if (e == null) { System.out.println("  no model is named " + entryName + "; /model lists them (or auto)"); continue; }
+                drive = Researcher.watchedChat(e.drive(), e.model()); lib = new Librarian(store, drive, Librarian.person(), session); session.model(e.name());
+                System.out.println("  this chat now uses " + e.line());
+                continue;
+            }
             if (line.equals("/runs")) { LibraryProtocol lp2 = new LibraryProtocol(store); List<String> w = session.watched(); if (w.isEmpty()) System.out.println("  no research run is being followed in this conversation"); for (String jobId : w) { var a2 = new ObjectMapper().createObjectNode().put("job_id", jobId); a2.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli"); try { System.out.println("  " + RunProgress.line(RunProgress.of(lp2.job(a2).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp2, a2.path("patron"))))); } catch (Exception e) { System.out.println("  " + jobId + ": " + e.getMessage()); } } continue; }
             if (line.equals("/sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } continue; }
             if (line.startsWith("/resume ")) { var sx = Librarian.Session.resume(store, line.substring(8).strip()); if (sx == null) { System.out.println("  no such session"); continue; } session = sx; current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  continuing " + session.id + ": " + session.title()); continue; }
@@ -1929,6 +1963,70 @@ public final class LibrarianCli {
     }
 
     /** {@code researchzosho settings}: the library's settings as a person reads them; set and unset write the config file. */
+    /** researchzosho models [list | add <name> <address|word> <model> [--prices in/out/cache] [--effort e] [--cap dollars] [--note text] | remove <name> | key <host|word> <key | --file path> | test <name>] */
+    static int modelsCommand(LibraryStore store, String[] args) throws IOException {
+        String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
+        LibraryProtocol p = new LibraryProtocol(store);
+        ObjectNode a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", "").put("runtime", "cli");
+        try {
+            switch (op) {
+                case "list" -> {
+                    JsonNode r = p.models(a.put("op", "list"));
+                    System.out.println("The models this library can run on (researchzosho ask … --model <name>; /model <name> in the chat):");
+                    for (JsonNode m : r.path("models")) System.out.println("  " + m.path("line").asText() + (m.path("key").asBoolean(false) || !m.path("hosted").asBoolean(false) ? "" : "  — no key kept for " + m.path("host").asText()));
+                    System.out.println("researchzosho models add <name> <address or word> <model id> [--prices in/out/cache] [--cap dollars a month] adds one; models key <host> <key> keeps a host's key; models remove <name>; models test <name>.");
+                    return 0;
+                }
+                case "add" -> {
+                    if (args.length < 6) { System.err.println("usage: researchzosho models add <name> <address or word: openrouter, anthropic, openai, gemini, nebius, huggingface> <model id> [--prices in/out/cache] [--effort e] [--cap dollars] [--note text]"); return 2; }
+                    a.put("op", "add"); a.put("name", args[3]); a.put("drive", args[4]); a.put("model", args[5]);
+                    for (int i = 6; i + 1 < args.length; i += 2) switch (args[i]) { case "--prices" -> a.put("prices", args[i + 1]); case "--effort" -> a.put("effort", args[i + 1]); case "--cap" -> a.put("cap", args[i + 1]); case "--note" -> a.put("note", args[i + 1]); default -> { System.err.println("unknown flag " + args[i]); return 2; } }
+                    JsonNode r = p.models(a);
+                    System.out.println(r.path("note").asText());
+                    return 0;
+                }
+                case "set" -> {
+                    if (args.length < 5) { System.err.println("usage: researchzosho models set <name> [--address a] [--model m] [--prices in/out/cache] [--effort e] [--cap dollars] [--note text]"); return 2; }
+                    a.put("op", "add"); a.put("name", args[3]);
+                    for (int i = 4; i + 1 < args.length; i += 2) switch (args[i]) { case "--tier" -> a.put("tier", args[i + 1]); case "--address", "--drive" -> a.put("drive", args[i + 1]); case "--model" -> a.put("model", args[i + 1]); case "--prices" -> a.put("prices", args[i + 1]); case "--effort" -> a.put("effort", args[i + 1]); case "--cap" -> a.put("cap", args[i + 1]); case "--note" -> a.put("note", args[i + 1]); default -> { System.err.println("unknown flag " + args[i]); return 2; } }
+                    System.out.println(p.models(a).path("note").asText());
+                    return 0;
+                }
+                case "remove" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho models remove <name>"); return 2; }
+                    System.out.println(p.models(a.put("op", "remove").put("name", args[3])).path("note").asText());
+                    return 0;
+                }
+                case "key" -> {
+                    if (args.length < 5) { System.err.println("usage: researchzosho models key <host or word> <key>   (or --file <path> to read it from a file; a blank key forgets it)"); return 2; }
+                    String value = args[4].equals("--file") ? (args.length > 5 ? java.nio.file.Files.readString(java.nio.file.Path.of(args[5])).strip() : "") : args[4];
+                    System.out.println(p.models(a.put("op", "key").put("host", args[3]).put("value", value)).path("note").asText());
+                    return 0;
+                }
+                case "auto" -> {
+                    // what best judgement would pick for a research run (or --chat a chat turn) and why
+                    boolean chat = args.length > 3 && args[3].equals("--chat");
+                    Auto.Job job = chat ? Auto.Job.chat() : Auto.Job.research(args.length > 3 && args[3].equals("--quick"));
+                    if (!Auto.isDefault()) System.out.println(Config.isOn("RESEARCHZOSHO_AUTO", true) ? "auto is not in charge yet: only the default model is named (researchzosho models add … names a second one)." : "auto is off (researchzosho settings set auto on turns it on).");
+                    System.out.println("candidates:");
+                    for (ModelEntries.Entry e : ModelEntries.all().values()) { Auto.Candidate c = Auto.candidate(store, e, job); System.out.println("  " + e.name() + ": tier " + c.tier() + ", about " + String.format(java.util.Locale.ROOT, "%.0f", c.minutes()) + " min, " + (c.free() ? "free" : "about " + Spend.dollars(c.dollars())) + (c.usable() ? "" : " — not now: " + c.whyNot())); }
+                    System.out.println(Auto.choose(store, job).why());
+                    return 0;
+                }
+                case "test" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho models test <name>"); return 2; }
+                    ModelEntries.Entry e = ModelEntries.get(args[3]);
+                    if (e == null) { System.err.println("No entry is named " + args[3] + ". researchzosho models lists them."); return 1; }
+                    Crews.DriveState st = Crews.driveState(e.drive(), e.model(), java.time.Duration.ofSeconds(30));
+                    System.out.println(e.line() + "\n  " + (st == Crews.DriveState.ANSWERS ? "answers" : st == Crews.DriveState.STARTING ? "is starting; ask again in a moment" : "does not answer" + (e.hosted() && DriveClient.hostKey(e.host()) == null ? " — no key is kept for " + e.host() + ": researchzosho models key " + e.host() + " <key>" : "")));
+                    return st == Crews.DriveState.ANSWERS ? 0 : 1;
+                }
+                default -> { System.err.println("usage: researchzosho models [list | add … | set <name> --tier A|B|C … | remove <name> | key <host> <key> | test <name> | auto [--chat|--quick]]"); return 2; }
+            }
+        } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+    }
+
     static int settingsCommand(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
         LibraryProtocol p = new LibraryProtocol(store);
@@ -1978,7 +2076,7 @@ public final class LibrarianCli {
             System.out.println(j.path("job_id").asText() + "  " + j.path("state").asText() + "  " + j.path("kind").asText() + (j.path("restarted").asInt(0) > 0 ? "  (restarted " + j.path("restarted").asInt() + "×)" : ""));
             if (j.hasNonNull("question")) System.out.println("  question: " + j.get("question").asText());
             System.out.println("  queued " + j.path("queued_at").asText() + (j.hasNonNull("started_at") ? " · started " + j.get("started_at").asText() : "") + (j.hasNonNull("ended_at") ? " · ended " + j.get("ended_at").asText() : "") + " · " + elapsed(j.path("elapsed_s").asLong()));
-            if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText());
+            if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText() + (j.hasNonNull("model") ? "  (model: " + j.get("model").asText() + ")" : ""));
             if (j.hasNonNull("waiting")) System.out.println("  waiting: " + j.get("waiting").asText());
             if (j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(new LibraryProtocol(store), a.path("patron"))); System.out.println("  " + v.stage() + " · " + RunProgress.elapsed(v.elapsedSeconds()) + " elapsed · about " + v.percent() + "% done"); }
             if (j.has("progress") && j.get("progress").isObject()) System.out.println("  progress: " + progressWords(j.get("progress")));
