@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.3
+
+### Fixed
+
+- `researchzosho models auto` shows what best judgement would pick and why. It printed the table of local models instead.
+- `researchzosho settings set auto off` turns best judgement off, as the guide says, and `auto.wait_minutes`, `auto.max_dollars` and
+  `auto.local_only` are settings too. The settings list did not know them and refused.
+
 ## 0.6.2
 
 You can now keep several models, on your own computer or from a service, and either pick one for each

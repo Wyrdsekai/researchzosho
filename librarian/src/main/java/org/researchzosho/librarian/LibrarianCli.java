@@ -628,7 +628,7 @@ public final class LibrarianCli {
             switch (verb) {
                 case "models" -> {
                     // the named models a run may use (add, remove, key, test, list), then which model to run on this card: measured, with the command that serves it
-                    if (args.length > 2 && java.util.Set.of("add", "set", "remove", "key", "test", "list").contains(args[2].toLowerCase())) return modelsCommand(store, args);
+                    if (args.length > 2 && Set.of("add", "set", "remove", "key", "test", "list", "auto").contains(args[2].toLowerCase())) return modelsCommand(store, args);
                     int rc = modelsCommand(store, new String[]{args[0], args[1], "list"});
                     System.out.println();
                     System.out.print(Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describe(Models.cardGb()));

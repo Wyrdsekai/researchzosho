@@ -33,6 +33,11 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_API_KEY", Kind.secret, "The key the model server wants, when it wants one (Anthropic, OpenRouter, OpenAI…).", ""),
             new Setting("RESEARCHZOSHO_ANTHROPIC_EFFORT", Kind.choice, "With drive = https://api.anthropic.com: how hard Claude thinks on each call. Unset: the model's own default.", "", List.of("low", "medium", "high", "xhigh", "max")),
             new Setting("RESEARCHZOSHO_OPENAI_EFFORT", Kind.choice, "With drive = https://api.openai.com: how hard the model reasons on each call (each model takes some of these). Unset: the model's own default.", "", List.of("none", "minimal", "low", "medium", "high", "xhigh", "max")),
+            // best judgement
+            new Setting("RESEARCHZOSHO_AUTO", Kind.choice, "Whether the library chooses the model itself for a run that names none, once two models are saved (researchzosho models auto says what it would pick and why). Unset: on.", "", List.of("on", "off")),
+            new Setting("RESEARCHZOSHO_AUTO_WAIT_MINUTES", Kind.number, "When somebody is waiting (a quick ask, a chat turn), the minutes best judgement may let a run take; a slower model is passed over. Unset: 5.", "5"),
+            new Setting("RESEARCHZOSHO_AUTO_MAX_DOLLARS", Kind.number, "The most best judgement may let one run be estimated to cost, in dollars. Unset: no limit.", "2"),
+            new Setting("RESEARCHZOSHO_AUTO_LOCAL_ONLY", Kind.choice, "Keep every run best judgement chooses on a local model, never a hosted one. Unset: off.", "", List.of("on", "off")),
             new Setting("RESEARCHZOSHO_JUDGE_DRIVE", Kind.address, "A second model server for the checks (the judge); the main one when unset.", "http://localhost:8081"),
             new Setting("RESEARCHZOSHO_JUDGE_MODEL", Kind.text, "The judge model's name on that server.", ""),
             new Setting("RESEARCHZOSHO_EMBED", Kind.address, "The embeddings server, for search by meaning; off when unset.", "http://localhost:30001"),

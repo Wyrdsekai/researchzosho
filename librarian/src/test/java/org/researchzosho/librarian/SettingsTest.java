@@ -34,6 +34,18 @@ class SettingsTest {
     static ObjectNode args(String json) throws Exception { return (ObjectNode) M.readTree(json); }
 
     @Test
+    void bestJudgementsKnobsAreSettingsAsTheGuideSays() throws Exception {
+        assertEquals("RESEARCHZOSHO_AUTO", Settings.named("auto").key());
+        assertEquals("RESEARCHZOSHO_AUTO_WAIT_MINUTES", Settings.named("auto.wait_minutes").key());
+        assertEquals("RESEARCHZOSHO_AUTO_MAX_DOLLARS", Settings.named("auto.max_dollars").key());
+        assertEquals("RESEARCHZOSHO_AUTO_LOCAL_ONLY", Settings.named("auto.local_only").key());
+        assertEquals("", Settings.refuse(Settings.named("auto"), "off"));
+        assertFalse(Settings.refuse(Settings.named("auto"), "maybe").isEmpty(), "on or off");
+        Settings.set(Settings.named("auto"), "off");
+        assertFalse(Config.isOn("RESEARCHZOSHO_AUTO", true), "settings set auto off reaches the knob best judgement reads");
+    }
+
+    @Test
     void namesAreFoundWithOrWithoutThePrefixAndValuesAreChecked() {
         assertEquals("RESEARCHZOSHO_PODCASTINDEX_KEY", Settings.named("podcastindex_key").key());
         assertEquals("RESEARCHZOSHO_WHISPER", Settings.named("RESEARCHZOSHO_WHISPER").key());
