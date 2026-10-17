@@ -39,6 +39,7 @@ class LookedTest {
                 List.of(new FamilyAccount.Fact("Tom Hale", "born-on", "1850", "", "q")), List.of()), "file:///notes.txt", "an aunt");
         String real = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());   // the command opens ~/researchzosho-library
+        QuietHome.quiet(home);
         try {
             assertEquals(2, LibrarianCli.run(new String[]{"librarian", "looked", "add", "tom", "hale", "--where", "familysearch"}, "http://127.0.0.1:1", "m"), "what was searched for is part of the line");
             assertEquals(0, LibrarianCli.run(new String[]{"librarian", "looked", "add", "tom", "hale", "--where", "familysearch", "--what", "Tom", "Hale", "born", "1850"}, "http://127.0.0.1:1", "m"));

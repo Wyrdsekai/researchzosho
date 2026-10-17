@@ -1,6 +1,7 @@
 package org.researchzosho.tools;
 
 import org.junit.jupiter.api.Test;
+import org.researchzosho.librarian.QuietHome;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.librarian.LibrarianCli;
 import org.researchzosho.librarian.LibraryStore;
@@ -98,6 +99,7 @@ class ScholarSearchTest {
         PrintStream out = System.out;
         ByteArrayOutputStream said = new ByteArrayOutputStream();
         System.setProperty("user.home", home.toString());   // the command opens ~/researchzosho-library
+        QuietHome.quiet(home);
         System.setOut(new PrintStream(said, true, StandardCharsets.UTF_8));
         int rc;
         String tool;
@@ -120,6 +122,7 @@ class ScholarSearchTest {
         PrintStream out = System.out, err = System.err;
         ByteArrayOutputStream said = new ByteArrayOutputStream(), errors = new ByteArrayOutputStream();
         System.setProperty("user.home", home.toString());   // the command opens ~/researchzosho-library
+        QuietHome.quiet(home);
         System.setOut(new PrintStream(said, true, StandardCharsets.UTF_8)); System.setErr(new PrintStream(errors, true, StandardCharsets.UTF_8));
         int down, empty;
         try {

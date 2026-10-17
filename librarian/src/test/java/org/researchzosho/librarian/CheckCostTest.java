@@ -64,6 +64,7 @@ class CheckCostTest {
         PrintStream was = System.out;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         System.setProperty("user.home", h.toString());
+        QuietHome.quiet(h);
         System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
         try { LibrarianCli.run(new String[]{"librarian", "add", "https://example.org/placeholder-register.png"}, "http://127.0.0.1:1", "m"); }
         finally { System.setOut(was); System.setProperty("user.home", realHome); }
@@ -128,6 +129,7 @@ class CheckCostTest {
         slow.start();
         String realHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
+        QuietHome.quiet(home);
         Config.invalidate();
         try {
             Config.set("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:" + slow.getAddress().getPort());

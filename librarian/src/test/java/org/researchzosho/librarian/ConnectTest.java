@@ -24,7 +24,7 @@ class ConnectTest {
 
     String realHome;
 
-    @BeforeEach void scratch(@TempDir Path tmp) { realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate(); }
+    @BeforeEach void scratch(@TempDir Path tmp) throws Exception { QuietHome.quiet(tmp.resolve("home")); realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate(); }
     @AfterEach void restore() { System.setProperty("user.home", realHome); Config.invalidate(); }
 
     private static Finding f(String id, String title, String body, String locator) {

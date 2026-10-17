@@ -146,6 +146,7 @@ class UncheckedPagesTest {
         PrintStream was = System.out;
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         System.setProperty("user.home", h.toString());
+        QuietHome.quiet(h);
         System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
         try {
             String[] args = new String[words.length + 1];
