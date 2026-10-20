@@ -4,6 +4,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,5 +57,28 @@ class EmbedTest {
         assertEquals("running", Embed.state());
         Searx.runner = cmd -> new Searx.Result(0, cmd.contains("inspect") ? "false\n" : "");
         assertEquals("stopped", Embed.state());
+    }
+
+    @Test
+    void onAnAmdOrIntelChipTheEmbeddingsRunInLlamaCppsContainerOnTheChip() throws Exception {
+        Path realDrm = Gpu.SYS_DRM, realKfd = Gpu.SYS_KFD, realDev = Gpu.DEV;
+        Path sys = Files.createTempDirectory("rz-embed-sys");
+        try {
+            Path d = sys.resolve("drm").resolve("card0").resolve("device"); Files.createDirectories(d);
+            Files.writeString(d.resolve("vendor"), "0x1002\n"); Files.writeString(d.resolve("device"), "0x74b5\n"); Files.writeString(d.resolve("mem_info_vram_total"), "205822885888\n");
+            Files.createDirectories(sys.resolve("kfd").resolve("1")); Files.writeString(sys.resolve("kfd").resolve("1").resolve("properties"), "gfx_target_version 90402\n");
+            Gpu.SYS_DRM = sys.resolve("drm"); Gpu.SYS_KFD = sys.resolve("kfd"); Gpu.DEV = sys.resolve("dev");
+            Searx.runner = cmd -> new Searx.Result(0, cmd.get(0).equals("nvidia-smi") ? "nvidia-smi not found. This is AMD country.\n" : "map[runc:{...}]");
+            assertEquals("llama-rocm", Embed.tag(), "no TEI image for an AMD card: llama.cpp's ROCm container");
+            assertTrue(Embed.gpu());
+            String s = String.join(" ", Embed.plan(8215, "llama-rocm").get(0));
+            assertTrue(s.startsWith("docker run -d --name researchzosho-embed --restart unless-stopped --device /dev/kfd --device /dev/dri --group-add video -p 127.0.0.1:8215:8080 -v "), s);
+            assertTrue(s.endsWith(":/m ghcr.io/ggml-org/llama.cpp:server-rocm -m /m/Qwen3-Embedding-0.6B-Q8_0.gguf --host 0.0.0.0 --port 8080 --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99"), s);
+            assertFalse(s.contains("--gpus") || s.contains("text-embeddings-inference") || s.contains("--model-id"), s);
+            Files.writeString(d.resolve("vendor"), "0x8086\n"); Files.delete(d.resolve("mem_info_vram_total")); Files.walk(sys.resolve("kfd")).sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+            assertEquals("llama-vulkan", Embed.tag(), "an Intel chip: the Vulkan container");
+            String v = String.join(" ", Embed.plan(8215, "llama-vulkan").get(0));
+            assertTrue(v.contains("--restart unless-stopped --device /dev/dri --group-add video -p") && !v.contains("/dev/kfd") && v.contains("llama.cpp:server-vulkan -m /m/"), v);
+        } finally { Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev; }
     }
 }

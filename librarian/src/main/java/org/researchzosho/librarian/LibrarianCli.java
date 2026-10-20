@@ -631,7 +631,7 @@ public final class LibrarianCli {
                     if (args.length > 2 && Set.of("add", "set", "remove", "key", "test", "list", "auto").contains(args[2].toLowerCase())) return modelsCommand(store, args);
                     int rc = modelsCommand(store, new String[]{args[0], args[1], "list"});
                     System.out.println();
-                    System.out.print(Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describe(Models.cardGb()));
+                    System.out.print(Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describeThisMachine());
                     return rc;
                 }
                 case "name" -> {
@@ -758,10 +758,10 @@ public final class LibrarianCli {
                             int port = Embed.DEFAULT_PORT;
                             for (int i = 3; i < args.length; i++) if (args[i].matches("\\d+")) port = Integer.parseInt(args[i]);
                             if (!cpu && Searx.haveDocker() && !Embed.gpu()) {
-                                System.out.println("no NVIDIA GPU that Docker can use here. The CPU image runs the same model on one core — measured at a tenth of a chunk a second, so a library of a thousand documents takes more than a day to index. researchzosho embed start --cpu runs it anyway; an embeddings server on another machine (RESEARCHZOSHO_EMBED) is the better answer.");
+                                System.out.println("no GPU that Docker can use here (an NVIDIA card with its container runtime, or an AMD or Intel chip). The CPU image runs the same model on one core — measured at a tenth of a chunk a second, so a library of a thousand documents takes more than a day to index. researchzosho embed start --cpu runs it anyway; an embeddings server on another machine (RESEARCHZOSHO_EMBED) is the better answer.");
                                 return 1;
                             }
-                            System.out.print("starting the embeddings server through docker (the model downloads on the first start, about 1.2 GB)… "); System.out.flush();
+                            System.out.print("starting the embeddings server through docker (the model downloads on the first start)… "); System.out.flush();
                             String r = Embed.start(port, cpu);
                             if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
                             Config.set("RESEARCHZOSHO_EMBED", r);

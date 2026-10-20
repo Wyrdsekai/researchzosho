@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -33,6 +34,14 @@ class ModelServerTest {
     final ModelServer.Detacher realDetach = ModelServer.detach;
     final Map<String, String> realSums = new HashMap<>(ModelServer.sums);
     final Function<String, ModelServer.Served> realServedAt = ModelServer.servedAt;
+    Path realDrm = Gpu.SYS_DRM, realKfd = Gpu.SYS_KFD, realDev = Gpu.DEV;
+    /** The GPU readers look at a stand-in tree, empty unless a case fills it, so the box that runs the suite does not leak in. */
+    @BeforeEach void standInKernel() throws Exception {
+        Path sys = Files.createTempDirectory("rz-sys");
+        for (String d : List.of("drm", "kfd", "dev")) Files.createDirectories(sys.resolve(d));
+        Gpu.SYS_DRM = sys.resolve("drm"); Gpu.SYS_KFD = sys.resolve("kfd"); Gpu.DEV = sys.resolve("dev");
+    }
+    @AfterEach void restoreGpu() { Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev; }
     @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; }
 
     @Test
@@ -140,7 +149,7 @@ class ModelServerTest {
             ran.add(cmd);
             String c = cmd.get(0);
             if (c.equals("docker")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, "map[nvidia:{...} runc:{...}]");
-            if (c.equals("nvidia-smi")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, cmd.stream().anyMatch(x -> x.contains("compute_cap")) ? "8.9\n" : "16380\n");
+            if (c.equals("nvidia-smi")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, cmd.stream().anyMatch(x -> x.contains("compute_cap")) ? "8.9\n" : cmd.stream().anyMatch(x -> x.contains("name,")) ? "NVIDIA RTX A4000, 16380\n" : "16380\n");
             if (c.equals("sysctl")) return new ModelServer.Result(0, String.valueOf(16L * 1073741824L) + "\n");
             if (c.equals("powershell") && cmd.contains("-Command")) return new ModelServer.Result(0, String.valueOf(13L * 1073741824L) + "\n");
             if (c.startsWith("curl")) return new ModelServer.Result(0, "HTTP/2 200\ncontent-length: 13780000000\n");
@@ -245,7 +254,7 @@ class ModelServerTest {
         ModelServer.os = ModelServer.Os.linux;
         ModelServer.runner = cmd -> {
             String all = String.join(" ", cmd);
-            if (cmd.get(0).equals("nvidia-smi")) return new ModelServer.Result(0, all.contains("memory.free") ? freeMiB + "\n" : all.contains("compute_cap") ? "8.9\n" : cardMiB + "\n");
+            if (cmd.get(0).equals("nvidia-smi")) return new ModelServer.Result(0, all.contains("memory.free") ? freeMiB + "\n" : all.contains("compute_cap") ? "8.9\n" : all.contains("name,") ? "NVIDIA RTX A4000, " + cardMiB + "\n" : cardMiB + "\n");
             if (all.contains("MemTotal")) return new ModelServer.Result(0, String.valueOf(ramGb * 1073741824L) + "\n");
             if (cmd.get(0).equals("lscpu")) return new ModelServer.Result(0, lscpu);
             if (cmd.get(0).equals("docker")) return new ModelServer.Result(0, "map[nvidia:{...} runc:{...}]");
@@ -401,8 +410,79 @@ class ModelServerTest {
         ModelServer.runner = cmd -> { throw new IOException("docker: not found"); };
         assertTrue(ModelServer.unsupported().contains("docker"), ModelServer.unsupported());
         assertNull(ModelServer.offer());
-        ModelServer.runner = cmd -> cmd.get(0).equals("docker") ? new ModelServer.Result(0, "map[runc:{...}]") : new ModelServer.Result(0, "16380");
+        ModelServer.runner = cmd -> cmd.get(0).equals("docker") ? new ModelServer.Result(0, "map[runc:{...}]") : new ModelServer.Result(0, "NVIDIA RTX A4000, 16380");
         assertTrue(ModelServer.unsupported().contains("NVIDIA runtime"), ModelServer.unsupported());
+        ModelServer.runner = cmd -> cmd.get(0).equals("docker") ? new ModelServer.Result(0, "map[runc:{...}]") : new ModelServer.Result(0, "nvidia-smi not found. This is AMD country.\n");
+        assertTrue(ModelServer.unsupported().startsWith("no GPU"), "a stub nvidia-smi that exits 0 is not a card: " + ModelServer.unsupported());
+    }
+
+    /** An AMD machine as the kernel describes it: the device under drm, its compute target under kfd, the device files, and no NVIDIA runtime in docker. */
+    private void amdMachine(String pciId, long vramBytes, String kfdProps, boolean kfdDevice) throws Exception {
+        Path d = Gpu.SYS_DRM.resolve("card0").resolve("device");
+        Files.createDirectories(d);
+        Files.writeString(d.resolve("vendor"), "0x1002\n"); Files.writeString(d.resolve("device"), pciId + "\n"); Files.writeString(d.resolve("mem_info_vram_total"), vramBytes + "\n");
+        if (kfdProps != null) { Files.createDirectories(Gpu.SYS_KFD.resolve("1")); Files.writeString(Gpu.SYS_KFD.resolve("1").resolve("properties"), kfdProps); }
+        if (kfdDevice) Files.writeString(Gpu.DEV.resolve("kfd"), "");
+        Files.createDirectories(Gpu.DEV.resolve("dri"));
+        ModelServer.os = ModelServer.Os.linux;
+        ModelServer.health = base -> false;
+        ModelServer.runner = cmd -> switch (cmd.get(0)) {
+            case "docker" -> new ModelServer.Result(0, "map[runc:{...}]");
+            case "nvidia-smi" -> new ModelServer.Result(0, "nvidia-smi not found. This is AMD country.\n");
+            case "sh" -> new ModelServer.Result(0, (64L << 30) + "\n");
+            case "lscpu" -> new ModelServer.Result(1, "");
+            default -> new ModelServer.Result(0, "HTTP/2 200\ncontent-length: 13780000000\n");
+        };
+    }
+
+    @Test
+    void onLinuxAnInstinctCardServesThroughTheRocmContainerAndEmbedsInLlamaCppOnTheSameCard(@TempDir Path tmp) throws Exception {
+        amdMachine("0x74b5", 205822885888L, "simd_count 1216\ngfx_target_version 90402\n", true);
+        assertNull(ModelServer.unsupported(), ModelServer.unsupported());
+        assertEquals(192, (int) ModelServer.budgetGb(), "what the kernel says is set aside for the card");
+        assertEquals(192, (int) ModelServer.gpuFreeGb(), "the allotment is the model's: a stopped container's memory still counts as used for a while");
+        assertEquals("ROCm in Docker", ModelServer.backend());
+        assertEquals("llama", ModelServer.embedTagFor(ModelServer.Os.linux), "no TEI image for an AMD card: llama.cpp embeds");
+        assertTrue(ModelServer.offer().startsWith("Serve qwen3.8-27b on this machine on demand (ROCm in Docker)"), ModelServer.offer());
+        var p = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(192), tmp.resolve("m.gguf"), tmp, tmp.resolve("u"), "all", 20, false, "llama", ModelServer.gpu().build());
+        assertTrue(p.runScript().contains("exec docker run --rm --name researchzosho-model --device /dev/kfd --device /dev/dri --group-add video -p 127.0.0.1:$1:8080"), p.runScript());
+        assertTrue(p.runScript().contains("ghcr.io/ggml-org/llama.cpp:server-rocm \\\n  -m /m/m.gguf --host 0.0.0.0 --port 8080 --jinja -c 131072 --parallel 4 -ngl 99 --flash-attn on"), p.runScript());
+        assertFalse(p.runScript().contains("--gpus") || p.runScript().contains("VISIBLE_DEVICES"), p.runScript());
+        assertTrue(p.embeds() && p.embedScript().contains("--name researchzosho-model-embed --device /dev/kfd --device /dev/dri --group-add video -p 127.0.0.1:$1:8080 -v " + tmp + ":/m ghcr.io/ggml-org/llama.cpp:server-rocm"), p.embedScript());
+        assertTrue(p.embedScript().contains("-m /m/Qwen3-Embedding-0.6B-Q8_0.gguf --host 0.0.0.0 --port 8080 --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99"), p.embedScript());
+        assertFalse(p.embedScript().contains("text-embeddings-inference"), p.embedScript());
+        assertTrue(p.configYaml().contains("    cmd: " + tmp.resolve("run-embed.sh") + " ${PORT}\n    cmdStop: docker stop researchzosho-model-embed\n"), p.configYaml());
+        var one = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(192), tmp.resolve("m.gguf"), tmp, tmp.resolve("u"), "1", 20, false, "llama", "rocm");
+        assertTrue(one.runScript().contains("--group-add video -e HIP_VISIBLE_DEVICES=1 -p") && one.embedScript().contains("-e HIP_VISIBLE_DEVICES=1 -p"), one.runScript());
+        Files.writeString(tmp.resolve("run.sh"), one.runScript()); Files.writeString(tmp.resolve("config.yaml"), one.configYaml());
+        assertEquals("1", ModelServer.readPlan(tmp).get("gpus"), "the device read back from the ROCm script");
+        Files.delete(Gpu.DEV.resolve("kfd"));
+        assertTrue(ModelServer.unsupported().startsWith("/dev/kfd is not here"), ModelServer.unsupported());
+        assertNull(ModelServer.offer());
+    }
+
+    @Test
+    void onLinuxARadeonOrAnApuServesThroughTheVulkanContainerWithTheRenderDevices(@TempDir Path tmp) throws Exception {
+        amdMachine("0x1586", 32L << 30, null, false);   // a Ryzen AI MAX with 32 GB set aside in the BIOS; no compute topology, the PCI id names it
+        assertNull(ModelServer.unsupported(), ModelServer.unsupported());
+        assertEquals(32, (int) ModelServer.budgetGb());
+        assertEquals("Vulkan in Docker", ModelServer.backend());
+        assertEquals("llama", ModelServer.embedTagFor(ModelServer.Os.linux));
+        assertTrue(ModelServer.offer().startsWith("Serve qwen3.8-27b on this machine on demand (Vulkan in Docker)"), ModelServer.offer());
+        var p = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(32), tmp.resolve("m.gguf"), tmp, tmp.resolve("u"), "all", 20, false, "llama", ModelServer.gpu().build());
+        assertTrue(p.runScript().contains("--name researchzosho-model --device /dev/dri --group-add video -p 127.0.0.1:$1:8080") && p.runScript().contains("llama.cpp:server-vulkan"), p.runScript());
+        assertFalse(p.runScript().contains("/dev/kfd") || p.runScript().contains("VISIBLE_DEVICES"), "GGML_VK_VISIBLE_DEVICES stays unset for all: " + p.runScript());
+        assertTrue(p.embedScript().contains("--device /dev/dri --group-add video") && p.embedScript().contains("llama.cpp:server-vulkan"), p.embedScript());
+        var one = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(32), tmp.resolve("m.gguf"), tmp, tmp.resolve("u"), "0", 20, false, "llama", "vulkan");
+        assertTrue(one.runScript().contains("-e GGML_VK_VISIBLE_DEVICES=0 -p"), one.runScript());
+        // an Intel GPU: the same container, sized by half the RAM
+        Files.writeString(Gpu.SYS_DRM.resolve("card0").resolve("device").resolve("vendor"), "0x8086\n");
+        Files.delete(Gpu.SYS_DRM.resolve("card0").resolve("device").resolve("mem_info_vram_total"));
+        assertNull(ModelServer.unsupported(), ModelServer.unsupported());
+        assertEquals(8, (int) ModelServer.budgetGb(), "half of 64 GB RAM, capped at the 9B's row: an iGPU shares the memory, not a card's speed");
+        assertEquals("Vulkan in Docker", ModelServer.backend());
+        Files.walk(Gpu.DEV.resolve("dri")).forEach(x -> x.toFile().delete());
+        assertTrue(ModelServer.unsupported().startsWith("/dev/dri is not here"), ModelServer.unsupported());
     }
 
     @Test

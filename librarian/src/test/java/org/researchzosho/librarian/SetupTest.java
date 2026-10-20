@@ -209,7 +209,7 @@ class SetupTest {
         assertNull(Models.tierFor(1));
         String s = Models.describe(16);
         assertTrue(s.contains("gpt-oss-20b") && s.contains("Gemma 4 26B-A4B") && s.contains("http://127.0.0.1:8080"), s);
-        assertTrue(Models.describe(0).contains("No NVIDIA card"), Models.describe(0));
+        assertTrue(Models.describe(0).contains("No GPU with memory of its own"), Models.describe(0));
         assertTrue(Models.describe(1).contains("hosted model server"), Models.describe(1));
         assertTrue(Models.describeAll().contains("not recommended"));
     }

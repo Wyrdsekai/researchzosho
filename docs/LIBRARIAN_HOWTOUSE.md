@@ -89,9 +89,11 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
   Section 2 explains.
 - Optional: an embeddings server, if you want search by meaning as well as by keywords. `researchzosho
   model install` sets one up beside the model, at the same address, on all three platforms. On Linux
-  with an NVIDIA card it is Text Embeddings Inference serving Qwen3-Embedding-0.6B. On a Mac or
-  Windows it is llama.cpp's own build. The model downloads once, about 1.2 GB. Without a GPU on Linux
-  there is none. `researchzosho embed start --cpu` runs the CPU image at about a tenth of a chunk a
+  with an NVIDIA card it is Text Embeddings Inference serving Qwen3-Embedding-0.6B; with an AMD or
+  Intel graphics chip it is llama.cpp's container serving the same model on the same chip. On a Mac or
+  Windows it is llama.cpp's own build. The model downloads once, about 1.2 GB (0.6 GB for llama.cpp).
+  Without a GPU on Linux there is none. `researchzosho embed start` on its own does the same: Text Embeddings
+  Inference on an NVIDIA card, llama.cpp's container on an AMD or Intel chip. `researchzosho embed start --cpu` runs the CPU image at about a tenth of a chunk a
   second, so a thousand documents take more than a day. An embeddings server on another machine is
   the better answer. Any server that answers the OpenAI embeddings call works. The server matters more
   than the model: the same 0.6B model does 13 chunks a second under llama.cpp and 115 under Text
@@ -195,7 +197,7 @@ Setup asks a few questions. Each has a default answer. Press Enter to accept it.
    SearXNG on its usual local port. If Docker is installed, it offers to start one. With neither, it
    says that the built-in fallback will be used.
 4. Whether search works by meaning or by words only. If your model server also embeds, that is used.
-   The one `model install` sets up does. Otherwise, with Docker and an NVIDIA card, setup offers to
+   The one `model install` sets up does. Otherwise, with Docker and a GPU (NVIDIA, AMD or Intel), setup offers to
    start an embeddings server. `researchzosho embed start` does the same later. Without those it asks
    for an address. With none, search is by words.
 5. Whether to run ResearchZosho as a service that starts when you log in.
@@ -1774,6 +1776,7 @@ to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 | platform | the server | the service | sized by |
 |---|---|---|---|
 | Linux with an NVIDIA card and Docker | llama.cpp's CUDA container | a `systemd --user` unit | the card's memory |
+| Linux with an AMD or Intel graphics chip and Docker | llama.cpp's ROCm container on an Instinct card; its Vulkan container on a Radeon, a Ryzen AI or an Intel chip | a `systemd --user` unit | what the BIOS set aside for the chip; up to 8 GB for Intel |
 | macOS | llama.cpp's own Metal build | a launchd agent | seven tenths of unified memory |
 | Windows x64 | llama.cpp's own Vulkan build, any card | a logon task | the NVIDIA card's memory, else half the RAM |
 

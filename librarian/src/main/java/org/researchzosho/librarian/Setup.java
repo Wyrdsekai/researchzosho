@@ -88,7 +88,7 @@ public final class Setup {
         default String startSearxng(int port) { return "!docker is not on this machine"; }
         /** Start the embeddings server through docker on {@code port}; the address, or "!reason". */
         default String startEmbed(int port) { return "!docker is not on this machine"; }
-        /** Whether docker here can run the GPU embeddings image (an NVIDIA card and its container runtime). */
+        /** Whether docker here can embed on a GPU (an NVIDIA card and its container runtime, or an AMD or Intel chip). */
         default boolean embedGpu() { return false; }
         /** One sentence on serving a model on this machine on demand, or null when it cannot (ModelServer.offer). */
         default String modelOffer() { return null; }
@@ -352,7 +352,7 @@ public final class Setup {
             out.println("  No model server was found on the usual local ports.");
             out.println("  A local server (llama.cpp, Ollama, LM Studio) or a hosted API that speaks the OpenAI chat API");
             out.println("  (OpenAI, DeepSeek, Gemini, OpenRouter…) both work. A hosted API needs its key.");
-            for (String line : Models.describe(Models.cardGb()).split("\n")) out.println("  " + line);   // the measured choice for this card
+            for (String line : Models.describeThisMachine().split("\n")) out.println("  " + line);   // the measured choice for this card
             // this machine can serve it on demand: the model comes up when a run needs it and goes away after (ModelServer)
             String offer = acts.modelOffer();
             if (offer != null && yesNo("  " + offer + " Set it up?", true)) {

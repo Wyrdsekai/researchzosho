@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.5
+
+What's new: the model on this machine runs on AMD and Intel graphics too, and a bug fix.
+
+### Added
+
+- `researchzosho model install` works on a Linux machine with an AMD graphics chip (a Radeon, a Ryzen AI or an Instinct) or an
+  Intel one, not only an NVIDIA card. The embeddings server comes up beside the model on the same chip.
+- `researchzosho embed start` works on those chips too.
+
+### Fixed
+
+- A machine with a stand-in `nvidia-smi` that only prints a message was taken for an NVIDIA machine.
+
 ## 0.6.4
 
 ### Fixed

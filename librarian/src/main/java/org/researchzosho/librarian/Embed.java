@@ -18,7 +18,9 @@ import java.util.List;
  * fetches the model once (about 1.2 GB) into the state directory. The server, not the model, decides the speed: the
  * same model measured 13 chunks a second under llama.cpp and 115 under this image on the same card (2026-09-10), so a
  * library of a thousand documents re-indexes in two minutes instead of twenty. On a machine with an NVIDIA card and the
- * container runtime for it the GPU image is used; otherwise the CPU image, which works and is slower.
+ * container runtime for it the GPU image is used. Text Embeddings Inference has no image for an AMD or Intel chip, so there
+ * llama.cpp's container (ROCm or Vulkan, see {@link Gpu}) serves the same model from {@link ModelServer#EMBED_FILE} on the
+ * chip ("llama-rocm", "llama-vulkan"); otherwise the CPU image, which works and is slower.
  * {@code researchzosho embed start|stop|status|test} and the setup wizard use this.
  */
 public final class Embed {
@@ -32,7 +34,7 @@ public final class Embed {
 
     private Embed() { }
 
-    /** Whether this machine can run the GPU image: an NVIDIA card the docker daemon can hand to a container. */
+    /** Whether this machine can embed on a GPU: an NVIDIA card the docker daemon can hand to a container, or an AMD or Intel chip. */
     public static boolean gpu() { return !tag().startsWith("cpu"); }
 
     /** Where the container keeps the model it fetched: {@code <state dir>/embed}. */
@@ -43,6 +45,14 @@ public final class Embed {
      * {@code nvidia-smi --query-gpu=compute_cap} and the docker daemon's runtimes; "cpu" when either is missing.
      */
     public static String tag() {
+        String t = teiTag();
+        if (!t.startsWith("cpu")) return t;
+        Gpu g = Gpu.kernel();   // no TEI image for an AMD or Intel chip: llama.cpp's container, the same model (read from the kernel alone; nvidia-smi is not asked)
+        return g.kind() == Gpu.Kind.amd || g.kind() == Gpu.Kind.intel ? "llama-" + g.build() : t;
+    }
+
+    /** The Text Embeddings Inference tag for an NVIDIA card docker can use; "cpu-…" otherwise. */
+    static String teiTag() {
         try {
             Searx.Result rt = Searx.runner.run(List.of("docker", "info", "--format", "{{.Runtimes}}"));
             if (rt.code() != 0 || !rt.out().contains("nvidia")) return "cpu-" + VERSION;
@@ -73,8 +83,21 @@ public final class Embed {
         } catch (Exception e) { return "absent"; }
     }
 
-    /** The docker command that creates the container: loopback only, restarts with the machine, the GPU when the tag is not cpu. */
+    /**
+     * The docker command that creates the container: loopback only, restarts with the machine, the GPU when the tag is not cpu.
+     * A "llama-" tag is llama.cpp's container on an AMD or Intel chip, serving the embeddings file from the models folder with the
+     * same flags the model server's embeddings entry uses; the TEI image otherwise.
+     */
     static List<String> runCommand(int port, String tag) {
+        if (tag.startsWith("llama-")) {
+            String build = tag.substring("llama-".length());
+            List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped"));
+            if (build.equals("rocm")) cmd.addAll(List.of("--device", "/dev/kfd"));
+            cmd.addAll(List.of("--device", "/dev/dri", "--group-add", "video", "-p", "127.0.0.1:" + port + ":8080", "-v", ModelServer.modelsDir().toAbsolutePath() + ":/m",
+                    "ghcr.io/ggml-org/llama.cpp:server-" + build, "-m", "/m/" + ModelServer.EMBED_FILE, "--host", "0.0.0.0", "--port", "8080",
+                    "--embedding", "--pooling", "last", "-c", "8192", "-b", "8192", "-ub", "8192", "-ngl", "99"));
+            return cmd;
+        }
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
                 "-p", "127.0.0.1:" + port + ":80", "-v", dir().toAbsolutePath() + ":/data"));
         if (!tag.startsWith("cpu")) { cmd.add("--gpus"); cmd.add("all"); }
@@ -101,6 +124,10 @@ public final class Embed {
             String tag = cpu ? "cpu-" + VERSION : tag();
             String state = state();
             Searx.Result r;
+            if (state.equals("absent") && tag.startsWith("llama-")) {   // llama.cpp reads the file from the models folder; the TEI image fetches its own
+                Path ef = ModelServer.modelsDir().resolve(ModelServer.EMBED_FILE);
+                if (!Files.isRegularFile(ef)) { Files.createDirectories(ef.getParent()); ModelServer.fetchChecked(ModelServer.EMBED_URL, ef); }
+            }
             if (state.equals("absent")) r = Searx.runner.run(runCommand(port, tag));
             else if (state.equals("stopped")) r = Searx.runner.run(List.of("docker", "start", CONTAINER));
             else r = new Searx.Result(0, "");

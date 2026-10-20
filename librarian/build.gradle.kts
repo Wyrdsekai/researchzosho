@@ -70,6 +70,13 @@ tasks.test {
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)
+    // The GPU readers (Gpu) look at an empty kernel tree under the build folder, never this box's /sys and /dev: the build box has an
+    // Intel iGPU beside its NVIDIA card, and a test faking "no card" went on to serve on it and reached the drive's default address
+    // (2026-10-20). SuiteGpuTest pins it.
+    val noSys = layout.buildDirectory.dir("tmp/no-sys").get().asFile
+    doFirst { noSys.mkdirs() }
+    systemProperty("researchzosho.sys", noSys.path)
+    systemProperty("researchzosho.dev", noSys.path)
     // a pooled client connection outlives the test daemon's idle close (JDK HttpServer, 30 s): a request written on it is never answered,
     // and a test with no request timeout then hangs the whole suite (PagesTest, 2026-10-15, an hour under a loaded box). The pool drops
     // a connection idle for a second, so every request after a pause takes a fresh one.

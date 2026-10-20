@@ -41,7 +41,9 @@ import org.researchzosho.Config;
  * <p>{@code install} picks the measured model for what this machine has, fetches the model file and the proxy, puts
  * llama.cpp behind it, installs the proxy as a service that starts with the person's session on {@link #PORT}, and
  * points this program's drive at it. A proxy that already answers there — the other product's, or this one's from
- * before — is used as it is. On Linux the server is llama.cpp's CUDA container (Docker with the NVIDIA runtime); on
+ * before — is used as it is. On Linux the server is llama.cpp's container for the GPU the kernel names ({@link Gpu}): CUDA on an
+ * NVIDIA card (Docker with the NVIDIA runtime), ROCm on an AMD Instinct card, Vulkan on a Radeon, an AMD APU or an Intel GPU
+ * (Docker with the kernel's render devices passed through); on
  * macOS its native Metal build sized by unified memory, as a launchd agent; on Windows its Vulkan build, which runs on
  * any card, as a logon task.
  *
@@ -209,13 +211,19 @@ public final class ModelServer {
         } catch (Exception e) { return List.of(); }
     }
 
-    /** Free memory on the NVIDIA card now, in GB; the whole card when that cannot be read. */
-    static double nvidiaFreeGb() {
-        try {
-            Result r = runner.run(List.of("nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"));
-            if (r.code() == 0) return Double.parseDouble(r.out().strip().split("\\R")[0].strip()) / 1024.0;
-        } catch (Exception ignored) { }
-        return nvidiaGb();
+    /**
+     * Memory free on the GPU now, in GB, for placing the experts: an NVIDIA card's as nvidia-smi reads it; an AMD GPU's whole
+     * allotment, because what a stopped container held still counts as used for a while and the allotment is the model's;
+     * the whole budget when nothing can be read.
+     */
+    static double gpuFreeGb() {
+        if (gpu().kind() == Gpu.Kind.nvidia) {
+            try {
+                Result r = runner.run(List.of("nvidia-smi", "--query-gpu=memory.free", "--format=csv,noheader,nounits"));
+                if (r.code() == 0) return Double.parseDouble(r.out().strip().split("\\R")[0].strip()) / 1024.0;
+            } catch (Exception ignored) { }
+        }
+        return budgetGb();
     }
 
     /** The flags an experts-in-RAM row adds: where the experts go, and the threads. "" for a dense row, which runs as it always did. */
@@ -223,7 +231,7 @@ public final class ModelServer {
         if (row.moe() == null) return "";
         List<Integer> cores = fastCores();
         double also = (VISION.containsKey(row.name()) ? VISION_GB : 0) + (embedTagFor(os) != null && os == Os.linux ? EMBED_GB : 0);
-        String moe = moeArgs(row, os == Os.macos ? 0 : nvidiaFreeGb(), also);
+        String moe = moeArgs(row, os == Os.macos ? 0 : gpuFreeGb(), also);
         // a card too small for even one layer of experts is too small for the picture reader as well: it runs from RAM (slower pictures, 0.9 GB back)
         String pictures = moe.equals("--cpu-moe") && VISION.containsKey(row.name()) ? " --no-mmproj-offload" : "";
         return (moe.isEmpty() ? "" : " " + moe) + pictures + (cores.isEmpty() ? "" : " -t " + cores.size() + " -tb " + cores.size());
@@ -334,16 +342,11 @@ public final class ModelServer {
     public static Path modelsDir() { return Path.of(System.getProperty("user.home")).resolve("models"); }
     static String home() { return System.getProperty("user.home"); }
 
-    /** The largest NVIDIA card's memory in GB, rounded; 0 when nvidia-smi does not answer. */
-    static double nvidiaGb() {
-        try {
-            Result r = runner.run(List.of("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"));
-            if (r.code() != 0) return 0;
-            double best = 0;
-            for (String line : r.out().split("\\R")) { String t = line.strip(); if (!t.isEmpty()) best = Math.max(best, Math.round(Double.parseDouble(t) / 1024.0)); }
-            return best;
-        } catch (Exception e) { return 0; }
-    }
+    /** The largest NVIDIA card's memory in GB, rounded; 0 when nvidia-smi does not name a card with a memory size (a stub that prints a sentence and exits 0 is not a card). */
+    static double nvidiaGb() { Gpu g = Gpu.nvidia(runner); return g == null ? 0 : g.gb(); }
+
+    /** The GPU this Linux machine has, as the kernel tells it. */
+    static Gpu gpu() { return Gpu.detect(runner); }
 
     /** The machine's RAM in GB, 0 when unknown. */
     static double ramGb() {
@@ -359,31 +362,50 @@ public final class ModelServer {
     }
 
     /**
-     * Memory the model may take, in GB: an NVIDIA card's on Linux; on macOS about seven tenths of unified memory, which is
-     * what the system lets the GPU wire; on Windows the NVIDIA card where there is one, else half the RAM, which is what an
-     * integrated card shares.
+     * Memory the model may take, in GB: on Linux an NVIDIA card's, or what the BIOS set aside for an AMD GPU (a discrete
+     * card's own memory, an APU's carve-out), or for an Intel GPU half the RAM it shares, up to {@link #INTEL_GB}; on macOS about
+     * seven tenths of unified memory, which is what the system lets the GPU wire; on Windows the NVIDIA card where there
+     * is one, else half the RAM, which is what an integrated card shares.
      */
+    /**
+     * The most an Intel GPU is given: it shares the system's memory but not a card's speed (a 4B ran at 9 tokens a second on an
+     * Arrow Lake chip against 7 on its CPU, 2026-10-20), so the pick stops at the 9B's row rather than the 27B that half the RAM would buy.
+     */
+    static final double INTEL_GB = 8;
+
     public static double budgetGb() {
         return switch (os) {
-            case linux -> nvidiaGb();
+            case linux -> { Gpu g = gpu(); yield g.kind() == Gpu.Kind.intel ? Math.min(INTEL_GB, Math.floor(ramGb() * 0.5)) : g.gb(); }
             case macos -> Math.floor(ramGb() * 0.7);
             case windows -> { double n = nvidiaGb(); yield n > 0 ? n : Math.floor(ramGb() * 0.5); }
         };
     }
 
     /** What the server runs on here, for the offer: "the Ada" is not known, the backend is. */
-    static String backend() { return switch (os) { case linux -> "CUDA in Docker"; case macos -> "Metal"; case windows -> "Vulkan"; }; }
+    static String backend() {
+        return switch (os) {
+            case linux -> switch (gpu().build()) { case "rocm" -> "ROCm in Docker"; case "vulkan" -> "Vulkan in Docker"; default -> "CUDA in Docker"; };
+            case macos -> "Metal";
+            case windows -> "Vulkan";
+        };
+    }
 
     /** Why this machine cannot serve a model on demand, or null when it can. */
     public static String unsupported() {
         switch (os) {
             case linux -> {
+                String runtimes;
                 try {
                     Result d = runner.run(List.of("docker", "info", "--format", "{{.Runtimes}}"));
                     if (d.code() != 0) return "docker is not on this machine (on Linux the model runs in llama.cpp's container)";
-                    if (!d.out().contains("nvidia")) return "docker here has no NVIDIA runtime (install nvidia-container-toolkit)";
+                    runtimes = d.out();
                 } catch (Exception e) { return "docker is not on this machine (on Linux the model runs in llama.cpp's container)"; }
-                if (nvidiaGb() <= 0) return "no NVIDIA card answers nvidia-smi";
+                Gpu g = gpu();
+                switch (g.kind()) {
+                    case nvidia -> { if (!runtimes.contains("nvidia")) return "docker here has no NVIDIA runtime (install nvidia-container-toolkit)"; }
+                    case amd, intel -> { String m = g.missingDevices(); if (m != null) return m; }
+                    case none -> { return "no GPU: nvidia-smi names no NVIDIA card, and the kernel lists no AMD or Intel one under /sys/class/drm"; }
+                }
             }
             case macos -> { }
             case windows -> { if (!arch().equals("amd64")) return "Windows on arm64 has no Vulkan build of llama.cpp yet"; }
@@ -426,13 +448,16 @@ public final class ModelServer {
     }
 
     /**
-     * How this machine embeds beside the model: on Linux the Text Embeddings Inference image for the card (null when
-     * there is no card docker can use: the CPU image is a tenth of a chunk a second, not worth a service); on macOS and
-     * Windows llama.cpp's own build with {@link #EMBED_FILE} ("llama").
+     * How this machine embeds beside the model: on Linux with an NVIDIA card the Text Embeddings Inference image for the
+     * card (null when docker cannot use it: the CPU image is a tenth of a chunk a second, not worth a service); on Linux with
+     * an AMD or Intel GPU, and on macOS and Windows, llama.cpp with {@link #EMBED_FILE} ("llama"): its container on the
+     * same GPU as the model, or its own build.
      */
     static String embedTagFor(Os os) {
         if (os != Os.linux) return "llama";
         try {   // through this class's runner seam, so a test's fake machine decides (Embed.tag reads the real docker)
+            Gpu.Kind kind = gpu().kind();
+            if (kind == Gpu.Kind.amd || kind == Gpu.Kind.intel) return "llama";
             Result rt = runner.run(List.of("docker", "info", "--format", "{{.Runtimes}}"));
             if (rt.code() != 0 || !rt.out().contains("nvidia")) return null;
             Result cap = runner.run(List.of("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"));
@@ -466,7 +491,21 @@ public final class ModelServer {
 
     /** {@code embedTag}: a TEI image tag (Linux), "llama" (macOS, Windows), or null for no embeddings server. The caller decides
      *  (install and upgrade ask {@link #embedTagFor}); the plan itself never touches the machine, so a test can build one anywhere. */
-    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag) {
+    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag) { return plan(os, row, modelFile, dir, unit, gpus, idleMinutes, share, embedTag, "cuda"); }
+
+    /**
+     * {@code build} is the llama.cpp container the Linux scripts start ({@link Gpu#build()}): cuda with the NVIDIA runtime's
+     * {@code --gpus}; rocm with the compute interface and the render devices passed through; vulkan with the render devices.
+     * {@code gpus} is "all" or one device's index: {@code --gpus} for CUDA, the backend's visible-devices variable for the others
+     * (left unset for "all": a visible-devices list that is empty means no device, and the CPU serves at a tenth of the speed).
+     */
+    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag, String build) {
+        String image = switch (build) { case "rocm" -> "server-rocm"; case "vulkan" -> "server-vulkan"; default -> "server-cuda"; };
+        String devices = switch (build) {
+            case "rocm" -> "--device /dev/kfd --device /dev/dri --group-add video" + (gpus.equals("all") ? "" : " -e HIP_VISIBLE_DEVICES=" + gpus);
+            case "vulkan" -> "--device /dev/dri --group-add video" + (gpus.equals("all") ? "" : " -e GGML_VK_VISIBLE_DEVICES=" + gpus);
+            default -> "--gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'");
+        };
         String cmd = switch (os) {
             case linux -> dir.resolve("run.sh") + " ${PORT}";
             case macos -> dir.resolve("llama").resolve("llama-server") + " " + serverArgs(row, modelFile, os);
@@ -504,7 +543,11 @@ public final class ModelServer {
                 + "    exclusive: false\n"
                 + "    persistent: true\n"
                 + "    members: [\"" + EMBED_NAME + "\"]\n";
-            if (os == Os.linux) embedScript = "#!/bin/sh\n"
+            if (os == Os.linux) embedScript = embedTag.equals("llama") ? "#!/bin/sh\n"
+                + "# The embeddings server (" + Embed.MODEL + " in llama.cpp, on the same GPU as the model), started by llama-swap on demand beside the model; $1 is the port it assigned.\n"
+                + "exec docker run --rm --name " + EMBED_CONTAINER + " " + devices + " -p 127.0.0.1:$1:8080 -v " + modelFile.getParent() + ":/m ghcr.io/ggml-org/llama.cpp:" + image + " \\\n"
+                + "  -m /m/" + EMBED_FILE + " --host 0.0.0.0 --port 8080 --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99\n"
+                : "#!/bin/sh\n"
                 + "# The embeddings server (Text Embeddings Inference, " + Embed.MODEL + "), started by llama-swap on demand beside the model; $1 is the port it assigned.\n"
                 + "# The model downloads into " + Embed.dir() + " on the first start.\n"
                 + "exec docker run --rm --name " + EMBED_CONTAINER + " --gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'")
@@ -513,9 +556,9 @@ public final class ModelServer {
         }
         String run = os != Os.linux ? null : "#!/bin/sh\n"
                 + "# " + row.name() + " in llama.cpp, started by llama-swap on demand; $1 is the port it assigned. The flags are the measured ones.\n"
-                + "exec docker run --rm --name " + CONTAINER + " --gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'")
+                + "exec docker run --rm --name " + CONTAINER + " " + devices
                 + (row.moe() == null || fastCores().isEmpty() ? "" : " --cpuset-cpus=" + String.join(",", fastCores().stream().map(String::valueOf).toList()))
-                + " -p 127.0.0.1:$1:8080 -v " + modelFile.getParent() + ":/m ghcr.io/ggml-org/llama.cpp:server-cuda \\\n"
+                + " -p 127.0.0.1:$1:8080 -v " + modelFile.getParent() + ":/m ghcr.io/ggml-org/llama.cpp:" + image + " \\\n"
                 + "  -m /m/" + modelFile.getFileName() + (Files.isRegularFile(visionFile(row, modelFile)) ? " --mmproj /m/" + visionFile(row, modelFile).getFileName() : "") + " --host 0.0.0.0 --port 8080 --jinja -c " + row.ctx() + " --parallel " + row.parallel() + " -ngl 99 --flash-attn on" + moeAndThreads(row)
                 + (row.extra().isEmpty() ? "" : " \\\n  " + row.extra()) + "\n";
         String listen = (share ? "0.0.0.0" : "127.0.0.1") + ":" + PORT;
@@ -662,12 +705,12 @@ public final class ModelServer {
             if (!Files.exists(dir.resolve("previous")))
                 Files.writeString(dir.resolve("previous"), (before == null ? "" : before) + "\n" + (beforeModel == null ? "" : beforeModel) + "\n" + (beforeEmbed == null ? "" : beforeEmbed) + "\n", StandardCharsets.UTF_8);
             String embedTag = embedTagFor(os);
-            if (embedTag != null && os != Os.linux) {
-                // the embeddings model for llama.cpp's own build; the Linux container fetches its own copy from Hugging Face
+            if ("llama".equals(embedTag)) {
+                // the embeddings model for llama.cpp (its own build on macOS and Windows, its container on a Linux box with an AMD or Intel GPU); the TEI container fetches its own copy from Hugging Face
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
-            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag);
+            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag, os == Os.linux ? gpu().build() : "");
             Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idleMinutes, share) + "chosen=" + chosen + "\n", StandardCharsets.UTF_8);
             Files.writeString(dir.resolve("config.yaml"), p.configYaml(), StandardCharsets.UTF_8);
             if (p.runScript() != null) { Files.writeString(dir.resolve("run.sh"), p.runScript(), StandardCharsets.UTF_8); dir.resolve("run.sh").toFile().setExecutable(true); }
@@ -684,7 +727,7 @@ public final class ModelServer {
             if (p.embeds()) {
                 Config.set("RESEARCHZOSHO_EMBED", URL);
                 out.println("  the embeddings server (" + Embed.MODEL + ") comes up at the same address beside it and stays; search by meaning is on"
-                        + (os == Os.linux ? " (the model downloads once, about 1.2 GB, on the first search)" : "") + ". `researchzosho rebuild` indexes what is already on the shelves with it.");
+                        + (os == Os.linux && !"llama".equals(embedTag) ? " (the model downloads once, about 1.2 GB, on the first search)" : "") + ". `researchzosho rebuild` indexes what is already on the shelves with it.");
             } else {
                 out.println("  This machine has no graphics card that Docker can use, so the embeddings server (which lets the library search by meaning) is not installed. The library searches by words instead. If another machine runs one, point the setting RESEARCHZOSHO_EMBED at it.");
             }
@@ -873,7 +916,8 @@ public final class ModelServer {
         if (f.find()) { String file = f.group(1); m.put("file", file.startsWith("/m/") ? modelsDir().resolve(file.substring(3)).toString() : file); }
         Matcher c = Pattern.compile("-c\\s+(\\d+)").matcher(server); if (c.find()) m.put("ctx", c.group(1));
         Matcher pl = Pattern.compile("--parallel\\s+(\\d+)").matcher(server); if (pl.find()) m.put("parallel", pl.group(1));
-        Matcher g = Pattern.compile("--gpus\\s+(?:'\"device=([^\"]+)\"'|(all))").matcher(server); m.put("gpus", g.find() ? (g.group(1) != null ? g.group(1) : "all") : "all");
+        Matcher g = Pattern.compile("--gpus\\s+(?:'\"device=([^\"]+)\"'|(all))|VISIBLE_DEVICES=(\\S+)").matcher(server);   // CUDA's --gpus, or the device variable the ROCm and Vulkan scripts set
+        m.put("gpus", g.find() ? (g.group(1) != null ? g.group(1) : g.group(3) != null ? g.group(3) : "all") : "all");
         Matcher x = Pattern.compile("--chat-template-kwargs\\s+(\\S+)").matcher(server); m.put("extra", x.find() ? "--chat-template-kwargs " + x.group(1) : "");
         boolean share = false;
         try { share = Files.readString(unitPath(os), StandardCharsets.UTF_8).contains("0.0.0.0:" + PORT); } catch (IOException ignored) { }
@@ -901,11 +945,11 @@ public final class ModelServer {
             Row known = null; for (Row r : ROWS) if (r.file().equals(modelFile.getFileName().toString())) known = r;
             Row row = known != null ? known : new Row(m.get("name"), 0, "", modelFile.getFileName().toString(), "", Integer.parseInt(m.getOrDefault("ctx", "16384")), Integer.parseInt(m.getOrDefault("parallel", "1")), m.getOrDefault("extra", ""));
             String gpus = m.getOrDefault("gpus", "all"); int idle = Integer.parseInt(m.getOrDefault("idle_minutes", String.valueOf(DEFAULT_IDLE_MINUTES))); boolean share = Boolean.parseBoolean(m.getOrDefault("share", "false"));
-            if (os != Os.linux) {
+            if ("llama".equals(embedTag)) {
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
-            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag);
+            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "");
             Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n", StandardCharsets.UTF_8);
             Files.writeString(cfg, p.configYaml(), StandardCharsets.UTF_8);
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }

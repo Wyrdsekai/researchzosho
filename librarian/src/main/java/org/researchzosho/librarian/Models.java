@@ -67,30 +67,38 @@ public final class Models {
         return null;
     }
 
-    /** This machine's card, in GB, from nvidia-smi; 0 when there is none or it cannot be asked. */
-    public static double cardGb() {
-        try {
-            Searx.Result r = Searx.runner.run(List.of("nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"));
-            if (r.code() != 0) return 0;
-            String first = r.out().strip().split("\\R")[0].strip();
-            return Double.parseDouble(first) / 1024.0;
-        } catch (Exception e) { return 0; }
+    /** This machine's GPU, as the kernel tells it, through the Searx runner seam so a test's fake machine decides. */
+    public static Gpu gpu() { return Gpu.detect(cmd -> { Searx.Result r = Searx.runner.run(cmd); return new ModelServer.Result(r.code(), r.out()); }); }
+
+    /** This machine's GPU memory, in GB: an NVIDIA card's as nvidia-smi measures it, or what the kernel says is set aside for an AMD GPU; 0 when there is none. */
+    public static double cardGb() { return gpu().gb(); }
+
+    /** The recommendation for the machine this runs on: its GPU's memory, and the serve commands in the form its GPU takes. */
+    public static String describeThisMachine() { Gpu g = gpu(); return describe(g.gb(), g); }
+
+    /** A serve command as this GPU takes it: CUDA's {@code --gpus all} and image on an NVIDIA card; the render devices and the ROCm or Vulkan image on an AMD or Intel one. */
+    static String forGpu(String serve, Gpu g) {
+        if (g.kind() != Gpu.Kind.amd && g.kind() != Gpu.Kind.intel) return serve;
+        String devices = g.instinct() ? "--device /dev/kfd --device /dev/dri --group-add video" : "--device /dev/dri --group-add video";
+        return serve.replace("--gpus all", devices).replace("llama.cpp:server-cuda", "llama.cpp:server-" + g.build());
     }
 
     /** The recommendation as a person reads it: the card, the choices for it, how to serve one, and what to put in setup. */
-    public static String describe(double gb) {
+    public static String describe(double gb) { return describe(gb, Gpu.NONE); }
+
+    public static String describe(double gb, Gpu g) {
         StringBuilder b = new StringBuilder();
         Tier t = gb > 0 ? tierFor(gb) : null;
-        if (gb <= 0) b.append("No NVIDIA card was found on this machine (or nvidia-smi is not on the PATH).\n");
+        if (gb <= 0) b.append("No GPU with memory of its own was found on this machine: an NVIDIA card that nvidia-smi can measure, or an AMD chip with memory set aside for it.\n");
         else b.append(String.format("This machine's card has %.0f GB.%n", gb));
         boolean expertsInRam = ModelServer.os != ModelServer.Os.macos && gb >= 4 && gb < 24 && ModelServer.ramGb() >= EXPERTS_IN_RAM_GB;
         if (expertsInRam) b.append(String.format("It has %.0f GB of RAM, which changes the choice: a model that keeps its experts in RAM runs here.%n  ", ModelServer.ramGb()))
-                .append(EXPERTS_IN_RAM.model()).append(": ").append(EXPERTS_IN_RAM.note()).append("\n    ").append(EXPERTS_IN_RAM.serve()).append("\n");
+                .append(EXPERTS_IN_RAM.model()).append(": ").append(EXPERTS_IN_RAM.note()).append("\n    ").append(forGpu(EXPERTS_IN_RAM.serve(), g)).append("\n");
         if (t == null && !expertsInRam) {
             b.append("Nothing measured runs well in that. Use a hosted model server for the research runs (setup asks for its address and key); everything else stays on this machine.\n");
         } else if (t != null) {
             b.append(expertsInRam ? "With the model wholly on the card, the measured choice" : "Measured choice").append(t.choices().size() > 1 ? "s" : "").append(" for this size (").append(t.card()).append("), best first:\n");
-            for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n    ").append(c.serve().replace("\n    ", "\n    ")).append("\n");
+            for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n    ").append(forGpu(c.serve(), g)).append("\n");
             b.append("Then give setup the address http://127.0.0.1:8080. The pages, the index and the library stay on this machine whatever drives them.\n");
         }
         b.append("All rows: researchzosho models --all. Measured on the same two questions from empty libraries; one run each, so this is the shape of the field, not a ranking.\n");

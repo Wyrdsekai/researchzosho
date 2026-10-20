@@ -5,8 +5,9 @@ can be one on your own machine (llama.cpp, Ollama, LM Studio) or a hosted API wi
 the library already holds works without a model.
 
 The choice depends on **VRAM**: the memory on your graphics card, not the computer's RAM. `nvidia-smi`
-shows it on Linux and Windows. On a Mac with Apple silicon the card shares the machine's unified
-memory, so read the tiers against about two thirds of that. This page has a measured recommendation
+shows it on an NVIDIA card; on an AMD graphics chip it is what the BIOS set aside for it, and
+`researchzosho models` reads it from the machine. On a Mac with Apple silicon the card shares the machine's
+unified memory, so read the tiers against about two thirds of that. This page has a measured recommendation
 for both kinds: the local models by card, first, and then the hosted models by what they got right,
 how long a run took and what it cost.
 `researchzosho models` prints the row for the card it finds, with the command that serves it.
@@ -99,6 +100,10 @@ docker run -d --name researchzosho-model --gpus all -p 127.0.0.1:8080:8080 -v ~/
   ghcr.io/ggml-org/llama.cpp:server-cuda -m /m/<file> --host 0.0.0.0 --port 8080 --jinja \
   -c 16384 --parallel 1 -ngl 99 --flash-attn on
 ```
+
+On an AMD or Intel graphics chip the image is `server-vulkan` and `--device /dev/dri` takes the place of
+`--gpus all`; an AMD Instinct card takes `server-rocm` with `--device /dev/kfd --device /dev/dri`.
+`researchzosho models` prints the right one for the machine it runs on, and `model install` picks it by itself.
 
 Then set `RESEARCHZOSHO_DRIVE=http://127.0.0.1:8080` in your config, or run `researchzosho setup` to
 have it found. On a Mac, llama.cpp's Metal build runs the same files. `model install` sets it up as a
