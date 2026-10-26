@@ -124,7 +124,7 @@ public final class Frontier {
      */
     public static boolean demand(LibraryStore store, String question, String who) throws IOException {
         String q = question == null ? "" : question.strip().replaceAll("\\s+", " ");
-        if (q.length() < 12) return false;
+        if (q.length() < 12 || looksLikeATask(q)) return false;   // "Now add a hit counter…" is a task that reached the library through a coding chat, not a question anyone waits on
         Set<String> qt = terms(q);
         return store.locked("frontier", () -> {
             var runs = Fields.runs(store);
@@ -138,6 +138,31 @@ public final class Frontier {
             store.frontier("asked " + who, q);
             return true;
         });
+    }
+
+    /** The doing verbs a coding chat's tasks open with, after a lead-in such as "now" or "please". */
+    static final Set<String> TASK_VERBS = Set.of("add", "update", "implement", "write", "fix", "create", "make", "build", "refactor", "run", "install", "deploy", "remove", "delete", "rename", "replace",
+            "commit", "push", "merge", "configure", "convert", "migrate", "generate", "rewrite", "debug", "compile", "release", "wire", "extend");
+    static final Set<String> LEAD_INS = Set.of("now", "please", "then", "also", "next", "and", "first", "finally");
+    /** Japanese: a request to do (〜して, 〜してください, 〜せよ, 〜しなさい, 〜すること, 〜をお願いします) … */
+    static final Pattern TASK_JA = Pattern.compile("(して(ください|下さい|くれ|ほしい|欲しい)?|せよ|しろ|しなさい|すること|をお願いします)[。！!]?$");
+    /** … unless it asks to be told or to look (教えて, 説明して, 調べて, 探して): that is a want of the shelves. */
+    static final Pattern ASK_JA = Pattern.compile("(教えて|説明して|調べて|探して)(ください|下さい|くれ|ほしい|欲しい)?[。！!]?$");
+
+    /**
+     * A task that reached the library through a coding chat — "Now add a hit counter…", "テストを追加してください" — is work for an
+     * agent, not something anyone waits on the shelves for: it opens with a doing verb, or in Japanese ends on a request to do.
+     * Everything else asked at the desk is demand, a question or a bare topic alike.
+     */
+    public static boolean looksLikeATask(String q) {
+        String t = q == null ? "" : q.strip();
+        if (t.isEmpty()) return false;
+        if (ASK_JA.matcher(t).find()) return false;
+        if (TASK_JA.matcher(t).find()) return true;
+        String[] words = t.toLowerCase(Locale.ROOT).split("[^\\p{L}]+");
+        int i = 0;
+        while (i < words.length && LEAD_INS.contains(words[i])) i++;
+        return i < words.length && TASK_VERBS.contains(words[i]);
     }
 
     /** Rewrite one open demand line with its ask count incremented. */

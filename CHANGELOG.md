@@ -1,5 +1,58 @@
 # Changelog
 
+## 0.6.6
+
+What's new: a dossier on any person or organisation, built from everything the library holds on them, and readable in another language; four new fields, law, patents, person and organisation; the library suggests what to do next; a question can be put to several models at once and their answers compared; and research runs use every model server you give them.
+
+### Added
+
+- Dossiers. Ask about a person or an organisation and the library builds a dossier: one page with everything it
+  holds on them. What they do. A timeline. The decisions their own people took, each dated, with the reason they
+  gave. What they said, in their own words, with the date and the place. Photographs and video, with where each
+  came from. For an organisation: who has power over it and how it decides, who its customers and rivals are,
+  where its money comes from, how many people work there. For a person: who shaped them and whom they shaped. A
+  pattern of life the library counts from the record: how much there is for each year, and the places named.
+  Every claim says what kind of source it rests on: a public record, the subject's own site, the press, a page you
+  gave the library, or something you told it. Open one with `researchzosho dossier "Name"`, or from Dossiers in
+  the menu. Each person named in a dossier leads to their own, or to the run that would start it.
+- Analysis, kept apart from the facts. A dossier's report ends by saying what the facts add up to, what they
+  suggest but do not show, and what to expect by when. Each guess carries a likelihood in words and a number,
+  such as "likely (65%)". Forecasts go on a ledger. Once a date has passed, you mark the forecast as happened or
+  not, and the library keeps score of how often its forecasts come true against the likelihoods it gave.
+- A dossier in another language. `researchzosho dossier "Name" --in en` gives you the same page in English,
+  `--in ja` in Japanese; the page has a Read in link. The model translates the words and leaves the citations,
+  the claim numbers and the dates exactly as they were. Names and terms that come up often are settled once, so
+  they read the same all the way through. The claims themselves stay in the language of their source.
+- The story of a subject. `researchzosho story "Name"` writes a narrative from the claims, a decade a chapter,
+  every sentence pointing to the claim it rests on.
+- Tell the library what you know. `researchzosho tell "Name" "…"` files it in your words, with the date, marked
+  as told by you. The questions it raises join the open questions.
+- Four new fields. Law searches the courts' and governments' own records in the United States and Japan, and
+  dates every claim by where and when the law stood. Patents searches the patent offices and reads a patent by
+  its number. Person and organisation are the two behind the dossiers. Thirty collections join for them, among
+  them company filings, charity returns, political donations, lobbying records, research grants, scholarly
+  papers, Japan's Diet record and Japan's company registers.
+- Suggestions. `researchzosho suggest` tells you what to do next: a forecast whose date has passed, a story that
+  is behind the shelves, a question of yours that a new claim answers, a report that just landed, a dossier that
+  has gone stale. Mark each one taken, later or dismissed; the library keeps score of its suggestions too.
+- Several models on one question. `research ask … --seek <group>` runs the same question separately on any
+  models you name, each on its own copy of the shelves, and `seeks merge` writes one report: what they agree on,
+  where they contradict each other, what only one of them found. Nothing reaches the shelves until you merge.
+- Every model server you have. List them in the `job.drives` setting and research runs spread across them; a
+  server with more room takes more of the runs.
+- Other programs can ask the library. While it is shared, it carries a card at `/.well-known/agent-card.json`, so
+  a program that speaks the Agent2Agent protocol can ask it a question or file a run.
+- A search engine with a small monthly allowance is asked at most eight times in one run, and the report says so.
+- Japanese is read the way English is: names, places, and the subject of a question. A place is a prefecture, a
+  ward or a city; a surname that happens to end in 市 is not one.
+
+### Fixed
+
+- A claim carries the date it was true, read from the report, not the day it was filed. Two claims that give
+  different numbers at different dates are a succession, not a dispute.
+- Two dossiers no longer count a status word in capitals (NOT, ACTIVE), a register's label (Legal Name) or a
+  source's own name (Wikimedia Commons) as a name they share, and an amount of money is not a linked subject.
+
 ## 0.6.5
 
 What's new: the model on this machine runs on AMD and Intel graphics too, and a bug fix.

@@ -262,6 +262,33 @@ public final class Conversations {
         };
     }
 
+    /**
+     * The questions an account raises that the public record could answer (0.6.6): what a person tells the library about a subject names
+     * people, dates, places and events the record has not been asked about; each becomes an open question. Null without a model.
+     */
+    public static Function<String, List<String>> modelLeads(Researcher.Drive drive, String subject) {
+        if (drive == null) return null;
+        return text -> {
+            var messages = M.createArrayNode();
+            messages.addObject().put("role", "system").put("content", "A person has told a library something about " + subject + " from their own knowledge. List the questions, at most three, "
+                    + "one per line, that the public record could answer and that this account raises: a person it names, a date, a place, a company, an event, what became of someone. "
+                    + "Each question is complete on its own and names " + subject + ". Write NONE when it raises none.");
+            messages.addObject().put("role", "user").put("content", Fence.open("TOLD") + "\n" + Acquisitions.compress(text, 4000) + "\n" + Fence.close("TOLD"));
+            String reply;
+            try (var step = Declines.step("list the questions an account raises, one per line, or write NONE")) { reply = drive.prose(messages, 300); }
+            catch (Declined d) { throw d.at("to list the questions this account raises"); }
+            List<String> out = new ArrayList<>();
+            if (reply == null) return out;
+            for (String line : reply.split("\n")) {
+                String q = line.strip().replaceAll("^[-*•\\d.)\\s]+", "");
+                if (q.isEmpty() || q.equalsIgnoreCase("NONE") || q.length() < 12) continue;
+                out.add(q);
+                if (out.size() == 3) break;
+            }
+            return out;
+        };
+    }
+
     // ---- absorbing ----
 
     /** The transcript as text for the shelf: the roles as headings, the turns in order. */

@@ -7,6 +7,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -77,7 +78,7 @@ public final class LibrarianDaemon {
     private LibrarianDaemon(LibraryStore store, HttpServer server, String driveUrl, String model) {
         this.store = store; this.server = server; this.driveUrl = driveUrl; this.model = model;
         this.driveSetting = Config.get("RESEARCHZOSHO_DRIVE");
-        this.jobs = new Jobs(store, this::runJob, () -> Jobs.drives(driveNow()), Jobs.workersNow());
+        this.jobs = new Jobs(store, this::runJob, () -> ModelSlots.lanes(driveNow()), Jobs.workersNow());
     }
 
     /**
@@ -205,12 +206,35 @@ public final class LibrarianDaemon {
                     throw new IllegalStateException("The library could not be written: " + e.getMessage(), e);
                 }
             }
+            case Seeks.KIND_MERGE -> {
+                // seeks: one report from a group's seeks; the judge reads the claim pairs, the writer seat writes the answer
+                String group = a.path("group").asText("");
+                if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The merge needs one to read the seeks' claims.");
+                Researcher.Drive judge = judgeFactory != null ? judgeFactory.apply(d) : Researcher.judgeDrive(d, model());
+                String writer = job.path("patron").asText("").isEmpty() ? "patron:anonymous" : "patron:" + job.path("patron").asText();
+                try {
+                    // a seek that landed with its claims unsettled (a stop, an outage) is settled now, on its own shelves, so the merge has claims to read
+                    ObjectNode g = Seeks.group(store, group);
+                    for (String seekJob : Seeks.jobsOf(g)) {
+                        Investigation inv = Seeks.read(store, group, seekJob);
+                        LibraryStore sc = Seeks.scratchOf(store, group, seekJob);
+                        if (inv != null && sc != null && inv.findings().isEmpty()) settle(sc, inv.id(), d, seekJob);
+                    }
+                    Seeks.Merged m = Seeks.merge(store, group, judge, writer);
+                    Crews.log(store, "merge " + job.path("job_id").asText(""), "seeks " + group + " → " + m.investigationId() + " (" + m.agreed() + " agreed, " + m.disputed() + " disputed, " + m.lone() + " by one seek)", 0);
+                    return "investigation " + m.investigationId() + "\n\nMerged from the seeks of " + group + ": " + m.agreed() + " claim" + (m.agreed() == 1 ? "" : "s") + " agreed, " + m.disputed() + " disputed, " + m.lone() + " found by one seek.";
+                } catch (IOException e) { throw new IllegalStateException("The library could not be written: " + e.getMessage(), e); }
+            }
             case "crews" -> {
                 String crewId = job.path("job_id").asText("");
                 var steps = Crews.runAll(store, d, model(), () -> !crewId.isEmpty() && jobs.stopRequested(crewId));
                 StringBuilder sb = new StringBuilder();
                 for (var s : steps) sb.append(s.name()).append(": ").append(s.outcome()).append(" (").append(s.ms()).append("ms)\n");
                 return sb.toString();
+            }
+            case "translate" -> {   // the dossier read in another language, made by the library's model and kept until the dossier changes
+                try { return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), Translate.DRIVE.get()).summary(); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
             }
             default -> throw new IllegalArgumentException("unknown job kind " + kind);
         }
@@ -290,8 +314,16 @@ public final class LibrarianDaemon {
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
         researcher.beginFiling(() -> { try { return jobs.beginFiling(jobId); } catch (IOException e) { return !jobs.stopRequested(jobId); } });
         researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
+        // a seek reads and writes its own copy of the shelves, under seeks/<group>/<job>; nothing it writes reaches the library until the merge keeps it
+        String seek = a.path("seek").asText("");
+        LibraryStore shelves = store;
+        if (!seek.isEmpty()) {
+            ModelEntries.Entry entry = JOB_ENTRY.get();
+            shelves = Seeks.scratchFor(store, seek, jobId, question, entry == null || entry.name().equals(ModelEntries.DEFAULT) ? model() : entry.model(), ask.sources());
+            Crews.log(store, "research " + jobId, "seek " + seek + ": this run reads and writes its own copy of the shelves (seeks/" + seek + "/" + jobId + ")", 0);
+        }
         Researcher.Filed filed;
-        try { filed = Researcher.file(store, researcher, ask, writer, jobId, a.path("field_how").asText("asked"), a.path("allow_how").asText("asked")); }
+        try { filed = Researcher.file(shelves, researcher, ask, writer, jobId, a.path("field_how").asText("asked"), a.path("allow_how").asText("asked")); }
         catch (Researcher.CannotCheck c) {
             // the page check cannot run on this server while its model answers: the run stops, and its result is the plain statement
             ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "page check"); ev.put("statement", c.getMessage()); trace.event("stopped", ev);
@@ -312,12 +344,13 @@ public final class LibrarianDaemon {
                 System.currentTimeMillis() - t0, drive, model(), trace.totals());
         row.put("fetches_total", RunLedger.fetchCalls(store, jobId));
         RunLedger.record(store, row);
-        if (filed.admitted()) settle(filed.investigationId(), drive, jobId);
+        if (filed.admitted()) settle(shelves, filed.investigationId(), drive, jobId);   // a seek settles on its own shelves: its claims become findings there
+        if (!seek.isEmpty()) Seeks.landed(store, seek, jobId, filed.admitted() ? filed.investigationId() : null, filed.result().summary());
         Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() : filed.declined() ? " → declined by the model" : " → refused: " + filed.reason()),
                 System.currentTimeMillis() - t0);
         // the model declined the run: the statement is the result, not a refusal and not a failure of the machine
         if (filed.declined()) return filed.reason();
-        return (filed.admitted() ? "investigation " + filed.investigationId()
+        return (seek.isEmpty() ? "" : "seek " + seek + ": ") + (filed.admitted() ? "investigation " + filed.investigationId()
                 : "(not accepted — " + filed.reason() + "; see the open questions)") + "\n\n" + filed.result().summary()
                 + (declined == null ? "" : "\n\n" + declined.path("statement").asText());
     }
@@ -347,28 +380,29 @@ public final class LibrarianDaemon {
     /**
      * A write-up that just landed is settled at once rather than at three in the morning: the librarian's review pass
      * turns its extractions into claims on the shelves, and the triples step gives those claims their place on the map.
-     * (Measured: the Tokyo Vice write-ups sat a day with no claims, so `ask` and the map knew nothing about Tokyo.)
+     * (Measured: the Tokyo Vice write-ups sat a day with no claims, so `ask` and the map knew nothing about Tokyo.) {@code shelves} is the
+     * store the write-up is on: the library, or a seek's own copy of it (0.6.6); the log is the library's either way.
      */
-    private void settle(String investigationId, String drive, String jobId) {
+    private void settle(LibraryStore shelves, String investigationId, String drive, String jobId) {
         long t0 = System.currentTimeMillis();
         try {
-            Investigation inv = store.investigation(investigationId);
+            Investigation inv = shelves.investigation(investigationId);
             if (inv == null) return;
             var client = new DriveClient(drive, model());
-            var idx = new LibrarianIndex(store);
+            var idx = new LibrarianIndex(shelves);
             // each step is model calls of up to RESEARCHZOSHO_DRIVE_TIMEOUT each; a stop asked meanwhile gives up the call in flight and
             // ends the settling at the next step, and the nightly housekeeping does the rest (a stopped run once sat here for minutes, J-0024)
-            var out = new LibrarianReview(store, idx, LibrarianReview.driveJudge(client), "librarian:" + model()).searcher(LibrarianReview.liveSearcher()).review(inv);
+            var out = new LibrarianReview(shelves, idx, LibrarianReview.driveJudge(client), "librarian:" + model()).searcher(LibrarianReview.liveSearcher()).review(inv);
             if (settleStopped(jobId, investigationId, "review", t0)) return;
             // subjects from the list for this run's own claims only; the rest of the library is the nightly housekeeping's, a few at a time
-            Investigation filed = store.investigation(investigationId);
-            var cat = Cataloger.run(store, Cataloger.driveJudge(client), false, filed == null ? List.of() : filed.findings(), 0);
+            Investigation filed = shelves.investigation(investigationId);
+            var cat = Cataloger.run(shelves, Cataloger.driveJudge(client), false, filed == null ? List.of() : filed.findings(), 0);
             if (settleStopped(jobId, investigationId, "subjects", t0)) return;
-            var triples = Triples.fill(store, Triples.driveExtractor(client), 40);
+            var triples = Triples.fill(shelves, Triples.driveExtractor(client), 40);
             if (settleStopped(jobId, investigationId, "triples", t0)) return;
-            var ret = Retractions.check(store, Retractions.live(), 40, LocalDate.now());   // a retracted source disputes the claim, no model involved
+            var ret = Retractions.check(shelves, Retractions.live(), 40, LocalDate.now());   // a retracted source disputes the claim, no model involved
             if (settleStopped(jobId, investigationId, "retractions", t0)) return;
-            var abs = Abstracts.run(store, Abstracts.driveWriter(client), null);   // only a subject whose shelf changed is rewritten (hash-guarded)
+            var abs = Abstracts.run(shelves, Abstracts.driveWriter(client), null);   // only a subject whose shelf changed is rewritten (hash-guarded)
             Crews.log(store, "settle " + jobId, investigationId + ": " + out.accepted().size() + " claim(s) accepted, " + out.disputed().size() + " disputed, "
                     + out.keptDraft().size() + " kept as draft; subjects on " + cat.grounded() + " (" + cat.proposals() + " proposed); triples " + triples.filled() + "/" + triples.asked()
                     + "; retractions " + ret.retracted() + "/" + ret.checked() + " checked; summaries " + abs.written() + " rewritten"
@@ -398,6 +432,8 @@ public final class LibrarianDaemon {
 
     /** The runner for one drive. A test replaces this (package-private) to script the model. */
     Function<String, Researcher> researcherFactory;
+    /** Tests: the judge a merge run reads claim pairs with, in place of the library's judgment seat. */
+    Function<String, Researcher.Drive> judgeFactory;
 
     private Researcher researcher(String drive) { return researcher(drive, null); }
 
@@ -413,11 +449,11 @@ public final class LibrarianDaemon {
 
     /** The runner for a job, its drives seen through the job's trace when there is one. */
     private Researcher researcher(String drive, RunTrace trace) {
-        if (researcherFactory != null) { Researcher r = researcherFactory.apply(drive); if (trace != null) r.trace(trace); return r; }
+        if (researcherFactory != null) { Researcher r = researcherFactory.apply(drive).onDrive(drive); if (trace != null) r.trace(trace); return r; }
         // both seats watched for a model that declines: it is said, never worked around (see Declines)
         Researcher.Drive workers = Researcher.watched(drive, model(), "workers", trace), judge = Researcher.watchedJudge(drive, model(), trace);
         if (trace != null) { workers = trace.wrap(workers, "workers"); judge = trace.wrap(judge, "judge"); }
-        Researcher r = new Researcher(workers, judge, Researcher.webTools(), line -> Crews.log(store, "research", line, 0), store);
+        Researcher r = new Researcher(workers, judge, Researcher.webTools(), line -> Crews.log(store, "research", line, 0), store).onDrive(drive);
         r.contentJudge(ContentJudge.of(new DriveClient(drive, model())));   // the run's own model checks the pages it fetches
         if (trace != null) r.trace(trace);
         return r;
@@ -478,6 +514,27 @@ public final class LibrarianDaemon {
 
     /** Closes the shared door; nothing when it is closed. */
     public synchronized void closeDoor() { HttpServer d = door; if (d == null) return; door = null; d.stop(0); }
+    /** Whether the shared door is open: the library is reached from outside, and its agent card is served ({@link A2a}). */
+    public boolean doorOpen() { return door != null; }
+
+    private volatile A2a a2a;
+    A2a a2a() { A2a a = a2a; if (a == null) a2a = a = new A2a(this, store); return a; }
+
+    /** The library as an agent (A2A): its card by GET, its calls by POST, both only while the door is open. A token the library refuses is said by the status. */
+    private void a2a(HttpExchange x, String path, String method, String bodyText) throws IOException {
+        if (A2a.CARD.equals(path)) {
+            if (!"GET".equals(method)) { x.getResponseHeaders().set("Allow", "GET"); x.sendResponseHeaders(405, -1); x.close(); return; }
+            A2a.Out o = a2a().card(); reply(x, o.status(), o.body()); return;
+        }
+        if (!"POST".equals(method)) { x.getResponseHeaders().set("Allow", "POST"); x.sendResponseHeaders(405, -1); x.close(); return; }
+        JsonNode req;
+        try { req = bodyText.isBlank() ? M.createObjectNode() : M.readTree(bodyText); }
+        catch (JacksonException e) { A2a.Out o = A2a.parseError(); reply(x, o.status(), o.body()); return; }
+        Patrons.Patron patron;
+        try { patron = patron(x, M.createObjectNode()); }
+        catch (ProtocolError e) { A2a.Out o = A2a.forbidden(e.getMessage()); reply(x, o.status(), o.body()); return; }
+        A2a.Out o = a2a().rpc(req, patron); reply(x, o.status(), o.body());
+    }
     public String url() { return "http://" + server.getAddress().getHostString() + ":" + port(); }
     private Lease lease;
     public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); if (lease != null) lease.close(); }
@@ -494,6 +551,7 @@ public final class LibrarianDaemon {
         String method = x.getRequestMethod();
         try {
             String bodyText = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            if (A2a.CARD.equals(path) || A2a.PATH.equals(path)) { a2a(x, path, method, bodyText); return; }   // the library as an agent for other agents
             if (Pages.isPage(path)) {
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie
                 Map<String, String> form = Pages.form(bodyText, x.getRequestHeaders().getFirst("Content-Type"));
@@ -605,6 +663,7 @@ public final class LibrarianDaemon {
                     case "db" -> p.db(body);
                     case "remove" -> p.remove(body);
                     case "bridges" -> p.bridges(body);
+                    case "seeks" -> { ObjectNode o = p.seeks(body); if ("merge".equalsIgnoreCase(body.path("op").asText(""))) jobs.pickUp(); yield o; }
                     case "frontier" -> p.frontier(body);
                     case "subjects" -> p.subjects(body);
                     case "status" -> p.status(body);

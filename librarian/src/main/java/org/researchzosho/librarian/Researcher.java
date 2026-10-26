@@ -360,6 +360,20 @@ public final class Researcher {
 
     /** Every record collection searched this run: how many searches, how many found something. The breadth of the search is part of the answer. */
     private final Map<String, int[]> sourcesSearched = new ConcurrentHashMap<>();
+    /** Searches made this run of each collection that has a per-run allowance, by id, counted across the workers; and by name, {allowance, searches refused}. */
+    private final Map<String, AtomicInteger> allowanceUsed = new ConcurrentHashMap<>();
+    private final Map<String, int[]> allowanceOut = new ConcurrentHashMap<>();
+
+    /**
+     * Whether a search of a collection with a per-run allowance may go: the allowance is counted here, once for the run, so that the
+     * workers between them never spend more of a small monthly allowance than the entry says (SerpApi's 250 a month, 2026-10-23).
+     */
+    boolean withinAllowance(RecordSource s) {
+        if (!s.hasAllowance()) return true;
+        if (allowanceUsed.computeIfAbsent(s.id(), k -> new AtomicInteger()).incrementAndGet() <= s.perRun()) return true;
+        allowanceOut.merge(s.name(), new int[]{s.perRun(), 1}, (a, b) -> new int[]{a[0], a[1] + b[1]});
+        return false;
+    }
 
     /** Whether the answer already says what a note says, in other words: most of the note's distinctive words (names, numbers, long words) stand in it. */
     static boolean sameSaid(String answer, String note) {
@@ -376,7 +390,12 @@ public final class Researcher {
     String searchedSection() {
         if (sourcesSearched.isEmpty()) return "";
         StringBuilder b = new StringBuilder("## Record collections searched\n\nWritten by the library from what the searches returned, not by the model.\n\n");
-        for (var e : new TreeMap<>(sourcesSearched).entrySet()) b.append("- ").append(e.getKey()).append(": ").append(e.getValue()[0]).append(e.getValue()[0] == 1 ? " search, " : " searches, ").append(e.getValue()[1]).append(" found records\n");
+        for (var e : new TreeMap<>(sourcesSearched).entrySet()) {
+            b.append("- ").append(e.getKey()).append(": ").append(e.getValue()[0]).append(e.getValue()[0] == 1 ? " search, " : " searches, ").append(e.getValue()[1]).append(" found records");
+            int[] out = allowanceOut.get(e.getKey());
+            if (out != null) b.append(" — its allowance of ").append(out[0]).append(" searches in one run was used; ").append(out[1]).append(out[1] == 1 ? " more was" : " more were").append(" asked for and not made");
+            b.append('\n');
+        }
         List<String> never = new ArrayList<>();
         for (var src : RecordSources.forFields(RecordSources.all(), fieldNames())) if (RecordSources.usable(src) && !sourcesSearched.containsKey(src.name())) never.add(src.name());
         if (!never.isEmpty()) b.append("\nNot searched in this run: ").append(String.join("; ", never)).append(".\n");
@@ -614,8 +633,11 @@ public final class Researcher {
         this.throttle = new ResearchSettings.Throttle(this.log);
     }
 
-    /** Parallel workers now: the constructor's number (tests), else the live setting {@code research.workers}. */
-    int workersNow() { return workers > 0 ? workers : ResearchSettings.workers(); }
+    /** Parallel workers now: the constructor's number (tests), else the live setting {@code research.workers}, read for the server this run is on when it is known. */
+    int workersNow() { return workers > 0 ? workers : driveAddress == null ? ResearchSettings.workers() : ResearchSettings.workers(driveAddress); }
+    private volatile String driveAddress;
+    /** The address of the model server this run is on, so its readers follow that server's own slots ({@link ModelSlots}). */
+    public Researcher onDrive(String address) { this.driveAddress = address == null || address.isBlank() ? null : address; return this; }
     private final ResearchSettings.Throttle throttle;
 
     /**
@@ -933,6 +955,8 @@ public final class Researcher {
                     for (String f : asked) Fields.record(store, id, jobId, f, how);
                     if (!letIn.isEmpty()) ContentOffer.record(store, id, jobId, letIn, allowHow);   // before the report, as the fields ledger is
                 }, questionNote(ContentOffer.reportSentence(letIn), researcher.researchedBy()), researcher.title);
+        // a field's own reading of its report: the dossier fields file the Timeline's dated events as claims, so the shelves hold what the report found
+        for (Profile p : Fields.forRun(store, ask)) { try { List<String> more = p.onReport(store, inv); if (!more.isEmpty()) researcher.log.accept(p.name() + ": " + more.size() + " claims filed from the report's timeline"); } catch (IOException | RuntimeException e) { researcher.log.accept(p.name() + ": the report's timeline was not read into claims (" + e.getMessage() + ")"); } }
         if (researcher.entry != null) { try { Spend.record(store, jobId, inv.id(), researcher.entry, researcher.usage(), researcher.cost(), (System.currentTimeMillis() - researcher.startedMs) / 1000, "filed", ask.maxTurns() > 0 && ask.maxTurns() <= 12 ? "quick" : "research"); } catch (IOException e) { researcher.log.accept("spend: not recorded (" + e.getMessage() + ")"); } }
         // the research log: every search this run made, under the question's subject, with the report it belongs to
         List<SearchLog.Entry> made = new ArrayList<>();
@@ -1139,6 +1163,9 @@ public final class Researcher {
         for (int i = 0; i < primary.size(); i++) numberOfPrimary.put(primary.get(i), i + 1);
         Map<String, String> olderEditions = Editions.olderEditions(editionDocs, numberOfPrimary);
         int n = 0;
+        // a dossier's reader needs to know where each reference's evidence comes from: the class is computed from the locator, never asked of the model
+        boolean dossier = fieldNames().contains("person") || fieldNames().contains("organization");
+        Map<String, Integer> byClass = new TreeMap<>();
         for (List<String> group : byWork.values()) {
             n++;
             String loc = primary.get(n - 1);
@@ -1168,10 +1195,12 @@ public final class Researcher {
                       .append(published.isEmpty() ? (editionDocs.containsKey(loc) ? "  (dated " + editionDocs.get(loc).dated().text() + ", from its own text)" : "") : "  (published " + published + ageNote(published) + ")")
                       .append(olderEditions.containsKey(loc) ? "  (looks like an earlier edition of " + olderEditions.get(loc) + ")" : "")
                       .append(rule == null ? "" : rule.kind().equals("trust") ? "  (a source you trust)" : "  (ON YOUR REFUSED LIST)");
+            if (dossier) { String cls = SourceClass.of(loc).label(); references.append("  [").append(cls).append(']'); byClass.merge(cls, 1, Integer::sum); }
             for (String l : group) if (!l.equals(loc) && !l.startsWith("cite:") && l.contains("://")) references.append("  also ").append(l);
             references.append(same).append('\n');
         }
         references.append("\n").append(byWork.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once, and a source that cites another adds nothing to it).");
+        if (dossier && !byClass.isEmpty()) references.append(" By source class: ").append(String.join(", ", byClass.entrySet().stream().map(e -> e.getValue() + " " + e.getKey()).toList())).append('.');
         if (!dated.isEmpty()) {
             Collections.sort(dated);
             references.append(" Dated sources run from ").append(dated.get(0)).append(" to ").append(dated.get(dated.size() - 1)).append(dated.size() < byWork.size() ? "; " + (byWork.size() - dated.size()) + " give no date" : "").append('.');
@@ -1229,7 +1258,8 @@ public final class Researcher {
         Map<Integer, String> textByRef = new HashMap<>();
         for (CiteCheck.Ref r : refs) { try { Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
         List<String> checks = new ArrayList<>();
-        List<WriteupChecks.Unbacked> numbersAt = WriteupChecks.numbersUnbackedAt(text, evidence, refs, textByRef);
+        List<WriteupChecks.Unbacked> numbersAt = new ArrayList<>(WriteupChecks.numbersUnbackedAt(text, evidence, refs, textByRef));
+        numbersAt.removeIf(u -> Analysis.inLayer(text, u.sentence()));   // a likelihood or a base rate in the analysis layer is the writer's own number
         List<String> numbersOff = new ArrayList<>();
         for (WriteupChecks.Unbacked u : numbersAt) numbersOff.add(u.what() + " — not in any note or source read this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
         List<String> namesOff = WriteupChecks.namesUnbacked(text, evidence, refs, textByRef), quotesOff = WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, evidence));
@@ -1541,7 +1571,7 @@ public final class Researcher {
         if (fields.stream().anyMatch(p -> p.name().equals("youtube")) && !Video.installed()) log.accept("youtube field without the video helper: YouTube is read through web search; researchzosho video install adds the video tools");
         List<String> open = planCore(ask, known, budget);
         laneOf.clear(); lanes.clear(); laneRetried.clear(); laneRan.clear();
-        recordCitations.clear(); nothingFound.clear(); kindsSearched.clear(); sourcesSearched.clear();
+        recordCitations.clear(); nothingFound.clear(); kindsSearched.clear(); sourcesSearched.clear(); allowanceUsed.clear(); allowanceOut.clear();
         if (!ask.web()) return open;   // a shelves-only ask has no web to search in another language
         List<Lanes.Lane> found = Lanes.detect(ask.question(), null);   // the table decides; the judge only writes seeds, one turn, when there is a lane
         if (!found.isEmpty() && budget.take()) found = Lanes.detect(ask.question(), judge);
@@ -1647,9 +1677,10 @@ public final class Researcher {
                         continue;
                     }
                     workersDone.incrementAndGet(); progress("workers");
+                    Throwable cause = e.getCause() == null ? e : e.getCause();
                     out.add("SUB-QUESTION: " + open.get(i) + "\nSUMMARY: unavailable (worker "
                             + (e instanceof TimeoutException ? "timed out" : "failed: " + e.getMessage()) + ")");
-                    log.accept("worker: " + Acquisitions.compress(open.get(i), 60) + " — " + e.getClass().getSimpleName());
+                    log.accept("worker: " + Acquisitions.compress(open.get(i), 60) + " — " + cause.getClass().getSimpleName() + where(cause));   // the first frames of ours: a StackOverflowError with no frames named nothing, three runs running (2026-10-26)
                 }
             }
         } finally {
@@ -1689,7 +1720,7 @@ public final class Researcher {
                 r = "always".equalsIgnoreCase(RECORDS_MODE) && fields.stream().noneMatch(Profile::wantsRecords) ? r : r.forFields(fieldNames());
                 r = r.forYears(RecordSources.lived(sub, fields));   // the years are read by the run's own fields, and only when it is given the tool
                 if (!r.any()) continue;
-                t = r.listen(this::recordSearched);
+                t = r.listen(this::recordSearched).allowance(this::withinAllowance);
             }
             byName.put(t.name(), t);
         }
@@ -1704,7 +1735,7 @@ public final class Researcher {
         Lanes.Lane lane = laneOf.get(sub);
         if (lane != null) laneRan.add(lane.code());
         ArrayNode history = J.createArrayNode();
-        history.addObject().put("role", "system").put("content", (lane == null ? "" : lane.register()) + workerRegister(ask, byName.containsKey("record_search")) + codeRule(repos) + fieldRules(Profile::register));
+        history.addObject().put("role", "system").put("content", today() + (lane == null ? "" : lane.register()) + workerRegister(ask, byName.containsKey("record_search")) + codeRule(repos) + fieldRules(Profile::register));
         List<String> seeds = seedsOf.getOrDefault(sub, List.of());
         String seedBlock = seeds.isEmpty() ? "" : "\n\nPAGES NAMED IN THE FIRST ROUND AND NOT YET READ — start with web_fetch on these, and search only for what they do not settle:\n- " + String.join("\n- ", seeds);
         history.addObject().put("role", "user").put("content",
@@ -1894,6 +1925,9 @@ public final class Researcher {
     private List<String> fieldNames() { return fields.stream().filter(Profile::wantsRecords).map(Profile::name).toList(); }
 
     /** One kind of rule from every profile this question belongs to, as a block the prompt can take as it is; "" when there is none. */
+    /** The date, first in every prompt a run sends: a model dates "current" from its training otherwise (a dossier said "as of mid-2025" on 2026-10-23). */
+    static String today() { return "Today is " + LocalDate.now() + ". "; }
+
     private String fieldRules(Function<Profile, String> kind) {
         StringBuilder b = new StringBuilder();
         for (Profile p : fields) { String r = kind.apply(p); if (r != null && !r.isBlank()) b.append("\n\n").append(p.name().toUpperCase(Locale.ROOT)).append(": ").append(r.strip()); }
@@ -2127,7 +2161,7 @@ public final class Researcher {
                 (askedFormat.isEmpty() ? "" : "THE FORMAT THE PERSON ASKED FOR — the answer takes this shape: " + askedFormat + "\n\n")
                 + "Date an arXiv paper by its id: YYMM.NNNNN was posted in 20YY, month MM (2606.09498 is June 2026). "
                 + "Write to the question and nothing beside it: no section on hosting, cost, or advice the question did not ask for. "
-                + "You are writing an investigation for a library's shelves, from evidence gathered by parallel "
+                + today() + "You are writing an investigation for a library's shelves, from evidence gathered by parallel "
                 + "sub-investigations. Treat the evidence as your own notes; web_fetch only to verify something "
                 + "doubtful. Write with write_section, ONE section per call, in this order: 'Answer' (the direct "
                 + "answer to the ask, first), then one section per sub-question or theme with the supporting "
@@ -2197,6 +2231,14 @@ public final class Researcher {
                 if (done.name().equals(name)) finished = true;
             }
         }
+        // the analysis layer, when the writer stopped before it: one more pass with the facts in hand (a writer gave up on a tool error at "Judgments" and wrote the facts alone, 2026-10-25)
+        List<String> missing = new ArrayList<>();
+        if (wantsAnalysisLayer() && !sections.sections.isEmpty()) for (String name : Analysis.SECTIONS) if (sections.sections.stream().noneMatch(s -> s.startsWith("## " + name + "\n") || s.equals("## " + name))) missing.add(name);
+        if (!missing.isEmpty() && missing.size() < Analysis.SECTIONS.length + 1) {
+            try { sections.sections.addAll(analysisPass(ask, sections.sections, sourceList, budget, missing)); }
+            catch (Stopped | Declined e) { throw e; }
+            catch (Exception e) { log.accept("analysis pass: drive failed (" + e.getMessage() + ")"); }
+        }
         if (finished && !done.summary().isBlank()) sections.sections.add("## Caveats\n\n" + done.summary());
         if (sections.sections.isEmpty()) {
             // Fallback: a single prose answer, no tools. Cut-off synthesis must never mean no answer.
@@ -2215,6 +2257,72 @@ public final class Researcher {
             }
         }
         return new Synthesis(finished, sections.sections);
+    }
+
+    /** The first frames of ours in an error's stack, " at Class.method(File:line) < …", so a log line says where it happened; "" when the stack holds none. */
+    static String where(Throwable t) {
+        List<String> ours = new ArrayList<>();
+        for (StackTraceElement f : t.getStackTrace()) {
+            if (!f.getClassName().startsWith("org.researchzosho")) continue;
+            String cls = f.getClassName().substring(f.getClassName().lastIndexOf('.') + 1);
+            String frame = cls + "." + f.getMethodName() + "(" + f.getFileName() + ":" + f.getLineNumber() + ")";
+            if (ours.isEmpty() || !ours.get(ours.size() - 1).equals(frame)) ours.add(frame);   // a recursion repeats one frame thousands of times: once is the information
+            if (ours.size() == 4) break;
+        }
+        return ours.isEmpty() ? "" : " at " + String.join(" < ", ours);
+    }
+
+    /** Whether this run's report carries the analysis layer: a run of the person or the organization field. */
+    private boolean wantsAnalysisLayer() { for (Profile p : fields) if (p.name().equals("person") || p.name().equals("organization")) return true; return false; }
+
+    /**
+     * The analysis layer written in a pass of its own, the facts already on the page: the six sections the field's writer rules name and
+     * nothing else, each under 1200 characters, citing the source numbers as the facts cite them. A short prompt and a fresh history, so a
+     * writer that lost the thread, or a tool call cut mid-argument, costs one section and not the layer.
+     */
+    private List<String> analysisPass(Ask ask, List<String> facts, String sourceList, Budget budget, List<String> missing) throws Exception {
+        SectionTool sections = new SectionTool();
+        DoneTool done = new DoneTool("done", "Finish the analysis layer. Pass CAVEATS: a sentence on what stayed uncertain, or nothing.");
+        ArrayNode all = toolsArray(List.of(sections, done)), onlyDone = toolsArray(List.of(done));
+        ArrayNode history = J.createArrayNode();
+        history.addObject().put("role", "system").put("content", today() + "You are writing the analysis layer of an investigation whose facts are already written below"
+                + (missing.size() == Analysis.SECTIONS.length ? "" : ", the rest of the layer being written already") + ". "
+                + "Write with write_section, ONE section per call, each under 1200 characters, " + (missing.size() == 1 ? "this one section and no other: " : "these " + missing.size() + " and no other, in this order: ")
+                + String.join(", ", missing) + ". " + Analysis.WRITER_RULES + " Cite the source numbers as the facts cite them. Then call done.");
+        StringBuilder body = new StringBuilder();
+        for (String s : facts) { if (body.length() + s.length() > 60_000) { body.append("\n\n…"); break; } body.append(s).append("\n\n"); }
+        history.addObject().put("role", "user").put("content", "THE ASK:\n" + ask.question() + "\n\nTHE FACTS, AS WRITTEN:\n" + body.toString().strip()
+                + (sourceList.isEmpty() ? "" : "\n\nSOURCES (cite by number, [n]):\n" + sourceList) + "\n\nWrite the '" + missing.get(0) + "' section first.");
+        boolean finished = false;
+        for (int turn = 1; turn <= 10 && !finished; turn++) {
+            boolean deadline = turn == 10 || !budget.takeSynthesis();
+            if (deadline && sections.sections.isEmpty()) break;
+            int nctx = drive.contextWindow();
+            trimHistory(history, nctx);
+            ObjectNode assistant;
+            try (var step = Declines.writeUp("write the analysis layer of a research report from its facts, answering: " + Acquisitions.compress(ask.question(), 300))) {
+                assistant = chat(history, deadline ? onlyDone : all, outBudget(history, nctx));
+            }
+            if (assistant == null) break;
+            history.add(assistant);
+            JsonNode calls = assistant.path("tool_calls");
+            if (!calls.isArray() || calls.isEmpty()) { history.addObject().put("role", "user").put("content", "Continue with write_section, or call done."); continue; }
+            for (JsonNode call : calls) {
+                String name = call.path("function").path("name").asText();
+                String id = call.path("id").asText("call_" + turn);
+                JsonNode args = parseArgs(call.path("function").path("arguments"));
+                String observation;
+                if (sections.name().equals(name)) {
+                    String heading = args.path("heading").asText("").strip();
+                    observation = missing.stream().anyMatch(h -> h.equalsIgnoreCase(heading)) ? sections.execute(args) : "ERROR: '" + heading + "' is written already or not asked for; the sections to write are " + String.join(", ", missing) + ".";
+                } else observation = done.name().equals(name) ? done.execute(args) : "ERROR: no tool named " + name + "; write_section and done are the two.";
+                ObjectNode toolMsg = history.addObject();
+                toolMsg.put("role", "tool"); toolMsg.put("tool_call_id", id); toolMsg.put("content", cut(observation));
+                if (done.name().equals(name)) finished = true;
+            }
+        }
+        if (!sections.sections.isEmpty()) log.accept("analysis pass: " + sections.sections.size() + " section(s) written in a pass of their own, the writer having stopped before the layer");
+        return sections.sections;
     }
 
     // ---- tools that belong to the runner ----
@@ -2274,7 +2382,7 @@ public final class Researcher {
         @Override public String execute(JsonNode args) {
             String heading = args.path("heading").asText("").strip();
             String text = args.path("text").asText("").strip();
-            if (text.isEmpty()) return "ERROR: the section has no text.";
+            if (text.isEmpty()) return "ERROR: the section" + (heading.isEmpty() ? "" : " '" + heading + "'") + " arrived with no text — its arguments were probably cut off. Write it shorter, under 1000 characters, and send it again.";
             sections.add((heading.isEmpty() ? "" : "## " + heading + "\n\n") + text);
             return "written (" + sections.size() + " section(s) so far). Next section, or done.";
         }
@@ -2287,7 +2395,8 @@ public final class Researcher {
         @Override public String name() { return "read_pages"; }
         @Override public String description() {
             return "Read a source you already fetched, page by page (about " + PAGE_CHARS + " characters a page), from its captured text — for "
-                    + "a paper or a long document that web_fetch only excerpted. Pass the URL and the page number (1 = the start).";
+                    + "a paper or a long document that web_fetch only excerpted. Pass the URL and the page number (1 = the start). A claim or a "
+                    + "report of this library is read the same way by its id (F-0131-… or I-0042-…) in place of the URL.";
         }
         @Override public ObjectNode parametersSchema(ObjectMapper j) {
             ObjectNode p = j.createObjectNode();
@@ -2301,6 +2410,22 @@ public final class Researcher {
         @Override public String execute(JsonNode args) throws Exception {
             String url = args.path("url").asText("").strip();
             int page = Math.max(1, args.path("page").asInt(1));
+            if (url.matches("F-\\d+(?:-[a-z0-9-]+)?")) {   // a claim of the shelves, by its id or by its code ("F-1338")
+                Finding f = url.matches("F-\\d+") ? store.findingByCode(url) : store.finding(url);
+                if (f == null) return "ERROR: no claim " + url + " on the shelves.";
+                StringBuilder b = new StringBuilder(f.title()).append(" [").append(f.state()).append(", ").append(f.claimType()).append(", confidence ").append(f.confidence()).append(", ").append(f.validAsOf()).append(", by ").append(f.writer()).append("]\n").append(f.body().strip()).append("\nSources:");
+                for (Finding.Source s : f.sources()) b.append("\n- ").append(s.locator());
+                return "claim " + url + "\n" + Fence.wrap("SOURCE TEXT", b.toString()) + "\n" + Fence.rule("SOURCE TEXT");
+            }
+            if (url.matches("I-\\d+-[a-z0-9-]+")) {   // a report of the shelves, by its id, page by page
+                Investigation inv = store.investigation(url);
+                if (inv == null) return "ERROR: no report " + url + " on the shelves.";
+                String text = inv.body();
+                int pages = Math.max(1, (text.length() + PAGE_CHARS - 1) / PAGE_CHARS);
+                if (page > pages) return "ERROR: " + url + " has " + pages + " page(s).";
+                return "page " + page + " of " + pages + " — report " + url + ", " + inv.title() + "\n" + Fence.wrap("SOURCE TEXT", text.substring((page - 1) * PAGE_CHARS, Math.min(text.length(), page * PAGE_CHARS))) + "\n" + Fence.rule("SOURCE TEXT")
+                        + (page < pages ? "\n(read_pages with page " + (page + 1) + " continues.)" : "");
+            }
             Path p = RawCapture.find(store, url);
             if (p == null) return "ERROR: nothing captured for " + url + " — web_fetch it first.";
             String text = RawCapture.read(p)[2];

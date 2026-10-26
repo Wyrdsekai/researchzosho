@@ -242,6 +242,12 @@ public final class Vault {
         inbox.append("\n## Disputed\n\n");
         for (Finding f : findings) if (f.state() == Finding.State.disputed) inbox.append("- [[Findings/").append(f.id()).append("|").append(f.title()).append("]]\n");
         notes.put("Inbox.md", inbox.toString());
+        // the dossiers, one note each, the claim and report ids in them as links
+        for (Dossiers.Entry e : Dossiers.list(store)) {
+            String md = Dossier.of(store, e.subject()).path("markdown").asText()
+                    .replaceAll("(?<![/\\w-])(F-\\d{4}-[a-z0-9-]+)", "[[Findings/$1]]").replaceAll("(?<![/\\w-])(I-\\d{4}-[a-z0-9-]+)", "[[Investigations/$1]]");
+            notes.put("Dossiers/" + e.subject().replaceAll("[^\\p{L}\\p{N} ._-]", "_") + ".md", md);
+        }
 
         // write what changed, remove what is stale, remember what is ours
         int written = 0, unchanged = 0, removed = 0;

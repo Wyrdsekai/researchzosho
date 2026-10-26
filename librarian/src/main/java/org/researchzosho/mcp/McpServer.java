@@ -491,6 +491,40 @@ public final class McpServer {
                         allowProp(),
                         localeProp(),
                         patronProp())));
+        tools.add(tool("library_seeks",
+                "Seeks: the same question researched several times apart (library_research with seek=<group>, each on its own copy of the shelves, "
+                + "on any model), and one report merged from them. op=list the groups and their seeks; op=read a seek's report (group, job_id) or "
+                + "the merged one (group); op=merge files the merge run: the judge reads the seeks' claims in pairs, agreed claims are filed as findings, "
+                + "contradictions as disputed findings with the question on the frontier, what only one seek found is listed; op=drop removes a "
+                + "group's seeks and their shelves (the merged report stays).",
+                schema(new String[]{},
+                        enumProp("op", "list | read | merge | drop (default list).", "list", "read", "merge", "drop"),
+                        prop("group", "string", "The seek group, for read, merge and drop."),
+                        prop("job_id", "string", "For read: one seek's run id (J-…); leave out for the merged report."),
+                        patronProp())));
+        tools.add(tool("library_dossier",
+                "Everything the library holds on a person or an organisation, as one document: the relations the graph has, the claims by the "
+                + "class of their source (public record, own publication, told, supplied, third-party), a timeline, what was told in conversation, "
+                + "the reports to dive into, the open questions, what was looked for and not found, and the subjects it links to. A view over the "
+                + "shelves, written fresh each time; a research run adds to it.",
+                schema(new String[]{}, prop("subject", "string", "The person or the organisation, by name; leave it out to list the dossiers the shelves hold."),
+                        enumProp("op", "read (default): the dossier. list: every dossier the shelves hold, with its kind, counts, last run and whether a story is written. story: write the story of the subject as a report, chapter by chapter from the claims the library holds, every sentence citing its claim; listed on the dossier, a page to dive into. claims: file the dated events of the subject's reports as claims, for reports that landed before this step existed. forecasts: the ledger of dated forecasts the reports made (all, or the subject's), each with its likelihood, confidence and outcome, and the Brier score over the scored ones. score (write): the outcome of one forecast once its date has passed — id, outcome (happened, did-not, void), note. watch (write): keep a standing search on the subject, every seven days unless every says otherwise; its arrivals land in the inbox.", "read", "list", "story", "claims", "forecasts", "score", "watch"),
+                        prop("every", "integer", "For watch: the days between searches (default 7)."),
+                        prop("id", "string", "For score: the forecast's id, P-…."),
+                        prop("outcome", "string", "For score: happened, did-not or void."),
+                        prop("note", "string", "For score: what settled it, in a sentence."),
+                        patronProp())));
+        tools.add(tool("library_suggest",
+                "What the library suggests the person do next, from the shelves' own events: a forecast whose date passed, a story the shelves have grown past, a question of theirs a claim "
+                + "now answers, a question asked again and again, a report that landed, a dossier not researched for months. Each is classed now, next or hold with the probability they take it "
+                + "up; their marks are the outcomes a Brier score is kept over. op=list (default): the open suggestions, now first. op=mark (write): id, outcome (taken, dismissed, later), note.",
+                schema(new String[]{}, enumProp("op", "list (default) | mark", "list", "mark"), prop("id", "string", "For mark: the suggestion's id, S-…."), prop("outcome", "string", "For mark: taken, dismissed or later."),
+                        prop("note", "string", "For mark: a word on why, optional."), patronProp())));
+        tools.add(tool("library_tell",
+                "What a person tells the library about a subject from their own knowledge: what it was like, who was there, an incident, a date. "
+                + "Filed as a claim of class told, in their words, dated, with them as the writer; the questions it raises that the public record "
+                + "could answer join the open questions, so an account can open a search. Answer with 'noted:' and what it raised.",
+                schema(new String[]{"subject", "text"}, prop("subject", "string", "Who or what this is about."), prop("text", "string", "What they said, in their words, a sentence or more."), patronProp())));
         tools.add(tool("library_bridges",
                 "Discovery by combination: two areas of the library that no source read together, joined by specific terms both "
                 + "areas' claims share (Swanson's fish oil and Raynaud's). op=run computes the candidate pairs from an area (or the "
@@ -618,6 +652,7 @@ public final class McpServer {
                         arrayProp("collections", "Optional: names of the person's collections (folders shelved with `researchzosho add <dir>`) to search."),
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
                         prop("model", "string", "Optional: the named model to run on, one of the library's model entries by name (library_models op=list names them), or auto for best judgement, which is the default when more than one is named. Each entry is a host, a model id and its prices; the run's report says which ran it and what it cost."),
+                        prop("seek", "string", "Optional: a seek group's name (letters, digits, dashes). The run reads and writes its own copy of the shelves under that name, so several seeks of one question never see each other's work; library_seeks op=merge writes one report from them."),
                         prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
                         allowProp(),
                         localeProp(),
@@ -729,6 +764,10 @@ public final class McpServer {
             case "library_react" -> p.react(args);
             case "library_meeting" -> p.meeting(args);
             case "library_bridges" -> p.bridges(args);
+            case "library_seeks" -> p.seeks(args);
+            case "library_dossier" -> p.dossier(args);
+            case "library_suggest" -> p.suggest(args);
+            case "library_tell" -> p.tell(args);
             case "library_frontier" -> p.frontier(args);
             case "library_inbox" -> p.inbox(args);
             case "library_serials" -> p.serials(args);

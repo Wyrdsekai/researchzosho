@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -158,6 +159,41 @@ class LibrarianReviewTest {
         Finding newOne = store.finding(out.disputed().get(0).split(" ")[0]);
         assertEquals(Finding.State.disputed, newOne.state());
         assertTrue(Files.readString(store.frontierFile()).contains("[dispute]"));
+    }
+
+    @Test
+    void aClaimCarriesTheDateItHeldAndTheSameRelationAtAnotherDateIsASuccessionNotADispute() throws Exception {
+        store = new LibraryStore(tmp.resolve("lib")); store.init(); index = new LibrarianIndex(store);
+        Finding existing = new Finding("F-0001-lown-metrics-2021", "Lown Index metrics, 2021", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.high, "person",
+                Instant.now().toString(), "2021-09", Finding.Volatility.slow, "", List.of(new Finding.Source("https://example.org/a", "n/a", "s")), List.of(), null,
+                "The 2021 edition ranked hospitals on 54 metrics.\n").withTriple(new Finding.Triple("Lown Hospitals Index", "ranks on metrics", "54"));
+        store.write(existing); index.upsert(existing);
+        Investigation inv = Acquisitions.admit(store, index, "the index now", "The current edition uses 42 metrics. https://example.org/c", "model:test");
+        String extract = """
+                [{"title": "Lown Index metrics, current", "claim": "The 2026-27 edition ranks hospitals on 42 detailed metrics.", "claim_type": "extraction", "confidence": "medium", "volatility": "slow", "valid_as_of": "2026-06",
+                  "sources": ["https://example.org/c"], "triple": {"subject": "Lown Hospitals Index", "predicate": "ranks on metrics", "object": "42"}},
+                 {"title": "Lown Index first published", "claim": "The index was first published in July 2020.", "claim_type": "extraction", "confidence": "medium", "volatility": "stable",
+                  "sources": ["https://example.org/c"], "triple": {"subject": "Lown Hospitals Index", "predicate": "first published", "object": "2020-07"}}]""";
+        var compared = new AtomicReference<String>("");
+        var judge = new LibrarianReview.Judge() {
+            @Override public String extract(String b) { return extract; }
+            @Override public String compare(String c, String n) { compared.set(compared.get() + n); return "{\"verdict\": \"independent\"}"; }
+        };
+        var out = new LibrarianReview(store, index, judge, "librarian:test").review(inv);
+        assertEquals(0, out.disputed().size(), "54 in 2021 and 42 in 2026 are a succession: " + out);
+        assertFalse(compared.get().contains("SAME SUBJECT AND PREDICATE"), "the earlier value is not nominated as a contradiction: " + compared.get());
+        List<Finding> filed = new ArrayList<>();
+        for (String id : out.keptDraft()) filed.add(store.finding(id));
+        for (String id : out.accepted()) filed.add(store.finding(id));
+        Finding metrics = filed.stream().filter(f -> f.title().startsWith("Lown Index metrics")).findFirst().orElseThrow();
+        assertEquals("2026-06", metrics.validAsOf(), "the date the claim held, as the model read it");
+        assertTrue(metrics.notes().stream().anyMatch(n -> n.kind().equals("succession") && n.text().contains("F-0001-lown-metrics-2021 (2021)")), metrics.notes().toString());
+        Finding first = filed.stream().filter(f -> f.title().startsWith("Lown Index first published")).findFirst().orElseThrow();
+        assertEquals(LocalDate.now().toString(), first.validAsOf(), "no date given and none in the title: the day it was filed");
+        assertEquals(Finding.State.accepted, store.finding("F-0001-lown-metrics-2021").state(), "the earlier claim stands for its date");
+        assertTrue(Frontier.read(store).stream().noneMatch(l -> l.text().contains("what evidence would settle it")), "no dispute on the frontier");
+        assertEquals("2020", LibrarianReview.heldDate("", "the Lown Institute, 2020 (Jul 7): Lown Hospitals Index first published"), "a timeline claim's year from its title");
+        assertEquals("1996-01-15", LibrarianReview.heldDate("1996-01-15", "x")); assertEquals(LocalDate.now().toString(), LibrarianReview.heldDate("last year", "no year here"));
     }
 
     @Test
@@ -459,5 +495,11 @@ class LibrarianReviewTest {
         assertTrue(shown.contains("Looked in: patents.example") && shown.contains("Looked in: National Library, full text") && shown.contains("it does not tell you what exists"), shown);
         assertTrue(Looked.block(store, "髙橋源三郎: and his brothers?", 12).contains("No patents"), "the romanised subject is found through how the earlier question began");
         assertEquals("", Looked.block(store, "Endo Haru (born 1880): what do public sources say?", 12), "and somebody else's question is shown nothing");
+    }
+
+    @Test
+    void theReviewWritesItsClaimsInTheRecordsLanguage() {
+        String p = LibrarianReview.extractPrompt("# 高市早苗\n\n奈良県天理市に生まれる。");
+        assertTrue(p.contains("in the language the record is written in") && p.contains("高市早苗 stays 高市早苗"), p.substring(0, Math.min(400, p.length())));
     }
 }

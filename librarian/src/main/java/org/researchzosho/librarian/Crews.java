@@ -31,6 +31,7 @@ import java.util.function.Function;
 import org.researchzosho.Config;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Judge;
 import org.researchzosho.librarian.dna.Dna;
 import org.researchzosho.librarian.dna.Labels;
 import org.researchzosho.librarian.dna.PodcastDna;
@@ -153,6 +154,12 @@ public final class Crews {
             steps.add(step(store, "dna", () -> ShelfDna.nightly(driveUrl, model, stop())));   // the shelf's books read for their DNA, the person's picks first, within the setting's minutes
             steps.add(step(store, "dna podcasts", () -> PodcastDna.nightly(store, Config.getInt(ShelfDna.MINUTES_KEY, ShelfDna.MINUTES) * 15_000L, ShelfDna.named(Labels.drive(new DriveClient(driveUrl, model)), model), stop())));   // the transcripts held, a quarter of the minutes
             steps.add(step(store, "explorer", () -> explore(store, researcher, explorePerNight)));
+            steps.add(step(store, "suggestions", () -> {   // the shelves' events as suggestions, each classed now/next/hold by the typed judge
+                int before = Suggestions.all(store).size();
+                List<Suggestions.Entry> open = Suggestions.refresh(store, new Judge(new DriveClient(driveUrl, model)));
+                long now = open.stream().filter(e -> e.klass().equals("now")).count();
+                return (Suggestions.all(store).size() - before) + " new, " + open.size() + " open, " + now + " for now";
+            }));
             steps.add(step(store, "review", () -> reviewDrafts(store, new LibrarianReview(store, new LibrarianIndex(store),
                     LibrarianReview.driveJudge(new DriveClient(driveUrl, model)), "librarian:" + model).searcher(LibrarianReview.liveSearcher()))));
             steps.add(step(store, "catalog", () -> {
@@ -306,6 +313,7 @@ public final class Crews {
                 if (!p.toString().endsWith(".md")) continue;
                 Investigation inv = Investigation.parse(Files.readString(p, StandardCharsets.UTF_8));
                 if (inv.state() != Finding.State.draft) continue;
+                if (inv.title().startsWith("The story of ")) continue;   // a story is written from the claims; reviewing it would file them again, sourced by themselves (2026-10-26)
                 // the model declined to review this report before, and the report has not changed: it is not sent again
                 if (Declines.declinedBefore(store, "review", inv.id(), Conversations.hash8(inv.body()))) { leftDeclined++; continue; }
                 var out = review.review(inv);

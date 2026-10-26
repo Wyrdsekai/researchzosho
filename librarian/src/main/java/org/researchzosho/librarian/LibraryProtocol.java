@@ -1302,6 +1302,73 @@ public final class LibraryProtocol {
      * proposals; op=accept files the research run that tests one; op=dismiss drops it; op=settings reads or sets
      * an area's dials; op=measure reads the ledger: proposed, kept, dismissed, corroborated, by settings.
      */
+    /**
+     * Seeks (0.6.6): op=list the groups, each seek with its model, sources, state and report; op=read a seek's report (group, job_id) or the
+     * merged one (group alone); op=merge files the merge run (write); op=drop removes a group's seeks and their shelves (write; the merged
+     * report stays).
+     */
+    public ObjectNode seeks(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                ArrayNode groups = r.putArray("groups");
+                for (ObjectNode g : Seeks.list(store)) {
+                    ObjectNode o = groups.addObject();
+                    o.put("group", g.path("group").asText("")); o.put("question", g.path("question").asText(""));
+                    ArrayNode ss = o.putArray("seeks");
+                    for (String job : Seeks.jobsOf(g)) {
+                        JsonNode s = g.path("seeks").path(job);
+                        ObjectNode e = ss.addObject();
+                        e.put("job_id", job); e.put("model", s.path("model").asText("")); e.put("sources", s.path("sources").asText("")); e.put("investigation", s.path("investigation").asText(""));
+                        ObjectNode j = jobs.get(job);
+                        e.put("state", j == null ? "" : j.path("state").asText(""));
+                    }
+                    if (g.has("merged")) o.set("merged", g.get("merged").deepCopy());
+                }
+                return r;
+            }
+            case "read" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                String group = Seeks.checkedName(reqStr(args, "group"));
+                String job = args.path("job_id").asText("").strip();
+                Investigation inv = Seeks.read(store, group, job);
+                if (inv == null) throw ProtocolError.notFound(job.isEmpty() ? "The seeks of " + group + " have not been merged yet. op=merge writes the merged report." : "Seek " + job + " of " + group + " has no report yet.");
+                r.put("group", group); r.put("job_id", job); r.put("id", inv.id()); r.put("title", inv.title()); r.put("state", inv.state().name()); r.put("body", inv.body());
+                ArrayNode f = r.putArray("findings"); for (String id : inv.findings()) f.add(id);
+                return r;
+            }
+            case "merge" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String group = Seeks.checkedName(reqStr(args, "group"));
+                ObjectNode g = Seeks.group(store, group);
+                int landed = 0; for (String job : Seeks.jobsOf(g)) if (!g.path("seeks").path(job).path("investigation").asText("").isEmpty()) landed++;
+                if (landed < 2) throw ProtocolError.invalidArgs("A merge needs at least two seeks that landed; " + group + " has " + landed + " so far.");
+                Jobs filing = new Jobs(store, j -> { throw new IllegalStateException("filed only"); });
+                String id = filing.submit(Seeks.KIND_MERGE, patron.did(), M.createObjectNode().put("group", group));
+                r.put("job_id", id); r.put("state", "queued"); r.put("group", group);
+                return r;
+            }
+            case "drop" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String group = Seeks.checkedName(reqStr(args, "group"));
+                ObjectNode g = Seeks.group(store, group);
+                for (String job : Seeks.jobsOf(g)) {
+                    ObjectNode j = jobs.get(job);
+                    String st = j == null ? "" : j.path("state").asText("");
+                    if (st.equals("queued") || st.equals("running")) throw ProtocolError.invalidArgs("Seek " + job + " of " + group + " is " + st + ". Stop it first (library_job op=stop), or wait for it.");
+                }
+                if (!Seeks.drop(store, group)) throw ProtocolError.notFound("No seeks are named " + group + ".");
+                r.put("group", group); r.put("dropped", true);
+                return r;
+            }
+            default -> throw ProtocolError.invalidArgs("op is list, read, merge or drop.");
+        }
+    }
+
     public ObjectNode bridges(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
@@ -1426,6 +1493,142 @@ public final class LibraryProtocol {
         ObjectNode r = envelope();
         r.put("id", id);
         r.put("state", "draft");
+        return r;
+    }
+
+    /** library_suggest: what the library suggests the person do next, from the shelves' own events (read; op=list, the default, refreshes with the rules); op=mark (write): id, outcome (taken, dismissed, later), note. */
+    public ObjectNode suggest(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        if (op.equals("mark")) {
+            Patrons.check(store, patron, Patrons.Level.write);
+            Suggestions.Entry e;
+            try { e = Suggestions.mark(store, reqStr(args, "id"), reqStr(args, "outcome"), args.path("note").asText("")); }
+            catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+            if (e == null) throw ProtocolError.notFound("suggestion " + args.path("id").asText());
+            r.put("id", e.id()); r.put("outcome", e.outcome()); r.put("summary", "Marked " + e.id() + " " + e.outcome() + ".");
+            Double brier = Suggestions.brier(Suggestions.all(store)); if (brier != null) r.put("brier", brier);
+            return r;
+        }
+        Patrons.check(store, patron, Patrons.Level.read);
+        List<Suggestions.Entry> open = Suggestions.refresh(store, null), all = Suggestions.all(store);
+        ArrayNode a = r.putArray("suggestions");
+        for (Suggestions.Entry e : open) {
+            ObjectNode o = a.addObject(); o.put("id", e.id()); o.put("kind", e.kind()); o.put("subject", e.subject()); o.put("text", e.text()); o.put("reason", e.reason()); o.put("action", e.action()); o.put("cost", e.cost());
+            o.put("made", e.made()); o.put("class", e.klass()); if (e.pTake() != null) o.put("p_take", e.pTake()); o.put("judge", e.judge());
+        }
+        r.put("count", open.size()); Double brier = Suggestions.brier(all); if (brier != null) r.put("brier", brier); r.put("summary", Suggestions.text(open, all));
+        return r;
+    }
+
+    /**
+     * library_dossier: everything the library holds on a person or an organisation, as one document (read); op=list, or no subject, lists
+     * the dossiers the shelves hold (read); op=story writes the story of it as a report (write); op=claims files its reports' dated events (write).
+     */
+    public ObjectNode dossier(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("read").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        if (op.equals("read") && !args.path("in").asText("").isBlank()) {   // the dossier read in another language: kept when current, else translated now by the library's model
+            Translate.Translated t = Translate.dossierIn(store, reqStr(args, "subject"), args.path("in").asText(), Translate.DRIVE.get());
+            r.put("subject", t.subject()); r.put("language", t.lang()); r.put("markdown", t.markdown()); r.put("fresh", t.fresh()); r.put("summary", t.summary());
+            return r;
+        }
+        if (op.equals("list") || (op.equals("read") && args.path("subject").asText("").isBlank())) {
+            Patrons.check(store, patron, Patrons.Level.read);
+            List<Dossiers.Entry> all = Dossiers.list(store);
+            ArrayNode a = r.putArray("dossiers");
+            for (Dossiers.Entry e : all) { ObjectNode o = a.addObject(); o.put("subject", e.subject()); o.put("kind", e.kind()); o.put("claims", e.claims()); o.put("reports", e.reports()); o.put("last_run", e.lastRun()); o.put("story", e.story()); }
+            r.put("count", all.size()); r.put("summary", Dossiers.text(all));
+            return r;
+        }
+        if (op.equals("watch")) {   // a standing search on the subject, every seven days unless said; its arrivals land in the inbox
+            Patrons.check(store, patron, Patrons.Level.write);
+            String subject = reqStr(args, "subject").strip(); int every = Math.max(1, args.path("every").asInt(7));
+            String slug = DossierPage.watchSlug(subject);
+            Serials.add(store, slug, subject, every);
+            r.put("subject", subject); r.put("slug", slug); r.put("every", every);
+            r.put("summary", "Watching " + subject + ": a search for the subject every " + every + " days; what arrives lands in the inbox. researchzosho serials runs the searches that are due.");
+            return r;
+        }
+        if (op.equals("forecasts")) {   // the ledger: every dated forecast the reports made, open or scored
+            Patrons.check(store, patron, Patrons.Level.read);
+            String subject = args.path("subject").asText("");
+            List<Forecasts.Entry> all = subject.isBlank() ? Forecasts.all(store) : Forecasts.of(store, subject);
+            ArrayNode a = r.putArray("forecasts");
+            for (Forecasts.Entry e : all) {
+                ObjectNode o = a.addObject(); o.put("id", e.id()); o.put("subject", e.subject()); o.put("report", e.report()); o.put("filed", e.filed()); o.put("by", e.by()); o.put("text", e.text());
+                o.put("likelihood", e.likelihood()); if (e.percent() != null) o.put("percent", e.percent()); o.put("confidence", e.confidence()); o.put("indicators", e.indicators());
+                o.put("outcome", e.outcome() == null ? "" : e.outcome()); o.put("scored", e.scored() == null ? "" : e.scored()); o.put("note", e.note() == null ? "" : e.note());
+            }
+            Double brier = Forecasts.brier(all); if (brier != null) r.put("brier", brier);
+            r.put("count", all.size()); r.put("summary", Forecasts.text(all));
+            return r;
+        }
+        if (op.equals("score")) {   // a forecast's outcome, once its date has passed
+            Patrons.check(store, patron, Patrons.Level.write);
+            Forecasts.Entry e;
+            try { e = Forecasts.score(store, reqStr(args, "id"), reqStr(args, "outcome"), args.path("note").asText("")); }
+            catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+            if (e == null) throw ProtocolError.notFound("forecast " + args.path("id").asText());
+            r.put("id", e.id()); r.put("subject", e.subject()); r.put("outcome", e.outcome()); r.put("scored", e.scored()); r.put("summary", "Scored " + e.id() + " as " + e.outcome() + ".");
+            Double brier = Forecasts.brier(Forecasts.of(store, e.subject())); if (brier != null) r.put("brier", brier);
+            return r;
+        }
+        if (op.equals("story")) {
+            Patrons.check(store, patron, Patrons.Level.write);
+            r.setAll(Story.write(store, reqStr(args, "subject"), Story.DRIVE.get()));
+            return r;
+        }
+        if (op.equals("claims")) {   // the reports' dated events onto the shelves, for the reports that landed before the step existed or read them wrongly
+            Patrons.check(store, patron, Patrons.Level.write);
+            Dossier.Gathered d = Dossier.gather(store, reqStr(args, "subject"));
+            int filed = 0, reports = 0;
+            for (Investigation inv : d.reports()) if (!inv.title().startsWith("The story of ")) { reports++; filed += TimelineClaims.file(store, inv, d.label()).size(); }
+            r.put("subject", d.label()); r.put("reports", reports); r.put("filed", filed);
+            r.put("summary", filed == 0 ? "Nothing new: every dated event of the " + reports + " report" + (reports == 1 ? "" : "s") + " on " + d.label() + " is on the shelves already." : filed + " dated event" + (filed == 1 ? "" : "s") + " filed as claims from " + reports + " report" + (reports == 1 ? "" : "s") + " on " + d.label() + ".");
+            return r;
+        }
+        Patrons.check(store, patron, Patrons.Level.read);
+        r.setAll(Dossier.of(store, reqStr(args, "subject")));
+        return r;
+    }
+
+    /** What the told claims' leads are listed by; tests put a stand-in here. */
+    static volatile java.util.function.BiFunction<String, String, List<String>> LEADS = (subject, text) -> {
+        var f = Conversations.modelLeads(Explain.drive(), subject);
+        return f == null ? List.of() : f.apply(text);
+    };
+
+    /**
+     * library_tell: what a person tells the library about a subject in conversation, filed as a claim of class told, in their words, dated,
+     * with them as the writer (write). The names, dates, places and events it raises become open questions on the frontier, so an account
+     * can open a search: the interview feeds the research (0.6.6).
+     */
+    public ObjectNode tell(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String subject = reqStr(args, "subject").strip(), text = reqStr(args, "text").strip();
+        if (subject.isEmpty()) throw ProtocolError.invalidArgs("Say who or what this is about: subject.");
+        if (text.length() < 12) throw ProtocolError.invalidArgs("Say it in at least one sentence.");
+        String today = LocalDate.now().toString();
+        String locator = "told://interview/" + LibraryStore.slug(subject) + "/" + today;
+        String title = subject + ": " + Acquisitions.compress(text, 70);
+        String writer = patron.anonymous() ? "person" : patron.writer();
+        String id = store.nextFindingId(title);
+        Finding f = new Finding(id, title, List.of(), Finding.State.draft, Finding.ClaimType.extraction, Finding.Confidence.medium, writer,
+                Instant.now().toString(), today, Finding.Volatility.slow, "",
+                List.of(new Finding.Source(locator, "n/a", "told to the library in conversation")), List.of(), null, text + "\n", null, List.of());
+        store.write(f);
+        new LibrarianIndex(store).upsert(f);
+        store.circulate("tell", id + " by " + writer + " on " + subject);
+        List<String> filed = new ArrayList<>();
+        for (String q : LEADS.apply(subject, text)) if (Frontier.demand(store, q, "interview " + subject)) filed.add(q);
+        ObjectNode r = envelope();
+        r.put("id", id); r.put("noted", title); r.put("class", SourceClass.told.label()); r.put("locator", locator);
+        ArrayNode qs = r.putArray("questions"); for (String q : filed) qs.add(q);
+        r.put("summary", "Noted, in your words, as " + id + (filed.isEmpty() ? "." : ". It raises " + filed.size() + (filed.size() == 1 ? " question" : " questions") + " the record could answer, now on the open questions: " + String.join(" · ", filed)));
         return r;
     }
 
@@ -1893,6 +2096,7 @@ public final class LibraryProtocol {
             for (JsonNode s : args.path("sub_questions")) subs.add(s.asText().strip());
         }
         a.put("sources", args.path("sources").asText("both"));
+        if (args.hasNonNull("seek") && !args.get("seek").asText().isBlank()) a.put("seek", Seeks.checkedName(args.get("seek").asText()));   // a seek: its own copy of the shelves
         if (args.path("collections").isArray() && args.path("collections").size() > 0) {
             ArrayNode cs = a.putArray("collections");
             for (JsonNode c : args.path("collections")) if (c.isTextual() && !c.asText().isBlank()) cs.add(c.asText().strip());
@@ -2856,7 +3060,7 @@ public final class LibraryProtocol {
      */
     static final double ANSWERED_OVERLAP = 0.08;
 
-    private static LibrarianIndex.Hit answeredBy(LibrarianIndex index, String question) {
+    static LibrarianIndex.Hit answeredBy(LibrarianIndex index, String question) {
         try {
             LibrarianIndex.Hit best = null; double bestOverlap = 0;
             var qt = Frontier.terms(question);

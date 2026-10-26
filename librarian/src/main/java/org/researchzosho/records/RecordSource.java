@@ -21,7 +21,10 @@ public record RecordSource(String id, String name, String holds, String kind, Li
                            int fromYear, int toYear, String tier, String url, String format, String items,
                            String title, String date, String link, String snippet, String where,
                            String keyName, String keyFrom, boolean keyOptional, String keyHeader, String keyLogin, String appName, String appFrom, List<String> fields, List<String> hosts, boolean builtIn,
-                           String secretName, String tokenUrl, String accept, int emptyStatus) {
+                           String secretName, String tokenUrl, String accept, int emptyStatus, int perRun) {
+
+    /** Whether one run may search this collection only so many times ({@code per_run}): a collection whose monthly allowance is small, such as SerpApi's 250. */
+    public boolean hasAllowance() { return perRun > 0; }
 
     /** A source that hands out a short-lived token for a key and a secret (OAuth's client credentials): the search then carries the token. */
     public boolean exchangesAToken() { return tokenUrl != null && !tokenUrl.isBlank(); }

@@ -198,6 +198,7 @@ public final class LibrarianReview {
                     c.path("volatility").asText(""), Finding.Volatility.slow);
             Finding.Confidence conf = enumOr(Finding.Confidence.class,
                     c.path("confidence").asText(""), Finding.Confidence.medium);
+            String held = heldDate(c.path("valid_as_of").asText(""), title);   // the date the claim held: the model's, else the year its title names, else the day it is filed
 
             // The claim's triple, when the extractor found that shape.
             Finding.Triple triple = null;
@@ -230,11 +231,16 @@ public final class LibrarianReview {
             // NEIGHBOR JUDGMENT: the machine nominates, the model only disambiguates among nominees.
             // First by ARITHMETIC — same subject + predicate, different object is a contradiction
             // candidate before any model reads a word (kiroku-memory's take, 2026-09-05) — then BM25.
-            List<String> clashIds = new ArrayList<>();
+            List<String> clashIds = new ArrayList<>(), succession = new ArrayList<>();
             if (triple != null) {
+                String year = yearOf(held);
                 for (Finding other : store.scanFindings().findings()) {
                     if (other.state() == Finding.State.retired || other.triple() == null) continue;
-                    if (other.triple().clashes(triple)) clashIds.add(other.id());
+                    if (!other.triple().clashes(triple)) continue;
+                    // the same relation at another date is a succession, not a contradiction: 54 metrics in 2021 and 42 in 2026 both stand, each for its date
+                    String otherYear = heldYear(other);
+                    if (year != null && otherYear != null && !year.equals(otherYear)) { succession.add(other.id() + " (" + otherYear + ")"); continue; }
+                    clashIds.add(other.id());
                 }
             }
             List<LibrarianIndex.Hit> neighbors = new ArrayList<>();
@@ -374,13 +380,14 @@ public final class LibrarianReview {
             if (contradiction) state = Finding.State.disputed;
 
             List<Finding.Note> notes = new ArrayList<>();
+            for (String s : succession) notes.add(new Finding.Note("succession", reviewerName, LocalDate.now().toString(), "the same relation at another date: " + s + " — both stand, each for its date"));
             for (Finding.Note n : sideways(sources, rules)) notes.add(n);
             if (contradiction) {
                 notes.add(new Finding.Note("disputed", reviewerName, LocalDate.now().toString(),
                         "contradicts " + conflictId + (clashIds.contains(conflictId) ? " (same subject and predicate, different object)" : " (judged against its neighbours)")));
             }
             Finding draft = new Finding(id, title, List.of(), state, type, conf,
-                    inv.writer(), Instant.now().toString(), LocalDate.now().toString(), vol,
+                    inv.writer(), Instant.now().toString(), held, vol,
                     reviewBy, sources, List.of(), null, claim + "\n", triple, notes);
             Finding f = new Finding(draft.id(), draft.title(), draft.subjects(), draft.state(),
                     draft.claimType(), draft.confidence(), draft.writer(), draft.recordedAt(),
@@ -523,6 +530,20 @@ public final class LibrarianReview {
         return b.toString().strip();
     }
 
+    static final Pattern HELD_DATE = Pattern.compile("^(1[5-9]\\d\\d|20\\d\\d)(?:-(?:0[1-9]|1[0-2])(?:-(?:0[1-9]|[12]\\d|3[01]))?)?$");
+    static final Pattern A_YEAR = Pattern.compile("\\b(1[5-9]\\d\\d|20\\d\\d)\\b");
+
+    /** The date a claim held: the model's valid_as_of when it is a date, else the first year the claim's title names, else today, the day it is filed. */
+    static String heldDate(String given, String title) {
+        String g = given == null ? "" : given.strip();
+        if (HELD_DATE.matcher(g).matches()) return g;
+        Matcher y = A_YEAR.matcher(title == null ? "" : title);
+        return y.find() ? y.group(1) : LocalDate.now().toString();
+    }
+    static String yearOf(String date) { Matcher y = A_YEAR.matcher(date == null ? "" : date); return y.find() ? y.group(1) : null; }
+    /** The year a claim on the shelves held: the year its title names ("X, 2021 (Feb 2): …"), else that of its valid_as_of. */
+    static String heldYear(Finding f) { Matcher y = A_YEAR.matcher(f.title()); return y.find() ? y.group(1) : yearOf(f.validAsOf()); }
+
     static String extractPrompt(String investigationBody) { return extractPrompt(investigationBody, ""); }
 
     /** {@code rule}: what the run's fields add, the words for their relations ({@link #extractionRule}). */
@@ -538,21 +559,23 @@ public final class LibrarianReview {
                 + "[{\"title\": \"short claim title\", \"claim\": \"one to three sentences, "
                 + "self-contained\", \"claim_type\": \"extraction|synthesis|interpretation|"
                 + "speculation\", \"confidence\": \"low|medium|high\", \"volatility\": "
-                + "\"fast|slow|stable\", \"sources\": [\"S3\", \"S7\"], "
+                + "\"fast|slow|stable\", \"valid_as_of\": \"YYYY, YYYY-MM or YYYY-MM-DD\", \"sources\": [\"S3\", \"S7\"], "
                 + "\"triple\": {\"subject\": \"what the claim is about\", \"predicate\": \"the relation\", \"object\": \"the value\"}, \"found\": true}]\n\n"
                 + "found: true when the claim says what a source says. found: false when the claim says that something was looked for and did not turn up "
                 + "(no record, no publication, no patent, no mention): write in the claim what was looked for and where, and name in the triple's subject whom or what it was about. "
                 + "Such a claim is kept with its date as a place somebody has looked.\n"
                 + "The triple is the claim as subject–predicate–object when it has that shape (e.g. keigo | has direct "
                 + "English equivalent | none) — omit it when it does not. Use the same subject and predicate wording "
-                + "for claims about the same thing, so contradictions line up." + (rule == null || rule.isBlank() ? "" : " " + rule.strip()) + "\n"
+                + "for claims about the same thing, so contradictions line up. Write the title, the claim and the triple in the language the record is written in, "
+                + "and name its subject as the record names it (高市早苗 stays 高市早苗), so a claim lines up with the ones the record already filed." + (rule == null || rule.isBlank() ? "" : " " + rule.strip()) + "\n"
                 + "Rules: " + sectionRule(investigationBody) + " Each claim stands alone. For sources, use ONLY the "
                 + "labels from the SOURCE LIST below (S1, S2, …), copied exactly — a claim whose "
                 + "sources are not on the list cannot be shelved. claim_type: extraction = read "
                 + "directly from ONE source; synthesis = combined across sources; interpretation = "
                 + "a reading or judgment; speculation = a forecast. volatility: fast = true facts "
                 + "change within months (releases, prices, vulnerabilities); slow = change over "
-                + "years; stable = timeless.\n\nSOURCE LIST (the record's own locators):\n"
+                + "years; stable = timeless. valid_as_of: the date the claim held as the record gives it — an event's date, or the day a state "
+                + "of affairs was last true; a year alone when that is all the record says; leave it out when the record does not say.\n\nSOURCE LIST (the record's own locators):\n"
                 + (list.length() == 0 ? "  (none — this record carries no citable source)\n" : list)
                 + "\nINVESTIGATION RECORD:\n" + Fence.wrap("INVESTIGATION RECORD", investigationBody) + "\n" + Fence.rule("INVESTIGATION RECORD");
     }
@@ -567,7 +590,7 @@ public final class LibrarianReview {
     static final int EXTRACT_TOKENS = 1_600, PROMPT_TOKENS = 700;
 
     static String forExtraction(String body, int contextWindow) {
-        String b = body == null ? "" : body;
+        String b = Analysis.withoutAnalysis(body == null ? "" : body);   // the analysis layer is the report's, never the shelves': no conjecture or forecast becomes a claim
         for (String appendix : new String[]{"\n## Worker findings", "\n## Sources cited"}) {
             int i = b.indexOf(appendix);
             if (i >= 0) {

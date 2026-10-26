@@ -78,7 +78,8 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_TRANSCRIBE_MINUTES", Kind.number, "How many minutes of audio one research run may transcribe (120 unless set).", "120"),
             new Setting("RESEARCHZOSHO_TRANSCRIBE_FOLLOWED_MINUTES", Kind.number, "Minutes of audio the housekeeping may transcribe per night for the podcasts you follow (0 = no cap).", "0"),
             // runs and the service
-            new Setting("RESEARCHZOSHO_JOB_WORKERS", Kind.number, "How many research runs the service runs at once. Unset: one run per three of the model server's slots (a llama.cpp server says how many; Ollama is taken as one, vLLM as eight). Takes effect at the next restart.", "1"),
+            new Setting("RESEARCHZOSHO_JOB_DRIVES", Kind.address, "The model servers the research runs use when there are several, comma-separated (OpenAI-style addresses); the drive alone when unset. Each carries one run per three of its slots, and a server with more slots takes more of the runs. How many runs go at once follows at the next restart; where a run starts follows at once.", "http://127.0.0.1:8080,http://192.168.1.20:8080"),
+            new Setting("RESEARCHZOSHO_JOB_WORKERS", Kind.number, "How many research runs the service runs at once. Unset: one run per three of each model server's slots, added up over job.drives (a llama.cpp server says how many; Ollama is taken as one, vLLM as eight). Takes effect at the next restart.", "1"),
             new Setting("RESEARCHZOSHO_RESEARCH_WORKERS", Kind.number, "How many readers one research run uses at once. Unset: three, or the model server's slots when fewer. A running run follows at its next turn.", "3"),
             new Setting("RESEARCHZOSHO_STALL_MINUTES", Kind.number, "After how many minutes without progress a run is marked as stalled (15 unless set).", "15"),
             new Setting("RESEARCHZOSHO_SUBMIT_CHECK_SECONDS", Kind.number, "How long a program's submit waits for the model's reading of a question before filing anyway (45 unless set).", "45"),
@@ -119,7 +120,12 @@ public final class Settings {
         if (value == null || value.isBlank()) return "";
         String v = value.strip();
         return switch (s.kind()) {
-            case address -> v.matches("^https?://\\S+$") ? "" : s.shortName() + " is an address and must start with http:// or https://, for example " + s.example() + ".";
+            case address -> {
+                boolean several = s.key().equals(JOB_DRIVES);
+                for (String part : several ? v.split("\\s*,\\s*") : new String[]{v})
+                    if (!part.matches("^https?://\\S+$")) yield s.shortName() + " is an address" + (several ? ", or several with commas between," : "") + " and must start with http:// or https://, for example " + s.example() + ".";
+                yield "";
+            }
             case number -> v.matches("^\\d+$") ? "" : s.shortName() + " is a number, for example " + s.example() + ".";
             case choice -> s.choices().contains(v.toLowerCase(Locale.ROOT)) ? "" : s.shortName() + " is one of " + String.join(", ", s.choices()) + ".";
             default -> s.key().equals(MARKET) ? (v.matches("(?i)^[a-z]{2}$") ? "" : "market is a country as two letters, for example JP or US.")
@@ -128,6 +134,7 @@ public final class Settings {
     }
 
     public static final String MARKET = "RESEARCHZOSHO_MARKET";
+    public static final String JOB_DRIVES = "RESEARCHZOSHO_JOB_DRIVES";
     public static final String CALIBRE = "RESEARCHZOSHO_CALIBRE";
 
     /** The country the person buys in, as two upper-case letters: the setting, else this machine's country, else US. */

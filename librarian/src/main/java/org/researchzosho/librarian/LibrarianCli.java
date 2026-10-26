@@ -11,6 +11,7 @@ import java.util.regex.Matcher;
 import java.time.LocalDate;
 
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Judge;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -197,6 +198,11 @@ public final class LibrarianCli {
               explain "<term>" [--in <id>] [--now|--full]
                                            a term as it is used in an entry. When the library does not explain it, a quick look or full research
               map <name|id> [--depth N]    the map around a person, place, work or concept. The links are claims
+              dossiers                     every person or organisation the shelves hold a dossier on, the latest run first
+              dossier <name> [--claims | --watch | --in <language>]   everything the library holds on one of them, as one document; --in en reads it in English, --in ja in Japanese; --watch keeps a search on them every seven days; story <name> writes their story
+              tell <name> "<what you know>"   what you know of them, filed in your words and dated; the questions it raises join the open questions
+              forecasts [<name>]           the dated forecasts the reports made, each with its likelihood and outcome; forecast <P-…> happened|did-not|void scores one
+              suggest [taken|dismissed|later <S-…>]   what the library suggests you do next, from the shelves' own events, now first; a mark teaches it
               graph merge <a> <b> [--because <why>] · unmerge <a> [<b>] [--because <why>] · alias <node> <name…> · kind <node> <kind> · link <node> <Qid> · proposals
                                            merge joins two names into one node and writes down why; unmerge takes a merge back, and the claims are about the first name again
               profile list · enable <name> · disable <name>       fields on top of the core: {FIELDS}
@@ -976,6 +982,7 @@ public final class LibrarianCli {
                         boolean ok = RecordSources.usable(src);
                         System.out.println((ok ? "[on]  " : "[key] ") + src.id() + " — " + src.name() + (src.countries().isEmpty() ? "" : " [" + String.join(", ", src.countries()) + "]") + (src.years().isEmpty() ? "" : " " + src.years()) + (src.fields().isEmpty() ? "" : "  · " + String.join(", ", src.fields())) + (src.builtIn() ? "" : "  (yours)"));
                         System.out.println("      " + src.holds());
+                        if (ok && src.hasAllowance()) System.out.println("      at most " + src.perRun() + " searches in one run: its monthly allowance is small");
                         if (ok && src.keyOptional() && Config.get(src.keyName()) == null) System.out.println("      works without a key; a free key lets it search more often: researchzosho records key " + src.id() + " <key>  (" + src.keyFrom() + ")");
                         if (!ok) System.out.println(src.keyLogin().isBlank() ? "      needs a key: researchzosho records key " + src.id() + " <key>  (a free key from " + src.keyFrom() + ")" : "      needs a sign-in: researchzosho records login " + src.id());
                     }
@@ -1075,6 +1082,70 @@ public final class LibrarianCli {
                     }
                 }
                 case "peer", "peers" -> { return peer(store, args); }
+                case "seeks", "seek" -> { return seeks(store, args); }
+                case "suggest" -> {
+                    if (args.length >= 4 && List.of("taken", "dismissed", "later").contains(args[2].toLowerCase(Locale.ROOT))) {
+                        Suggestions.Entry e = Suggestions.mark(store, args[3], args[2], args.length > 4 ? String.join(" ", Arrays.asList(args).subList(4, args.length)) : "");
+                        if (e == null) { System.err.println("No suggestion " + args[3] + " is on the ledger. researchzosho suggest lists them."); return 2; }
+                        System.out.println("Marked " + e.id() + " " + e.outcome() + ".");
+                        Double brier = Suggestions.brier(Suggestions.all(store));
+                        if (brier != null) System.out.println("Brier score over your marks: " + String.format(Locale.ROOT, "%.3f", brier) + " (0 is perfect, 0.25 is coin-tossing).");
+                        return 0;
+                    }
+                    Judge judge = null;
+                    try { if (Crews.driveAnswers(baseUrl)) judge = new Judge(new DriveClient(baseUrl, model)); } catch (RuntimeException ignored) { }
+                    System.out.println(Suggestions.text(Suggestions.refresh(store, judge), Suggestions.all(store)));
+                    return 0;
+                }
+                case "dossiers" -> { System.out.println(Dossiers.text(Dossiers.list(store))); return 0; }
+                case "forecasts" -> {
+                    String subject = args.length > 2 ? String.join(" ", Arrays.asList(args).subList(2, args.length)) : "";
+                    System.out.println(Forecasts.text(subject.isBlank() ? Forecasts.all(store) : Forecasts.of(store, subject)));
+                    return 0;
+                }
+                case "forecast" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho forecast <P-…> happened|did-not|void [a note…]   (scores a forecast once its date has passed; researchzosho forecasts lists them)"); return 2; }
+                    Forecasts.Entry e;
+                    try { e = Forecasts.score(store, args[2], args[3], args.length > 4 ? String.join(" ", Arrays.asList(args).subList(4, args.length)) : ""); }
+                    catch (IllegalArgumentException x) { System.err.println(x.getMessage()); return 2; }
+                    if (e == null) { System.err.println("No forecast " + args[2] + " is on the ledger. researchzosho forecasts lists them."); return 2; }
+                    System.out.println("Scored " + e.id() + " as " + e.outcome() + ": " + e.text() + (e.percent() == null ? "" : " (the report said " + e.likelihood() + ", " + e.percent() + "%)") + ".");
+                    Double brier = Forecasts.brier(Forecasts.of(store, e.subject()));
+                    if (brier != null) System.out.println("Brier score over the scored forecasts on " + e.subject() + ": " + String.format(Locale.ROOT, "%.3f", brier) + " (0 is perfect, 0.25 is coin-tossing).");
+                    return 0;
+                }
+                case "dossier" -> {
+                    if (args.length < 3) { System.err.println("usage: researchzosho dossier <a person or an organisation> [--claims | --watch | --in <language>]   (--claims files the dated events of their reports as claims; --in en reads it in English, --in ja in Japanese)"); return 2; }
+                    ObjectNode a = new ObjectMapper().createObjectNode();
+                    a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+                    List<String> words = new ArrayList<>(Arrays.asList(args).subList(2, args.length));
+                    boolean claims = words.remove("--claims"), watch = words.remove("--watch");
+                    String in = ""; int at = words.indexOf("--in"); if (at >= 0) { if (at + 1 >= words.size()) { System.err.println("--in needs a language, for example --in en or --in ja"); return 2; } in = words.get(at + 1); words.remove(at + 1); words.remove(at); }
+                    a.put("subject", String.join(" ", words));
+                    if (!in.isEmpty()) a.put("in", in);
+                    if (claims) { a.put("op", "claims"); System.out.println(new LibraryProtocol(store).dossier(a).path("summary").asText()); return 0; }
+                    if (watch) { a.put("op", "watch"); System.out.println(new LibraryProtocol(store).dossier(a).path("summary").asText()); return 0; }
+                    System.out.println(new LibraryProtocol(store).dossier(a).path("markdown").asText());
+                    return 0;
+                }
+                case "story" -> {
+                    if (args.length < 3) { System.err.println("usage: researchzosho story <a person or an organisation>"); return 2; }
+                    ObjectNode a = new ObjectMapper().createObjectNode();
+                    a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+                    String subject = String.join(" ", Arrays.asList(args).subList(2, args.length));
+                    a.put("subject", subject); a.put("op", "story");
+                    JsonNode r = new LibraryProtocol(store).dossier(a);
+                    System.out.println("The story of " + r.path("subject").asText() + " is written as " + r.path("id").asText() + ": " + r.path("chapters").asInt() + " chapter" + (r.path("chapters").asInt() == 1 ? "" : "s") + " from " + r.path("claims").asInt() + " claims. It is listed on the dossier; researchzosho dossier \"" + subject + "\" shows it, and the pages have it at /entry/" + r.path("id").asText());
+                    return 0;
+                }
+                case "tell" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho tell <subject> <what you know, in a sentence or more>   (quote the subject when it has spaces)"); return 2; }
+                    ObjectNode a = new ObjectMapper().createObjectNode();
+                    a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+                    a.put("subject", args[2]); a.put("text", String.join(" ", Arrays.asList(args).subList(3, args.length)));
+                    System.out.println(new LibraryProtocol(store).tell(a).path("summary").asText());
+                    return 0;
+                }
                 case "directory" -> { return directory(store, args); }
                 case "vault" -> {
                     Path out = Vault.dir(store);
@@ -1422,6 +1493,49 @@ public final class LibrarianCli {
         return 0;
     }
 
+    /** `researchzosho seeks …`: the same question researched several times apart, and one report merged from them ({@link Seeks}). */
+    static int seeks(LibraryStore store, String[] args) throws IOException {
+        String op = args.length > 2 ? args[2] : "list";
+        LibraryProtocol p = new LibraryProtocol(store);
+        ObjectNode a = new ObjectMapper().createObjectNode();
+        a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
+        try {
+            switch (op) {
+                case "list" -> {
+                    JsonNode r = p.seeks(a.put("op", "list"));
+                    if (r.path("groups").isEmpty()) { System.out.println("No seeks yet. researchzosho research ask \"…\" --seek <group> files one; two or more of a group merge with researchzosho seeks merge <group>."); return 0; }
+                    for (JsonNode g : r.path("groups")) {
+                        System.out.println(g.path("group").asText() + ": " + g.path("question").asText());
+                        for (JsonNode s : g.path("seeks")) System.out.println("  " + s.path("job_id").asText() + "  " + (s.path("model").asText().isEmpty() ? "the library's model" : s.path("model").asText()) + "  " + s.path("sources").asText() + "  " + s.path("state").asText() + (s.path("investigation").asText().isEmpty() ? "" : "  " + s.path("investigation").asText()));
+                        if (g.has("merged")) System.out.println("  merged: " + g.path("merged").path("investigation").asText() + " (" + g.path("merged").path("agreed").asInt() + " agreed, " + g.path("merged").path("disputed").asInt() + " disputed, " + g.path("merged").path("lone").asInt() + " by one seek)");
+                    }
+                    return 0;
+                }
+                case "read" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho seeks read <group> [<J-…>]   (the merged report, or one seek's)"); return 2; }
+                    a.put("op", "read"); a.put("group", args[3]); if (args.length > 4) a.put("job_id", args[4]);
+                    JsonNode r = p.seeks(a);
+                    System.out.println(r.path("id").asText() + " — " + r.path("title").asText() + "\n");
+                    System.out.println(r.path("body").asText());
+                    return 0;
+                }
+                case "merge" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho seeks merge <group>"); return 2; }
+                    JsonNode r = p.seeks(a.put("op", "merge").put("group", args[3]));
+                    System.out.println("sent as " + r.path("job_id").asText() + ": the merge of " + args[3] + ". researchzosho jobs " + r.path("job_id").asText() + " shows how it goes; researchzosho seeks read " + args[3] + " prints the report once it is written.");
+                    return 0;
+                }
+                case "drop" -> {
+                    if (args.length < 4) { System.err.println("usage: researchzosho seeks drop <group>"); return 2; }
+                    p.seeks(a.put("op", "drop").put("group", args[3]));
+                    System.out.println(args[3] + " dropped: its seeks' shelves are gone. A merged report stays on the library's shelves.");
+                    return 0;
+                }
+                default -> { System.err.println("usage: researchzosho seeks [list | read <group> [<J-…>] | merge <group> | drop <group>]"); return 2; }
+            }
+        } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+    }
+
     /** `researchzosho peer …`: other libraries this one may ask. */
     static int peer(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2] : "list";
@@ -1484,10 +1598,10 @@ public final class LibrarianCli {
             }
             case "ask" -> {
                 // file a question from the command line, as the person; the service picks it up within seconds
-                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--model <name>] [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
+                if (args.length < 4) { System.err.println("usage: researchzosho research ask \"<question…>\" [--model <name>] [--seek <group>] [--depth] [--quick|--priority] [--shelves|--web] [--max-turns N] [--max-minutes N] [--field <name>] [--allow explicit,howto]\n  --field <name>, or --<name>, researches the question in that field's mode\n  --allow explicit lets into this run the pornography and gore the library leaves out by default; --allow howto lets in step-by-step instructions for making weapons, explosives and illegal drugs and for running exploit code\n  --allow self-harm sends a question that reads as a person asking about harming themselves, which is otherwise sent only after a yes at a terminal"); return 2; }
                 List<String> words = new ArrayList<>();
                 List<String> allow = new ArrayList<>();
-                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag", modelEntry = ""; boolean quick = false, priority = false; int maxTurns = -1, maxMinutes = -1;
+                String mode = "broad", sources = "both", field = "", how = "cli-flag", allowHow = "cli-flag", modelEntry = "", seek = ""; boolean quick = false, priority = false; int maxTurns = -1, maxMinutes = -1;
                 try {
                     for (int i = 3; i < args.length; i++) {
                         switch (args[i]) {
@@ -1501,6 +1615,7 @@ public final class LibrarianCli {
                             case "--max-minutes" -> maxMinutes = flagInt(args, i++);
                             case "--field" -> { if (i + 1 >= args.length) throw new IllegalArgumentException("--field needs the name of a field, for example --field science"); field = args[++i]; }
                             case "--model" -> { if (i + 1 >= args.length) throw new IllegalArgumentException("--model needs the name of a model, for example --model deepseek (researchzosho models lists them)"); modelEntry = args[++i]; }
+                            case "--seek" -> { if (i + 1 >= args.length) throw new IllegalArgumentException("--seek needs the name of a seek group, for example --seek gedcom-7"); seek = Seeks.checkedName(args[++i]); }
                             case "--allow" -> {
                                 if (i + 1 >= args.length) throw new IllegalArgumentException("--allow needs what to let in: explicit, howto, or both as explicit,howto");
                                 for (String a : args[++i].split(",")) if (!a.isBlank()) allow.add(a.strip().toLowerCase(Locale.ROOT));
@@ -1517,6 +1632,7 @@ public final class LibrarianCli {
                 ObjectNode ask = new ObjectMapper().createObjectNode();
                 ask.put("question", q); ask.put("mode", mode); ask.put("sources", sources);
                 if (!modelEntry.isEmpty()) ask.put("model", modelEntry);
+                if (!seek.isEmpty()) ask.put("seek", seek);
                 if (quick) ask.put("quick", true);
                 if (priority) ask.put("priority", true);
                 if (maxTurns >= 0) ask.put("max_turns", maxTurns);
@@ -1684,7 +1800,7 @@ public final class LibrarianCli {
             line = line.strip();
             if (line.isEmpty() && !lib.waitingForAnswer()) continue;   // while the library waits for a (y/N) answer, Enter is no
             if (Librarian.QUIT.contains(line)) break;
-            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /model <name> (which model this chat talks to) · /runs (the research runs this chat follows) · /share [status|off|--tailscale|--tailnet|--cloudflare] (reach the library from outside your home) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
+            if (line.equals("/help")) { System.out.println("  say anything · " + fieldCommandsHelp(store) + "/new (a fresh conversation) · /suggest (what the library suggests you do next) · /interview <name> (the library asks what it does not know of them; your answers are filed as told) · /model <name> (which model this chat talks to) · /runs (the research runs this chat follows) · /share [status|off|--tailscale|--tailnet|--cloudflare] (reach the library from outside your home) · /sessions · /resume <id> · /quit\n  up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves\n  \"find out …\" starts a research run. \"yes\" accepts what the Librarian offers\n  when the Librarian asks a question ending in (y/N), y or yes says yes; Enter or anything else says no"); continue; }
             if (line.equals("/new")) { lib.leaveUnanswered(); session = Librarian.Session.open(store); current[0] = session; lib = new Librarian(store, drive, Librarian.person(), session); System.out.println("  a fresh conversation, " + session.id); continue; }
             if (line.equals("/model") || line.startsWith("/model ")) {
                 String entryName = line.length() > 6 ? line.substring(6).strip() : "";
@@ -1710,6 +1826,8 @@ public final class LibrarianCli {
                 System.out.println(o.text());
                 continue;
             }
+            if (line.equals("/interview") || line.startsWith("/interview ")) { for (String l : Interview.questions(store, line.length() > 10 ? line.substring(10) : "").split("\n")) System.out.println("  " + l); continue; }
+            if (line.equals("/suggest")) { for (String l : Suggestions.text(Suggestions.refresh(store, null), Suggestions.all(store)).split("\n")) System.out.println("  " + l); continue; }
             if (fieldCommand(store, line)) continue;
             if (line.startsWith("/")) { System.out.println("  not a command; /help lists them"); continue; }
             System.out.print("  …"); System.out.flush();

@@ -198,6 +198,25 @@ public final class LibraryStore {
     }
 
     private int issue(String prefix, Path dir) throws IOException {
+        Map<String, Integer> ledger = ledger();
+        int next = Math.max(maxSerial(dir, prefix), ledger.getOrDefault(prefix, 0)) + 1;
+        ledger.put(prefix, next);
+        writeLedger(ledger);
+        return next;
+    }
+
+    /**
+     * Starts the F and I serials at {@code from} where they are below it, so the ids these shelves issue never coincide with another store's.
+     * A seek's copy of the library starts at its run's number × 10,000: seek J-0157's first report is I-1570001, and the library's own next
+     * report keeps its own number (a seek's report and the merged report were both I-0158, 2026-10-22).
+     */
+    public synchronized void startSerialsAt(int from) throws IOException {
+        Map<String, Integer> ledger = ledger();
+        for (String p : new String[]{"F", "I"}) if (ledger.getOrDefault(p, 0) < from) ledger.put(p, from);
+        writeLedger(ledger);
+    }
+
+    private Map<String, Integer> ledger() throws IOException {
         Map<String, Integer> ledger = new TreeMap<>();
         if (Files.exists(serialsFile())) {
             for (String line : Files.readAllLines(serialsFile(), StandardCharsets.UTF_8)) {
@@ -205,13 +224,14 @@ public final class LibraryStore {
                 if (eq > 0) try { ledger.put(line.substring(0, eq).strip(), Integer.parseInt(line.substring(eq + 1).strip())); } catch (NumberFormatException ignored) { }
             }
         }
-        int next = Math.max(maxSerial(dir, prefix), ledger.getOrDefault(prefix, 0)) + 1;
-        ledger.put(prefix, next);
+        return ledger;
+    }
+
+    private void writeLedger(Map<String, Integer> ledger) throws IOException {
         StringBuilder sb = new StringBuilder("# highest serial ever issued per prefix — never reuse an id\n");
         for (var e : ledger.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
         Files.createDirectories(serialsFile().getParent());
         Files.writeString(serialsFile(), sb.toString(), StandardCharsets.UTF_8);
-        return next;
     }
 
     private static int maxSerial(Path dir, String prefix) throws IOException {

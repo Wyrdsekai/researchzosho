@@ -49,7 +49,7 @@ public class Librarian {
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
             "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
-            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_models", "library_owned", "library_my_shelf", "library_share");
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_models", "library_owned", "library_my_shelf", "library_share", "library_seeks");
 
     /** How long a run the chat asked about waits for the person's answer before it starts as ordinary research. */
     static final int OFFER_MINUTES = Config.getInt("RESEARCHZOSHO_OFFER_MINUTES", 10);
@@ -78,7 +78,7 @@ public class Librarian {
         return out;
     }
     /** The tools that can start a research run, and the shape of a run's id in their result. */
-    static final Set<String> STARTS_RUNS = Set.of("library_research", "library_absorb", "library_items", "library_check", "library_questions", "library_meeting", "library_bridges", "library_survey");
+    static final Set<String> STARTS_RUNS = Set.of("library_research", "library_absorb", "library_items", "library_check", "library_questions", "library_meeting", "library_bridges", "library_survey", "library_seeks");
     static final Pattern JOB_ID = Pattern.compile("\"(J-\\d{3,})\"");
 
     /** Tool rounds one turn may take before the Librarian has to speak. */
@@ -655,6 +655,7 @@ public class Librarian {
             Map.entry("library_share", "The library reached from outside the house: op=status how it stands; op=tailscale, op=public (anyone with the link) or op=cloudflare (mail=…) turns the relay on, after the person asked for it; op=off turns it off. Installing a missing program is the person's own step: tell them to say /share."),
             Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
             Map.entry("library_who", "Family history: which of the people the web shows under a relative's name IS the relative. op=list who waits, op=show one person's numbered entries, op=answer the person's word (is=\"1\" or \"1,3\", none=true, later=true), op=tell what they say of the relative, op=find looks one person up."),
+            Map.entry("library_seeks", "Seeks: the same question researched several times apart, each on its own copy of the shelves (library_research with seek=<group>), and one report merged from them. op=list, op=read (group, job_id for one seek), op=merge files the merge run, op=drop removes a group's seeks."),
             Map.entry("library_meeting", "A meeting transcript: shelved with its decisions, the questions raised filed, the claims returned to check with who said them; verify=true files the checking run."));
 
     /** Every tool a chat can be given, the MCP schemas described in the chat's words. */
@@ -837,6 +838,7 @@ public class Librarian {
                 case "library_owned" -> protocol.owned(args);
                 case "library_my_shelf" -> protocol.myShelf(args);
                 case "library_meeting" -> protocol.meeting(args);
+                case "library_seeks" -> protocol.seeks(args);
                 case "library_who" -> protocol.who(args);
                 case "library_bridges" -> protocol.bridges(args);
                 case "library_sharpen" -> protocol.sharpen(args);

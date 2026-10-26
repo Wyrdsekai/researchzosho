@@ -124,7 +124,7 @@ public final class RecordSources {
                 n.path("tier").asText(""), url, n.path("format").asText("json"), n.path("items").asText(""),
                 n.path("title").asText(""), n.path("date").asText(""), n.path("link").asText(""), n.path("snippet").asText(""),
                 n.path("where").asText(""), n.path("key").asText(""), n.path("key_from").asText(""), n.path("key_optional").asBoolean(false), n.path("key_header").asText(""), n.path("key_login").asText(""), n.path("app").asText(""), n.path("app_from").asText(""), strings(n.path("fields")), hostsOf(n), builtIn,
-                n.path("secret").asText(""), n.path("token_url").asText(""), n.path("accept").asText(""), n.path("empty_status").asInt(0));
+                n.path("secret").asText(""), n.path("token_url").asText(""), n.path("accept").asText(""), n.path("empty_status").asInt(0), n.path("per_run").asInt(0));
     }
 
     /** The hosts a record of this source is read on: the ones the entry names, the link's own when it is written out, and the search address's. */

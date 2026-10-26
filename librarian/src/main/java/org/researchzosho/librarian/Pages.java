@@ -60,7 +60,7 @@ final class Pages {
 
     static boolean isPage(String path) {
         return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
-                || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
+                || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/dossier") || path.equals("/suggest") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
                 || path.equals("/research") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/panel") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
                 || Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
     }
@@ -100,6 +100,22 @@ final class Pages {
                 case "/read" -> send(x, 200, read(store, p, patron, q));
                 case "/subjects" -> send(x, 200, subjects(store, p, patron));
                 case "/changes" -> send(x, 200, changes(store, p, patron, q));
+                case "/suggest" -> {
+                    if ("POST".equals(method) && form.containsKey("outcome")) {
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        try { Suggestions.mark(store, form.getOrDefault("id", ""), form.getOrDefault("outcome", ""), ""); } catch (IllegalArgumentException ignored) { }
+                    }
+                    send(x, 200, suggestPage(store, patron));
+                }
+                case "/dossier" -> {
+                    if ("POST".equals(method) && form.containsKey("watch")) {   // the page's Watch button: a standing search on the subject
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        String subject = form.getOrDefault("subject", "").strip();
+                        if (!subject.isEmpty()) Serials.add(store, DossierPage.watchSlug(subject), subject, 7);
+                        send(x, 200, dossierPage(store, patron, Map.of("subject", subject)));
+                    } else if (!q.getOrDefault("in", "").isBlank()) send(x, 200, dossierIn(d, store, patron, q));
+                    else send(x, 200, dossierPage(store, patron, q));
+                }
                 case "/questions" -> { if ("POST".equals(method)) { String to = questionsPost(d, store, p, patron, form); redirect(x, to); } else send(x, 200, questions(store, p, patron, q)); }
                 case "/inbox" -> { if ("POST".equals(method)) { inboxPost(store, patron, form); redirect(x, "/inbox"); } else send(x, 200, inbox(store, p, patron, q)); }
                 case "/remove" -> { if ("POST".equals(method)) send(x, 200, removePost(store, p, patron, form)); else redirect(x, "/"); }
@@ -179,6 +195,8 @@ final class Pages {
         JsonNode c = status.path("counts");
         StringBuilder b = new StringBuilder();
         b.append("<form class=\"big\" action=\"/ask\"><input name=\"q\" placeholder=\"Ask the library a question…\" autofocus> <button>Ask</button> <a class=\"k\" href=\"/search\">or search the library</a></form>");
+        List<Suggestions.Entry> now = new ArrayList<>(); try { for (Suggestions.Entry e : Suggestions.open(store)) if (e.klass().equals("now") && now.size() < 2) now.add(e); } catch (IOException ignored) { }
+        for (Suggestions.Entry e : now) b.append("<p class=\"notice\">✦ ").append(esc(e.text())).append(" — ").append(esc(e.reason())).append(". <a href=\"/suggest\">all suggestions</a></p>");
         b.append("<p class=\"k\">This library has ").append(c.path("finding").path("total").asInt()).append(" claims (")
          .append(c.path("finding").path("accepted").asInt()).append(" accepted, ").append(c.path("finding").path("disputed").asInt()).append(" disputed, ")
          .append(c.path("finding").path("draft").asInt()).append(" waiting for review), ").append(c.path("investigation").asInt()).append(" reports, ")
@@ -216,6 +234,29 @@ final class Pages {
         b.append("<h2>Also</h2><p><a href=\"/map\">The map</a> shows how the people, places and things in this library connect. To open the library in Obsidian or SoloMD, run <code>researchzosho vault</code> and open the folder <code>")
          .append(esc(store.root().getFileName().toString())).append("-vault</code> next to the library.</p>");
         return page(store, patron, null, b.toString());
+    }
+
+    /** /suggest: what the library suggests the person do next, now first, each with its reason, its action and its cost; a mark teaches the library. */
+    static String suggestPage(LibraryStore store, Patrons.Patron patron) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        List<Suggestions.Entry> open = Suggestions.refresh(store, null), all = Suggestions.all(store);
+        boolean writer = mayWrite(store, patron);
+        StringBuilder b = new StringBuilder("<h1>Suggested</h1><p class=\"k\">What the shelves' own events suggest you do next: a forecast due, a story behind the shelves, a question of yours with an answer waiting, a report that landed, a dossier gone stale. Now first, then the rest by how likely you are to take it up. A mark teaches the library.</p>");
+        if (open.isEmpty()) b.append("<p>Nothing to suggest right now.</p>");
+        else {
+            b.append("<table><tr><th>Id</th><th>When</th><th>Suggestion</th><th>Why</th><th>Do</th><th>Costs</th>").append(writer ? "<th>Mark</th>" : "").append("</tr>");
+            for (Suggestions.Entry e : open) {
+                b.append("<tr><td>").append(esc(e.id())).append("</td><td><b>").append(esc(e.klass())).append("</b>").append(e.pTake() == null ? "" : " <span class=\"k\">" + Math.round(e.pTake() * 100) + "%</span>").append("</td><td>").append(withIdLinks(esc(e.text()))).append("</td><td class=\"k\">").append(esc(e.reason()))
+                 .append("</td><td><code>").append(esc(e.action())).append("</code></td><td class=\"k\">").append(esc(e.cost())).append("</td>");
+                if (writer) b.append("<td><form method=\"post\" action=\"/suggest\" style=\"display:inline\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(e.id())).append("\"><button name=\"outcome\" value=\"taken\">taken</button> <button name=\"outcome\" value=\"later\">later</button> <button name=\"outcome\" value=\"dismissed\">dismiss</button></form></td>");
+                b.append("</tr>");
+            }
+            b.append("</table>");
+        }
+        Double brier = Suggestions.brier(all);
+        if (brier != null) b.append("<p class=\"k\">Brier score over your marks: ").append(String.format(Locale.ROOT, "%.3f", brier)).append(" (0 is perfect, 0.25 is coin-tossing).</p>");
+        b.append("<p class=\"k\">At the command line: researchzosho suggest · in the chat: /suggest · the nightly housekeeping classes new suggestions with the model's typed judge; this page uses the rules.</p>");
+        return page(store, patron, "Suggested", b.toString());
     }
 
     private static String search(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
@@ -279,6 +320,11 @@ final class Pages {
         if (e.hasNonNull("valid_as_of") && !e.path("valid_as_of").asText().isEmpty()) b.append(" · valid as of ").append(esc(e.path("valid_as_of").asText()));
         if (e.hasNonNull("review_by")) b.append(" · review due ").append(esc(e.path("review_by").asText()));
         b.append("</p>");
+        if ("investigation".equals(kind)) {   // a report on a person or an organisation leads to their dossier, the whole of what the shelves hold
+            Investigation inv = store.investigation(id);
+            String subject = inv == null ? null : inv.title().startsWith("The story of ") ? inv.title().substring("The story of ".length()).strip() : TimelineClaims.subjectOf(store, inv);
+            if (subject != null && !subject.isBlank()) b.append("<p class=\"k\">Dossier: <a href=\"/dossier?subject=").append(enc(subject)).append("\">").append(esc(subject)).append("</a> — everything the library holds on them, as one page.</p>");
+        }
         if (!"raw".equals(kind)) b.append(ladder(id, Explain.Rung.written)).append(downloads(id, null));
         if (!"raw".equals(kind) && mayWrite(store, patron)) b.append(removeForm(id, kind));
         if ("investigation".equals(kind) && mayWrite(store, patron)) b.append(goDeeper(e));
@@ -390,6 +436,33 @@ final class Pages {
         if (tail.isEmpty()) b.append("<p>Nothing has changed yet.</p>");
         else { b.append("<ul class=\"tight\">"); for (int i = tail.size() - 1; i >= 0; i--) b.append("<li>").append(changeLine(tail.get(i))).append("</li>"); b.append("</ul>"); }
         return page(store, patron, "Changes", b.toString());
+    }
+
+    /** /dossier?subject=…: the target package on a person or an organisation, {@link DossierPage}, from what the shelves hold. */
+    /** The dossier read in another language: the translation the library keeps when it is current; else a job that makes it, and a word to come back. */
+    static String dossierIn(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        String subject = q.getOrDefault("subject", "").strip(), lang = Translate.code(q.getOrDefault("in", ""));
+        String name = Translate.LANGUAGES.getOrDefault(lang, lang);
+        StringBuilder b = new StringBuilder();
+        b.append("<p class=\"k\"><a href=\"/dossier?subject=").append(enc(subject)).append("\">").append(esc(subject)).append("</a>, read in ").append(esc(name))
+                .append(": the same page, each piece of prose translated by the model. The cites, the claim ids and the dates stand as they are, and the claims keep their own language on the shelves.</p>");
+        Translate.Translated t = Translate.current(store, subject, lang);
+        if (t != null) return page(store, patron, "Dossier: " + subject + " (" + name + ")", DossierPage.render(store, subject, t.lookup(), lang));   // the same page, its pieces translated
+        String running = d == null ? null : Translate.pending(d.jobs(), subject, lang);
+        if (running != null) b.append("<p>Being translated into ").append(esc(name)).append(" (").append(esc(running)).append("): a few minutes on the local model. Come back to this page.</p>");
+        else if (d != null && mayWrite(store, patron)) {
+            ObjectNode a = new ObjectMapper().createObjectNode(); a.put("subject", subject); a.put("lang", lang);
+            String id = d.jobs().submit("translate", patron.did(), a);
+            b.append("<p>Translating into ").append(esc(name)).append(" now (").append(esc(id)).append("): a few minutes on the local model, section by section. Come back to this page.</p>");
+        } else b.append("<p>No translation into ").append(esc(name)).append(" yet. A writer's visit to this page starts one; the command is researchzosho dossier \"").append(esc(subject)).append("\" --in ").append(esc(lang)).append(".</p>");
+        return page(store, patron, "Dossier: " + subject + " (" + name + ")", b.toString());
+    }
+
+    static String dossierPage(LibraryStore store, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        String subject = q.getOrDefault("subject", "").strip();
+        return page(store, patron, subject.isEmpty() ? "Dossier" : "Dossier: " + subject, DossierPage.render(store, subject));
     }
 
     static String questions(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
@@ -1898,6 +1971,18 @@ final class Pages {
             ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", answer); s.append(reply);
             return;
         }
+        if (words.equals("/interview") || words.startsWith("/interview ")) {   // the library asks what it does not know of a subject; the answers go through the model's library_tell
+            String answer = Interview.questions(store, words.length() > 10 ? words.substring(10) : "");
+            ObjectNode said = M.createObjectNode(); said.put("role", "user"); said.put("content", words); s.append(said);
+            ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", answer); s.append(reply);
+            return;
+        }
+        if (words.equals("/suggest")) {   // what the library suggests next: answered by the library, not the model
+            String answer = Suggestions.text(Suggestions.refresh(store, null), Suggestions.all(store));
+            ObjectNode said = M.createObjectNode(); said.put("role", "user"); said.put("content", words); s.append(said);
+            ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", answer); s.append(reply);
+            return;
+        }
         new Librarian(store, d.chatDrive(s), patron, s).say(words);
     }
 
@@ -2076,12 +2161,12 @@ final class Pages {
     static String siteNav(LibraryStore store, Patrons.Patron patron) {
         boolean yours = patron.person() || (patron.web() && !WebAccess.signInRequired());
         StringBuilder b = new StringBuilder();
-        b.append(navGroup("Library", navLink("/", "Home", "⌂") + navLink("/ask", "Ask", "?") + navLink("/search", "Search", "⌕") + navLink("/subjects", "Subjects", "☷") + navLink("/map", "Map", "⊞")));
-        b.append(navGroup("Work", navLink("/inbox", "Inbox", "✉") + navLink("/questions", "Open questions", "⁇") + navLink("/jobs", "Runs", "▶") + navLink("/research", "Research", "⚗") + navLink("/changes", "Changes", "↻")));
+        b.append(navGroup("Library", navLink("/", "Home", "⌂") + navLink("/ask", "Ask", "?") + navLink("/search", "Search", "⌕") + navLink("/subjects", "Subjects", "☷") + navLink("/map", "Map", "⊞") + navLink("/dossier", "Dossiers", "▤")));   // the dossiers are the library's own front door to its people and organizations, not a field's page
+        b.append(navGroup("Work", navLink("/inbox", "Inbox", "✉") + navLink("/questions", "Open questions", "⁇") + navLink("/jobs", "Runs", "▶") + navLink("/research", "Research", "⚗") + navLink("/suggest", "Suggested", "✦") + navLink("/changes", "Changes", "↻")));
         b.append(navGroup("Yours", navLink("/chat", "Chat", "❝") + (yours ? navLink("/owned", "Owned", "◆") + navLink("/settings", "Settings", "⚙") : "") + (SignIn.hasAccountPage(patron) ? navLink("/account", "Account", "☺") : "")));
         String fields = fieldMenu(store, patron);
         b.append("<div class=\"nav-group nav-look\"><b>Look</b><button type=\"button\" id=\"theme-toggle\" class=\"theme-toggle\" title=\"Light or dark\"><span class=\"ico\">☾</span><span class=\"lbl\">Dark</span></button></div>");
-        if (!fields.isEmpty()) b.append(navGroup("Fields", fields.replaceAll("<a href=\"([^\"]*)\">([^<]*)</a>", "<a href=\"$1\" title=\"$2\"><span class=\"ico\">$2</span><span class=\"lbl\">$2</span></a>")));
+        if (!fields.isEmpty()) b.append(navGroup("Fields", fields));
         return b.toString();
     }
 
@@ -2100,9 +2185,9 @@ final class Pages {
 
     static String fieldMenu(LibraryStore store, Patrons.Patron patron) {
         StringBuilder b = new StringBuilder();
+        Set<String> seen = new LinkedHashSet<>();   // two fields may lead to one page: once
         for (Profile f : Librarian.chatFields(store)) {
-            if (!f.joinsOnlyWhenAsked()) continue;
-            for (Profile.Link l : f.menu()) if (!l.writersOnly() || mayWrite(store, patron)) b.append("<a href=\"").append(esc(l.href())).append("\">").append(esc(l.label())).append("</a>");
+            for (Profile.Link l : f.menu()) if ((!l.writersOnly() || mayWrite(store, patron)) && seen.add(l.href())) b.append(navLink(l.href(), l.label(), l.symbol()));   // a glyph of its own, like the core's entries
         }
         return b.toString();
     }

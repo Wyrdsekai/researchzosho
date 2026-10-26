@@ -15,6 +15,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -94,6 +95,13 @@ class SettingsTest {
         assertTrue(Config.get("RESEARCHZOSHO_PODCASTINDEX_KEY") == null || Config.get("RESEARCHZOSHO_PODCASTINDEX_KEY").isBlank());
         ObjectNode n = p.settings(args("{\"op\":\"set\",\"name\":\"transcribe_episodes\",\"value\":\"3\"," + PERSON + "}"));
         assertEquals("3", n.path("value").asText());
+        // several model servers for the runs: addresses with commas between, each one checked
+        p.settings(args("{\"op\":\"set\",\"name\":\"job_drives\",\"value\":\"http://127.0.0.1:8081, http://127.0.0.1:8082\"," + PERSON + "}"));
+        assertEquals(List.of("http://127.0.0.1:8081", "http://127.0.0.1:8082"), Jobs.listed(), "the runs' drives, as the queue reads them");
+        ProtocolError half = assertThrows(ProtocolError.class, () -> p.settings(args("{\"op\":\"set\",\"name\":\"job_drives\",\"value\":\"http://127.0.0.1:8081,gpu-box\"," + PERSON + "}")));
+        assertTrue(half.getMessage().contains("several with commas"), half.getMessage());
+        p.settings(args("{\"op\":\"unset\",\"name\":\"job_drives\"," + PERSON + "}"));
+        assertTrue(Jobs.listed().isEmpty());
     }
 
     @Test

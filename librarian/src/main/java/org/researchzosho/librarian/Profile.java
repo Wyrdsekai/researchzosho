@@ -71,6 +71,9 @@ public interface Profile {
     /** A sentence for the model that writes a claim's triple, when the claim is this field's work: the words for the field's relations. */
     default String extractionRule() { return ""; }
 
+    /** Claims a field files from a report of its own once it has landed, their ids (the person field reads the Timeline into one claim a dated event). Nothing by default. */
+    default List<String> onReport(LibraryStore store, Investigation inv) throws IOException { return List.of(); }
+
     /**
      * What this field adds to what a run of it is told the library already holds, after the search log of its subject ({@code
      * searched}); "" for nothing. Asked only for a run of this field.
@@ -193,7 +196,10 @@ public interface Profile {
     default Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> query, Map<String, String> form) throws IOException { return null; }
 
     /** A link in the menu of every page, shown in a library that holds this field's work; {@code writersOnly}: only for those who may write. */
-    record Link(String href, String label, boolean writersOnly) { }
+    /** A page of a field's own in the menu: where, what it is called, whether only writers see it, and the glyph that stands for it beside the core's. */
+    record Link(String href, String label, boolean writersOnly, String symbol) {
+        public Link(String href, String label, boolean writersOnly) { this(href, label, writersOnly, "▪"); }
+    }
 
     default List<Link> menu() { return List.of(); }
 

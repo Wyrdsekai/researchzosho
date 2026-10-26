@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 /**
@@ -64,8 +65,17 @@ public final class RecordSearchTool implements Tool {
     /** The run's lists; the copies this tool makes keep them. */
     public RecordSearchTool policy(Fetch.Policy p) { this.policy = p == null ? Fetch.Policy.DEFAULT : p; return this; }
 
+    /**
+     * Whether a search of a collection with a per-run allowance ({@link RecordSource#perRun()}) may go. The run answers, counting across its
+     * workers; the tool asks before anything is sent, so a refused search costs nothing of the month's allowance. Without a run, every search goes.
+     */
+    private volatile Predicate<RecordSource> allowance = s -> true;
+    public RecordSearchTool allowance(Predicate<RecordSource> a) { this.allowance = a == null ? s -> true : a; return this; }
+    /** How a refusal begins; the search log does not count it as a search. */
+    public static final String USED_UP = "The searches this run may make of ";
+
     /** The same tool with only the collections of the fields a run belongs to: a family run does not read about npm, a software run not about parish newspapers. */
-    public RecordSearchTool forFields(Collection<String> fields) { return new RecordSearchTool(RecordSources.forFields(sources, fields), reader, saidOfThem, RecordSources.forFields(leftOut, fields)).policy(policy); }
+    public RecordSearchTool forFields(Collection<String> fields) { return new RecordSearchTool(RecordSources.forFields(sources, fields), reader, saidOfThem, RecordSources.forFields(leftOut, fields)).policy(policy).allowance(allowance); }
 
     /** The same tool with the collections whose years cannot meet the person's ({@code lived}, {born, until}) left out and named; itself when null. */
     public RecordSearchTool forYears(int[] lived) {
@@ -73,7 +83,7 @@ public final class RecordSearchTool implements Tool {
         List<RecordSource> kept = RecordSources.forYears(sources, lived);
         List<RecordSource> out = new ArrayList<>(leftOut);
         for (RecordSource s : sources) if (!kept.contains(s)) out.add(s);
-        return new RecordSearchTool(kept, reader, saidOfThem, out).policy(policy);
+        return new RecordSearchTool(kept, reader, saidOfThem, out).policy(policy).allowance(allowance);
     }
 
     public boolean any() { return !sources.isEmpty(); }
@@ -102,6 +112,7 @@ public final class RecordSearchTool implements Tool {
             if (!s.countries().isEmpty()) b.append(" [").append(String.join(", ", s.countries())).append("]");
             if (!s.years().isEmpty()) b.append(" ").append(s.years());
             b.append(". ").append(s.holds()).append('.');
+            if (s.hasAllowance()) b.append(" At most ").append(s.perRun()).append(" searches in one run.");
         }
         if (!leftOut.isEmpty()) b.append("\nLeft out, because their years and this person's do not meet: ").append(String.join("; ", leftOut.stream().map(s -> s.id() + " (" + s.years() + ")").toList())).append('.');
         return b.toString();
@@ -127,6 +138,11 @@ public final class RecordSearchTool implements Tool {
         RecordSource s = sources.stream().filter(x -> x.id().equalsIgnoreCase(id)).findFirst().orElse(null);
         if (s == null) return "ERROR: no source \"" + id + "\". The sources are: " + String.join(", ", sources.stream().map(RecordSource::id).toList());
         int limit = Math.min(Math.max(args.path("limit").asInt(8), 1), 20);
+        if (s.hasAllowance() && !allowance.test(s)) {
+            List<String> others = sources.stream().filter(o -> o != s && o.kind().equals(s.kind()) && !o.hasAllowance()).map(RecordSource::id).toList();
+            return USED_UP + s.id() + " are used: it allows " + s.perRun() + " in one run, because its monthly allowance is small. Search another collection"
+                    + (others.isEmpty() ? "" : " (" + String.join(", ", others) + ")") + ", or search the web.";
+        }
         try {
             int from = args.path("from_year").asInt(0), to = args.path("to_year").asInt(0);
             RecordSources.Kept first = RecordSources.kept(RecordSources.search(s, query, from, to, limit, reader), policy);

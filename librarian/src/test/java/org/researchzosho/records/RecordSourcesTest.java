@@ -2,6 +2,9 @@ package org.researchzosho.records;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.researchzosho.librarian.SearchLog;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.librarian.Profiles;
 import org.researchzosho.librarian.SourceTier;
@@ -24,6 +27,28 @@ class RecordSourcesTest {
     private static final ObjectMapper J = new ObjectMapper();
 
     private static RecordSource source(String json) throws Exception { return RecordSources.parse(J.readTree(json), false); }
+
+    @Test
+    void aCollectionWithAnAllowanceIsRefusedBeforeAnythingIsSentOnceTheRunHasUsedIt() throws Exception {
+        RecordSource s = source(PAPERS.replace("\"id\": \"papers\",", "\"id\": \"papers\", \"per_run\": 2,"));
+        RecordSource free = source(PAPERS.replace("\"id\": \"papers\"", "\"id\": \"free-papers\""));
+        assertTrue(s.hasAllowance() && !free.hasAllowance());
+        AtomicInteger sent = new AtomicInteger(), used = new AtomicInteger();
+        RecordSearchTool tool = new RecordSearchTool(List.of(s, free), url -> { sent.incrementAndGet(); return "{\"results\": []}"; })
+                .allowance(x -> used.incrementAndGet() <= x.perRun());
+        assertTrue(tool.description().contains("newspaper pages. At most 2 searches in one run."), tool.description());
+        ObjectNode a = J.createObjectNode(); a.put("source", "papers"); a.put("query", "Smith");
+        tool.execute(a); a.put("query", "Jones"); tool.execute(a);
+        int before = sent.get();
+        a.put("query", "Brown");
+        String third = tool.execute(a);
+        assertTrue(third.startsWith(RecordSearchTool.USED_UP + "papers are used: it allows 2 in one run"), third);
+        assertTrue(third.contains("Search another collection (free-papers), or search the web."), third);
+        assertEquals(before, sent.get(), "the refused search sent nothing");
+        assertNull(SearchLog.outcome(third), "a refusal is not a search in the log");
+        a.put("source", "free-papers"); tool.execute(a);
+        assertEquals(before + 1, sent.get(), "a collection without an allowance is never refused");
+    }
 
     private static final String PAPERS = """
             {"id": "papers", "name": "Old Papers", "holds": "newspaper pages", "kind": "newspaper", "countries": ["XX"], "languages": ["xx"], "from": 1800, "to": 1950,
@@ -227,7 +252,8 @@ class RecordSourcesTest {
     void aSiteWithNoSearchTheLibraryCanMakeIsALinkFilledFromWhatItHolds(@TempDir Path tmp) throws Exception {
         Path none = tmp.resolve("none.json");
         List<RecordSources.SearchLink> links = RecordSources.links(none);
-        assertEquals(List.of("familysearch", "ancestry", "myheritage", "geneanet", "findagrave", "compgen"), links.stream().map(RecordSources.SearchLink::id).toList());
+        assertEquals(List.of("familysearch", "ancestry", "myheritage", "geneanet", "findagrave", "compgen"),
+                links.stream().filter(l -> l.fields().contains("genealogy")).map(RecordSources.SearchLink::id).toList(), "the family-history sites; the law and patent fields have their own");
         assertTrue(RecordSources.all(none).stream().noneMatch(x -> links.stream().anyMatch(l -> l.id().equals(x.id()))), "the runs never search a link");
         RecordSources.SearchLink fs = links.get(0);
         assertEquals("free with an account", fs.accessText());

@@ -11,6 +11,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -20,9 +21,9 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class ModelSlotsTest {
 
-    String home; HttpServer server;
+    String home; HttpServer server, second;
 
-    @AfterEach void restore() { ModelSlots.OVERRIDE = null; if (home != null) { System.setProperty("user.home", home); Config.invalidate(); } if (server != null) server.stop(0); }
+    @AfterEach void restore() { ModelSlots.OVERRIDE = null; ModelSlots.forget(); if (home != null) { System.setProperty("user.home", home); Config.invalidate(); } if (server != null) server.stop(0); if (second != null) second.stop(0); }
 
     @Test
     void theRuleGivesUpToThreeReadersAndOneRunPerThreeSlots() {
@@ -86,5 +87,40 @@ class ModelSlotsTest {
         ModelSlots.OVERRIDE = ModelSlots.plan(1, "a guess for Ollama");
         assertEquals(1, ModelSlots.readers()); assertEquals(1, Jobs.workersNow());
         assertTrue(ModelSlots.auto(null) && ModelSlots.auto(" ") && ModelSlots.auto("Auto") && !ModelSlots.auto("2"));
+    }
+
+    @Test
+    void severalDrivesAddUpAndEachCarriesItsShare(@TempDir Path tmp) throws Exception {
+        home = System.getProperty("user.home"); System.setProperty("user.home", tmp.toString()); Config.invalidate();
+        Files.createDirectories(tmp.resolve(".researchzosho"));
+        String a = serve("/props", 8, false, true); HttpServer first = server;
+        String b = serve("/none", 0, true, false); second = server; server = first;
+        Files.writeString(tmp.resolve(".researchzosho/config"), "job.drives = " + a + "," + b + "\n"); Config.invalidate();
+        ModelSlots.Fleet f = ModelSlots.current();
+        assertEquals(List.of(a, b), f.drives()); assertEquals(9, f.slots()); assertTrue(f.known() && f.allKnown());
+        assertEquals(3, f.runs(), "two runs on the eight-slot server and one on the one-slot server");
+        assertEquals(List.of(a, a, b), f.lanes(), "the workers take the drives by their slots");
+        assertEquals(List.of(a, a, b), ModelSlots.lanes("http://127.0.0.1:1"), "the service's own drive counts for nothing while drives are listed");
+        assertEquals(3, f.readers(a)); assertEquals(1, f.readers(b)); assertEquals(1, f.readers(b + "/"), "the address with a trailing slash is the same server");
+        assertEquals(3, f.readers("http://nowhere:1"), "a server not in the fleet: the most any allows");
+        assertEquals("3 runs at a time, 3 readers each (2 model servers answer 9 calls at once between them: 8 calls at " + a + ", llama.cpp says so; 1 call at " + b
+                + ", a guess for Ollama, which answers one call at a time unless OLLAMA_NUM_PARALLEL says more)", f.describe());
+        assertEquals(3, ModelSlots.runs()); assertEquals(3, Jobs.workersNow()); assertEquals(1, ModelSlots.readers(b)); assertEquals(1, ResearchSettings.workers(b)); assertEquals(3, ResearchSettings.workers());
+        assertTrue(ModelSlots.describe().startsWith("3 runs at a time, 3 readers each (2 model servers answer 9 calls"), ModelSlots.describe());
+        Files.writeString(tmp.resolve(".researchzosho/config"), "job.drives = " + a + "," + b + "\njob.workers = 2\n"); Config.invalidate();
+        assertEquals(2, ModelSlots.runs());
+        assertEquals("2 runs at a time, 3 readers each (set by hand; 2 model servers answer 9 calls at once, which would give 3 runs and 3 readers)", ModelSlots.describe());
+        // nothing listed: the library's own drive, as before, and the service's own drive is the one lane, unprobed
+        Files.writeString(tmp.resolve(".researchzosho/config"), "drive = " + a + "\n"); Config.invalidate();
+        f = ModelSlots.current();
+        assertEquals(List.of(a), f.drives()); assertEquals(8, f.slots()); assertEquals(2, f.runs()); assertEquals(List.of(a, a), f.lanes());
+        assertEquals(ModelSlots.plan(8, "llama.cpp says so").describe(), f.describe());
+        assertEquals(List.of("http://127.0.0.1:1"), ModelSlots.lanes("http://127.0.0.1:1"), "one lane, the drive given, and nothing asked of it");
+        // a server that does not answer keeps one lane and is asked again within a minute
+        Files.writeString(tmp.resolve(".researchzosho/config"), "job.drives = " + a + ",http://127.0.0.1:1\n"); Config.invalidate();
+        f = ModelSlots.current();
+        assertEquals(3, f.runs()); assertEquals(List.of(a, a, "http://127.0.0.1:1"), f.lanes()); assertTrue(f.known()); assertFalse(f.allKnown());
+        assertEquals(3, f.readers("http://127.0.0.1:1"), "unknown: the usual three");
+        assertTrue(f.describe().startsWith("3 runs at a time, 3 readers each (2 model servers answer 8 calls at once between them: 8 calls at " + a + ", llama.cpp says so; unknown at http://127.0.0.1:1, the model server did not answer"), f.describe());
     }
 }

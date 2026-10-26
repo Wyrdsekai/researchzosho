@@ -22,7 +22,7 @@ public final class FamilyPages {
     public static final List<String> PATHS = List.of("/tree", "/who", "/decide", "/person", "/family", "/summary");
 
     public static List<Profile.Link> menu() {
-        return List.of(new Profile.Link("/tree", "Family tree", false), new Profile.Link("/who", "Who is who", true), new Profile.Link("/decide", "Decisions", true), new Profile.Link("/family", "Families", false), new Profile.Link("/summary", "Family summary", false));
+        return List.of(new Profile.Link("/tree", "Family tree", false, "⚘"), new Profile.Link("/who", "Who is who", true, "⦿"), new Profile.Link("/decide", "Decisions", true, "⚖"), new Profile.Link("/family", "Families", false, "⚭"), new Profile.Link("/summary", "Family summary", false, "❧"));
     }
 
     public static Profile.Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> q, Map<String, String> form) throws IOException {

@@ -40,7 +40,11 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 20. Other libraries
 21. Access requests
 22. Directories
-23. Not yet available
+23. Seeks: separate pulls and one merge
+24. Law and patents
+25. People and organizations
+26. Suggestions
+27. Not yet available
 
 ## 1. What you need
 
@@ -1691,8 +1695,11 @@ researchzosho research                        # show the settings and what is ru
 How many runs go at once, and how many readers each run uses, follow the model server unless you set
 them. A llama.cpp server says how many calls it answers at once (its slots); Ollama is taken as one
 and vLLM as eight. One run gets up to three readers, and there is one run per three slots, at least
-one of each: four slots mean one run at a time with three readers, six slots two runs. `researchzosho
-status` says what is in use and why. Set `job.workers` for the runs (it takes effect at the next
+one of each: four slots mean one run at a time with three readers, six slots two runs. With several
+servers in `job.drives` (`researchzosho settings set job_drives <address>,<address>`), the slots add
+up and each server carries one run per three of its own: a server with eight slots and one with a
+single slot make three runs, two on the first and one on the second, and a run's readers follow
+its own server. `researchzosho status` says what is in use and why. Set `job.workers` for the runs (it takes effect at the next
 restart) and `research.workers` for the readers (a running run follows at its next turn) to choose
 your own numbers. A second request does not fail: it waits in the queue, and the pages say how many
 are ahead of it.
@@ -2588,6 +2595,14 @@ Two rules:
 A program can name a peer, a group or `all` in the `peers` field of `library_ask`. With
 `peers.default = family` in your config, an ask that finds nothing at home asks the family group.
 
+An agent that speaks A2A (the Agent2Agent protocol) can call the library too, while it is shared.
+Its card is at `/.well-known/agent-card.json` on the shared address, and its calls go to `/a2a`.
+Two skills: `ask` answers from the shelves at once, as `library_ask`; `research`, chosen with
+`metadata.skill = "research"` on the message, files a research run and answers with a task, which
+`GetTask` follows until the investigation is written and `CancelTask` stops. The caller sends one of
+your reader or writer tokens as its bearer token, and sees what that token may see; research needs
+a writer's.
+
 ## 21. Access requests
 
 Someone who finds your library can ask to be let in. `library_request_access` takes a did, a name
@@ -2626,7 +2641,243 @@ section 21.
 Anyone can run a directory. It is a library with its default access set to read and a few writers.
 There is no central directory. Only you can list your library.
 
-## 23. Not yet available
+## 23. Seeks: separate pulls and one merge
+
+A question worth more than one look can be researched several times apart. Each seek is an ordinary
+research run on its own copy of the shelves, so no seek reads what another just found, and nothing a
+seek writes reaches the library until the merge keeps it. The seeks of one question form a group:
+
+```
+researchzosho research ask "…" --seek gedcom-7                    # on the library's model
+researchzosho research ask "…" --seek gedcom-7 --model deepseek   # the same question on another model
+researchzosho research ask "…" --seek gedcom-7 --web              # blind to the shelves
+researchzosho seeks                                               # the groups: each seek's state and report
+researchzosho seeks read gedcom-7 J-0126                          # one seek's report
+researchzosho seeks merge gedcom-7                                # one report from them, as a run
+researchzosho seeks read gedcom-7                                 # the merged report
+researchzosho seeks drop gedcom-7                                 # the seeks' shelves, gone; the merged report stays
+```
+
+The merge puts the seeks' claims to the judge in pairs: the same thing, a contradiction, or different
+things. Claims the seeks agree on are filed as findings, with every seek's sources. Where they contradict
+each other, both claims are filed as disputed and the question joins the open questions. What only one
+seek found is listed in the merged report and not filed; that seek's own report has the evidence. The
+report's Judgments section lists every pair the judge saw with its verdict and reason, and a reply the judge
+could not be read for is listed as UNREAD and counts as nothing, so you can see what the merge rested on. A
+seek's own ids carry its run's number, so none is ever the library's or another seek's: the first report seek
+J-0126 writes is I-1260001, and the merged report has the library's next number. A
+program does the same with `seek` on `library_research` and `library_seeks` (op=list, read, merge, drop).
+A seek copies the library's findings, reports and pages when it starts, so on a large library each seek
+takes a while to start and its share of disk.
+
+## 24. Law and patents
+
+Two fields for the texts a web engine buries under commentary. They join a run on their own when a
+question is plainly about them, or when you ask with `--field law` or `--field patents`.
+
+**Law** searches the courts' and the governments' own records: CourtListener (nine million US
+decisions, federal and state), the eCFR and the Federal Register, Regulations.gov with a free key,
+and Japan's e-Gov 法令検索 by a law's name and by the words of its articles. A citation in the question
+is fetched, not searched: a reporter citation, a US Code or CFR section, a 法令番号. Every claim carries
+the jurisdiction it holds in and the date the law stood, since law changes. State codes, city
+ordinances and Japanese judgments have no search a program can make; the run finds them through a
+web search and reads them page by page, and the Japanese courts' 裁判例検索 is listed as a site to
+open. The report keeps what a text says apart from how courts have read it, and says what was not
+found at a level. It is research, not advice.
+
+**Patents** searches the offices' own collections, Google Patents without a key and the EPO's Open
+Patent Services or Google Patents through SerpApi with one, in English and the office's language,
+and reads a patent from its own publication by number: claims, dates, assignee, family, status. A
+provisional application is never published; it shows as the priority claim of a later one, and its
+text sits in that application's file wrapper. An application filed with a non-publication request
+is unseen until grant, but its assignment record is public and any foreign family publishes at
+eighteen months. Japan publishes every application at eighteen months. A collection whose monthly
+allowance is small (SerpApi's 250 searches) is searched at most eight times in one run, by all the
+run's workers together; the report's list of collections says when a run reached that.
+
+```
+researchzosho research ask "What does 37 CFR 1.53 require for a provisional filing?"
+researchzosho research ask "特許法第三十五条の職務発明の対価はどう決まるか"
+researchzosho research ask "Is there prior art before 1990 for a gear cut with a dividing plate?" --field patents
+researchzosho records key courtlistener <token>            # optional: a free token raises the rate CourtListener allows
+researchzosho records key regulations-gov <key>            # a free api.data.gov key
+researchzosho records key epo-query <key> <secret>         # the EPO's free registration, for the office's own search
+```
+
+This version covers US federal law, US state case law and Japan's national law and courts. State
+and city codes are read as pages. The UK and the EU, and search by company for unpublished
+applications, come next.
+
+## 25. People and organizations
+
+A question about a person or an organisation is answered as a dossier: a fixed set of sections, each
+claim carrying the class of its source and the date it held, and a Reading at the top written for the
+leaning of the question. The shelves keep the facts without the leaning, so the same subject asked from
+another angle reuses everything found. The fields join on their own when a question plainly asks for
+one (a dossier, a background, "who is Name Name", a corporate history, a legal form such as Inc. or
+株式会社, a register number), or with `--field person` or `--field organization`.
+
+```
+researchzosho research ask "Who is Neal Stephenson, and what is his record of working with companies?"
+researchzosho research ask "Corporate history of Cisco Systems, Inc.: subsidiaries, officers over time, filings." --field organization
+researchzosho research ask "高市早苗の経歴と人物像をまとめて"
+researchzosho library add ~/exports/linkedin.json          # anything you already have: the run reads it as supplied
+```
+
+**Finding them.** The page `/dossier` lists every dossier the shelves hold, with its kind, the counts of claims
+and reports, the latest run's day and whether its story is written; the Library menu leads there, below Map, and each
+report's page links to the dossier of its subject. At the command line, `researchzosho dossiers` prints the
+same list, and `researchzosho dossier "Name"` one dossier.
+
+**Reading it in another language.** `researchzosho dossier "Name" --in en` prints the dossier in English, `--in ja` in
+Japanese, any two-letter code for the rest; the page has a Read in link, and `library_dossier` takes `in`. It is the
+same page and the same printout: the pieces of prose they are built from — the reports' sections, the claims' titles,
+the analysis, the open questions — are translated by the model and kept under dossiers/ until the dossier changes, and
+the page is built again from them with its badges, its links, its pictures and its tables as they are. First a glossary:
+the names and terms that recur are rendered once and used the same in every piece. The cites in square brackets, the
+claim ids, the dates and the addresses stand as they are, and a piece whose translation would have lost one is kept in
+the original. The claims themselves keep their own language on the shelves: a claim quotes its source. On the page a
+writer's visit starts the translation as a job, a few minutes on the local model; readers see it once made.
+
+**The analysis layer.** After the facts, a report on a person or an organisation says what they add up to,
+apart from them: Judgments, each sentence citing the claims it rests on; Conjectures, each with a likelihood
+word and number from one table (almost no chance 1–5 %, very unlikely 5–20 %, unlikely 20–45 %, roughly
+even chance 45–55 %, likely 55–80 %, very likely 80–95 %, almost certain 95–99 %), its confidence stated
+apart and explained by the sources, the alternatives considered and what would change it; Forecasts, dated,
+with a base rate; Implications and options for the leaning of the question; the questions that would change
+the view, which join the open questions; and a source summary. The dossier shows the layer under Analysis.
+Conjectures and forecasts never become claims on the shelves. The forecasts are kept on a ledger:
+
+```
+researchzosho forecasts                       # every dated forecast the reports made, open or scored
+researchzosho forecasts "Acme Corp"           # one subject's
+researchzosho forecast P-0003 happened "the second customer was announced in May"
+```
+
+Once a forecast's date has passed, score it: happened, did-not, or void when it cannot be judged. The Brier
+score over the scored forecasts says how well the reports foresee (0 is perfect, 0.25 is coin-tossing).
+
+**A person's dossier** has Identity (names, aliases, how the person was told from namesakes, and which
+namesakes were set aside), What they do (the role now and what it produces, what they are known for, how the
+doing changed, and what they say they are about in their own words, apart from how others describe them, since
+for a person what they do says who they are), Timeline, Roles, Decisions (the principal moves of the career, dated, with the
+reason the person gave in their own words), Holdings and filings, Material, Associations, Influences (who
+and what shaped them, as they said it, and whom they shaped), Public record, Current with its date, and
+Looked for and not found. Identity is resolved the way the genealogy
+field resolves it, by handles: an employer and the years, a title, a place, a co-author, a book, an
+account. Every fact found is a handle for the next search.
+
+**An organisation's dossier** starts with the registry card (legal names over time, CIK, LEI, EIN,
+法人番号, incorporation, addresses), then The work (each principal product, project or programme with its
+own account), Customers, peers and alternatives (who pays, and for each work item who else does this and what
+the customer would use instead, as the organisation names them and as the press does; none named is said so),
+Structure, Power and governance (who holds power over it and
+how it decides), People (each one a person with a handle, so their own dossier links), Decisions (what
+the people in power decided, dated, with the reason each gave and the outcome), Filings as a timeline,
+Money, Workforce and signals (headcount, hiring and departures, the cadence of filings and releases),
+Products and marks, Footprint, Public record, Reputation over time, Current, and Looked for and not
+found. The decisions become claims like the timeline's, and the dossier lists them apart. Both dossiers also carry
+Statements, what the subject said in their own words, dated and placed, from interviews, talks, posts (Bluesky by
+handle), press releases and testimony, listed on the dossier as "In their own words"; Media, the photographs, video
+and scans of the subject as records with their provenance (who made each, when, where, under which licence) from
+Wikimedia Commons, YouTube, the Internet Archive and the subject's own pages, shown with a thumbnail where the address
+gives one; and a Pattern of life the library computes from the claims — what the record holds by year, the places it
+names with their years, the appearances — a pattern of public traces, never a tracking. Each person a
+report names under People leads to their own dossier, or to the run that starts one. In the chat, `/interview
+Name` makes the library ask what it does not know about the subject, its open questions; what you answer is
+filed as told, in your words. A watch's arrivals are suggested when they come, and a task that reaches the
+library through a coding chat is not filed as a question. Japanese names and places are read like Latin ones:
+高市早苗 links two dossiers, 千代田区 is a place and 高市 is not; the review files its claims in the record's language. The dossier page shows
+the facets the reports carry under Facets, and under Refresh and watch a link that researches the latest question
+again and a Watch button; `researchzosho dossier "Name" --watch` does the same, keeping a search for the subject every
+seven days whose arrivals land in the inbox. `researchzosho vault` writes one note per dossier under Dossiers/, its
+claim and report ids as links.
+
+**Five source classes** are on every claim: public record (a register, a court, a filing, a
+catalogue), own publication (the subject's own words, site or account), third-party (press and
+reporting), supplied (what you gave the library), and canon (a fictional subject's own work, by
+edition). The library marks each reference in the report's list with its class, read from where the
+reference lives, never from the model's opinion; a claim's class is that of the references it cites. A fictional person or place has two dossiers that never mix: in-world, from the works, and
+real-world: who created it, who holds the rights, adaptations, current status.
+
+**Looking for something and not finding it is a finding.** The dossier says which register was
+searched, with what words, as of what date. The collections searched are listed in the report by
+the library, not by the model.
+
+**The dossier is a view over the shelves,** not one run's report: everything the library holds on
+the subject, from every run, every page you added and everything you told it, as one document.
+
+```
+researchzosho dossier "Neal Stephenson"                  # the relations, the claims by source class, a timeline, the reports to dive into
+researchzosho tell "Cisco Systems" "We came in through the WebLine acquisition in 1999; most of the team was gone within two years."
+```
+
+The page is at `/dossier?subject=…` on the library's pages; a program asks `library_dossier`. Each
+report listed is a page to dive into.
+
+**A report's Timeline becomes claims.** A run notes a handful of claims; its report's Timeline carries
+every dated event the workers found. When a dossier report lands, each event of that Timeline is filed
+as its own claim, sourced by the references its sentence cites, so the dossier and the story hold what
+the run found and not only what a worker noted. `story` does the same for the reports already there.
+
+**The story.** `researchzosho story "<name>"` (a program: `library_dossier` with `op=story`) writes
+the story of the subject as a report, chapter by chapter from the claims the library holds, a decade
+a chapter with the undated claims first as background; every sentence cites the claim it rests on,
+and what a person told the library is said to be theirs. It is listed on the dossier and is a page
+to dive into. The story follows the shelves: when a later run on the subject lands, the story is
+written again from the grown shelves and the earlier version stays as its own report; the dossier
+says how many claims the story was written from and whether the shelves have grown since. The books are where the people and the
+stories are: Google Books is searched inside the books, and HathiTrust and the Computer History
+Museum's oral histories are links the run opens by hand.
+
+**Telling the library.** What you know that the record does not, what it was like, who was there,
+an incident, a date, is a claim of a sixth source class, told: in your words, dated, with you as
+the writer. In the chat, say it and the librarian notes it ("noted: …") and asks you the next open
+question on that subject, one at a time; a program uses `library_tell`. What you tell can open a
+search: the people, dates, places and events it names that the record has not been asked about join
+the open questions, and the librarian offers the research. The interview feeds the research, the
+research feeds the story.
+
+The collections: for people, Wikidata, OpenAlex and ORCID, SEC filings by the words in them, FEC
+contributions (which carry employer and occupation), Japan's Diet record by words and by speaker,
+Hacker News, Bluesky accounts, Qiita, NSF awards, the courts and the archives; for organisations,
+GLEIF, SEC EDGAR, ProPublica's Form 990s, Senate lobbying disclosures, FDA device clearances, NSF
+awards, the College Scorecard, the certificate log of a domain, gBizINFO and the 法人番号 register,
+OpenCorporates, OpenSanctions, patents by applicant, GitHub. Most work without a key.
+
+```
+researchzosho records key gbizinfo <token>          # https://info.gbiz.go.jp/api/ (free)
+researchzosho records key houjin-bangou <id>        # https://www.houjin-bangou.nta.go.jp/webapi/ (free)
+researchzosho records key opensanctions <key>       # https://www.opensanctions.org/api/ (free for research)
+researchzosho records key opencorporates <key>      # https://opencorporates.com/api_accounts/new (by request)
+```
+
+The api.data.gov key that serves Regulations.gov also serves the FEC and the College Scorecard.
+Links the run opens by hand: 渋沢社史データベース, EDINET, USAspending, USPTO assignments and
+trademarks, the ISFDB, the Copyright Office catalog, 官報.
+
+This version covers the United States and Japan. The UK, the EU, time series over dated traces,
+images with their provenance, and refreshing a dossier for what changed since, come next.
+
+## 26. Suggestions
+
+The library suggests what to do next from the shelves' own events, never from a model's free text: a
+forecast whose date has passed and wants scoring, a story the shelves have grown past, a question you asked
+that a claim now answers, a question asked again and again, a report that landed, a dossier not researched
+for months. Each suggestion is classed now, next or hold, with the probability you take it up: the nightly
+housekeeping asks the model's typed judge, one bounded answer per candidate; the page and the chat use
+plain rules. The ones for now appear as a line at the top of the home page and the chat on your next visit.
+
+```
+researchzosho suggest                         # the open suggestions, now first, each with why, what to do and what it costs
+researchzosho suggest taken S-0003            # or dismissed, or later: your mark is the outcome the library learns from
+/suggest                                      # the same in the chat; the page /suggest has buttons
+```
+
+Your marks are kept against the probabilities given, and the Brier score over them says how well the library
+reads you (0 is perfect, 0.25 is coin-tossing). `library_suggest` is the same for an agent.
+
+## 27. Not yet available
 
 - Sharing one library between two households.
 - Search reranking. It is built but off, because it did not improve results at this size.

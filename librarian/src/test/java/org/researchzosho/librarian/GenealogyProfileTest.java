@@ -31,7 +31,7 @@ class GenealogyProfileTest {
     void everyProfileIsOnUntilTheLibrarySaysOtherwise(@TempDir Path home) throws Exception {
         Path tmp = home.resolve("researchzosho-library");
         LibraryStore store = new LibraryStore(tmp); store.init();
-        assertEquals(Set.of("science", "genealogy", "software", "youtube", "podcasts", "shopping", "books", "crafts"), Profiles.enabled(store), "no profiles: line, every profile on");
+        assertEquals(Set.of("science", "genealogy", "software", "youtube", "podcasts", "shopping", "books", "crafts", "law", "patents", "person", "organization"), Profiles.enabled(store), "no profiles: line, every profile on");
         assertTrue(Vocabulary.read(Graph.predicatesFile(store)).isEmpty(), "being on writes nothing");
         assertEquals("married-to", FamilyPeople.view(store).predicateOf("spouse of"), "genealogy's own view resolves a kinship wording with no enable step");
         assertEquals("adopted-by", FamilyPeople.view(store).predicateOf("婿養子"));
@@ -118,7 +118,7 @@ class GenealogyProfileTest {
         assertEquals(List.of("genealogy"), Fields.recognised(store, "Who were my great-grandfather's parents?"));
         assertEquals(List.of("genealogy"), Fields.recognised(store, "曾祖父の戸籍はどこで請求できますか"));
         assertTrue(Fields.recognised(store, "How does a transformer's attention scale with sequence length?").isEmpty());
-        assertTrue(Fields.recognised(store, "What did Arthur Ellis patent in Dunedin?").isEmpty(), "nobody in the tree yet, no family word");
+        assertTrue(Fields.recognised(store, "What did Arthur Ellis patent in Dunedin?").isEmpty(), "nobody in the tree yet, no family word; and 'to patent' a thing is a person's doing, not the patents field's");
         Path ged = tmp.resolve("sample.ged");
         Files.writeString(ged, GED, StandardCharsets.UTF_8);
         Gedcom.importFile(store, ged);

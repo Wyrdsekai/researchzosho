@@ -71,15 +71,21 @@ public final class Jobs {
     /** How long a run the service held for the person's yes waits for it. */
     public static final long HELD_MS = 24L * 60 * 60 * 1000;
 
-    /** How many research runs the service runs at once: the number set, else one per three of the model server's slots ({@link ModelSlots}). */
+    /** How many research runs the service runs at once: the number set, else one per three of each model server's slots, added up over the drives ({@link ModelSlots}). */
     static int workersNow() { return ModelSlots.runs(); }
 
-    /** Drives, comma-separated; worker i takes drive i mod n, so more drives are more research per night. */
+    /** Drives, comma-separated ({@code job.drives}), else the one given. The workers take them by their slots ({@link ModelSlots.Fleet#lanes()}), so more drives are more research per night. */
     public static List<String> drives(String fallback) {
+        List<String> out = new ArrayList<>(listed());
+        if (out.isEmpty()) out.add(fallback == null ? "" : fallback);
+        return out;
+    }
+
+    /** The drives {@code job.drives} lists, comma-separated; none when it is unset. */
+    static List<String> listed() {
         String v = Config.get("RESEARCHZOSHO_JOB_DRIVES", "");
         List<String> out = new ArrayList<>();
         for (String d : v.split(",")) if (!d.isBlank()) out.add(d.strip());
-        if (out.isEmpty()) out.add(fallback == null ? "" : fallback);
         return out;
     }
 
@@ -113,13 +119,21 @@ public final class Jobs {
         return () -> d;
     }
 
+    /** The drives, each once: for the status line and the health check. */
     public List<String> drives() {
+        List<String> out = new ArrayList<>();
+        for (String d : lanes()) if (!out.contains(d)) out.add(d);
+        return out;
+    }
+
+    /** The drives as the workers take them: a drive once per run it carries ({@link ModelSlots.Fleet#lanes()}), so a server with more slots gets more workers. */
+    List<String> lanes() {
         List<String> d = drives.get();
         return d == null || d.isEmpty() ? List.of("") : List.copyOf(d);
     }
 
-    /** The drive worker {@code index} takes now: i mod the number of drives. */
-    String driveOf(int index) { List<String> d = drives(); return d.get(index % d.size()); }
+    /** The drive worker {@code index} takes now: i mod the number of lanes. */
+    String driveOf(int index) { List<String> d = lanes(); return d.get(index % d.size()); }
     public int workers() { return workers; }
 
     public Path dir() { return store.root().resolve("catalog").resolve("jobs"); }

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import org.researchzosho.tools.RecordSearchTool;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,7 +51,7 @@ public final class SearchLog {
      */
     public static String outcome(String observation) {
         String o = observation == null ? "" : observation.strip();
-        if (o.startsWith(ALREADY) || o.startsWith("ERROR: no source") || o.startsWith("ERROR: empty query")) return null;
+        if (o.startsWith(ALREADY) || o.startsWith(RecordSearchTool.USED_UP) || o.startsWith("ERROR: no source") || o.startsWith("ERROR: empty query")) return null;
         if (o.isEmpty() || o.startsWith("ERROR") || o.startsWith(DEGRADED)) return FAILED;
         return OK;
     }

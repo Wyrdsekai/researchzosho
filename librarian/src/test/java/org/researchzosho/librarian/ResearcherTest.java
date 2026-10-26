@@ -154,6 +154,51 @@ class ResearcherTest {
     }
 
     @Test
+    void anOrganisationsReportGetsItsAnalysisLayerInAPassOfItsOwnWhenTheWriterStoppedBeforeIt(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        ScriptedDrive drive = new ScriptedDrive() {
+            @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {
+                boolean layer = history.get(0).path("content").asText().contains("writing the analysis layer");
+                if (layer) assertTrue(history.get(0).path("content").asText().contains("these 6 and no other, in this order: Judgments, Conjectures, Forecasts, Implications and options, What would change this view, Source summary"), history.get(0).path("content").asText());
+                if (layer) {   // the second pass: the facts are in the prompt, the layer is asked for
+                    offered.add("analysis-pass");
+                    return assistantTurns(history) == 0
+                            ? call("write_section", J.createObjectNode().put("heading", "Judgments").put("text", "The gears were cut by hand, by someone the record does not name [1]."))
+                            : call("done", J.createObjectNode().put("summary", ""));
+                }
+                return super.chat(history, tools, maxTokens, toolChoice);
+            }
+        };
+        drive.criticWantsMore = false;
+        var r = new Researcher(drive, drive, new FakeTools(), s -> { }, 2, store).run(
+                new Researcher.Ask("Corporate history of Acme Gears, Inc.: a full dossier.", "broad", 60, List.of("how were the gears cut?")).withFields(List.of("organization")), "");
+        assertTrue(r.answer().contains("## Answer") && r.answer().contains("## Judgments\n\nThe gears were cut by hand"), "the layer, written in its own pass: " + r.answer());
+        assertTrue(r.answer().indexOf("## Judgments") < r.answer().indexOf("## Caveats"), "before the caveats");
+        assertTrue(drive.offered.contains("analysis-pass"));
+        // an ordinary run has no layer and no pass
+        ScriptedDrive plain = new ScriptedDrive(); plain.criticWantsMore = false;
+        var r2 = new Researcher(plain, plain, new FakeTools(), s -> { }, 2, store).run(new Researcher.Ask("How were the Antikythera gears cut?", "depth", 60, List.of()), "");
+        assertFalse(r2.answer().contains("## Judgments"));
+        assertTrue(plain.histories.stream().noneMatch(h -> h.get(0).path("content").asText().contains("writing the analysis layer")), "no pass for a run of no field");
+    }
+
+    @Test
+    void aWorkerThatDiesOfAnErrorIsNamedWithWhereItDied() {
+        List<String> logged = new ArrayList<>();
+        ScriptedDrive drive = new ScriptedDrive() {
+            @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {
+                if (!names(tools).contains("write_section") && history.toString().contains("who cut them?")) throw new StackOverflowError();
+                return super.chat(history, tools, maxTokens, toolChoice);
+            }
+        };
+        drive.criticWantsMore = false;
+        var r = new Researcher(drive, drive, new FakeTools(), logged::add, 2, null).run(new Researcher.Ask("How were the Antikythera gears cut, and by whom?", "broad", 60, List.of("how were the gears cut?", "who cut them?")), "");
+        assertTrue(r.evidence().contains("SUMMARY: unavailable (worker failed: java.lang.StackOverflowError)"), r.evidence());
+        assertTrue(logged.stream().anyMatch(l -> l.startsWith("worker: who cut them? — StackOverflowError at ResearcherTest")), "the log names the error and the first frame of ours: " + logged);
+        assertEquals("", Researcher.where(new RuntimeException()).replaceAll(" at ResearcherTest.*", ""), "only our frames, once each");
+    }
+
+    @Test
     void withoutABriefTheRunnerDecomposes() {
         ScriptedDrive drive = new ScriptedDrive();
         drive.criticWantsMore = false;

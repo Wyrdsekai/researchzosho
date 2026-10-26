@@ -1,62 +1,1992 @@
 [
-  {"id": "loc-newspapers", "name": "Chronicling America (Library of Congress)", "holds": "US newspaper pages, 1756-1963, searched by their full text", "kind": "newspaper", "countries": ["US"], "languages": ["en"], "from": 1756, "to": 1963, "tier": "original, read through machine text", "url": "https://www.loc.gov/collections/chronicling-america/?q={query}[&dates={from}/{to}]&fo=json&c={limit}&at=results", "items": "/results", "title": "{/partof_title/0}[, page {/shelf_id}]", "date": "{/date}", "link": "{/id}", "snippet": "", "where": "{/partof_title/0}[, {/date}][, page {/shelf_id}], Library of Congress, Chronicling America", "hosts": ["loc.gov"], "fields": ["genealogy"]},
-
-  {"id": "internet-archive", "name": "Internet Archive, full text", "holds": "scanned books and journals of every country searched inside: local and county histories, city and trade directories, who's-who volumes, society and school lists", "kind": "book", "countries": [], "languages": [], "from": 0, "to": 0, "tier": "published book, read through machine text", "url": "https://archive.org/services/search/beta/page_production/?service_backend=fts&user_query={query}&hits_per_page={limit}&page=1", "items": "/response/body/hits/hits", "title": "{/fields/title}", "date": "", "link": "https://archive.org{/fields/__href__}", "snippet": "{/highlight/text/0}", "where": "{/fields/title}[, page {/fields/page_num}], Internet Archive item {/fields/identifier}", "fields": ["genealogy"]},
-
-  {"id": "wikidata", "name": "Wikidata", "holds": "people, places and organisations that reference works describe, with their identifiers. It tells whether a person is already written about; it is an index, and the record behind it is what you cite", "kind": "index", "countries": [], "languages": [], "from": 0, "to": 0, "tier": "index", "url": "https://www.wikidata.org/w/api.php?action=wbsearchentities&search={query}&language=en&uselang=en&format=json&limit={limit}", "items": "/search", "title": "{/label}", "date": "", "link": "https://www.wikidata.org/wiki/{/id}", "snippet": "{/description}", "where": "Wikidata {/id}", "fields": ["genealogy"]},
-
-  {"id": "wikitree", "name": "WikiTree", "holds": "a shared family tree that anyone may edit, with its sources listed on each profile. A profile is a lead: read the sources it cites and cite those. The query is a person's name, given names first and the family name last (Jokichi Takamine), or a family name alone", "kind": "index", "fields": ["genealogy"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "compiled tree: a pointer to records", "url": "https://api.wikitree.com/api.php?action=searchPerson[&FirstName={query:rest}]&LastName={query:last}&limit={limit}&fields=Id,Name,FirstName,LastNameAtBirth,BirthDate,DeathDate,BirthLocation,DeathLocation&format=json&appId=ResearchZosho", "items": "/0/matches", "title": "{/FirstName} {/LastNameAtBirth}", "date": "{/BirthDate}", "link": "https://www.wikitree.com/wiki/{/Name}", "snippet": "[born {/BirthDate}][ in {/BirthLocation}][, died {/DeathDate}][ in {/DeathLocation}]", "where": "{/FirstName} {/LastNameAtBirth}, WikiTree profile {/Name}"},
-
-  {"id": "geni", "name": "Geni", "holds": "a shared world family tree: profiles with birth, death and burial dates and places, occupation and relatives. A profile is a lead: look for the records behind what it says. The query is a person's name. One search every ten seconds is all it allows", "kind": "index", "fields": ["genealogy"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "compiled tree: a pointer to records", "key": "RESEARCHZOSHO_GENI_TOKEN", "key_from": "researchzosho records login geni (a Geni account; the login lasts a day)", "key_login": "https://www.geni.com/platform/oauth/authorize?client_id={app}&response_type=token&display=desktop", "app": "RESEARCHZOSHO_GENI_APP", "app_from": "https://www.geni.com/platform/developer/apps (register a desktop application; its key goes here)", "url": "https://www.geni.com/api/profile/search?names={query:bare}&access_token={key}", "items": "/results", "title": "{/display_name}", "date": "{/birth/date/formatted_date}", "link": "{/profile_url}", "snippet": "[born {/birth/date/formatted_date}][ in {/birth/location/city}][, {/birth/location/country}][; died {/death/date/formatted_date}][ in {/death/location/city}][; buried {/burial/location/place_name}][; {/occupation}]", "where": "[{/display_name}, ]Geni profile {/guid}"},
-
-  {"id": "wikipedia-ja", "name": "ウィキペディア日本語版 (Japanese Wikipedia)", "holds": "articles on people, families (家, 氏, 一族), firms and places, with a 家族 or 親族 section for many people. A starting point: follow its footnotes to the records. Query in Japanese", "kind": "index", "countries": [], "languages": ["ja"], "from": 0, "to": 0, "tier": "encyclopedia article: a compiled account that points to records", "url": "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit={limit}", "items": "/query/search", "title": "{/title}", "date": "", "link": "https://ja.wikipedia.org/?curid={/pageid}", "snippet": "{/snippet}", "where": "{/title}, Wikipedia (ja)", "fields": ["genealogy"]},
-
-  {"id": "ndl-fulltext", "name": "国立国会図書館 次世代デジタルライブラリー (National Diet Library, full text)", "holds": "about 280,000 Japanese books out of copyright, searched inside: 人事興信録, 紳士録, 職員録, 県史 and 市町村史, school and company histories. Query in Japanese, and try the old character forms of a name as well (髙峰讓吉 beside 高峰譲吉)", "kind": "book", "countries": ["JP"], "languages": ["ja"], "from": 1868, "to": 1968, "tier": "published book, read through machine text", "url": "https://lab.ndl.go.jp/dl/api/book/search?keyword={query}&searchfield=contentonly&size={limit}", "items": "/list", "title": "{/title}[ {/volume}]", "date": "{/published}", "link": "https://dl.ndl.go.jp/pid/{/id}", "snippet": "{/highlights/0}", "where": "{/title}[ {/volume}][, {/responsibility}][, {/publisher}][, {/published}], 国立国会図書館デジタルコレクション pid {/id}", "fields": ["genealogy"]},
-
-  {"id": "japan-search", "name": "ジャパンサーチ (Japan Search)", "holds": "the catalogues of some 320 Japanese archives, museums and libraries in one search: letters, photographs, old documents, local collections. Query in Japanese", "kind": "archive", "countries": ["JP"], "languages": ["ja"], "from": 0, "to": 0, "tier": "catalogue entry for an original", "url": "https://jpsearch.go.jp/api/item/search/jps-cross?keyword={query}&size={limit}", "items": "/list", "title": "{/common/title}", "date": "{/common/temporal/0}", "link": "{/common/linkUrl}", "snippet": "{/common/description}", "where": "{/common/title}[, {/common/temporal/0}][, {/common/provider}], Japan Search {/id}", "fields": ["genealogy"]},
-
-  {"id": "ndl-search", "name": "国立国会図書館サーチ (NDL Search)", "holds": "the catalogue of Japan's national library and the prefectural libraries: whether a family history, a local history or a directory exists, and where it is held. Query in Japanese", "kind": "catalogue", "countries": ["JP"], "languages": ["ja"], "from": 0, "to": 0, "tier": "catalogue entry", "url": "https://ndlsearch.ndl.go.jp/api/opensearch?any={query}&cnt={limit}", "format": "xml", "items": "item", "title": "{title}", "date": "{dc:date}", "link": "{link}", "snippet": "{description}", "where": "{title}[, {author}][, {dc:publisher}][, {dc:date}]", "fields": ["genealogy"]},
-
-  {"id": "densho", "name": "Densho Digital Repository", "holds": "Japanese American families before, during and after the wartime incarceration: photographs, camp newspapers, letters, documents and oral histories, with the people named", "kind": "archive", "countries": ["US"], "languages": ["en", "ja"], "from": 1880, "to": 2000, "tier": "original or oral history", "url": "https://ddr.densho.org/api/0.2/search/?fulltext={query}&limit={limit}", "items": "/objects", "title": "{/title}", "date": "{/creation}", "link": "{/links/html}", "snippet": "{/description}", "where": "{/title}[, {/creation}][, {/location}], Densho Digital Repository {/id}", "hosts": ["ddr.densho.org"], "fields": ["genealogy"]},
-
-  {"id": "gallica", "name": "Gallica (Bibliothèque nationale de France)", "holds": "French newspapers, books, directories and manuscripts searched by their full text. Query in French", "kind": "newspaper", "countries": ["FR"], "languages": ["fr"], "from": 1600, "to": 1955, "tier": "original, read through machine text", "url": "https://gallica.bnf.fr/SRU?operation=searchRetrieve&version=1.2&maximumRecords={limit}&query=gallica%20all%20%22{query:bare}%22", "format": "xml", "items": "srw:record", "title": "{dc:title}", "date": "{dc:date}", "link": "{dc:identifier}", "snippet": "{dc:description}", "where": "{dc:title}[, {dc:date}][, {dc:publisher}], Gallica", "hosts": ["gallica.bnf.fr"], "fields": ["genealogy"]},
-
-  {"id": "delpher", "name": "Delpher (Koninklijke Bibliotheek)", "holds": "Dutch newspaper articles, 1618-1995, searched by their full text: notices of birth, marriage and death, advertisements, court and shipping news. Query in Dutch", "kind": "newspaper", "countries": ["NL", "ID", "SR"], "languages": ["nl"], "from": 1618, "to": 1995, "tier": "original, read through machine text", "url": "https://jsru.kb.nl/sru/sru?version=1.2&operation=searchRetrieve&x-collection=DDD_artikel&maximumRecords={limit}&query=%22{query:bare}%22", "format": "xml", "items": "srw:record", "title": "{dc:title}", "date": "{dc:date}", "link": "{dc:identifier}", "snippet": "{dc:type}", "where": "{dc:title}[, {dc:publisher}][, {dc:date}], Delpher", "hosts": ["resolver.kb.nl", "delpher.nl"], "fields": ["genealogy"]},
-
-  {"id": "nb-no", "name": "Nasjonalbiblioteket (National Library of Norway)", "holds": "Norwegian books and newspapers searched inside, the bygdebøker (farm and family histories by parish) among them. Query in Norwegian", "kind": "book", "countries": ["NO"], "languages": ["no", "nb", "nn"], "from": 1600, "to": 0, "tier": "published book, read through machine text", "url": "https://api.nb.no/catalog/v1/items?q={query}&searchType=FULL_TEXT_SEARCH&size={limit}", "items": "/_embedded/items", "title": "{/metadata/title}", "date": "{/metadata/originInfo/issued}", "link": "https://www.nb.no/items/{/id}", "snippet": "{/metadata/subjectName/0}", "where": "{/metadata/title}[, {/metadata/creators/0}][, {/metadata/originInfo/publisher}][, {/metadata/originInfo/issued}][, nb.no {/metadata/identifiers/urn}]", "fields": ["genealogy"]},
-
-  {"id": "serpapi-inventor", "name": "Google Patents by inventor (through SerpApi)", "holds": "every patent under an inventor's name, from every patent office, the US ones back to 1790 and Japan's from 1885: the one way to find a patent from before 1976 by who made it. The query is the inventor's name and nothing else, in Latin letters as a patent office wrote it (Jokichi Takamine), and again family name first", "kind": "patent", "fields": ["genealogy"], "countries": [], "languages": [], "from": 1790, "to": 0, "tier": "original, read through machine text", "key": "RESEARCHZOSHO_SERPAPI_KEY", "key_from": "https://serpapi.com (250 searches a month free; each search here is one of them)", "url": "https://serpapi.com/search.json?engine=google_patents&q=%28%22{query:bare}%22%29&inventor={query:bare}[&after=priority:{from}0101][&before=priority:{to}1231]&num=10&api_key={key}", "items": "/organic_results", "title": "{/title}", "date": "{/grant_date}", "link": "{/patent_link}", "snippet": "{/snippet}", "where": "{/publication_number}[, inventor {/inventor}][, assignee {/assignee}][, filed {/filing_date}][, granted {/grant_date}]", "hosts": ["patents.google.com"]},
-
-  {"id": "serpapi-patents", "name": "Google Patents by words (through SerpApi)", "holds": "patents of every patent office by the words in them: an invention, a firm, a place. For a person use serpapi-inventor", "kind": "patent", "fields": ["genealogy"], "countries": [], "languages": [], "from": 1790, "to": 0, "tier": "original, read through machine text", "key": "RESEARCHZOSHO_SERPAPI_KEY", "key_from": "https://serpapi.com (250 searches a month free; each search here is one of them)", "url": "https://serpapi.com/search.json?engine=google_patents&q={query}[&after=priority:{from}0101][&before=priority:{to}1231]&num=10&api_key={key}", "items": "/organic_results", "title": "{/title}", "date": "{/grant_date}", "link": "{/patent_link}", "snippet": "{/snippet}", "where": "{/publication_number}[, inventor {/inventor}][, assignee {/assignee}][, filed {/filing_date}][, granted {/grant_date}]", "hosts": ["patents.google.com"]},
-  {"id": "epo-inventor", "name": "European Patent Office, by inventor (Espacenet)", "holds": "the patents of most of the world's patent offices (Japan, the United States, Britain, Germany, France and many more, a good part of them from before 1920), found by the inventor's name. The query is the name and nothing else. For a Japanese, Chinese or Korean inventor search the name in its own script FIRST (山田太郎): patents of the last decades carry it, and it sets the person apart from everybody whose name only sounds the same. A name is matched as it is written, so search an old character form and the modern one separately (髙橋 and 高橋, 眞 and 真). Then search it in Latin letters as a patent office wrote it (Taro Yamada, or Yamada Taro), which is the only form older patents and other countries have. Several people share a romanised name, and the newest patents come first: give the years the person could have been at work (from_year, to_year), and let the year, the country, the applicant and the subject say whether a patent is this person's. Where the answer gives the inventor's name in its own script, compare it with the person's: the same reading written with other characters is somebody else", "kind": "patent", "fields": ["genealogy"], "countries": [], "languages": [], "from": 1836, "to": 0, "tier": "patent office record", "key": "RESEARCHZOSHO_EPO_KEY", "secret": "RESEARCHZOSHO_EPO_SECRET", "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)", "token_url": "https://ops.epo.org/3.2/auth/accesstoken", "accept": "application/json", "empty_status": 404, "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=in%3D%22{query:bare}%22[%20and%20pd%3E%3D{from}][%20and%20pd%3C%3D{to}]&Range=1-{limit}", "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents", "title": "{/exchange-document/bibliographic-data/invention-title}", "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}", "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}", "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]", "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)", "hosts": ["worldwide.espacenet.com"]},
-  {"id": "epo-applicant", "name": "European Patent Office, by applicant (Espacenet)", "holds": "the same patents, found by who applied for them: a company a person founded or worked for, or the person themselves. The query is the applicant's name and nothing else, in Latin letters", "kind": "patent", "fields": ["genealogy"], "countries": [], "languages": [], "from": 1836, "to": 0, "tier": "patent office record", "key": "RESEARCHZOSHO_EPO_KEY", "secret": "RESEARCHZOSHO_EPO_SECRET", "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)", "token_url": "https://ops.epo.org/3.2/auth/accesstoken", "accept": "application/json", "empty_status": 404, "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=pa%3D%22{query:bare}%22[%20and%20pd%3E%3D{from}][%20and%20pd%3C%3D{to}]&Range=1-{limit}", "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents", "title": "{/exchange-document/bibliographic-data/invention-title}", "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}", "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}", "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]", "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)", "hosts": ["worldwide.espacenet.com"]},
-  {"id": "epo-query", "name": "European Patent Office, by a query of several parts (Espacenet)", "holds": "the same patents, asked for with more than one condition at once, which is how one person is told from their namesakes. The query is written in the office's own short language, copied from these examples with your own words in them: in=\"Yamada Taro\" and pa=hitachi   (an inventor at a firm) · in=\"Yamada Taro\" and ti=turbine   (an inventor and a word of the title) · in=\"山田太郎\" and pd>=1990 and pd<=2005   (an inventor in the years given) · pa=\"Yamada Seisakusho\"   (a firm). in is the inventor, pa the applicant, ti a word of the title, pd the year of publication", "kind": "patent", "fields": ["genealogy"], "countries": [], "languages": [], "from": 1836, "to": 0, "tier": "patent office record", "key": "RESEARCHZOSHO_EPO_KEY", "secret": "RESEARCHZOSHO_EPO_SECRET", "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)", "token_url": "https://ops.epo.org/3.2/auth/accesstoken", "accept": "application/json", "empty_status": 404, "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q={query}&Range=1-{limit}", "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents", "title": "{/exchange-document/bibliographic-data/invention-title}", "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}", "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}", "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]", "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)", "hosts": ["worldwide.espacenet.com"]},
-
-  {"id": "cinii", "name": "CiNii Research (国立情報学研究所)", "holds": "Japanese academic papers, dissertations, university bulletins and books by author and title, back to the Meiji journals: what a relative who taught, researched or wrote left behind. Query in Japanese, the author's name as a paper writes it", "kind": "catalogue", "fields": ["genealogy"], "countries": ["JP"], "languages": ["ja"], "from": 1880, "to": 0, "tier": "catalogue entry", "key": "RESEARCHZOSHO_CINII_APPID", "key_from": "https://support.nii.ac.jp/en/cinii/api/developer", "url": "https://cir.nii.ac.jp/opensearch/all?q={query}&count={limit}&format=json&appid={key}", "items": "/items", "title": "{/title}", "date": "{/prism:publicationDate}", "link": "{/link/@id}", "snippet": "{/description}", "where": "[{/title}, ][{/dc:creator}, ][{/prism:publicationName}][ {/prism:volume}][, pages {/prism:startingPage}-{/prism:endingPage}][, {/prism:publicationDate}], CiNii Research"},
-
-  {"id": "europeana", "name": "Europeana", "holds": "the catalogues of European archives, libraries and museums in one search, with digitised newspapers of some twenty countries", "kind": "archive", "countries": ["EU"], "languages": [], "from": 0, "to": 0, "tier": "catalogue entry for an original", "key": "RESEARCHZOSHO_EUROPEANA_KEY", "key_from": "https://pro.europeana.eu/pages/get-api", "url": "https://api.europeana.eu/record/v2/search.json?wskey={key}&query={query}&rows={limit}", "items": "/items", "title": "{/title/0}", "date": "{/year/0}", "link": "{/guid}", "snippet": "{/dcDescription/0}", "where": "{/title/0}[, {/year/0}][, {/dataProvider/0}][, {/country/0}], Europeana {/id}", "fields": ["genealogy"]},
-
-  {"id": "github-repos", "name": "GitHub repositories, best match", "holds": "every public repository, matched on name, description, topics and README. Qualifiers work in the query: topic:genealogy language:rust license:mit stars:>50 in:readme. from_year limits it to repositories pushed since that year", "kind": "code", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the project itself", "key": "RESEARCHZOSHO_GITHUB_TOKEN", "key_optional": true, "key_header": "Authorization: Bearer {key}", "key_from": "https://github.com/settings/tokens (no scopes needed; without one GitHub allows 10 searches a minute)", "url": "https://api.github.com/search/repositories?q={query}[+pushed%3A%3E%3D{from}-01-01]&per_page={limit}", "items": "/items", "title": "{/full_name}", "date": "{/pushed_at}", "link": "{/html_url}", "snippet": "{/description}[ · topics: {/topics}]", "where": "{/full_name}[, {/language}][, licence {/license/spdx_id}], {/stargazers_count} stars, last push {/pushed_at}, created {/created_at}"},
-
-  {"id": "github-active", "name": "GitHub repositories, most recently pushed first", "holds": "the same search ordered by last push, newest first: the small and new projects a best-match search buries under the starred ones. The same qualifiers work", "kind": "code", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the project itself", "key": "RESEARCHZOSHO_GITHUB_TOKEN", "key_optional": true, "key_header": "Authorization: Bearer {key}", "key_from": "https://github.com/settings/tokens", "url": "https://api.github.com/search/repositories?q={query}[+pushed%3A%3E%3D{from}-01-01]&sort=updated&order=desc&per_page={limit}", "items": "/items", "title": "{/full_name}", "date": "{/pushed_at}", "link": "{/html_url}", "snippet": "{/description}[ · topics: {/topics}]", "where": "{/full_name}[, {/language}][, licence {/license/spdx_id}], {/stargazers_count} stars, last push {/pushed_at}, created {/created_at}"},
-
-  {"id": "github-code", "name": "GitHub code search", "holds": "the contents of files in public repositories: finds a project by what its code or configuration says when its name and description never mention the subject. Qualifiers work: language:python path:config filename:docker-compose.yml", "kind": "code", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the project itself", "key": "RESEARCHZOSHO_GITHUB_TOKEN", "key_header": "Authorization: Bearer {key}", "key_from": "https://github.com/settings/tokens (no scopes needed)", "url": "https://api.github.com/search/code?q={query}&per_page={limit}", "items": "/items", "title": "{/repository/full_name}: {/path}", "date": "", "link": "{/html_url}", "snippet": "{/repository/description}", "where": "{/repository/full_name}, file {/path}, GitHub"},
-
-  {"id": "huggingface-models", "name": "Hugging Face models, most recently changed first", "holds": "models on the Hugging Face hub by name and tag", "kind": "model", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the model itself", "url": "https://huggingface.co/api/models?search={query}&limit={limit}&sort=lastModified&direction=-1", "items": "", "title": "{/id}", "date": "{/lastModified}", "link": "https://huggingface.co/{/id}", "snippet": "[{/pipeline_tag}][ · {/library_name}]", "where": "{/id}, Hugging Face, changed {/lastModified}, {/downloads} downloads, {/likes} likes"},
-
-  {"id": "npm", "name": "npm packages", "holds": "JavaScript and TypeScript packages, with their repository, licence and last release", "kind": "package", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the package itself", "url": "https://registry.npmjs.org/-/v1/search?text={query}&size={limit}", "items": "/objects", "title": "{/package/name}", "date": "{/package/date}", "link": "{/package/links/npm}", "snippet": "{/package/description}", "where": "{/package/name} {/package/version}[, licence {/package/license}][, {/package/links/repository}], {/downloads/monthly} downloads a month, released {/package/date}"},
-
-  {"id": "crates", "name": "crates.io", "holds": "Rust packages, with their repository and last release", "kind": "package", "fields": ["software"], "countries": [], "languages": [], "from": 0, "to": 0, "tier": "the package itself", "url": "https://crates.io/api/v1/crates?q={query}&per_page={limit}", "items": "/crates", "title": "{/name}", "date": "{/updated_at}", "link": "https://crates.io/crates/{/id}", "snippet": "{/description}", "where": "{/name} {/newest_version}[, {/repository}], {/recent_downloads} recent downloads, updated {/updated_at}"},
-
-  {"id": "familysearch", "name": "FamilySearch", "kind": "link", "access": "registration", "holds": "indexed records of births, marriages, deaths, censuses and church books of most countries, and a shared tree. Free with an account", "countries": [], "languages": [], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://www.familysearch.org/search/record/results?q.givenName={given}&q.surname={family}[&q.birthLikeDate.from={born}&q.birthLikeDate.to={born}][&q.deathLikeDate.from={died}&q.deathLikeDate.to={died}]"},
-
-  {"id": "ancestry", "name": "Ancestry", "kind": "link", "access": "subscription", "holds": "censuses, passenger lists, military, church and civil records, mostly of the United States, Britain, Canada and Australia, and members' trees", "countries": [], "languages": [], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://www.ancestry.com/search/?name={given}_{family}[&birth={born}][&death={died}]&searchMode=advanced"},
-
-  {"id": "myheritage", "name": "MyHeritage", "kind": "link", "access": "subscription", "holds": "records of many countries, strong for Europe and Scandinavia, and members' trees", "countries": [], "languages": [], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://www.myheritage.com/research?formId=master&formMode=1&action=query&qname=Name+fn.{given}+ln.{family}[&qevents-event1=Event+et.birth+ey.{born}]&qevents=List"},
-
-  {"id": "geneanet", "name": "Geneanet", "kind": "link", "access": "registration", "holds": "members' trees and indexed records, strong for France and western Europe", "countries": [], "languages": [], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://en.geneanet.org/fonds/individus/?size=10&nom={family}&prenom={given}"},
-
-  {"id": "findagrave", "name": "Find a Grave", "kind": "link", "access": "free", "holds": "graves and memorials with photographs of the stones, mostly in the United States, often with family links", "countries": [], "languages": [], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://www.findagrave.com/memorial/search?firstname={given}&lastname={family}[&birthyear={born}][&deathyear={died}]"},
-
-  {"id": "compgen", "name": "CompGen meta search", "kind": "link", "access": "free", "holds": "the databases of the German genealogy society in one search: family names in local registers, address books and lists of emigrants", "countries": ["DE"], "languages": ["de"], "from": 0, "to": 0, "fields": ["genealogy"], "url": "https://meta.genealogy.net/search?lastname={family}[&place={place}]"}
+ {
+  "id": "loc-newspapers",
+  "name": "Chronicling America (Library of Congress)",
+  "holds": "US newspaper pages, 1756-1963, searched by their full text",
+  "kind": "newspaper",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1756,
+  "to": 1963,
+  "tier": "original, read through machine text",
+  "url": "https://www.loc.gov/collections/chronicling-america/?q={query}[&dates={from}/{to}]&fo=json&c={limit}&at=results",
+  "items": "/results",
+  "title": "{/partof_title/0}[, page {/shelf_id}]",
+  "date": "{/date}",
+  "link": "{/id}",
+  "snippet": "",
+  "where": "{/partof_title/0}[, {/date}][, page {/shelf_id}], Library of Congress, Chronicling America",
+  "hosts": [
+   "loc.gov"
+  ],
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "internet-archive",
+  "name": "Internet Archive, full text",
+  "holds": "scanned books and journals of every country searched inside: local and county histories, city and trade directories, who's-who volumes, society and school lists",
+  "kind": "book",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "published book, read through machine text",
+  "url": "https://archive.org/services/search/beta/page_production/?service_backend=fts&user_query={query}&hits_per_page={limit}&page=1",
+  "items": "/response/body/hits/hits",
+  "title": "{/fields/title}",
+  "date": "",
+  "link": "https://archive.org{/fields/__href__}",
+  "snippet": "{/highlight/text/0}",
+  "where": "{/fields/title}[, page {/fields/page_num}], Internet Archive item {/fields/identifier}",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "wikidata",
+  "name": "Wikidata",
+  "holds": "people, places and organisations that reference works describe, with their identifiers. It tells whether a person is already written about; it is an index, and the record behind it is what you cite",
+  "kind": "index",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "index",
+  "url": "https://www.wikidata.org/w/api.php?action=wbsearchentities&search={query}&language=en&uselang=en&format=json&limit={limit}",
+  "items": "/search",
+  "title": "{/label}",
+  "date": "",
+  "link": "https://www.wikidata.org/wiki/{/id}",
+  "snippet": "{/description}",
+  "where": "Wikidata {/id}",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "wikitree",
+  "name": "WikiTree",
+  "holds": "a shared family tree that anyone may edit, with its sources listed on each profile. A profile is a lead: read the sources it cites and cite those. The query is a person's name, given names first and the family name last (Jokichi Takamine), or a family name alone",
+  "kind": "index",
+  "fields": [
+   "genealogy"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "compiled tree: a pointer to records",
+  "url": "https://api.wikitree.com/api.php?action=searchPerson[&FirstName={query:rest}]&LastName={query:last}&limit={limit}&fields=Id,Name,FirstName,LastNameAtBirth,BirthDate,DeathDate,BirthLocation,DeathLocation&format=json&appId=ResearchZosho",
+  "items": "/0/matches",
+  "title": "{/FirstName} {/LastNameAtBirth}",
+  "date": "{/BirthDate}",
+  "link": "https://www.wikitree.com/wiki/{/Name}",
+  "snippet": "[born {/BirthDate}][ in {/BirthLocation}][, died {/DeathDate}][ in {/DeathLocation}]",
+  "where": "{/FirstName} {/LastNameAtBirth}, WikiTree profile {/Name}"
+ },
+ {
+  "id": "geni",
+  "name": "Geni",
+  "holds": "a shared world family tree: profiles with birth, death and burial dates and places, occupation and relatives. A profile is a lead: look for the records behind what it says. The query is a person's name. One search every ten seconds is all it allows",
+  "kind": "index",
+  "fields": [
+   "genealogy"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "compiled tree: a pointer to records",
+  "key": "RESEARCHZOSHO_GENI_TOKEN",
+  "key_from": "researchzosho records login geni (a Geni account; the login lasts a day)",
+  "key_login": "https://www.geni.com/platform/oauth/authorize?client_id={app}&response_type=token&display=desktop",
+  "app": "RESEARCHZOSHO_GENI_APP",
+  "app_from": "https://www.geni.com/platform/developer/apps (register a desktop application; its key goes here)",
+  "url": "https://www.geni.com/api/profile/search?names={query:bare}&access_token={key}",
+  "items": "/results",
+  "title": "{/display_name}",
+  "date": "{/birth/date/formatted_date}",
+  "link": "{/profile_url}",
+  "snippet": "[born {/birth/date/formatted_date}][ in {/birth/location/city}][, {/birth/location/country}][; died {/death/date/formatted_date}][ in {/death/location/city}][; buried {/burial/location/place_name}][; {/occupation}]",
+  "where": "[{/display_name}, ]Geni profile {/guid}"
+ },
+ {
+  "id": "wikipedia-ja",
+  "name": "ウィキペディア日本語版 (Japanese Wikipedia)",
+  "holds": "articles on people, families (家, 氏, 一族), firms and places, with a 家族 or 親族 section for many people. A starting point: follow its footnotes to the records. Query in Japanese",
+  "kind": "index",
+  "countries": [],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "encyclopedia article: a compiled account that points to records",
+  "url": "https://ja.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json&srlimit={limit}",
+  "items": "/query/search",
+  "title": "{/title}",
+  "date": "",
+  "link": "https://ja.wikipedia.org/?curid={/pageid}",
+  "snippet": "{/snippet}",
+  "where": "{/title}, Wikipedia (ja)",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "ndl-fulltext",
+  "name": "国立国会図書館 次世代デジタルライブラリー (National Diet Library, full text)",
+  "holds": "about 280,000 Japanese books out of copyright, searched inside: 人事興信録, 紳士録, 職員録, 県史 and 市町村史, school and company histories. Query in Japanese, and try the old character forms of a name as well (髙峰讓吉 beside 高峰譲吉)",
+  "kind": "book",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 1868,
+  "to": 1968,
+  "tier": "published book, read through machine text",
+  "url": "https://lab.ndl.go.jp/dl/api/book/search?keyword={query}&searchfield=contentonly&size={limit}",
+  "items": "/list",
+  "title": "{/title}[ {/volume}]",
+  "date": "{/published}",
+  "link": "https://dl.ndl.go.jp/pid/{/id}",
+  "snippet": "{/highlights/0}",
+  "where": "{/title}[ {/volume}][, {/responsibility}][, {/publisher}][, {/published}], 国立国会図書館デジタルコレクション pid {/id}",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "japan-search",
+  "name": "ジャパンサーチ (Japan Search)",
+  "holds": "the catalogues of some 320 Japanese archives, museums and libraries in one search: letters, photographs, old documents, local collections. Query in Japanese",
+  "kind": "archive",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "catalogue entry for an original",
+  "url": "https://jpsearch.go.jp/api/item/search/jps-cross?keyword={query}&size={limit}",
+  "items": "/list",
+  "title": "{/common/title}",
+  "date": "{/common/temporal/0}",
+  "link": "{/common/linkUrl}",
+  "snippet": "{/common/description}",
+  "where": "{/common/title}[, {/common/temporal/0}][, {/common/provider}], Japan Search {/id}",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "ndl-search",
+  "name": "国立国会図書館サーチ (NDL Search)",
+  "holds": "the catalogue of Japan's national library and the prefectural libraries: whether a family history, a local history or a directory exists, and where it is held. Query in Japanese",
+  "kind": "catalogue",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "catalogue entry",
+  "url": "https://ndlsearch.ndl.go.jp/api/opensearch?any={query}&cnt={limit}",
+  "format": "xml",
+  "items": "item",
+  "title": "{title}",
+  "date": "{dc:date}",
+  "link": "{link}",
+  "snippet": "{description}",
+  "where": "{title}[, {author}][, {dc:publisher}][, {dc:date}]",
+  "fields": [
+   "genealogy",
+   "person",
+   "organization"
+  ]
+ },
+ {
+  "id": "densho",
+  "name": "Densho Digital Repository",
+  "holds": "Japanese American families before, during and after the wartime incarceration: photographs, camp newspapers, letters, documents and oral histories, with the people named",
+  "kind": "archive",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en",
+   "ja"
+  ],
+  "from": 1880,
+  "to": 2000,
+  "tier": "original or oral history",
+  "url": "https://ddr.densho.org/api/0.2/search/?fulltext={query}&limit={limit}",
+  "items": "/objects",
+  "title": "{/title}",
+  "date": "{/creation}",
+  "link": "{/links/html}",
+  "snippet": "{/description}",
+  "where": "{/title}[, {/creation}][, {/location}], Densho Digital Repository {/id}",
+  "hosts": [
+   "ddr.densho.org"
+  ],
+  "fields": [
+   "genealogy"
+  ]
+ },
+ {
+  "id": "gallica",
+  "name": "Gallica (Bibliothèque nationale de France)",
+  "holds": "French newspapers, books, directories and manuscripts searched by their full text. Query in French",
+  "kind": "newspaper",
+  "countries": [
+   "FR"
+  ],
+  "languages": [
+   "fr"
+  ],
+  "from": 1600,
+  "to": 1955,
+  "tier": "original, read through machine text",
+  "url": "https://gallica.bnf.fr/SRU?operation=searchRetrieve&version=1.2&maximumRecords={limit}&query=gallica%20all%20%22{query:bare}%22",
+  "format": "xml",
+  "items": "srw:record",
+  "title": "{dc:title}",
+  "date": "{dc:date}",
+  "link": "{dc:identifier}",
+  "snippet": "{dc:description}",
+  "where": "{dc:title}[, {dc:date}][, {dc:publisher}], Gallica",
+  "hosts": [
+   "gallica.bnf.fr"
+  ],
+  "fields": [
+   "genealogy"
+  ]
+ },
+ {
+  "id": "delpher",
+  "name": "Delpher (Koninklijke Bibliotheek)",
+  "holds": "Dutch newspaper articles, 1618-1995, searched by their full text: notices of birth, marriage and death, advertisements, court and shipping news. Query in Dutch",
+  "kind": "newspaper",
+  "countries": [
+   "NL",
+   "ID",
+   "SR"
+  ],
+  "languages": [
+   "nl"
+  ],
+  "from": 1618,
+  "to": 1995,
+  "tier": "original, read through machine text",
+  "url": "https://jsru.kb.nl/sru/sru?version=1.2&operation=searchRetrieve&x-collection=DDD_artikel&maximumRecords={limit}&query=%22{query:bare}%22",
+  "format": "xml",
+  "items": "srw:record",
+  "title": "{dc:title}",
+  "date": "{dc:date}",
+  "link": "{dc:identifier}",
+  "snippet": "{dc:type}",
+  "where": "{dc:title}[, {dc:publisher}][, {dc:date}], Delpher",
+  "hosts": [
+   "resolver.kb.nl",
+   "delpher.nl"
+  ],
+  "fields": [
+   "genealogy"
+  ]
+ },
+ {
+  "id": "nb-no",
+  "name": "Nasjonalbiblioteket (National Library of Norway)",
+  "holds": "Norwegian books and newspapers searched inside, the bygdebøker (farm and family histories by parish) among them. Query in Norwegian",
+  "kind": "book",
+  "countries": [
+   "NO"
+  ],
+  "languages": [
+   "no",
+   "nb",
+   "nn"
+  ],
+  "from": 1600,
+  "to": 0,
+  "tier": "published book, read through machine text",
+  "url": "https://api.nb.no/catalog/v1/items?q={query}&searchType=FULL_TEXT_SEARCH&size={limit}",
+  "items": "/_embedded/items",
+  "title": "{/metadata/title}",
+  "date": "{/metadata/originInfo/issued}",
+  "link": "https://www.nb.no/items/{/id}",
+  "snippet": "{/metadata/subjectName/0}",
+  "where": "{/metadata/title}[, {/metadata/creators/0}][, {/metadata/originInfo/publisher}][, {/metadata/originInfo/issued}][, nb.no {/metadata/identifiers/urn}]",
+  "fields": [
+   "genealogy"
+  ]
+ },
+ {
+  "id": "serpapi-inventor",
+  "per_run": 8,
+  "name": "Google Patents by inventor (through SerpApi)",
+  "holds": "every patent under an inventor's name, from every patent office, the US ones back to 1790 and Japan's from 1885: the one way to find a patent from before 1976 by who made it. The query is the inventor's name and nothing else, in Latin letters as a patent office wrote it (Jokichi Takamine), and again family name first",
+  "kind": "patent",
+  "fields": [
+   "genealogy",
+   "patents",
+   "person"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1790,
+  "to": 0,
+  "tier": "original, read through machine text",
+  "key": "RESEARCHZOSHO_SERPAPI_KEY",
+  "key_from": "https://serpapi.com (250 searches a month free; each search here is one of them)",
+  "url": "https://serpapi.com/search.json?engine=google_patents&q=%28%22{query:bare}%22%29&inventor={query:bare}[&after=priority:{from}0101][&before=priority:{to}1231]&num=10&api_key={key}",
+  "items": "/organic_results",
+  "title": "{/title}",
+  "date": "{/grant_date}",
+  "link": "{/patent_link}",
+  "snippet": "{/snippet}",
+  "where": "{/publication_number}[, inventor {/inventor}][, assignee {/assignee}][, filed {/filing_date}][, granted {/grant_date}]",
+  "hosts": [
+   "patents.google.com"
+  ]
+ },
+ {
+  "id": "serpapi-patents",
+  "per_run": 8,
+  "name": "Google Patents by words (through SerpApi)",
+  "holds": "patents of every patent office by the words in them: an invention, a firm, a place. For a person use serpapi-inventor",
+  "kind": "patent",
+  "fields": [
+   "genealogy",
+   "patents"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1790,
+  "to": 0,
+  "tier": "original, read through machine text",
+  "key": "RESEARCHZOSHO_SERPAPI_KEY",
+  "key_from": "https://serpapi.com (250 searches a month free; each search here is one of them)",
+  "url": "https://serpapi.com/search.json?engine=google_patents&q={query}[&after=priority:{from}0101][&before=priority:{to}1231]&num=10&api_key={key}",
+  "items": "/organic_results",
+  "title": "{/title}",
+  "date": "{/grant_date}",
+  "link": "{/patent_link}",
+  "snippet": "{/snippet}",
+  "where": "{/publication_number}[, inventor {/inventor}][, assignee {/assignee}][, filed {/filing_date}][, granted {/grant_date}]",
+  "hosts": [
+   "patents.google.com"
+  ]
+ },
+ {
+  "id": "epo-inventor",
+  "name": "European Patent Office, by inventor (Espacenet)",
+  "holds": "the patents of most of the world's patent offices (Japan, the United States, Britain, Germany, France and many more, a good part of them from before 1920), found by the inventor's name. The query is the name and nothing else. For a Japanese, Chinese or Korean inventor search the name in its own script FIRST (山田太郎): patents of the last decades carry it, and it sets the person apart from everybody whose name only sounds the same. A name is matched as it is written, so search an old character form and the modern one separately (髙橋 and 高橋, 眞 and 真). Then search it in Latin letters as a patent office wrote it (Taro Yamada, or Yamada Taro), which is the only form older patents and other countries have. Several people share a romanised name, and the newest patents come first: give the years the person could have been at work (from_year, to_year), and let the year, the country, the applicant and the subject say whether a patent is this person's. Where the answer gives the inventor's name in its own script, compare it with the person's: the same reading written with other characters is somebody else",
+  "kind": "patent",
+  "fields": [
+   "genealogy",
+   "patents",
+   "person"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1836,
+  "to": 0,
+  "tier": "patent office record",
+  "key": "RESEARCHZOSHO_EPO_KEY",
+  "secret": "RESEARCHZOSHO_EPO_SECRET",
+  "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)",
+  "token_url": "https://ops.epo.org/3.2/auth/accesstoken",
+  "accept": "application/json",
+  "empty_status": 404,
+  "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=in%3D%22{query:bare}%22[%20and%20pd%3E%3D{from}][%20and%20pd%3C%3D{to}]&Range=1-{limit}",
+  "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents",
+  "title": "{/exchange-document/bibliographic-data/invention-title}",
+  "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}",
+  "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}",
+  "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]",
+  "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)",
+  "hosts": [
+   "worldwide.espacenet.com"
+  ]
+ },
+ {
+  "id": "epo-applicant",
+  "name": "European Patent Office, by applicant (Espacenet)",
+  "holds": "the same patents, found by who applied for them: a company a person founded or worked for, or the person themselves. The query is the applicant's name and nothing else, in Latin letters",
+  "kind": "patent",
+  "fields": [
+   "genealogy",
+   "patents",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1836,
+  "to": 0,
+  "tier": "patent office record",
+  "key": "RESEARCHZOSHO_EPO_KEY",
+  "secret": "RESEARCHZOSHO_EPO_SECRET",
+  "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)",
+  "token_url": "https://ops.epo.org/3.2/auth/accesstoken",
+  "accept": "application/json",
+  "empty_status": 404,
+  "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=pa%3D%22{query:bare}%22[%20and%20pd%3E%3D{from}][%20and%20pd%3C%3D{to}]&Range=1-{limit}",
+  "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents",
+  "title": "{/exchange-document/bibliographic-data/invention-title}",
+  "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}",
+  "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}",
+  "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]",
+  "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)",
+  "hosts": [
+   "worldwide.espacenet.com"
+  ]
+ },
+ {
+  "id": "epo-query",
+  "name": "European Patent Office, by a query of several parts (Espacenet)",
+  "holds": "the same patents, asked for with more than one condition at once, which is how one person is told from their namesakes. The query is written in the office's own short language, copied from these examples with your own words in them: in=\"Yamada Taro\" and pa=hitachi   (an inventor at a firm) · in=\"Yamada Taro\" and ti=turbine   (an inventor and a word of the title) · in=\"山田太郎\" and pd>=1990 and pd<=2005   (an inventor in the years given) · pa=\"Yamada Seisakusho\"   (a firm). in is the inventor, pa the applicant, ti a word of the title, pd the year of publication",
+  "kind": "patent",
+  "fields": [
+   "genealogy",
+   "patents"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1836,
+  "to": 0,
+  "tier": "patent office record",
+  "key": "RESEARCHZOSHO_EPO_KEY",
+  "secret": "RESEARCHZOSHO_EPO_SECRET",
+  "key_from": "https://developers.epo.org (free: register, add an app, and it shows a consumer key and a consumer secret; about 4 GB of answers a week)",
+  "token_url": "https://ops.epo.org/3.2/auth/accesstoken",
+  "accept": "application/json",
+  "empty_status": 404,
+  "url": "https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q={query}&Range=1-{limit}",
+  "items": "/ops:world-patent-data/ops:biblio-search/ops:search-result/exchange-documents",
+  "title": "{/exchange-document/bibliographic-data/invention-title}",
+  "date": "{/exchange-document/bibliographic-data/publication-reference/document-id/0/date}",
+  "link": "https://worldwide.espacenet.com/patent/search?q=pn%3D{/exchange-document/bibliographic-data/publication-reference/document-id/1/doc-number}",
+  "snippet": "[inventors: {/exchange-document/bibliographic-data/parties/inventors}][; applicants: {/exchange-document/bibliographic-data/parties/applicants}]",
+  "where": "patent {/exchange-document/@country} {/exchange-document/@doc-number}[ {/exchange-document/@kind}][, published {/exchange-document/bibliographic-data/publication-reference/document-id/0/date}], European Patent Office (Espacenet)",
+  "hosts": [
+   "worldwide.espacenet.com"
+  ]
+ },
+ {
+  "id": "cinii",
+  "name": "CiNii Research (国立情報学研究所)",
+  "holds": "Japanese academic papers, dissertations, university bulletins and books by author and title, back to the Meiji journals: what a relative who taught, researched or wrote left behind. Query in Japanese, the author's name as a paper writes it",
+  "kind": "catalogue",
+  "fields": [
+   "genealogy",
+   "person"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 1880,
+  "to": 0,
+  "tier": "catalogue entry",
+  "key": "RESEARCHZOSHO_CINII_APPID",
+  "key_from": "https://support.nii.ac.jp/en/cinii/api/developer",
+  "url": "https://cir.nii.ac.jp/opensearch/all?q={query}&count={limit}&format=json&appid={key}",
+  "items": "/items",
+  "title": "{/title}",
+  "date": "{/prism:publicationDate}",
+  "link": "{/link/@id}",
+  "snippet": "{/description}",
+  "where": "[{/title}, ][{/dc:creator}, ][{/prism:publicationName}][ {/prism:volume}][, pages {/prism:startingPage}-{/prism:endingPage}][, {/prism:publicationDate}], CiNii Research"
+ },
+ {
+  "id": "europeana",
+  "name": "Europeana",
+  "holds": "the catalogues of European archives, libraries and museums in one search, with digitised newspapers of some twenty countries",
+  "kind": "archive",
+  "countries": [
+   "EU"
+  ],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "catalogue entry for an original",
+  "key": "RESEARCHZOSHO_EUROPEANA_KEY",
+  "key_from": "https://pro.europeana.eu/pages/get-api",
+  "url": "https://api.europeana.eu/record/v2/search.json?wskey={key}&query={query}&rows={limit}",
+  "items": "/items",
+  "title": "{/title/0}",
+  "date": "{/year/0}",
+  "link": "{/guid}",
+  "snippet": "{/dcDescription/0}",
+  "where": "{/title/0}[, {/year/0}][, {/dataProvider/0}][, {/country/0}], Europeana {/id}",
+  "fields": [
+   "genealogy"
+  ]
+ },
+ {
+  "id": "github-repos",
+  "name": "GitHub repositories, best match",
+  "holds": "every public repository, matched on name, description, topics and README. Qualifiers work in the query: topic:genealogy language:rust license:mit stars:>50 in:readme. from_year limits it to repositories pushed since that year",
+  "kind": "code",
+  "fields": [
+   "software",
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the project itself",
+  "key": "RESEARCHZOSHO_GITHUB_TOKEN",
+  "key_optional": true,
+  "key_header": "Authorization: Bearer {key}",
+  "key_from": "https://github.com/settings/tokens (no scopes needed; without one GitHub allows 10 searches a minute)",
+  "url": "https://api.github.com/search/repositories?q={query}[+pushed%3A%3E%3D{from}-01-01]&per_page={limit}",
+  "items": "/items",
+  "title": "{/full_name}",
+  "date": "{/pushed_at}",
+  "link": "{/html_url}",
+  "snippet": "{/description}[ · topics: {/topics}]",
+  "where": "{/full_name}[, {/language}][, licence {/license/spdx_id}], {/stargazers_count} stars, last push {/pushed_at}, created {/created_at}",
+  "hosts": [
+   "github.com",
+   "api.github.com"
+  ]
+ },
+ {
+  "id": "github-active",
+  "name": "GitHub repositories, most recently pushed first",
+  "holds": "the same search ordered by last push, newest first: the small and new projects a best-match search buries under the starred ones. The same qualifiers work",
+  "kind": "code",
+  "fields": [
+   "software",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the project itself",
+  "key": "RESEARCHZOSHO_GITHUB_TOKEN",
+  "key_optional": true,
+  "key_header": "Authorization: Bearer {key}",
+  "key_from": "https://github.com/settings/tokens",
+  "url": "https://api.github.com/search/repositories?q={query}[+pushed%3A%3E%3D{from}-01-01]&sort=updated&order=desc&per_page={limit}",
+  "items": "/items",
+  "title": "{/full_name}",
+  "date": "{/pushed_at}",
+  "link": "{/html_url}",
+  "snippet": "{/description}[ · topics: {/topics}]",
+  "where": "{/full_name}[, {/language}][, licence {/license/spdx_id}], {/stargazers_count} stars, last push {/pushed_at}, created {/created_at}",
+  "hosts": [
+   "github.com",
+   "api.github.com"
+  ]
+ },
+ {
+  "id": "github-code",
+  "name": "GitHub code search",
+  "holds": "the contents of files in public repositories: finds a project by what its code or configuration says when its name and description never mention the subject. Qualifiers work: language:python path:config filename:docker-compose.yml",
+  "kind": "code",
+  "fields": [
+   "software"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the project itself",
+  "key": "RESEARCHZOSHO_GITHUB_TOKEN",
+  "key_header": "Authorization: Bearer {key}",
+  "key_from": "https://github.com/settings/tokens (no scopes needed)",
+  "url": "https://api.github.com/search/code?q={query}&per_page={limit}",
+  "items": "/items",
+  "title": "{/repository/full_name}: {/path}",
+  "date": "",
+  "link": "{/html_url}",
+  "snippet": "{/repository/description}",
+  "where": "{/repository/full_name}, file {/path}, GitHub",
+  "hosts": [
+   "github.com",
+   "api.github.com"
+  ]
+ },
+ {
+  "id": "huggingface-models",
+  "name": "Hugging Face models, most recently changed first",
+  "holds": "models on the Hugging Face hub by name and tag",
+  "kind": "model",
+  "fields": [
+   "software",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the model itself",
+  "url": "https://huggingface.co/api/models?search={query}&limit={limit}&sort=lastModified&direction=-1",
+  "items": "",
+  "title": "{/id}",
+  "date": "{/lastModified}",
+  "link": "https://huggingface.co/{/id}",
+  "snippet": "[{/pipeline_tag}][ · {/library_name}]",
+  "where": "{/id}, Hugging Face, changed {/lastModified}, {/downloads} downloads, {/likes} likes"
+ },
+ {
+  "id": "npm",
+  "name": "npm packages",
+  "holds": "JavaScript and TypeScript packages, with their repository, licence and last release",
+  "kind": "package",
+  "fields": [
+   "software",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the package itself",
+  "url": "https://registry.npmjs.org/-/v1/search?text={query}&size={limit}",
+  "items": "/objects",
+  "title": "{/package/name}",
+  "date": "{/package/date}",
+  "link": "{/package/links/npm}",
+  "snippet": "{/package/description}",
+  "where": "{/package/name} {/package/version}[, licence {/package/license}][, {/package/links/repository}], {/downloads/monthly} downloads a month, released {/package/date}"
+ },
+ {
+  "id": "crates",
+  "name": "crates.io",
+  "holds": "Rust packages, with their repository and last release",
+  "kind": "package",
+  "fields": [
+   "software",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the package itself",
+  "url": "https://crates.io/api/v1/crates?q={query}&per_page={limit}",
+  "items": "/crates",
+  "title": "{/name}",
+  "date": "{/updated_at}",
+  "link": "https://crates.io/crates/{/id}",
+  "snippet": "{/description}",
+  "where": "{/name} {/newest_version}[, {/repository}], {/recent_downloads} recent downloads, updated {/updated_at}"
+ },
+ {
+  "id": "familysearch",
+  "name": "FamilySearch",
+  "kind": "link",
+  "access": "registration",
+  "holds": "indexed records of births, marriages, deaths, censuses and church books of most countries, and a shared tree. Free with an account",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://www.familysearch.org/search/record/results?q.givenName={given}&q.surname={family}[&q.birthLikeDate.from={born}&q.birthLikeDate.to={born}][&q.deathLikeDate.from={died}&q.deathLikeDate.to={died}]"
+ },
+ {
+  "id": "ancestry",
+  "name": "Ancestry",
+  "kind": "link",
+  "access": "subscription",
+  "holds": "censuses, passenger lists, military, church and civil records, mostly of the United States, Britain, Canada and Australia, and members' trees",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://www.ancestry.com/search/?name={given}_{family}[&birth={born}][&death={died}]&searchMode=advanced"
+ },
+ {
+  "id": "myheritage",
+  "name": "MyHeritage",
+  "kind": "link",
+  "access": "subscription",
+  "holds": "records of many countries, strong for Europe and Scandinavia, and members' trees",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://www.myheritage.com/research?formId=master&formMode=1&action=query&qname=Name+fn.{given}+ln.{family}[&qevents-event1=Event+et.birth+ey.{born}]&qevents=List"
+ },
+ {
+  "id": "geneanet",
+  "name": "Geneanet",
+  "kind": "link",
+  "access": "registration",
+  "holds": "members' trees and indexed records, strong for France and western Europe",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://en.geneanet.org/fonds/individus/?size=10&nom={family}&prenom={given}"
+ },
+ {
+  "id": "findagrave",
+  "name": "Find a Grave",
+  "kind": "link",
+  "access": "free",
+  "holds": "graves and memorials with photographs of the stones, mostly in the United States, often with family links",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://www.findagrave.com/memorial/search?firstname={given}&lastname={family}[&birthyear={born}][&deathyear={died}]"
+ },
+ {
+  "id": "compgen",
+  "name": "CompGen meta search",
+  "kind": "link",
+  "access": "free",
+  "holds": "the databases of the German genealogy society in one search: family names in local registers, address books and lists of emigrants",
+  "countries": [
+   "DE"
+  ],
+  "languages": [
+   "de"
+  ],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "genealogy"
+  ],
+  "url": "https://meta.genealogy.net/search?lastname={family}[&place={place}]"
+ },
+ {
+  "id": "courtlistener",
+  "name": "CourtListener (Free Law Project)",
+  "holds": "nine million US court decisions from two thousand courts, federal and state, back to the 1650s, with new ones as the courts release them, searched by their full text. Operators work in the query: caseName:(roe v. wade), court_id:scotus, citation:(410 U.S. 113). Free; a free token raises the rate allowed",
+  "kind": "case",
+  "fields": [
+   "law",
+   "person",
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1650,
+  "to": 0,
+  "tier": "the court's own text",
+  "key": "RESEARCHZOSHO_COURTLISTENER_TOKEN",
+  "key_optional": true,
+  "key_header": "Authorization: Token {key}",
+  "key_from": "https://www.courtlistener.com/sign-in/ (free; the token is on the profile page)",
+  "url": "https://www.courtlistener.com/api/rest/v4/search/?type=o&q={query}[&filed_after=01%2F01%2F{from}][&filed_before=12%2F31%2F{to}]",
+  "items": "/results",
+  "title": "{/caseName}",
+  "date": "{/dateFiled}",
+  "link": "https://www.courtlistener.com{/absolute_url}",
+  "snippet": "{/opinions/0/snippet}",
+  "where": "{/caseName}[, {/citation}][, {/court}], {/dateFiled}, CourtListener"
+ },
+ {
+  "id": "ecfr",
+  "name": "eCFR (Code of Federal Regulations)",
+  "holds": "the US federal regulations as they stand today, every section, searched by their text; a hit names the title, part and section and the day the text took effect",
+  "kind": "regulation",
+  "fields": [
+   "law"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "the regulation's own text",
+  "url": "https://www.ecfr.gov/api/search/v1/results?query={query}&per_page={limit}",
+  "items": "/results",
+  "title": "{/hierarchy_headings/section}[ {/headings/section}]",
+  "date": "{/starts_on}",
+  "link": "https://www.ecfr.gov/current/title-{/hierarchy/title}/section-{/hierarchy/section}",
+  "snippet": "{/full_text_excerpt}",
+  "where": "{/headings/title}[, {/headings/part}], {/hierarchy_headings/section}, in force since {/starts_on}, eCFR"
+ },
+ {
+  "id": "federal-register",
+  "name": "Federal Register",
+  "holds": "every US federal rule, proposed rule, notice and presidential document since 1994, searched by text, with the agency and the day it was published",
+  "kind": "regulation",
+  "fields": [
+   "law",
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1994,
+  "to": 0,
+  "tier": "the government's own text",
+  "url": "https://www.federalregister.gov/api/v1/documents.json?conditions%5Bterm%5D={query}&per_page={limit}[&conditions%5Bpublication_date%5D%5Bgte%5D={from}-01-01][&conditions%5Bpublication_date%5D%5Blte%5D={to}-12-31]",
+  "items": "/results",
+  "title": "{/title}",
+  "date": "{/publication_date}",
+  "link": "{/html_url}",
+  "snippet": "{/abstract}",
+  "where": "{/type} {/document_number}[, {/agencies/0/name}], Federal Register {/publication_date}"
+ },
+ {
+  "id": "regulations-gov",
+  "name": "Regulations.gov",
+  "holds": "US federal rulemaking dockets, the proposed and final rules in them and the public comments on them, searched by text. Needs a free api.data.gov key",
+  "kind": "docket",
+  "fields": [
+   "law",
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "the agency's own docket",
+  "key": "RESEARCHZOSHO_DATAGOV_KEY",
+  "key_from": "https://api.data.gov/signup/ (free, sent by email)",
+  "url": "https://api.regulations.gov/v4/documents?filter%5BsearchTerm%5D={query}&page%5Bsize%5D={limit}&api_key={key}",
+  "items": "/data",
+  "title": "{/attributes/title}",
+  "date": "{/attributes/postedDate}",
+  "link": "https://www.regulations.gov/document/{/id}",
+  "snippet": "{/attributes/documentType}",
+  "where": "{/attributes/agencyId}[ docket {/attributes/docketId}], {/attributes/documentType}, posted {/attributes/postedDate}, Regulations.gov"
+ },
+ {
+  "id": "egov-laws",
+  "name": "e-Gov 法令検索 (法令名)",
+  "holds": "every Japanese law, cabinet order and ministerial ordinance in force, found by words of its title (特許法, 個人情報の保護に関する法律); a hit gives the 法令番号, the day it was promulgated and the page with its full text. Query in Japanese",
+  "kind": "statute",
+  "fields": [
+   "law"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "the law's own text",
+  "url": "https://laws.e-gov.go.jp/api/2/laws?law_title={query:bare}&limit={limit}",
+  "items": "/laws",
+  "title": "{/revision_info/law_title}",
+  "date": "{/law_info/promulgation_date}",
+  "link": "https://laws.e-gov.go.jp/law/{/law_info/law_id}",
+  "snippet": "{/law_info/law_num}[ · {/revision_info/category}]",
+  "where": "{/revision_info/law_title}（{/law_info/law_num}）, 公布 {/law_info/promulgation_date}[, 改正施行 {/revision_info/amendment_enforcement_date}], e-Gov法令検索"
+ },
+ {
+  "id": "egov-keyword",
+  "name": "e-Gov 法令検索 (条文の全文)",
+  "holds": "the same laws searched by the words of their articles: a hit is the sentence that holds the words and the law it stands in. Query in Japanese, one or two words",
+  "kind": "statute",
+  "fields": [
+   "law"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "tier": "the law's own text",
+  "url": "https://laws.e-gov.go.jp/api/2/keyword?keyword={query:bare}&limit={limit}",
+  "items": "/items",
+  "title": "{/revision_info/law_title}",
+  "date": "{/law_info/promulgation_date}",
+  "link": "https://laws.e-gov.go.jp/law/{/law_info/law_id}",
+  "snippet": "{/sentences/0/text}",
+  "where": "{/revision_info/law_title}（{/law_info/law_num}）[, {/sentences/0/position}], e-Gov法令検索"
+ },
+ {
+  "id": "google-patents",
+  "name": "Google Patents",
+  "holds": "the patents and applications of every major office (US, EP, WO, JP, CN, KR and more) searched by their words, without a key, through the address the site's own search uses; it is not a published interface and may stop. Operators work in the query: assignee:Nintendo, inventor:Yamada, country:US. For a person's name use the inventor collections",
+  "kind": "patent",
+  "fields": [
+   "patents",
+   "genealogy",
+   "organization",
+   "person"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 1790,
+  "to": 0,
+  "tier": "the office's publication, read through Google",
+  "url": "https://patents.google.com/xhr/query?url=q%3D{query}%26num%3D{limit}&exp=",
+  "items": "/results/cluster/0/result",
+  "title": "{/patent/title}",
+  "date": "{/patent/publication_date}",
+  "link": "https://patents.google.com/{/id}",
+  "snippet": "{/patent/snippet}",
+  "where": "{/patent/publication_number}[, {/patent/assignee}][, {/patent/inventor}], filed {/patent/filing_date}, published {/patent/publication_date}, Google Patents",
+  "hosts": [
+   "patents.google.com"
+  ]
+ },
+ {
+  "id": "hanrei-jp",
+  "name": "裁判所 裁判例検索",
+  "kind": "link",
+  "access": "open",
+  "holds": "the Japanese courts' own database of judgments (最高裁, 高裁, 知財高裁, 地裁), searched by words, case number and date, each read as its PDF. No program interface: open it and search, or find a judgment through a web search and read the PDF",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "law"
+  ],
+  "url": "https://www.courts.go.jp/app/hanrei_jp/search1"
+ },
+ {
+  "id": "ppubs",
+  "name": "USPTO Patent Public Search",
+  "kind": "link",
+  "access": "open",
+  "holds": "the USPTO's own full-text search of US patents and applications, back to 1790. No program interface",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1790,
+  "to": 0,
+  "fields": [
+   "patents"
+  ],
+  "url": "https://ppubs.uspto.gov/pubwebapp/"
+ },
+ {
+  "id": "jplatpat",
+  "name": "J-PlatPat (特許情報プラットフォーム)",
+  "kind": "link",
+  "access": "open",
+  "holds": "the Japan Patent Office's patents, utility models, designs and trademarks, searched in Japanese, with each publication's text",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 1885,
+  "to": 0,
+  "fields": [
+   "patents"
+  ],
+  "url": "https://www.j-platpat.inpit.go.jp/"
+ },
+ {
+  "id": "patentscope",
+  "name": "WIPO PATENTSCOPE",
+  "kind": "link",
+  "access": "open",
+  "holds": "international (PCT) applications and the national collections WIPO holds, searched in several languages",
+  "countries": [],
+  "languages": [],
+  "from": 1978,
+  "to": 0,
+  "fields": [
+   "patents"
+  ],
+  "url": "https://patentscope.wipo.int/search/en/search.jsf"
+ },
+ {
+  "id": "openalex-authors",
+  "name": "OpenAlex authors",
+  "holds": "every author of a scholarly work, with how many works and citations and the last institution the works name: a person's academic record, and the spellings their papers used. The query is the name",
+  "kind": "index",
+  "fields": [
+   "person"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "index",
+  "url": "https://api.openalex.org/authors?search={query}&per_page={limit}",
+  "items": "/results",
+  "title": "{/display_name}",
+  "date": "",
+  "link": "{/id}",
+  "snippet": "[{/works_count} works][, cited {/cited_by_count} times][; {/last_known_institutions/0/display_name}]",
+  "where": "{/display_name}, OpenAlex author {/id}",
+  "hosts": [
+   "openalex.org",
+   "api.openalex.org"
+  ]
+ },
+ {
+  "id": "openalex-works",
+  "name": "OpenAlex works",
+  "holds": "scholarly works by words in them, with authors, venue and date: what a person or an organisation published, and what was published about them. The query is a title, a name or a few words",
+  "kind": "catalogue",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "catalogue entry",
+  "url": "https://api.openalex.org/works?search={query}&per_page={limit}[&filter=from_publication_date:{from}-01-01]",
+  "items": "/results",
+  "title": "{/title}",
+  "date": "{/publication_date}",
+  "link": "{/id}",
+  "snippet": "[{/authorships/0/author/display_name}][, {/primary_location/source/display_name}]",
+  "where": "{/title}[, {/authorships/0/author/display_name}][, {/primary_location/source/display_name}][, {/publication_date}], OpenAlex",
+  "hosts": [
+   "openalex.org",
+   "api.openalex.org",
+   "doi.org"
+  ]
+ },
+ {
+  "id": "orcid",
+  "name": "ORCID",
+  "holds": "the researcher register: a person's own record of names, institutions and works, kept by them. The query is the name",
+  "kind": "register",
+  "fields": [
+   "person"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2012,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://pub.orcid.org/v3.0/expanded-search/?q={query}&rows={limit}",
+  "accept": "application/json",
+  "items": "/expanded-result",
+  "title": "{/given-names} {/family-names}",
+  "date": "",
+  "link": "https://orcid.org/{/orcid-id}",
+  "snippet": "[{/institution-name/0}][; {/institution-name/1}]",
+  "where": "{/given-names} {/family-names}, ORCID {/orcid-id}",
+  "hosts": [
+   "orcid.org",
+   "pub.orcid.org"
+  ]
+ },
+ {
+  "id": "gleif",
+  "name": "GLEIF legal entity register",
+  "holds": "every legal entity with a Legal Entity Identifier, worldwide: the registered name, other names, the legal and headquarters addresses, status, and the parent it reports. The query is the entity's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2012,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://api.gleif.org/api/v1/lei-records?filter%5Bfulltext%5D={query}&page%5Bsize%5D={limit}",
+  "items": "/data",
+  "title": "{/attributes/entity/legalName/name}",
+  "date": "{/attributes/registration/initialRegistrationDate}",
+  "link": "https://search.gleif.org/#/record/{/attributes/lei}",
+  "snippet": "[{/attributes/entity/legalAddress/city}][, {/attributes/entity/legalAddress/country}][; {/attributes/entity/status}]",
+  "where": "{/attributes/entity/legalName/name}, LEI {/attributes/lei}, GLEIF",
+  "hosts": [
+   "gleif.org",
+   "search.gleif.org",
+   "api.gleif.org"
+  ]
+ },
+ {
+  "id": "propublica-nonprofits",
+  "name": "ProPublica Nonprofit Explorer (Form 990)",
+  "holds": "every US tax-exempt organisation and its Form 990 filings: revenue, officers and their pay, grants given, back to 2001. The query is the organisation's name",
+  "kind": "filing",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 2001,
+  "to": 0,
+  "tier": "the filing itself",
+  "url": "https://projects.propublica.org/nonprofits/api/v2/search.json?q={query}",
+  "items": "/organizations",
+  "title": "{/name}",
+  "date": "",
+  "link": "https://projects.propublica.org/nonprofits/organizations/{/ein}",
+  "snippet": "[{/city}][, {/state}][; EIN {/strein}][; NTEE {/ntee_code}]",
+  "where": "{/name}[, {/city}, {/state}], EIN {/strein}, Form 990 at ProPublica Nonprofit Explorer",
+  "hosts": [
+   "projects.propublica.org"
+  ]
+ },
+ {
+  "id": "edgar-fulltext",
+  "name": "SEC EDGAR, full text of filings",
+  "holds": "every filing with the US Securities and Exchange Commission since 2001, searched by the words in it: a company's reports, a private company's Form D for money raised, an officer's or director's name in a proxy or a Form 4. Put a name in quotes. The hit names the company and the form; its company page lists the filings to read",
+  "kind": "filing",
+  "fields": [
+   "organization",
+   "person"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 2001,
+  "to": 0,
+  "tier": "the filing itself",
+  "url": "https://efts.sec.gov/LATEST/search-index?q={query}[&dateRange=custom&startdt={from}-01-01][&enddt={to}-12-31]",
+  "items": "/hits/hits",
+  "title": "{/_source/display_names/0}: {/_source/form}",
+  "date": "{/_source/file_date}",
+  "link": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={/_source/ciks/0}&type={/_source/form}",
+  "snippet": "[period {/_source/period_ending}][; file {/_source/file_num/0}]",
+  "where": "{/_source/display_names/0}, {/_source/form} filed {/_source/file_date}, SEC EDGAR {/_source/adsh}",
+  "hosts": [
+   "sec.gov",
+   "efts.sec.gov",
+   "www.sec.gov"
+  ]
+ },
+ {
+  "id": "senate-lobbying",
+  "name": "US Senate lobbying disclosures",
+  "holds": "every lobbying registration and report filed under the Lobbying Disclosure Act since 1999: who lobbied for an organisation, on what, for how much. The query is the client organisation's name",
+  "kind": "filing",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1999,
+  "to": 0,
+  "tier": "the filing itself",
+  "url": "https://lda.senate.gov/api/v1/filings/?client_name={query}&page_size={limit}[&filing_year={to}]",
+  "items": "/results",
+  "title": "{/client/name} — {/registrant/name}, {/filing_type_display} {/filing_year}",
+  "date": "{/dt_posted}",
+  "link": "{/filing_document_url}",
+  "snippet": "[{/lobbying_activities/0/general_issue_code_display}][; income {/income}][; expenses {/expenses}]",
+  "where": "{/registrant/name} for {/client/name}, {/filing_type_display} {/filing_year}, Senate Office of Public Records",
+  "hosts": [
+   "lda.senate.gov",
+   "lda.gov"
+  ]
+ },
+ {
+  "id": "openfda-devices",
+  "name": "openFDA medical device clearances (510(k))",
+  "holds": "every medical device cleared by the US FDA under 510(k) since 1976, by the applicant company: what a company makes and when it was cleared. The query is the applicant's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1976,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://api.fda.gov/device/510k.json?search=applicant:{query}&limit={limit}",
+  "items": "/results",
+  "title": "{/device_name}",
+  "date": "{/decision_date}",
+  "link": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfpmn/pmn.cfm?ID={/k_number}",
+  "snippet": "[{/applicant}][, {/city}][; {/k_number}]",
+  "where": "{/device_name}, {/applicant}, cleared {/decision_date}, FDA {/k_number}",
+  "empty_status": 404,
+  "hosts": [
+   "api.fda.gov",
+   "accessdata.fda.gov"
+  ]
+ },
+ {
+  "id": "hacker-news",
+  "name": "Hacker News",
+  "holds": "every story and discussion on Hacker News since 2007, by words in the title: what the technical public said about a person, a company or a product, dated. The query is a name or a few words",
+  "kind": "index",
+  "fields": [
+   "person",
+   "organization",
+   "software"
+  ],
+  "countries": [],
+  "languages": [
+   "en"
+  ],
+  "from": 2007,
+  "to": 0,
+  "tier": "third-party",
+  "url": "https://hn.algolia.com/api/v1/search?query={query}&hitsPerPage={limit}&tags=story",
+  "items": "/hits",
+  "title": "{/title}",
+  "date": "{/created_at}",
+  "link": "https://news.ycombinator.com/item?id={/objectID}",
+  "snippet": "[{/points} points][, {/num_comments} comments][, by {/author}]",
+  "where": "\"{/title}\", Hacker News, {/created_at}",
+  "hosts": [
+   "news.ycombinator.com",
+   "hn.algolia.com"
+  ]
+ },
+ {
+  "id": "bluesky-accounts",
+  "name": "Bluesky accounts",
+  "holds": "the public accounts on Bluesky by name or handle, with the account's own description and when it was made: a person's or an organisation's own voice, by their handle. The query is a name",
+  "kind": "index",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2023,
+  "to": 0,
+  "tier": "own publication",
+  "url": "https://public.api.bsky.app/xrpc/app.bsky.actor.searchActors?q={query}&limit={limit}",
+  "items": "/actors",
+  "title": "{/displayName} (@{/handle})",
+  "date": "{/createdAt}",
+  "link": "https://bsky.app/profile/{/handle}",
+  "snippet": "{/description}",
+  "where": "@{/handle} on Bluesky, since {/createdAt}",
+  "hosts": [
+   "bsky.app",
+   "public.api.bsky.app"
+  ]
+ },
+ {
+  "id": "bluesky-posts",
+  "name": "Bluesky feed",
+  "holds": "the public feed of one Bluesky account, newest first, by its handle: the account's own posts and the posts it reposted, each dated and attributed to its author — a quote is the subject's own words only when the author's handle is theirs. The query is a handle, such as name.bsky.social, found with bluesky-accounts first",
+  "kind": "index",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2023,
+  "to": 0,
+  "tier": "own publication",
+  "url": "https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed?actor={query}&limit={limit}",
+  "items": "/feed",
+  "title": "{/post/record/text}",
+  "date": "{/post/record/createdAt}",
+  "link": "https://bsky.app/profile/{/post/author/handle}",
+  "snippet": "[{/post/likeCount} likes][, {/post/repostCount} reposts]",
+  "where": "@{/post/author/handle} on Bluesky, {/post/record/createdAt}",
+  "hosts": [
+   "bsky.app",
+   "public.api.bsky.app"
+  ]
+ },
+ {
+  "id": "nsf-awards",
+  "name": "NSF awards, by institution",
+  "holds": "every US National Science Foundation award since 1959, by the institution that received it: what a university or a company was funded to do, by whom, for how much. The query is the institution's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1959,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://api.nsf.gov/services/v1/awards.json?awardeeName={query}&rpp={limit}[&dateStart=01/01/{from}][&dateEnd=12/31/{to}]",
+  "items": "/response/award",
+  "title": "{/title}",
+  "date": "{/date}",
+  "link": "https://www.nsf.gov/awardsearch/showAward?AWD_ID={/id}",
+  "snippet": "[{/awardeeName}][; PI {/piFirstName} {/piLastName}][; ${/fundsObligatedAmt}]",
+  "where": "NSF award {/id}, {/title}, {/awardeeName}, {/date}",
+  "hosts": [
+   "nsf.gov",
+   "api.nsf.gov"
+  ]
+ },
+ {
+  "id": "nsf-awards-people",
+  "name": "NSF awards, by words and names",
+  "holds": "the same NSF awards searched by any word: a principal investigator's name, a topic. The query is a name or a few words",
+  "kind": "register",
+  "fields": [
+   "person"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1959,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://api.nsf.gov/services/v1/awards.json?keyword={query}&rpp={limit}[&dateStart=01/01/{from}][&dateEnd=12/31/{to}]",
+  "items": "/response/award",
+  "title": "{/title}",
+  "date": "{/date}",
+  "link": "https://www.nsf.gov/awardsearch/showAward?AWD_ID={/id}",
+  "snippet": "[{/awardeeName}][; PI {/piFirstName} {/piLastName}][; ${/fundsObligatedAmt}]",
+  "where": "NSF award {/id}, {/title}, PI {/piFirstName} {/piLastName}, {/awardeeName}, {/date}",
+  "hosts": [
+   "nsf.gov",
+   "api.nsf.gov"
+  ]
+ },
+ {
+  "id": "diet-record",
+  "name": "国会会議録 (Diet record)",
+  "holds": "every word spoken in Japan's Diet since 1947, searched by words: what was said about a person, a company or a matter, by whom, in which house and committee, on which day. Query in Japanese",
+  "kind": "record",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 1947,
+  "to": 0,
+  "tier": "the record itself",
+  "url": "https://kokkai.ndl.go.jp/api/speech?any={query}&maximumRecords={limit}&recordPacking=json[&from={from}-01-01][&until={to}-12-31]",
+  "items": "/speechRecord",
+  "title": "{/speaker}[（{/speakerPosition}）] {/nameOfHouse}{/nameOfMeeting} {/date}",
+  "date": "{/date}",
+  "link": "{/speechURL}",
+  "snippet": "{/speech}",
+  "where": "{/speaker}, {/nameOfHouse}{/nameOfMeeting}{/issue}, {/date}, 国会会議録",
+  "hosts": [
+   "kokkai.ndl.go.jp"
+  ]
+ },
+ {
+  "id": "diet-speaker",
+  "name": "国会会議録, by speaker",
+  "holds": "the same Diet record, every speech by one person: a politician's or a witness's own words, dated. The query is the speaker's name as the record writes it (姓名, no space)",
+  "kind": "record",
+  "fields": [
+   "person"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 1947,
+  "to": 0,
+  "tier": "own publication",
+  "url": "https://kokkai.ndl.go.jp/api/speech?speaker={query}&maximumRecords={limit}&recordPacking=json[&from={from}-01-01][&until={to}-12-31]",
+  "items": "/speechRecord",
+  "title": "{/speaker}[（{/speakerPosition}）] {/nameOfHouse}{/nameOfMeeting} {/date}",
+  "date": "{/date}",
+  "link": "{/speechURL}",
+  "snippet": "{/speech}",
+  "where": "{/speaker}, {/nameOfHouse}{/nameOfMeeting}{/issue}, {/date}, 国会会議録",
+  "hosts": [
+   "kokkai.ndl.go.jp"
+  ]
+ },
+ {
+  "id": "college-scorecard",
+  "name": "College Scorecard (US Department of Education)",
+  "holds": "every US college and university in the federal data: name, aliases, city, size, site. The query is the institution's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1996,
+  "to": 0,
+  "tier": "the register itself",
+  "key": "RESEARCHZOSHO_DATAGOV_KEY",
+  "key_from": "https://api.data.gov/signup/ (free, sent by email; the same key serves Regulations.gov and the FEC)",
+  "url": "https://api.data.gov/ed/collegescorecard/v1/schools?school.name={query}&per_page={limit}&api_key={key}&fields=id,school.name,school.alias,school.city,school.state,school.school_url,latest.student.size",
+  "items": "/results",
+  "title": "{/school.name}",
+  "date": "",
+  "link": "https://{/school.school_url}",
+  "snippet": "[{/school.city}][, {/school.state}][; {/latest.student.size} students][; also {/school.alias}]",
+  "where": "{/school.name}[, {/school.city}, {/school.state}], College Scorecard {/id}",
+  "hosts": [
+   "collegescorecard.ed.gov",
+   "api.data.gov"
+  ]
+ },
+ {
+  "id": "fec-contributions",
+  "name": "FEC individual contributions",
+  "holds": "every itemised contribution to a US federal campaign or committee since 1979, with the contributor's employer, occupation and city as they gave them: where a person worked, year by year. The query is the contributor's name, written Lastname, Firstname",
+  "kind": "filing",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1979,
+  "to": 0,
+  "tier": "the filing itself",
+  "key": "RESEARCHZOSHO_DATAGOV_KEY",
+  "key_from": "https://api.data.gov/signup/ (free, sent by email; the same key serves Regulations.gov)",
+  "url": "https://api.open.fec.gov/v1/schedules/schedule_a/?contributor_name={query}&per_page={limit}&sort=-contribution_receipt_date&api_key={key}[&min_date={from}-01-01][&max_date={to}-12-31]",
+  "items": "/results",
+  "title": "{/contributor_name} → {/committee/name}",
+  "date": "{/contribution_receipt_date}",
+  "link": "https://www.fec.gov/data/receipts/?contributor_name={query}",
+  "snippet": "[${/contribution_receipt_amount}][; {/contributor_employer}][, {/contributor_occupation}][; {/contributor_city}, {/contributor_state}]",
+  "where": "{/contributor_name} to {/committee/name}, {/contribution_receipt_date}, FEC schedule A",
+  "hosts": [
+   "fec.gov",
+   "api.open.fec.gov"
+  ]
+ },
+ {
+  "id": "crt-sh",
+  "name": "Certificate transparency (crt.sh)",
+  "holds": "every TLS certificate issued for a domain and its subdomains, with the names on it and the dates: the hosts an organisation runs. The query is a domain with a wildcard, such as %.example.com",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2013,
+  "to": 0,
+  "tier": "the register itself",
+  "url": "https://crt.sh/?q={query}&output=json",
+  "items": "",
+  "title": "{/common_name}",
+  "date": "{/not_before}",
+  "link": "https://crt.sh/?id={/id}",
+  "snippet": "[{/name_value}][; by {/issuer_name}]",
+  "where": "certificate {/id} for {/common_name}, issued {/not_before}, crt.sh",
+  "hosts": [
+   "crt.sh"
+  ]
+ },
+ {
+  "id": "qiita",
+  "name": "Qiita",
+  "holds": "technical articles by Japanese engineers, by words or by author (user:name): what a person wrote and when, with how many likes. Query in Japanese or English",
+  "kind": "index",
+  "fields": [
+   "person",
+   "organization",
+   "software"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 2011,
+  "to": 0,
+  "tier": "own publication",
+  "url": "https://qiita.com/api/v2/items?query={query}&per_page={limit}",
+  "items": "",
+  "title": "{/title}",
+  "date": "{/created_at}",
+  "link": "{/url}",
+  "snippet": "[by {/user/id}][, {/likes_count} likes]",
+  "where": "\"{/title}\", {/user/id} on Qiita, {/created_at}",
+  "hosts": [
+   "qiita.com"
+  ]
+ },
+ {
+  "id": "gbizinfo",
+  "name": "gBizINFO (経済産業省)",
+  "holds": "Japan's government register of companies and other legal persons: the 法人番号, the address, what the organisation does, its subsidies, procurement, awards, patents and, for listed companies, its accounts. Query in Japanese, the organisation's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 2015,
+  "to": 0,
+  "tier": "the register itself",
+  "key": "RESEARCHZOSHO_GBIZ_TOKEN",
+  "key_header": "X-hojinInfo-api-token: {key}",
+  "key_from": "https://info.gbiz.go.jp/api/ (free; apply for a token, it comes by email)",
+  "url": "https://info.gbiz.go.jp/hojin/v1/hojin?name={query}&limit={limit}",
+  "items": "/hojin-infos",
+  "title": "{/name}",
+  "date": "{/date_of_establishment}",
+  "link": "https://info.gbiz.go.jp/hojin/ichiran?hojinBango={/corporate_number}",
+  "snippet": "[{/location}][; 法人番号 {/corporate_number}][; {/business_summary}]",
+  "where": "{/name}, 法人番号 {/corporate_number}, gBizINFO",
+  "hosts": [
+   "info.gbiz.go.jp"
+  ]
+ },
+ {
+  "id": "houjin-bangou",
+  "name": "法人番号公表サイト (国税庁)",
+  "holds": "every legal person in Japan with its 13-digit 法人番号, name and registered address, with every change of name or address since 2015. Query in Japanese, the organisation's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 2015,
+  "to": 0,
+  "tier": "the register itself",
+  "key": "RESEARCHZOSHO_HOUJIN_ID",
+  "key_from": "https://www.houjin-bangou.nta.go.jp/webapi/ (free; an アプリケーションID by application)",
+  "url": "https://api.houjin-bangou.nta.go.jp/4/name?id={key}&name={query}&type=12&mode=2&history=0",
+  "format": "xml",
+  "items": "corporation",
+  "title": "{name}",
+  "date": "{updateDate}",
+  "link": "https://www.houjin-bangou.nta.go.jp/henkorireki-johoto.html?selHouzinNo={corporateNumber}",
+  "snippet": "[{prefectureName}{cityName}{streetNumber}][; 法人番号 {corporateNumber}]",
+  "where": "{name}, 法人番号 {corporateNumber}, 国税庁法人番号公表サイト",
+  "hosts": [
+   "houjin-bangou.nta.go.jp"
+  ]
+ },
+ {
+  "id": "opensanctions",
+  "name": "OpenSanctions",
+  "holds": "sanctions lists, politically exposed persons and persons of interest from every public list, worldwide, by name: whether a person or an organisation is on one, and which. The query is the name",
+  "kind": "register",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the list itself",
+  "key": "RESEARCHZOSHO_OPENSANCTIONS_KEY",
+  "key_header": "Authorization: ApiKey {key}",
+  "key_from": "https://www.opensanctions.org/api/ (free for personal and research use by request)",
+  "url": "https://api.opensanctions.org/search/default?q={query}&limit={limit}",
+  "items": "/results",
+  "title": "{/caption}",
+  "date": "{/first_seen}",
+  "link": "https://www.opensanctions.org/entities/{/id}/",
+  "snippet": "[{/schema}][; {/datasets/0}][, {/datasets/1}]",
+  "where": "{/caption}, OpenSanctions {/id}",
+  "hosts": [
+   "opensanctions.org",
+   "api.opensanctions.org"
+  ]
+ },
+ {
+  "id": "opencorporates",
+  "name": "OpenCorporates",
+  "holds": "company registers of 140 jurisdictions in one search: the registered name, number, status, incorporation date and officers, from each state's or country's own register. The query is the company's name",
+  "kind": "register",
+  "fields": [
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "the register itself",
+  "key": "RESEARCHZOSHO_OPENCORPORATES_KEY",
+  "key_from": "https://opencorporates.com/api_accounts/new (free for open-data and research use by request; otherwise paid)",
+  "url": "https://api.opencorporates.com/v0.4/companies/search?q={query}&per_page={limit}&api_token={key}",
+  "items": "/results/companies",
+  "title": "{/company/name}",
+  "date": "{/company/incorporation_date}",
+  "link": "{/company/opencorporates_url}",
+  "snippet": "[{/company/jurisdiction_code}][; {/company/company_type}][; {/company/current_status}]",
+  "where": "{/company/name}, {/company/jurisdiction_code} {/company/company_number}, OpenCorporates",
+  "hosts": [
+   "opencorporates.com",
+   "api.opencorporates.com"
+  ]
+ },
+ {
+  "id": "shibusawa-shashi",
+  "name": "渋沢社史データベース",
+  "kind": "link",
+  "access": "open",
+  "holds": "the index of Japanese company histories (社史): which companies have one, their chronologies and the people in them, searched by company or by name. No program interface: open it and search, and read the 社史 itself in a library",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "organization",
+   "person"
+  ],
+  "url": "https://shashi.shibusawa.or.jp/"
+ },
+ {
+  "id": "edinet",
+  "name": "EDINET (金融庁)",
+  "kind": "link",
+  "access": "open",
+  "holds": "the securities reports (有価証券報告書) of every listed Japanese company and large fund: accounts, officers, shareholders, employees, year by year since 2008. Search by company name and read the PDF; the program interface lists filings by day and wants a free key",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 2008,
+  "to": 0,
+  "fields": [
+   "organization",
+   "person"
+  ],
+  "url": "https://disclosure2.edinet-fsa.go.jp/"
+ },
+ {
+  "id": "usaspending",
+  "name": "USAspending.gov",
+  "kind": "link",
+  "access": "open",
+  "holds": "every US federal contract, grant and loan since 2008 by recipient: what the government paid an organisation to do. No simple program interface: open it, search the recipient, read the awards",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 2008,
+  "to": 0,
+  "fields": [
+   "organization"
+  ],
+  "url": "https://www.usaspending.gov/search"
+ },
+ {
+  "id": "uspto-assignments",
+  "name": "USPTO patent assignments",
+  "kind": "link",
+  "access": "open",
+  "holds": "who owns a US patent and every transfer of it, by assignee, assignor, inventor or patent number: a company's patents including the ones filed under another name, a person's inventions assigned to an employer. Open it and search",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1980,
+  "to": 0,
+  "fields": [
+   "organization",
+   "person",
+   "patents"
+  ],
+  "url": "https://assignment.uspto.gov/patent/index.html"
+ },
+ {
+  "id": "uspto-trademarks",
+  "name": "USPTO trademark search",
+  "kind": "link",
+  "access": "open",
+  "holds": "every US trademark application and registration, live and dead, by mark, owner or serial number: who owns a name. Open it and search",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1870,
+  "to": 0,
+  "fields": [
+   "organization",
+   "person"
+  ],
+  "url": "https://tmsearch.uspto.gov/"
+ },
+ {
+  "id": "isfdb",
+  "name": "Internet Speculative Fiction Database",
+  "kind": "link",
+  "access": "open",
+  "holds": "every edition of every work of science fiction, fantasy and horror, by author, title or series, with dates, publishers and the works a fictional character or place appears in. Open it and search",
+  "countries": [],
+  "languages": [
+   "en"
+  ],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "person",
+   "books"
+  ],
+  "url": "https://www.isfdb.org/"
+ },
+ {
+  "id": "copyright-catalog",
+  "name": "US Copyright Office catalog",
+  "kind": "link",
+  "access": "open",
+  "holds": "US copyright registrations and renewals since 1978, and the renewal records that decide whether an older work is in the public domain, by title, author or claimant. Open it and search",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1978,
+  "to": 0,
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "url": "https://cocatalog.loc.gov/"
+ },
+ {
+  "id": "kanpou",
+  "name": "官報",
+  "kind": "link",
+  "access": "open",
+  "holds": "Japan's official gazette: bankruptcy and dissolution notices, honours (叙勲), naturalisations, public notices by companies. No program interface: open it and search the day's or the month's issue",
+  "countries": [
+   "JP"
+  ],
+  "languages": [
+   "ja"
+  ],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "organization",
+   "person"
+  ],
+  "url": "https://kanpou.npb.go.jp/"
+ },
+ {
+  "id": "google-books",
+  "name": "Google Books",
+  "holds": "every book Google has scanned, searched by the words inside it: whether a biography, a company history or a memoir mentions a person or a firm, with the snippet that does and a link to the book, open to read where its copyright allows. The query is a name or a few words. Works without a key; the shared allowance runs out most days, and a free key gives a thousand searches a day",
+  "kind": "book",
+  "fields": [
+   "person",
+   "organization",
+   "books"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "published book, read through machine text",
+  "url": "https://www.googleapis.com/books/v1/volumes?q={query}&maxResults={limit}[&key={key}]",
+  "items": "/items",
+  "title": "{/volumeInfo/title}",
+  "date": "{/volumeInfo/publishedDate}",
+  "link": "{/volumeInfo/infoLink}",
+  "snippet": "[{/volumeInfo/authors/0}][, {/volumeInfo/publisher}][; {/searchInfo/textSnippet}]",
+  "where": "{/volumeInfo/title}[, {/volumeInfo/authors/0}][, {/volumeInfo/publisher}][, {/volumeInfo/publishedDate}], Google Books",
+  "hosts": [
+   "books.google.com",
+   "www.googleapis.com",
+   "googleapis.com"
+  ],
+  "key": "RESEARCHZOSHO_GOOGLE_KEY",
+  "key_optional": true,
+  "key_from": "https://console.cloud.google.com/apis/credentials (free: a project, the Books API enabled, an API key; a thousand searches a day; without one the shared allowance runs out most days)"
+ },
+ {
+  "id": "hathitrust",
+  "name": "HathiTrust full-text search",
+  "kind": "link",
+  "access": "open",
+  "holds": "eighteen million scanned books from the research libraries, searched inside: company histories, biographies, directories, read in full where the copyright allows and as page counts where it does not. No program interface: open it and search",
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "fields": [
+   "person",
+   "organization",
+   "books"
+  ],
+  "url": "https://babel.hathitrust.org/cgi/ls"
+ },
+ {
+  "id": "chm-oral-histories",
+  "name": "Computer History Museum oral histories",
+  "kind": "link",
+  "access": "open",
+  "holds": "the museum's recorded interviews with the people of the computer industry, founders and engineers, as transcripts: the founders in their own words. Open it and search by name",
+  "countries": [
+   "US"
+  ],
+  "languages": [
+   "en"
+  ],
+  "from": 1970,
+  "to": 0,
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "url": "https://www.computerhistory.org/collections/oralhistories/"
+ },
+ {
+  "id": "open-library-author",
+  "name": "Open Library, works by author",
+  "holds": "every work an author has published, with the year each first appeared, from the Internet Archive's open catalogue: the complete list of a writer's books. The query is the author's name and nothing else",
+  "kind": "catalogue",
+  "fields": [
+   "person",
+   "books"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 0,
+  "to": 0,
+  "tier": "catalogue entry",
+  "url": "https://openlibrary.org/search.json?author={query}&limit={limit}&fields=key,title,author_name,first_publish_year,publisher,edition_count&sort=old",
+  "items": "/docs",
+  "title": "{/title}",
+  "date": "{/first_publish_year}",
+  "link": "https://openlibrary.org{/key}",
+  "snippet": "[{/author_name/0}][, first published {/first_publish_year}][; {/edition_count} editions][; {/publisher/0}]",
+  "where": "{/title}[, {/author_name/0}][, {/first_publish_year}], Open Library",
+  "hosts": [
+   "openlibrary.org"
+  ]
+ },
+ {
+  "id": "wikimedia-commons",
+  "name": "Wikimedia Commons",
+  "holds": "the free media files of Wikimedia Commons by words: photographs, portraits, logos, scans and video of a person, a place, an organisation or an event, each with its uploader, its date and its licence on the file page. The query is a name or a few words",
+  "kind": "archive",
+  "fields": [
+   "person",
+   "organization"
+  ],
+  "countries": [],
+  "languages": [],
+  "from": 2004,
+  "to": 0,
+  "tier": "third-party",
+  "url": "https://commons.wikimedia.org/w/api.php?action=query&list=search&srnamespace=6&srsearch={query}&srlimit={limit}&format=json",
+  "items": "/query/search",
+  "title": "{/title}",
+  "date": "{/timestamp}",
+  "link": "https://commons.wikimedia.org/w/index.php?curid={/pageid}",
+  "snippet": "{/snippet}",
+  "where": "{/title}, Wikimedia Commons (page {/pageid})",
+  "hosts": [
+   "commons.wikimedia.org",
+   "upload.wikimedia.org"
+  ]
+ }
 ]
