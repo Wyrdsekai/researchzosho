@@ -52,6 +52,8 @@ public interface Profile {
      * relations read only its own claims, and an ordinary library looks as if it were off.
      */
     default boolean joinsOnlyWhenAsked() { return false; }
+    /** Whether the field's pages are in the menu before the library holds any of its work: true for a field whose page is where a person begins. */
+    default boolean menuAlways() { return false; }
 
     /** For a field that joins only when asked: whether a question looks like one of its own, so the person can be told the field is there. */
     default boolean suggests(LibraryStore store, String question) { return suggests(question); }

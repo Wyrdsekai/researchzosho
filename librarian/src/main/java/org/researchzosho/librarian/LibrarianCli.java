@@ -3132,8 +3132,8 @@ public final class LibrarianCli {
         if (!cx.isEmpty()) System.out.println("  " + cx.figures().size() + " figure caption(s), " + cx.tables().size() + " table caption(s), " + cx.rows().size() + " table row(s) found in the text");
         System.out.println("  " + onDisk[2].length() + " chars on disk → " + raw
                 + (same ? "" : "  (an earlier saved copy of this url from today was kept)"));
-        System.out.println("  researchzosho ask finds it now. `researchzosho review` does not read saved pages:"
-                + " ask about it, or research it, to turn it into claims");
+        System.out.println("  A model reads it when you ask about it or research it, and that turns it into claims; with no model answering,"
+                + " ask knows only the claims the library holds. `researchzosho review` does not read saved pages.");
         if (page != null && page.unchecked())
             System.out.println("  This page is " + PageCheck.NOT_CHECKED_YET + ". The library checks it when a model answers, at the next housekeeping or the next command that has a model, and removes it then if the check finds " + PageCheck.Category.CHILD.said() + ".");
         if (later != null && !later.sentence().isEmpty()) System.out.println(later.sentence());

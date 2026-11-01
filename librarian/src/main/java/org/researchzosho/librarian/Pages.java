@@ -2260,7 +2260,8 @@ final class Pages {
     static String fieldMenu(LibraryStore store, Patrons.Patron patron) {
         StringBuilder b = new StringBuilder();
         Set<String> seen = new LinkedHashSet<>();   // two fields may lead to one page: once
-        for (Profile f : Librarian.chatFields(store)) {
+        for (Profile f : Fields.enabled(store)) {   // a field's pages: when it holds work, or when its page is where one begins (the career field); the chat's tools wait for the work
+            if (f.joinsOnlyWhenAsked() && !f.menuAlways() && !Fields.holdsWork(store, f)) continue;
             for (Profile.Link l : f.menu()) if ((!l.writersOnly() || mayWrite(store, patron)) && seen.add(l.href())) b.append(navLink(l.href(), l.label(), l.symbol()));   // a glyph of its own, like the core's entries
         }
         return b.toString();

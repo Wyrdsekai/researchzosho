@@ -36,6 +36,7 @@ class CareerPeoplePageTest {
 
     @Test void theRootPageListsThePeopleAndOpensAPageForAnotherByName(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        assertTrue(Pages.fieldMenu(store, Patrons.Patron.PERSON).contains("href=\"/career\""), "the Career page is in the menu before anyone is on the shelves: it is where a first person begins");
         String empty = CareerPage.body(store, null, true);
         assertTrue(empty.contains("<form class=\"big\" action=\"/career\">") && empty.contains("Nobody's working life is kept here yet. Start one below.") && empty.contains("<h2 id=\"new\">A new person</h2>") && empty.contains("name=\"name\"") && empty.contains("<button>Add</button>"), empty);
         Career.Seeker first = Career.provide(store, "I want to keep leading a team, in Chicago.", "First Person", false).seeker();

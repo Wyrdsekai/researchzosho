@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.8
+
+What's new: a fix for the first thing a new library shows. The Career page was missing from the menu until the library held someone's working life, so there was no way to begin; it is in the menu from the start now. And what the add command says after saving a page is true now.
+
+### Fixed
+
+- The Career page is in the menu from the start. The menu listed it only once the library held a person's working
+  life, so on a fresh library the one place to begin was hidden, though the page answered at its address. A field
+  whose page is where a person begins is in the menu before the library holds its work.
+
+- What `researchzosho add` says after saving a page. It said "ask finds it now", and on a library with no model
+  answering, ask said the library held nothing, because a saved page is not a claim until a model reads it. It now
+  says that a model reads the page when you ask about it or research it, and that with no model answering, ask knows
+  only the claims the library holds.
+
 ## 0.6.7
 
 What's new: the library can help you look for work. It reads your resume, asks what you want, finds the employers of your place and reads their job openings. It also reads discussion threads on Reddit and the Stack Exchange sites, takes files from the browser, shows every place it reads on one Sources page, and can use Google's results and read hard pages through services you pay for, with a count of what a month cost.

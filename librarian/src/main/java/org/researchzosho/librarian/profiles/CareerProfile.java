@@ -41,6 +41,7 @@ public final class CareerProfile implements Profile {
     @Override public List<Vocabulary.Term> predicates() { return List.of(); }
 
     @Override public boolean joinsOnlyWhenAsked() { return true; }
+    @Override public boolean menuAlways() { return true; }   // the Career page is where a first person begins: in the menu before anyone is on the shelves
 
     @Override public Path workFolder(LibraryStore store) { return Career.dir(store); }
 
