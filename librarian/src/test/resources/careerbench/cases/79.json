@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 79",
+ "headline": "chemical plant operator",
+ "occupation": "chemical plant operator at Northgate SA",
+ "location_str": "",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2024
+   },
+   "ends_at": null,
+   "company": "Northgate SA",
+   "title": "chemical plant operator",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2019
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2024
+   },
+   "company": "Juniper K.K.",
+   "title": "electronics assembler",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2019
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Ashgrove Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

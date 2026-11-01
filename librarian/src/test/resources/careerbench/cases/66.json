@@ -1,0 +1,50 @@
+{
+ "full_name": "Seeker 66",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Valencia",
+ "summary": "Certified in electrician.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2017
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2020
+   },
+   "company": "Corvid (self-employed)",
+   "title": "electrician",
+   "description": null,
+   "location": "Valencia"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2013
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2017
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Tessaly Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "es"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

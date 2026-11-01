@@ -1,0 +1,73 @@
+{
+ "full_name": "Seeker 08",
+ "headline": "research scientist in industry",
+ "occupation": "research scientist in industry at Juniper University",
+ "location_str": "Belo Horizonte",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2024
+   },
+   "ends_at": null,
+   "company": "Juniper University",
+   "title": "research scientist in industry",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2024
+   },
+   "company": "Stillwater University",
+   "title": "research scientist in industry",
+   "description": null,
+   "location": "Belo Horizonte"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Kestrel Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "pt"
+ ],
+ "accomplishment_publications": [
+  {
+   "name": "A result in engineering",
+   "publisher": "Juniper Institute",
+   "published_on": {
+    "day": 1,
+    "month": 5,
+    "year": 2022
+   },
+   "url": null
+  }
+ ],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 74",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Belo Horizonte",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Penrose Ltd",
+   "title": "senior electrical technician",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2025
+   },
+   "company": "Kestrel Clinic",
+   "title": "medical laboratory technician",
+   "description": null,
+   "location": "Belo Horizonte"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Varnish Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "pt"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

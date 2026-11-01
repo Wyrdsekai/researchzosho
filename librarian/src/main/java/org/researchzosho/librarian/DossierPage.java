@@ -113,7 +113,8 @@ final class DossierPage {
         if (subject.isEmpty()) {   // the front door: every dossier the shelves hold
             b.append("<p class=\"k\">Everything the library holds on one subject, as one page: who they are, the Reading for your question, what was searched, the timeline, the relations, what was told, the claims by the class of their source, the story and the reports to dive into, the open questions.</p>");
             List<Dossiers.Entry> all = Dossiers.list(store);
-            if (all.isEmpty()) { b.append("<p>No dossiers yet. <a href=\"/research\">A research run</a> on a person or an organisation starts one.</p>"); return b.toString(); }
+            b.append("<p class=\"k\">To request a dossier on someone new, type the name above and open it: the page offers one button that files the research.</p>");
+            if (all.isEmpty()) { b.append("<p>No dossiers yet.</p>"); return b.toString(); }
             b.append(CSS).append("<div class=\"dz\"><h2 id=\"all\">The dossiers on the shelves</h2><div class=\"sec\"><table><tr><th>Subject</th><th>Kind</th><th>Claims</th><th>Reports</th><th>Last run</th><th>Story</th></tr>");
             for (Dossiers.Entry e : all)
                 b.append("<tr><td><a href=\"/dossier?subject=").append(enc(e.subject())).append("\">").append(esc(e.subject())).append("</a></td><td>").append(esc(e.kind())).append("</td><td>").append(e.claims())
@@ -126,7 +127,8 @@ final class DossierPage {
         if (inLang != null) b.append("<p class=\"k\">Read in ").append(esc(Translate.LANGUAGES.getOrDefault(inLang, inLang))).append(": the library's own dossier of <a href=\"/dossier?subject=").append(enc(d.label())).append("\">").append(esc(d.label()))
                 .append("</a>, each piece of prose translated by the model. The cites, the claim ids, the dates and the badges stand as they are; a piece whose translation would have lost one is kept in the original.</p>");
         if (d.node() == null && d.claims().isEmpty() && d.reports().isEmpty()) {
-            b.append("<p>The library holds nothing on <b>").append(esc(subject)).append("</b> yet. <a href=\"/research?q=").append(enc("Who is " + subject + "?")).append("\">A research run starts it.</a></p></div>");
+            b.append("<p>The library holds nothing on <b>").append(esc(subject)).append("</b> yet. A research run starts the dossier: it searches the open sources for who they are, what they do and what was written of them, and the page fills as the claims arrive.</p>")
+             .append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(subject)).append("\"><button name=\"request\" value=\"1\">Request the dossier</button></form></div>");
             return b.toString();
         }
         Investigation latest = null; Investigation story = null;
@@ -139,6 +141,9 @@ final class DossierPage {
         for (String[] a : new String[][]{{"identity", "Identity"}, {"reading", "Reading"}, {"work", "What they do"}, {"coverage", "Coverage"}, {"timeline", "Timeline"}, {"decisions", "Decisions"}, {"said", "In their own words"}, {"media", "Media"}, {"facets", "Facets"}, {"pattern", "Pattern of life"}, {"relations", "Relations"}, {"told", "Told"}, {"claims", "Claims"}, {"analysis", "Analysis"}, {"story", "Story"}, {"reports", "Reports"}, {"notfound", "Not found"}, {"questions", "Open questions"}, {"conflicts", "Conflicts"}, {"checks", "Checks"}, {"linked", "Linked"}, {"shared", "Shared"}, {"refresh", "Refresh"}, {"later", "Not yet"}})
             b.append("<a href=\"#").append(a[0]).append("\">").append(a[1]).append("</a>");
         b.append("</nav>");
+        // the ask for more: a research run with the whole brief, never automatic; a card made for the career search grows into the full dossier here
+        String fullQ = d.kind().equalsIgnoreCase("person") ? "Who is " + d.label() + "? A full dossier." : "Who is " + d.label() + "? A full dossier: its history, power and governance, customers and rivals, money, people, decisions and what to expect.";
+        b.append("<p class=\"note\">").append(d.claims().size()).append(d.claims().size() == 1 ? " claim" : " claims").append(" on the shelves. <a href=\"/research?q=").append(enc(fullQ)).append("\">Research in full</a>: a run with the whole brief, hours on a local model, only when you ask.</p>");
         // identity
         b.append("<h2 id=\"identity\">Identity</h2><div class=\"sec id\"><div><div class=\"facts\">");
         b.append("<b>").append(esc(d.label())).append("</b>");
@@ -177,19 +182,19 @@ final class DossierPage {
         for (Finding f : d.claims()) { String y = Dossier.yearOf(f); if (y != null) byYear.computeIfAbsent(y, k -> new ArrayList<>()).add(f); }
         b.append("<h2 id=\"timeline\">Timeline</h2><div class=\"sec\">");
         if (byYear.isEmpty()) b.append("<p class=\"note\">No claim names a year yet.</p>");
-        else { b.append("<ul class=\"tl\">"); for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("<li><span class=\"y\">").append(esc(e.getKey())).append("</span><span>").append(claim(f, w)).append("</span></li>"); b.append("</ul>"); }
+        else { b.append("<ul class=\"tl\">"); for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("<li><span class=\"y\">").append(esc(e.getKey())).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // decisions: what the people in power decided, dated, with the reason they gave
         b.append("<h2 id=\"decisions\">Decisions</h2><div class=\"sec\">");
         List<Finding> decisions = Dossier.decisions(d.claims());
         if (decisions.isEmpty()) b.append("<p class=\"note\">No decision on record yet: a run writes the Decisions of the people in power, dated, with the reason each gave, and the library files them here.</p>");
-        else { b.append("<ul class=\"tl\">"); for (Finding f : decisions) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w)).append("</span></li>"); b.append("</ul>"); }
+        else { b.append("<ul class=\"tl\">"); for (Finding f : decisions) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // in their own words: the statements, dated and placed
         b.append("<h2 id=\"said\">In their own words</h2><div class=\"sec\">");
         List<Finding> said = Dossier.statements(d.claims());
         if (said.isEmpty()) b.append("<p class=\"note\">No statement on record yet: a run writes what they said, dated and placed, from interviews, talks, posts and the press, and the library files each here.</p>");
-        else { b.append("<ul class=\"tl\">"); for (Finding f : said) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w)).append("</span></li>"); b.append("</ul>"); }
+        else { b.append("<ul class=\"tl\">"); for (Finding f : said) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // media: photographs, video and scans with their provenance, a thumbnail where the address gives one
         b.append("<h2 id=\"media\">Media</h2><div class=\"sec\">");
@@ -201,7 +206,7 @@ final class DossierPage {
             b.append("<div class=\"media\">");
             for (Finding f : media) {
                 String thumb = thumb(f, titles);
-                b.append("<div class=\"item\">").append(thumb.isEmpty() ? "" : "<img src=\"" + esc(thumb) + "\" alt=\"\" loading=\"lazy\">").append("<div>").append(claim(f, w)).append("</div></div>");
+                b.append("<div class=\"item\">").append(thumb.isEmpty() ? "" : "<img src=\"" + esc(thumb) + "\" alt=\"\" loading=\"lazy\">").append("<div>").append(claim(f, w, d.own())).append("</div></div>");
             }
             b.append("</div>");
         }
@@ -247,10 +252,10 @@ final class DossierPage {
         for (SourceClass c : new SourceClass[]{SourceClass.publicRecord, SourceClass.ownPublication, SourceClass.supplied, SourceClass.thirdParty}) {
             List<Finding> fs = byClass.get(c); if (fs == null || fs.isEmpty()) continue;
             b.append("<p><b>").append(esc(c.label())).append("</b> · ").append(fs.size()).append("</p><ul class=\"plain\">");
-            for (Finding f : fs) b.append("<li>").append(claim(f, w)).append("</li>");
+            for (Finding f : fs) b.append("<li>").append(claim(f, w, d.own())).append("</li>");
             b.append("</ul>");
         }
-        b.append("<p class=\"note\">The class is read from where each source lives, never from the model: a register, a court or a filing is public record; the subject's own site or account is own publication; a page you supplied is supplied; what you told the library is told; press and reporting are third-party.</p></div>");
+        b.append("<p class=\"note\">The class is read from where each source lives, never from the model: a register, a court or a filing is public record; the subject's own site or account is own publication (an organisation's or a product's site whose address carries its name, as researchzosho.org is ResearchZosho's; a person's is not read from a name, since a namesake's would pass for theirs); a page you supplied is supplied; what you told the library is told; press and reporting are third-party.</p></div>");
         // story + reports
         // analysis: the layer apart from the facts, from the latest report, with the subject's forecast ledger
         b.append("<h2 id=\"analysis\">Analysis</h2><div class=\"sec\">");
@@ -354,8 +359,10 @@ final class DossierPage {
 
     static String claim(Finding f) { return claim(f, Translate.AS_IS); }
 
-    static String claim(Finding f, Translate.Words w) {
-        SourceClass c = SourceClass.of(f.sources());
+    static String claim(Finding f, Translate.Words w) { return claim(f, w, SourceClass.Own.NONE); }
+
+    static String claim(Finding f, Translate.Words w, SourceClass.Own own) {
+        SourceClass c = SourceClass.of(f.sources(), own);
         String cls = switch (c) { case publicRecord -> "c-public"; case ownPublication -> "c-own"; case supplied -> "c-supplied"; case told -> "c-told"; case canon -> "c-canon"; default -> "c-third"; };
         return esc(w.tr(f.title())) + " <span class=\"cls " + cls + "\">" + esc(c.label()) + "</span>" + (f.validAsOf() == null || f.validAsOf().isEmpty() ? "" : "<span class=\"date\">" + esc(f.validAsOf()) + "</span>")
                 + " <a class=\"k\" href=\"/entry/" + enc(f.id()) + "\">" + esc(f.id()) + "</a>";

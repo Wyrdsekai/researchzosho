@@ -14,6 +14,7 @@ import org.researchzosho.tools.ProductSafetyTool;
 import org.researchzosho.tools.ProductSearchTool;
 import org.researchzosho.tools.Recalls;
 import org.researchzosho.tools.Shops;
+import org.researchzosho.tools.Forums;
 import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.tools.Terms;
 
@@ -31,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class ShoppingTest {
 
     static final ObjectMapper M = new ObjectMapper();
-    HttpServer server; Map<String, String> savedBase = new HashMap<>(); String realHome; Path savedOverride;
+    HttpServer server; Map<String, String> savedBase = new HashMap<>(), savedForums = new HashMap<>(); String realHome; Path savedOverride;
 
     @BeforeEach void stub(@TempDir Path tmp) throws Exception {
         realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
@@ -51,6 +52,8 @@ class ShoppingTest {
         serve("/ifixit/wikis/", "{\"title\":\"Kestrel KH-7\",\"repairability_score\":7}");
         serve("/search", "{\"results\":[{\"title\":\"Kestrel KH-7 hub after six months — any regrets? : r/UsbCHardware\",\"url\":\"https://www.reddit.com/r/UsbCHardware/comments/abc123/kestrel_kh7/\",\"content\":\"Still solid, the case gets warm when all seven ports are busy.\"}]}");
         serve("/reddit/api/v1/access_token", "{\"access_token\":\"tok\",\"expires_in\":3600}");
+        serve("/archive/api/posts/ids", "{\"data\":[{\"id\":\"abc123\",\"subreddit\":\"UsbCHardware\",\"title\":\"Kestrel KH-7, any regrets?\",\"selftext\":\"A year in: the case gets warm, nothing more.\",\"author\":\"owner1\",\"score\":17,\"num_comments\":2,\"created_utc\":1760000000,\"permalink\":\"/r/UsbCHardware/comments/abc123/kestrel_kh7/\"}]}");
+        serve("/archive/api/comments/tree", "{\"data\":[{\"kind\":\"t1\",\"data\":{\"id\":\"c1\",\"author\":\"owner2\",\"body\":\"Mine too; the hub itself is fine.\",\"score\":4,\"created_utc\":1760001000,\"replies\":\"\"}}]}");
         serve("/ebay_token", "{\"access_token\":\"ebaytok\",\"expires_in\":7200}");
         serve("/ebay/item_summary/search", "{\"total\":2,\"itemSummaries\":[{\"title\":\"Kestrel KH-7 USB hub, boxed\",\"price\":{\"value\":\"21.50\",\"currency\":\"USD\"},\"condition\":\"Used\",\"buyingOptions\":[\"AUCTION\"],\"itemEndDate\":\"2026-10-12T18:00:00.000Z\",\"seller\":{\"username\":\"heronattic\",\"feedbackPercentage\":\"99.4\"},\"itemLocation\":{\"country\":\"US\"},\"itemWebUrl\":\"https://www.ebay.com/itm/1\"},"
                 + "{\"title\":\"Kestrel KH-7 hub new sealed\",\"price\":{\"value\":\"34.00\",\"currency\":\"USD\"},\"condition\":\"New\",\"buyingOptions\":[\"FIXED_PRICE\"],\"seller\":{\"username\":\"wrenstore\"},\"itemWebUrl\":\"https://www.ebay.com/itm/2\"}]}");
@@ -60,9 +63,10 @@ class ShoppingTest {
         Shops.BASE.put("yahoo", base + "/yahoo"); Shops.BASE.put("rakuten", base + "/rakuten"); Shops.BASE.put("icecat", base + "/icecat"); Shops.BASE.put("products", base + "/products"); Shops.BASE.put("food", base + "/food");
         Shops.BASE.put("ifixit", base + "/ifixit"); Shops.BASE.put("reddit", base + "/reddit"); Shops.BASE.put("reddit_api", base + "/reddit_api");
         Shops.BASE.put("ebay", base + "/ebay"); Shops.BASE.put("ebay_token", base + "/ebay_token"); Shops.BASE.put("etsy", base + "/etsy");
+        savedForums.putAll(Forums.BASE); Forums.BASE.put("reddit_archive", base + "/archive");
     }
 
-    @AfterEach void restore() { server.stop(0); Shops.BASE.putAll(savedBase); Recalls.override = savedOverride; System.setProperty("user.home", realHome); Config.invalidate(); }
+    @AfterEach void restore() { server.stop(0); Shops.BASE.putAll(savedBase); Forums.BASE.putAll(savedForums); Recalls.override = savedOverride; System.setProperty("user.home", realHome); Config.invalidate(); }
 
     void serve(String path, int status, String body) {
         server.createContext(path, x -> { byte[] b = body.getBytes(StandardCharsets.UTF_8); x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(status, b.length); try (OutputStream o = x.getResponseBody()) { o.write(b); } });
@@ -130,8 +134,9 @@ class ShoppingTest {
         var override = WebSearchTool.class.getDeclaredField("endpointOverride"); override.setAccessible(true); override.set(null, "http://127.0.0.1:" + server.getAddress().getPort());
         String ownersNoApp;
         try { ownersNoApp = t.execute(args("{\"kind\":\"owners\",\"query\":\"Kestrel KH-7\"}")); } finally { override.set(null, null); }
-        assertTrue(ownersNoApp.startsWith("No Reddit app is set (the settings reddit_client_id") && ownersNoApp.contains("search engine's snippets of Reddit threads") && ownersNoApp.contains("any regrets? : r/UsbCHardware")
-                && ownersNoApp.contains("https://www.reddit.com/r/UsbCHardware/comments/abc123/kestrel_kh7/") && ownersNoApp.contains("case gets warm"), ownersNoApp);
+        assertTrue(ownersNoApp.startsWith("Reddit threads about \"Kestrel KH-7\", found by the web search and read from the Arctic Shift archive") && ownersNoApp.contains("weigh it, never count it")
+                && ownersNoApp.contains("- r/UsbCHardware, 2025-10-09, score 17, 2 replies: Kestrel KH-7, any regrets? — A year in: the case gets warm, nothing more. — https://www.reddit.com/r/UsbCHardware/comments/abc123/kestrel_kh7/")
+                && ownersNoApp.contains("    owner2, score 4: Mine too; the hub itself is fine."), "the thread the search found, read in the archive with its best comment: " + ownersNoApp);
         assertEquals("Reddit", Terms.forbids("https://old.reddit.com/r/UsbCHardware/comments/abc123/"), "Reddit's pages are pointed at, never read");
         Config.set(Shops.REDDIT_ID, "id"); Config.set(Shops.REDDIT_SECRET, "secret");
         String owners = t.execute(args("{\"kind\":\"owners\",\"query\":\"Kestrel KH-7\"}"));

@@ -61,6 +61,7 @@ import org.researchzosho.tools.BookSearchTool;
 import org.researchzosho.tools.MyShelfTool;
 import org.researchzosho.tools.PodcastSearchTool;
 import org.researchzosho.tools.ProductSafetyTool;
+import org.researchzosho.tools.ForumSearchTool;
 import org.researchzosho.tools.ProductSearchTool;
 import org.researchzosho.tools.NdlFulltextTool;
 import org.researchzosho.tools.SoftwareArchiveTool;
@@ -1006,6 +1007,7 @@ public final class Researcher {
     final int unreachableAtStart = WebSearchTool.UNREACHABLE.get(),
             fallbackAtStart = WebSearchTool.FALLBACK_USED.get(),
             braveAtStart = WebSearchTool.BRAVE_USED.get(),
+            googleAtStart = WebSearchTool.SERPER_USED.get() + WebSearchTool.SERPAPI_USED.get(),
             searxAtStart = WebSearchTool.SEARXNG_USED.get(),
             copiesAtStart = Archives.COPIES_FOUND.get();
 
@@ -1023,10 +1025,10 @@ public final class Researcher {
         if (!ask.web()) return "";
         int none = WebSearchTool.UNREACHABLE.get() - unreachableAtStart;
         int fb = WebSearchTool.FALLBACK_USED.get() - fallbackAtStart;
-        int brave = WebSearchTool.BRAVE_USED.get() - braveAtStart;
+        int brave = WebSearchTool.BRAVE_USED.get() - braveAtStart + WebSearchTool.SERPER_USED.get() + WebSearchTool.SERPAPI_USED.get() - googleAtStart;
         int searx = WebSearchTool.SEARXNG_USED.get() - searxAtStart;
         if (fb > 0) return "## Web search\n\n" + fb + (fb == 1 ? " search" : " searches") + " went through the built-in fallback (Wikipedia, Crossref and OpenAlex: reference pages and papers, no web engine)"
-                + (brave + searx > 0 ? ", " + (brave + searx) + " through " + (brave > 0 ? "Brave" : "SearXNG") : "")
+                + (brave + searx > 0 ? ", " + (brave + searx) + " through " + (brave > 0 ? (WebSearchTool.googleConfigured() ? "Google" : "Brave") : "SearXNG") : "")
                 // a library set to a SearXNG that did not answer searched the fallback for weeks without a word (an address on another machine, 2026-10-07)
                 + (WebSearchTool.searxConfigured() && WebSearchTool.searxDownLately() ? ". The SearXNG this library is set to, " + WebSearchTool.endpoint()
                         + ", did not answer; `researchzosho search status` says what answers and how to point the library at it" : "")
@@ -1165,6 +1167,7 @@ public final class Researcher {
         int n = 0;
         // a dossier's reader needs to know where each reference's evidence comes from: the class is computed from the locator, never asked of the model
         boolean dossier = fieldNames().contains("person") || fieldNames().contains("organization");
+        SourceClass.Own own = fieldNames().contains("organization") && !fieldNames().contains("person") ? SourceClass.Own.inText(ask.question()) : SourceClass.Own.NONE;   // an organisation's own site, named in the question
         Map<String, Integer> byClass = new TreeMap<>();
         for (List<String> group : byWork.values()) {
             n++;
@@ -1195,7 +1198,7 @@ public final class Researcher {
                       .append(published.isEmpty() ? (editionDocs.containsKey(loc) ? "  (dated " + editionDocs.get(loc).dated().text() + ", from its own text)" : "") : "  (published " + published + ageNote(published) + ")")
                       .append(olderEditions.containsKey(loc) ? "  (looks like an earlier edition of " + olderEditions.get(loc) + ")" : "")
                       .append(rule == null ? "" : rule.kind().equals("trust") ? "  (a source you trust)" : "  (ON YOUR REFUSED LIST)");
-            if (dossier) { String cls = SourceClass.of(loc).label(); references.append("  [").append(cls).append(']'); byClass.merge(cls, 1, Integer::sum); }
+            if (dossier) { String cls = SourceClass.of(loc, own).label(); references.append("  [").append(cls).append(']'); byClass.merge(cls, 1, Integer::sum); }
             for (String l : group) if (!l.equals(loc) && !l.startsWith("cite:") && l.contains("://")) references.append("  also ").append(l);
             references.append(same).append('\n');
         }
@@ -3120,6 +3123,7 @@ public final class Researcher {
                 out.add(new ArchiveSearchTool().policy(p.fetchPolicy())); out.add(new OldNewspapersTool().policy(p.fetchPolicy()));
                 out.add(new NdlFulltextTool()); out.add(new SoftwareArchiveTool()); out.add(new VideoSitesTool()); out.add(new PodcastSearchTool().policy(p));
                 out.add(new ProductSearchTool());   // the shops and the catalogues (0.6.0): what is for sale now, behind the person's keys
+                out.add(new ForumSearchTool());   // the discussion threads (0.6.6): Reddit through the archive, the Stack Exchange sites through their API
                 out.add(new BookSearchTool().policy(p));   // the book catalogues (0.6.0): only a book they return may be named — recorded on the run's policy for the write-up's title check
                 return out;
             }

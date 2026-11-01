@@ -1,0 +1,81 @@
+{
+ "full_name": "Seeker 21",
+ "headline": "senior engineering manager",
+ "occupation": "senior engineering manager at Halden Inc.",
+ "location_str": "",
+ "summary": "Code at codehost.example/seeker21.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2016
+   },
+   "ends_at": null,
+   "company": "Halden Inc.",
+   "title": "senior engineering manager",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2006
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2016
+   },
+   "company": "Northgate Inc.",
+   "title": "engineering manager",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 1996
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2006
+   },
+   "company": "Juniper Inc.",
+   "title": "engineering manager",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1992
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1996
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Greywell Secondary School"
+  }
+ ],
+ "skills": [
+  "Git",
+  "Python"
+ ],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

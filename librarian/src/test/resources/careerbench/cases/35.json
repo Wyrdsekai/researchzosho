@@ -1,0 +1,66 @@
+{
+ "full_name": "Seeker 35",
+ "headline": "registered nurse",
+ "occupation": "registered nurse at Juniper General Hospital",
+ "location_str": "Austin, Texas",
+ "summary": "Certified in registered nurse.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2021
+   },
+   "company": "Juniper General Hospital",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2018
+   },
+   "company": "Ashgrove Medical Centre",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Austin, Texas"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2011
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2015
+   },
+   "field_of_study": "nursing",
+   "degree_name": "",
+   "school": "Ashgrove University"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

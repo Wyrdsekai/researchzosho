@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 86",
+ "headline": "frontend software engineer",
+ "occupation": "frontend software engineer at Northgate (self-employed)",
+ "location_str": "Pune",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": null,
+   "company": "Northgate (self-employed)",
+   "title": "frontend software engineer",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2021
+   },
+   "company": "Kestrel (self-employed)",
+   "title": "frontend software engineer",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2011
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2016
+   },
+   "company": "Halden (self-employed)",
+   "title": "frontend software engineer",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2007
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2011
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Harrowgate Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

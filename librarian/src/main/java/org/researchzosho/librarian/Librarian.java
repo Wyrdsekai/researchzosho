@@ -48,8 +48,8 @@ public class Librarian {
     static final ObjectMapper M = new ObjectMapper();
     /** The tools the Librarian may use in a conversation: the library's, and nothing that touches files or the shell. */
     static final List<String> TOOLS = List.of("library_ask", "library_search", "library_get", "library_research", "library_job",
-            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_add", "library_absorb", "library_survey", "library_items",
-            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_models", "library_owned", "library_my_shelf", "library_share", "library_seeks");
+            "library_inbox", "library_frontier", "library_map", "library_changes", "library_submit", "library_sharpen", "library_status", "library_help", "library_add", "library_absorb", "library_survey", "library_items",
+            "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_sources", "library_models", "library_owned", "library_my_shelf", "library_share", "library_seeks");
 
     /** How long a run the chat asked about waits for the person's answer before it starts as ordinary research. */
     static final int OFFER_MINUTES = Config.getInt("RESEARCHZOSHO_OFFER_MINUTES", 10);
@@ -604,6 +604,10 @@ public class Librarian {
                 + "5. \"Find out\" means file a research run with library_research: say in one sentence that it has started and that it usually takes twenty to forty minutes, then carry on. The chat itself shows the run's stage and tells the person when it is done, so never tell them to ask how it is going. When a run is done and they say \"show it\", or they ask how it went, use library_job and library_get and give the answer section and the checks, not the whole text. A plain yes from the person is enough to file a run or to accept an inbox item.\n"
                 + "6. Short exact sentences. No enthusiasm, no apology, no filler. Courteous.\n"
                 + "7. Never state a name, a number, a date or a quotation that is not in a tool result. If you must estimate, say it is an estimate.\n"
+                + "A question about ResearchZosho itself, what it is, which version is running, what it can and cannot do, how to do something in it or why "
+                + "something does not work, is answered with library_help, from the program's own documentation and its live state. Give the commands and the "
+                + "page names exactly as it gives them, and say which version is answering. Where its documentation does not cover something, say so, and give the "
+                + "address it gives for questions.\n"
                 + "Look things up before answering, and read only what the answer needs: library_ask for a question (it returns the relevant entries whole), library_search for a term, library_get to open one entry, library_map around a name, library_inbox for what waits, library_frontier for open questions, library_changes for what is new. A few look-ups a turn, then answer; a list that says N of M shown is a list of M. "
                 + "To read material in — a file, a folder, a drive, a url the person names — use library_add. For a folder, run mode=survey first and put the numbers to the person: keep (the text is copied onto the shelves) or link (read in place, nothing copied). If they already said which, do that. Then \"research X from those\" is library_research with sources=shelves and the collection. "
                 + "A conversation the person had with another assistant — a file, a url, or text they paste — is absorbed with library_absorb: say what was shelved, which of their questions joined the open questions, and list the claims to check; then offer two things, verify=true (one run that checks the claims) and a research run on the thread's main question. "
@@ -638,6 +642,7 @@ public class Librarian {
             Map.entry("library_submit", "File one claim as a draft with its sources; refused without sources."),
             Map.entry("library_sharpen", "Turn a vague question into precise ones the shelves and the web can answer."),
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
+            Map.entry("library_help", "Questions about ResearchZosho itself: what it is, which version runs, what it can and cannot do, how to do something in it, why something does not work. From the program's own documentation and its live state; the question in English words."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
             Map.entry("library_survey", "A code repository, a paper, a website or an issue tracker (a path or a url): read, shelved, one draft claim on what it is, and numbered research directions offered; op=pick runs the ones chosen, op=do runs the person's own."),
@@ -651,6 +656,7 @@ public class Librarian {
             Map.entry("library_owned", "What the person owns, from their own purchase records: op=find words=… (year, shop) looks up what was bought, when, where and for how much; op=status says what the ledger holds; op=recalls lists the recall notices that may concern what is owned (hit=<id> puts one away after the person said so); op=import path=… reads a file on this machine after the person named it in this conversation. A reference, never a requirement."),
             Map.entry("library_my_shelf", "The person's own shelf, read from their Calibre library, their follows and their purchases: op=profile says what they went for (the books they added one by one — a bulk import counts as holdings, not taste — and any they rated themselves: the subject mix with its tilt against the shelf, the authors chosen more than once, decades, sample titles, podcasts followed, shops bought from); op=have title=… (author=…) says whether a book is already on the shelf, in the ledger or on a holdings list — check every book before recommending it; op=liked words=… lists the books they went for on a subject, best first (stars narrows to what they rated themselves); op=refresh reads the catalogues of the authors rated well now, after the person asked. A rating counts only when the person gave it. A reference, never a requirement."),
             Map.entry("library_models", "The models this library can run on, by name: op=list; op=add with name, drive (a host word), model, prices; op=remove; op=key with host and value. A research run names one with model=<name>."),
+            Map.entry("library_sources", "The sources the library mines, registers, directories, boards, list pages, feeds, saved searches, each with what it yields and for whom: op=list (field=…, for=…, off=true to include the ones taken off); op=show id=…; op=add address=… for=… field=… (after the person said so); op=remove id=…; op=restore id=…."),
             Map.entry("library_settings", "The library's settings: op=list shows every setting and its value (a key only as set or not); op=set name=… value=… changes one, after the person said so in this conversation; a blank value unsets it."),
             Map.entry("library_share", "The library reached from outside the house: op=status how it stands; op=tailscale, op=public (anyone with the link) or op=cloudflare (mail=…) turns the relay on, after the person asked for it; op=off turns it off. Installing a missing program is the person's own step: tell them to say /share."),
             Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
@@ -833,6 +839,7 @@ public class Librarian {
                 case "library_questions" -> protocol.questions(args);
                 case "library_bookmarks" -> protocol.bookmarks(args);
                 case "library_settings" -> protocol.settings(args);
+                case "library_sources" -> protocol.sources(args);
                 case "library_models" -> protocol.models(args);
                 case "library_share" -> protocol.share(args);
                 case "library_owned" -> protocol.owned(args);
@@ -843,6 +850,7 @@ public class Librarian {
                 case "library_bridges" -> protocol.bridges(args);
                 case "library_sharpen" -> protocol.sharpen(args);
                 case "library_status" -> protocol.status(args);
+                case "library_help" -> protocol.help(args);
                 default -> null;
             };
             if (r == null) return "ERROR: no tool named " + name + ". The tools are: " + String.join(", ", toolNames(store));

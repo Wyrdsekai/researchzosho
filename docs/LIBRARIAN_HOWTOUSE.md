@@ -44,6 +44,7 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 24. Law and patents
 25. People and organizations
 26. Suggestions
+26b. Looking for work
 27. Not yet available
 
 ## 1. What you need
@@ -217,10 +218,17 @@ to change one of these answers.
 Research runs find their sources through a search backend. A run can only read what a search
 finds, so this choice matters as much as the model. ResearchZosho tries them in this order:
 
-1. **The Brave Search API.** The best results. Get a key from https://brave.com/search/api/ (there
-   is a free plan). Put it in `RESEARCHZOSHO_BRAVE_KEY`, or give it to setup. The key is sent only
-   to Brave.
-2. **SearXNG**, a search engine you run yourself. Free, and your queries stay on your machine.
+1. **Google, through a key you pay for.** A Serper key (https://serper.dev, `serper_key`) or a SerpApi key
+   (https://serpapi.com, `serpapi_key`) gives Google's own results. Both are paid per search after their free
+   allowance, Serper about a tenth of a cent a search and SerpApi about one and a half cents, and a research
+   run makes tens of searches, so set one only when you mean to pay for it. Since the end of October 2026
+   Google releases only the top three links of a search at once; through Serper the library asks for the rest
+   with a free second call, and an address still unreleased is shown as a Google redirect with the site's
+   readable name, for the run to search for by that name. Through SerpApi most addresses come as such
+   redirects today, so Serper is the better key. Each key is sent only to its own service.
+2. **The Brave Search API.** Good results, and a free plan. Get a key from https://brave.com/search/api/.
+   Put it in `RESEARCHZOSHO_BRAVE_KEY`, or give it to setup. The key is sent only to Brave.
+3. **SearXNG**, a search engine you run yourself. Free, and your queries stay on your machine.
    Setup starts it with Docker when Docker is installed. So does:
 
    ```
@@ -233,7 +241,19 @@ finds, so this choice matters as much as the model. ResearchZosho tries them in 
    Google, Qwant, Startpage, Brave) answer the first query with a CAPTCHA and stay suspended, so they
    are off. The file is `~/.researchzosho/searxng/settings.yml`. You can edit it. A SearXNG elsewhere
    goes in `RESEARCHZOSHO_SEARXNG`.
-3. **The built-in fallback**, when neither is set. It uses Wikipedia's own search, in the language of
+
+**What a month of searching cost.** The library counts every search and every page read through a service,
+by month and by service, with the credits the paid ones charge. `researchzosho search status` says, for
+instance, "This month: 123 searches through Serper, 123 credits; 40 through Brave; 12 pages through
+Firecrawl, 12 credits." The tally is `search-tally.json` in the library's home.
+
+**Pages a plain fetch cannot read.** Some pages are drawn by scripts in the browser and come to a program
+as an empty shell; some sit behind a bot wall or answer 403 to anything but a browser. With a Firecrawl key
+(https://www.firecrawl.dev, `firecrawl_key`) the run reads such a page through Firecrawl's browser instead,
+and says so above the text. It is paid per page after the free credits, about a tenth of a cent each, and a
+run reads at most twenty pages this way; a page whose site's terms forbid machine reading is not read that
+way either. Without the key the run looks for an archived copy, as before.
+4. **The built-in fallback**, when neither is set. It uses Wikipedia's own search, in the language of
    the query, then papers from Crossref and OpenAlex. No key and no install, and all three answer
    reliably. But it finds encyclopedia pages and the literature, not the whole web. A run follows
    the pages' references for primary sources. `RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off.
@@ -927,6 +947,14 @@ researchzosho add /mnt/archive/papers --survey
 It prints the number of files by type, their size, how much disk keeping the text would take, and the
 free space on the library's disk. It shelves nothing.
 
+### From the web pages
+
+The Add page, "Add" in the Library group of the menu, takes a file from your own computer: a PDF, a Word file,
+a presentation, an EPUB, a web page saved as HTML or a plain text file; and a page or a document on the web by
+its address; each with a collection to shelve it under if you like. The library reads the text onto the
+shelves; the file itself stays yours. A whole folder, or a file to be read where it lies, goes in at the command
+line on the machine that runs the library.
+
 ### From the chat
 
 You can do the same in the chat with the Librarian:
@@ -942,7 +970,8 @@ Collection archive: 12,388 added, 12 skipped. Read in place, nothing copied. …
 
 The last line starts a research run with sources=shelves on that collection. A program does the same
 with the `library_add` tool, with mode `keep`, `link` or `survey`. Paths are accepted only from the
-terminal or the library's own pages. Any patron with write access can add a URL.
+terminal or the library's own pages. Any patron with write access can add a URL. The chat takes a path from
+the library's owner; a file of anyone else's goes in on the Add page.
 
 ### A conversation you had with another assistant
 
@@ -1397,7 +1426,9 @@ The shops are behind your own keys, all free:
 | `yahoo_jp_client_id` | developer.yahoo.co.jp → アプリケーションの管理 → 新しいアプリケーションを開発 (a "Client ID") | Yahoo!ショッピング listings and prices (Japan) |
 | `rakuten_app_id` + `rakuten_access_key` | webservice.rakuten.co.jp → アプリID発行 (both come together) | 楽天市場 listings and prices (Japan) |
 | `icecat_user` | icecat.biz → Open Icecat, a free account; the setting is the user name | datasheets by brand and model, or barcode, for the brands that sponsor the open catalogue (Kingston, Philips, HP and others); a brand in the paid tier is reported as such |
-| `reddit_client_id` + `reddit_client_secret` | only an app made before Reddit closed its form to new personal apps in 2025 (the form now reloads without creating one; new credentials come by support ticket) | what owners wrote, through Reddit's API; without it the run reads the search engine's snippets of Reddit threads, pointed at and never fetched |
+| `reddit_client_id` + `reddit_client_secret` | a Reddit app of type script; Reddit approves new ones by ticket, and closes its public API in March 2027 | what owners wrote, through Reddit itself; without it the threads the web search finds are read from the Arctic Shift archive (§26c) |
+| `reddit_archive` | `on` (the default) or `off` | whether Reddit threads are read through the Arctic Shift archive, a copy of Reddit minutes to hours behind; `off` points at Reddit and never reads it |
+| `stackexchange_key` | stackapps.com → register an application (free); the setting is the key | raises the Stack Exchange API's allowance from 300 calls a day to 10,000, for `forums` and `forum_search` on The Workplace, Software Engineering, Stack Overflow and the other sites |
 | `ebay_client_id` + `ebay_client_secret` | developer.ebay.com → a keyset (the sandbox one at once; production by a short application) | eBay listings and auctions, every market |
 
 Without a key the run says what is missing and goes on with the open sources: the Open Facts databases for a barcode
@@ -1918,6 +1949,29 @@ earlier sessions. Ctrl-R searches it. Ctrl-C clears the line. Ctrl-D leaves. The
 the library under `catalog/chat/history`.
 
 
+### Asking it about itself
+
+The library knows what it is. It reads its own documentation, this guide among it, for the version that
+is running: a copy installed from a release fetches it from GitHub the first time it is needed and keeps
+it, so it works offline after that, and a copy run from the source tree reads the tree's own. It also
+reads its own state when you ask: the version running, what the library holds, the model it talks to and
+whether that model answers, the web search it has, the fields that are on, the chat's commands and the
+pages.
+Ask in the chat, in your own words: "which version is running?", "what can't you do?", "how do I add
+my bookmarks?", "why do my runs find so little?". It answers from those, and when its documentation
+does not cover something it says so and gives the address to ask at.
+
+`/help` in either chat lists the commands. `/help` and some words looks them up in the documentation,
+without the model:
+
+```
+/help how do I update
+```
+
+The Help page does the same and opens each document whole. A program that uses the library asks it
+with `library_help`. The fields' own commands, such as `/family`, work in the browser chat as at the
+terminal; there, the family commands that change the family's facts are for the library's owner.
+
 ## 12c. Bridges: questions that connect two subjects
 
 `researchzosho bridges` finds two subjects that share a concept but that no source connects. It writes
@@ -2258,6 +2312,9 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
 - `youtube` is for questions about what is on YouTube: which channels make a kind of video, whether a channel
   still posts, what is said in a video and at which moment, and which channels are like one you know. It needs
   no account and no key. [YOUTUBE.md](YOUTUBE.md) has it in full.
+- `career` is for looking for work: it reads your working life from a resume or a LinkedIn file, asks what you
+  want next, and looks for openings at the companies that fit. It has its own page and commands and never joins
+  a research run. Section 26b.
 
 ## 15. Running it as a service
 
@@ -2876,6 +2933,336 @@ researchzosho suggest taken S-0003            # or dismissed, or later: your mar
 
 Your marks are kept against the probabilities given, and the Brier score over them says how well the library
 reads you (0 is perfect, 0.25 is coin-tossing). `library_suggest` is the same for an agent.
+
+## 26a. Sources: what the library mines
+
+The places the library reads for the things a field looks for: registers, directories, boards, list pages, feeds,
+saved searches. A search keeps the ones it reads, with what each yielded and for whom; one that yields nothing new
+for a while goes dry and is read rarely; one you take off is never read again, however often a search finds it.
+Add your own by address, with a word on what it is for, and the next search of that field reads it first.
+
+```
+researchzosho sources                          # every source, with what it yielded and for whom; then the hosts you trust or refuse
+researchzosho sources add https://example.org/postdocs --for "neuroscience postdocs" --field career
+researchzosho sources remove S-0003            # taken off: no search reads it until you bring it back
+researchzosho sources restore S-0003
+researchzosho sources show S-0003
+```
+
+A source earns its place by what its yield survives, never by having been found. Each one carries how many of the
+things it yielded passed the first checks (an opening that passes, a company worth approaching, a like) and how many
+fell (cut, dropped, passed on); one whose yield keeps falling goes doubtful, is not read first, and the page says so;
+one survivor brings it back; a large yield never does. A host you refused is never read as a source and never kept,
+whatever a search found there. The text of a page is evidence, never instruction: the names a page gives are read
+as names, and what reads as an address or an instruction is dropped at the reader.
+
+The Sources page shows the same list with the same buttons, and `/sources` in the chat takes the same words. The
+hosts you trust or refuse for research runs (`sources trust`, `sources refuse`, `sources forget`) are shown with them.
+Over the protocol it is `POST /v1/sources`, and over MCP `library_sources`.
+
+Everything the library reads on its own is on this one list. The job boards the career search reads are there from
+the start, each with the place it is for and a name, and one you take off is never read again; a board of your own
+from the `career_boards` setting is there as yours. Your saved searches and the podcasts you follow are there too, as
+`shelf-<name>`, with how often the nightly check runs each and what it has found so far; taking one off parks it,
+bringing it back puts it in the rotation again, and `shelf add`, `shelf park` and the rest still work as before.
+Words given to `sources add` instead of an address are a search to run again: they become a shelf.
+
+## 26b. Looking for work
+
+The Career page reads your working life and looks for what comes next. Nothing about you leaves the library.
+
+More than one person can be kept: the Career page lists everyone whose working life the library holds, and its "A new person" form opens a page for a new one from their name and a resume, a LinkedIn file or their words; at the command line, `researchzosho career provide <file> --name "Their Name"` does the same from a resume or a LinkedIn file.
+
+Hand over what you have: a resume (PDF, Word or plain text), your LinkedIn profile saved as a file, or a few
+words about what you want. On the Career page, choose the file in the form and send it; at the command line:
+
+```
+researchzosho career provide ~/resume.pdf
+researchzosho career provide "I want to stay in Boston and build hardware again"
+researchzosho career reading        # the library's reading of your working life, and a first draft of what you want
+researchzosho career interview      # its questions, one at a time; skip passes one, stop finishes another time
+```
+
+Words you give the library, in the form on your page, at the command line or in the chat, are read at once for what
+they decide: a role, a kind of work, a place, remote or not, an industry you want or rule out, a company to look
+at. What they say plainly is taken as decided, the page's "What changed lately" says what was set, and the next
+search starts from it; the openings already found can be sorted again on the openings page with no new search.
+
+A search started before any reading is written writes the reading first and drafts what you want from it, the
+guesses it runs on until you decide. What you decided is the base, and a search can vary it for that run only. Beside "Look for openings" there is a box
+for a change for this search: "without the pets field, and New Hampshire as well". In the chat, `/career search`
+and the words; with several people, the name first and a colon, `/career search Jane Doe: without the pets field`;
+at the command line, `researchzosho career search` and the words. The library reads the words against what you
+decided into the topics as they stand for that search, makes that search's own cut, and runs on it; what you
+decided, your keep-outs and the companies of your place keep their readings. The search is recorded with its words
+and its own cut: the Searches table says what it changed, and its page judges the openings by that search's cut,
+so the New Hampshire openings show there as results, not as set aside. The nightly watch runs on what you decided.
+The field you decide, "anything to do with pets or animals", names the employers the search looks for: its web
+searches, the registers' sections and the lists it keeps as sources are for that field beside your role and place.
+First of all, a decided field has the library research the employers in it near your place, the way it answers any
+question, a run of about eight minutes whose report is kept on the shelves with its sources and serves again for a
+month; each organisation it names is checked by its hiring page before any opening of its is read.
+
+The person's page opens with the search box, then their searches, newest first: when each ran, what counted as a fit, how many employers it
+looked at and could read, how many openings passed and were read, and the employers it looked at behind a click; the
+date opens what that search found, as it stands now, and says what that search changed. A new search throws nothing away: the openings stay with the days they were seen, and the lists show the present state.
+Every section of the page, the reading, what you want, the questions and the rest, is folded and opens on a click,
+so the page reads as its contents and the search box. An opening at an employer in the field you decided, named by
+the library's research or read as worth approaching, comes before the rest of the openings that fit.
+Where you work now, read from the role that runs to now, is left out of the search and its openings are set aside,
+whatever source names it, unless you name it yourself.
+
+The reading says what you keep choosing, what seems to drive you, the places you work best in and where you
+are now; each line points to the facts it rests on. It ends with questions, and the interview asks them one at
+a time, saying first how many there are. Your answers are kept in your words. Have the reading written again
+after answering and it asks a few more questions that go deeper into what you said; they join the same
+interview as a new round, your earlier answers stay, and the search needs none of them answered.
+
+What you want is kept topic by topic: the area you work in, the kind of work, the role, the kind of employer (a
+company, a firm, a hospital, a lab, a school, a public body, an agency, clients of your own), the employer's size
+and stage, the culture, the place, whether you would move or commute, remote, the arrangement (full-time,
+part-time, contract, temporary), a licence or a visa to sort out, the pace, the pay and ownership. Each topic is
+decided (you said it), a guess (the library read it from your history, for you to confirm) or open. Whatever you
+hand over that rules something out is kept out from then on, and the people and employers you name are kept, for
+the search. An answer sets a topic only when it says what you want next; an answer about the past sets nothing,
+and a topic you decided keeps its words until you say it changed. Correct any of them on the Career page, or with
+`career want remote decided yes, fully remote`; `career answers` has the library read every answer again for
+what it settles.
+
+The interview asks first for whatever the library needs to look for employers at all and your input left out:
+what work and at what level, what kind of employer, where, whether you would move, remote or not, what
+arrangement, a licence or a visa. One plain question each, in your language, only for the topics still open; the
+deeper questions come after. Say "go" at any point and the search runs on what is decided and the guesses.
+
+The interview ends with two questions: what else to look for, and what you do not want. Companies you name go
+on the list the search looks at. Whatever you rule out, a company, an industry, a kind of work or a condition,
+is kept out. `career company <name>` and `career keep-out <words>` add to either at any time.
+
+### The search
+
+```
+researchzosho career search          # looks for openings, as one of the library's runs
+researchzosho career openings        # what it found: the ones the library read first
+researchzosho career like 3f2a9c1b07 "hardware, and close to home"
+researchzosho career pass 77c0d2e9aa "another platform team"
+researchzosho career keep Formlabs   # keep or drop a company on the list
+researchzosho career cut             # what counts as a fit, and how to change it
+researchzosho career watch on        # look again every night; watch now looks once, at once
+```
+
+A search lists the employers for you and reads their openings. First the ones you named and kept. Then the
+employers the public records list for your work and your place: the company registers of your country, the lists
+of hospitals, schools and universities, the filings of money raised, and the pages the library has found to list
+such employers, each kept as a source you can see on the Sources page and take off. Then, when you decided a
+place, the employers on the job boards for that place that are hiring for a title you want; the library knows a
+few boards and `career_boards` adds others, and a board you add on the Sources page is read too. Then employers
+hiring right now for the titles you want, found by searching the hiring systems' own job pages and kept only when
+the employer's own board still lists the posting. Last, a few the model chooses among the employers the records
+list in your place that the search has not put on the list, each with a sentence on why; it never names an
+employer the records did not list, so a short list is normal, and none at all when the records give nothing.
+The library reads each employer's openings from the employer's own hiring pages: the hiring systems that publish
+them (Greenhouse, Lever, Ashby, Workable, Recruitee, Personio and Workday), the portals hospitals, universities
+and public bodies hire through (a health system's own careers site, Oracle, iCIMS, Taleo, PeopleAdmin), or else
+the job data or the job links on its careers page. A hospital, a school or a lab that a register listed with no
+site of its own is read through the organisation it belongs to: the parent Wikidata names when it names one, else
+the leading words of its name ("Ascension Seton Medical Center" gives Ascension Seton, then Ascension), each
+searched for its careers page and the portal it leads to. The portal's openings are kept to your town, a board
+that says nothing of a hospital, a school or a lab is a namesake's and is not taken, and the employer's line says
+whose board the openings came from. The library also reads the month's Hacker News "Who is hiring" thread, and
+USAJobs when you set a key for it (free at developer.usajobs.gov; the settings `usajobs_key` and
+`usajobs_email`), when how jobs like yours are filled says those carry your trade. It never reads a job board.
+Some hospitals and public bodies still keep their openings in systems the library does not read, or behind a
+wall a plain fetch cannot pass, and then the openings page says so and names each employer for you to open
+yourself. Every request names researchzosho.org, each site's robots rules are kept, and a site gets at most one
+request a second.
+
+What counts as a fit is what you decided: words a title must have (and, when what you decided has two sides, such
+as a founding role that is an engineering one, a second set it must have as well), words that rule a title out,
+places, and whether remote counts. The model turns your decided topics into those words once. After that the
+sorting is plain matching, so thousands of openings are sorted in a moment, and the same openings always sort the
+same way. A guess never drops an opening; it only puts some ahead of others, and a role beside an executive, a
+field CTO or an office of the CEO, goes after the executives. Change what counts as a fit on the openings page, or
+with `career cut places Boston, Cambridge, MA`, and the openings already read are sorted again at once, with no
+new search.
+
+Fit is judged with the company's dossier beside the posting, never from the posting's words alone. After a search
+the library files a **company card** for the companies whose openings pass, three at a time (`career_cards`):
+the dossier builder's own research run, bounded to about eight minutes and three questions, the fewest that
+answer your wants: how many people work there and the stage; what it builds, where it is and who leads its
+engineering; this year's hiring, layoffs and news. The card lands on the
+same shelves as every dossier, each claim with its source and its class, and the company's website anchors the
+run so that a namesake's facts never land on it. Once a card lands, the company's openings are read again with
+it. When a card gives no size or stage, the opening and the company say so plainly, "Needs a full run to get its
+size", with the button beside it, and a company with no card yet says that, with both buttons. The **full
+dossier**, the deep run with the whole brief, is never automatic: a button, or `/career dossier <name>`, for a
+company you are serious about. A card is not filed again within a month, and the nightly ones
+only when your watch is on; `career_cards 0` turns them off. The headcount for the cut is read from the card's claims; failing a card, from
+the company's own pages, its LinkedIn page as a search result shows it with the website it names, or Wikidata
+when the website it records is the same, each with its source and date. With a size decided ("not bigger than
+200"), a company known to be more than twice that is cut before anyone reads it, one that may be over goes
+after those within, and a company whose own board lists a hundred openings is cut as well.
+
+The model then reads the 40 openings nearest to what you want, at most three from one company before a fourth
+from any, and writes three lines for each: what fits, what goes against what you want, and what the opening
+does not say. That is the slow part, about a minute an opening on a local model, so a search takes half an hour
+to three quarters of an hour. The rest are sorted by how closely each matches the role and the place, as you
+decided them or, until you do, as the library guesses them: the ones that match both are listed open, by employer;
+the near misses (the role elsewhere or remote, or the place with another role), the rest, and what your decisions
+set aside, each with its reason, are closed with their counts and open with a click. A big employer's board shows
+its first few and says how many more it has. Read more has the model read the next 40.
+
+Like or pass on an opening, with why in your own words. Keep a company and every search looks at it; drop it
+and no search shows it or proposes it again; keep it out and it joins what you rule out. Every opening shows
+when it was posted, as the company says, and the day the library last read it. An opening that leaves its
+company's list is marked gone.
+
+With the watch on, the night's housekeeping reads your companies again, straight from the hiring pages the
+search found, looks at the portfolio boards and the hiring sites again for companies new that night, reads the
+month's Who is hiring; keeps the new openings that pass; and has the model read up to 10 of them. They wait at the top of the openings list under New since you last looked, and the inbox says how
+many: one line, never one an opening.
+
+The numbers are settings: `career_companies` (60), `career_readings` (40) and `career_watch_readings` (10). The same commands work in the
+chat (`/career search`, `/career openings`, `/career like …`); on the Career page the button at the top of the
+person's page, "Look for openings", starts it, and the page links to the openings list.
+
+### Near a city
+
+A place you decide as a city means the city and the towns near it, not the city's name alone: an opening in
+Villeurbanne passes for Lyon, one in Somerville for Boston. The library asks Wikidata once for the towns within 30
+km of each city you name, or the distance you give ("within 20 miles of Boston"), keeps the answer for a month, and
+the log says which towns count. A state, a country or a code is no city and adds nothing.
+
+### The companies of your place
+
+The roles at the top of a company are seldom posted, so a search also starts from the companies: those in the
+place you decided that the public records name, read against what you want. The records are free and need no
+key. For a place in the United States, the SEC's Form D filings, which every company files when it raises money
+from investors: the company, its city, how much it raised and when, whether it is less than five years old,
+whether it has revenue yet, its industry, and the officers and directors it names, who are the way in. Everywhere,
+Y Combinator's directory, through its open mirror: the company, its place, how many people, its batch and its
+industries. And Wikidata's companies with their head office in the city, with their website, employees and
+founding year where it has them. Funds, trusts and the other filers that are not companies are left out by their
+names and their industry line. The records are read once a week, at the polite pace, and kept with your record.
+
+```
+researchzosho career companies       # the companies of your place, read against what you want
+researchzosho career like Sentonix - a young company building its leadership
+researchzosho career pass Acme - too far along
+```
+
+Each company's facts are shown with the record they came from and its date. The cut you decided applies first,
+plainly: a company known to be more than twice the size you decided is out, and so is one in an industry you
+keep out. Then each company that stands gets a reading in three lines and a word: what fits, what goes against,
+what is unknown, and whether to approach now, maybe, or not. What the records answer is computed and named with
+its source: the place, the size against what you decided, the money raised and when, the age, the revenue. The
+model judges only what has no sensor, whether what the company does fits the field you want and whether its stage
+fits the stage you want, each from that topic's facts alone, so a raise is never read as a size. A company is one
+to approach now when nothing goes against what you decided and a record gives a reason, money raised within the
+year, a company formed within five years or a small team, with a fit beside it; maybe when the records leave the
+fit open. The companies page lists them under To approach now, Maybe, and the rest; like or pass on each with
+why, and keep one to put it on the list the search reads for openings.
+A company worth approaching joins the search's list on its own, its openings are read, and it gets a company
+card after the ones with passing openings; the size and stage the card gives go back to the company's record,
+and its reading is made again with them. A hiring board found for such a company's name is taken as its own only
+when one of its postings names the record's city, state or one of its officers; a namesake's board, and the size
+that would come from it, are left alone, and the company has no board until its card says more. The model's reading is made again only when what you want changes.
+With the watch on, the records are read again each week, and new companies are read that night.
+
+### The registers
+
+Before it searches the web for pages that list employers, the search reads the company registers it knows for the
+country of your place, each through the register's own route: in France the state's open search over the company
+register, with no key; in the United Kingdom Companies House's search page, with no key, or its API when you set a free
+key (`companies_house_key`, from the Companies House developer site); in Japan gBizINFO, when you set a free token
+(`gbizinfo_token`, from its API registration page). Each read is recorded on the Sources page as a register with what
+it yielded, and an employer from it carries the register's record in its reason: the town, what the register files it
+under, its size when the register says, and the address of its record. Where the library has no register reader, the
+web search runs as before, and a register it reaches is kept with no yield until a reader serves it. A register of your
+own, one that lists employers on a page, goes in as any source does: `researchzosho sources add <address> --for
+"employers" --field career`.
+
+A hospital, a school, a university, a care home or a clinic is not on a company register. For those the library reads
+the institution registers, by the kind of employer you decided or the one the search drew for your work, before the
+company register, and each is a source like any other: in the United States the Medicare lists of hospitals, nursing
+homes and home health agencies and the public school directory; in England the NHS organisation directory (hospitals,
+GP practices, pharmacies, dental practices); in Brazil the register of health establishments (CNES); in France the
+register of health and care establishments (FINESS), the school directory and the list of higher education and research
+institutions; and, for any of these countries, the world list of universities. None needs a key. A kind of employer no
+register covers in your country is said in the log, and the web search and the sources you add stand in for it;
+restaurants, hotels, law firms and public bodies have no open register anywhere the library knows, so their lists come
+from the associations' pages and the sources you add.
+
+**The map, for the kinds no official register lists.** Restaurants, cafés and bars, hotels, law offices, accountancies,
+architects, estate agencies, insurance offices, banks, shops, gyms, veterinary practices, libraries, museums, theatres,
+public offices, childcare, workshops and charities are on no official register the library can read anywhere, and in
+most countries neither are hospitals, clinics or schools. For these the search reads OpenStreetMap, the map made by
+volunteers, through its Overpass service: the named places of that kind in your town, those with a website first, then
+those of a brand or an operator, with the town, what the place is, and its website or the map's own record. It is read
+after the official registers of your country, only for the kinds they did not list, kept a month, and asks for no key.
+The map is as good as its mappers made it: a town's restaurants are mostly there, a law office often is not, and a
+website is there for one place in ten. Every such employer's reason on your list says it came from OpenStreetMap, whose
+data is the mappers' (© OpenStreetMap contributors).
+
+## 26c. Reading Reddit and the Stack Exchange sites
+
+A research run can read discussion threads in full, and so can you from the terminal: the threads of a subreddit, or of
+any Stack Exchange site, for some words, best first, and then one thread with its answers or comments.
+
+```
+researchzosho forums r/selfhosted seafile nextcloud
+researchzosho forums r/selfhosted seafile --days 365 --limit 5
+researchzosho forums r/selfhosted read 1f3w5vs
+researchzosho forums workplace counter offer salary
+researchzosho forums softwareengineering monolith microservices when
+researchzosho forums workplace read 192705
+```
+
+The site is `r/<name>` for a subreddit, or a Stack Exchange site's name: `workplace` (The Workplace),
+`softwareengineering`, `stackoverflow`, `serverfault`, `superuser`, `askubuntu`, `security`, `dba`, `ux`, `academia`,
+and the rest, the word before `.stackexchange.com` in the site's address. A thread's address works in place of its id.
+In a research run the model has the same thing as the tool `forum_search`, and it uses it when a question is about what
+people say to each other: how a negotiation went, what owners of a thing found, how a team solved a problem.
+
+Where the text comes from, and what that means:
+
+- **Reddit** is read through the Arctic Shift archive, a copy of Reddit that is minutes to hours behind, kept by one
+  person, with no promise of uptime. Reddit's own pages are never read by the library: its terms forbid a program
+  reading them, its feeds close on 2026-11-13 and its public API in March 2027. The archive searches one subreddit at a
+  time, by words in the title or the opening post, and gives a thread's whole comment tree with the votes as archived.
+  To point at Reddit and never read it, set `reddit_archive` to `off`. A Reddit app of your own (`reddit_client_id`
+  and `reddit_client_secret`) still reads the "what owners wrote" kind of a shopping question through Reddit itself
+  while Reddit's API lasts.
+- **The Stack Exchange sites** are read through their own API: 300 calls a day without a key, enough for a few dives,
+  and 10,000 with a free key from stackapps.com (`stackexchange_key`). The text is CC BY-SA, so a write-up cites the
+  thread's address and the author's name, which every answer carries.
+
+What these are for, and what they are not. A thread is what one person wrote at a time, and the votes are the crowd's
+reading of it: good for what people say and do, how a negotiation went, what owners of a thing found after a year, how
+a trade talks about its tools. It is not a source for a fact. A date, a number, a name or a claim met in a thread is a
+lead, to be confirmed in a primary source, and the run is told so. The library files a claim that rests only on a forum
+in the forum tier, which stays a draft for you to accept or dispute, the same as a claim from any forum page. The run is
+told to weigh what people wrote and never count it, to quote people as people, and to cite the thread's address. A host
+you refuse on the Sources page (`reddit.com`, or `workplace.stackexchange.com`) is not read.
+
+### How jobs like yours are filled
+
+Before it looks anywhere, a search draws how jobs for your work in your place are usually filled: posted
+openly, through a board for the trade, through people who know people, after a licence or registration, or by
+rounds and appointments. The library draws it from the role and the place you decided (else the title you hold and
+where your record puts you), with the model; the code holds no table of occupations. What it drew is on the career
+page under "How jobs like yours are filled", and at the top of the openings page: how jobs like yours are filled, what you need
+(a licence by its name and the body that issues it), where such employers are listed, what says an employer needs
+someone now, and what the search reads and skips. A nurse's search does not read Hacker News; a lawyer's reads the
+bar's register among the lists and keeps the people you named first; a software engineer's reads the venture boards
+and the hiring sites as before.
+
+Your own word outranks it. On the career page, type how jobs like yours are filled in the box under the paragraph; at
+the command line, `researchzosho career shape every job I had came through someone I knew`; in the chat, `/career
+shape` and the words. The library draws the shape again with your words, keeps them, and the next search follows
+them. `career shape` alone shows what stands.
+
+The library also reads your reactions back: the openings you liked and passed on, with why, go to the model as
+examples when it reads the next opening, the liked ones first.
 
 ## 27. Not yet available
 

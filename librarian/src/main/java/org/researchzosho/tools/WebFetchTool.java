@@ -13,6 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Locale;
 import org.researchzosho.Stopping;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -133,6 +134,10 @@ public final class WebFetchTool implements Tool {
         Fetch.Result resp = page.fetched();
         url = resp.url();   // after redirects — what was actually read is what gets cited
         if (resp.status() >= 400) {
+            if (resp.status() == 401 || resp.status() == 403 || resp.status() == 406 || resp.status() == 429 || resp.status() >= 500) {   // a site that turns a plain fetch away may let a browser in
+                String via = throughFirecrawl(url, terms, "HTTP " + resp.status());
+                if (via != null) return via;
+            }
             // WIKIPEDIA 404 → real titles. A model GUESSES plausible article titles and a near-miss 404s
             // (measured: "List of state constitutions of the United States" — the page exists as
             // "List of U.S. state constitutions"; three fetch attempts, task lost). Wikipedia's own
@@ -159,13 +164,39 @@ public final class WebFetchTool implements Tool {
             // page were numbered references in a report. A wall is not a source; it is a fetch that failed — and a
             // request to the person, who may hold the paper or the access.
             String what = wall != null ? wall : "HTTP " + resp.status();
+            String via = throughFirecrawl(url, terms, what);   // Firecrawl's browser gets past most walls; the live page beats an old copy
+            if (via != null) return via;
             String copy = archivedCopy(url, terms, what);   // an archive's copy, saved before the wall went up, is the page
             if (copy != null) return copy;
             request(url, what);
             return "ERROR: " + url + " answered with " + what + " instead of the page — recorded as a source request for the person. "
                     + "Try an open version (arXiv, a repository, the author's page) or another source.";
         }
+        if (text.strip().length() < 400 && bytes.length > 15_000 && new String(bytes, 0, Math.min(bytes.length, 6000), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT).contains("<script")) {
+            String via = throughFirecrawl(url, terms, "a page built by scripts: " + text.strip().length() + " characters of text in " + bytes.length + " bytes");   // a script shell: the page is drawn in the browser
+            if (via != null) return via;
+        }
         return render(url, page, terms, "");
+    }
+
+    /** How many pages one tool (one worker) reads through Firecrawl: each costs a credit, so a run reads a few this way, not a site. */
+    static final int MOST_FIRECRAWL = 20;
+    private final AtomicInteger firecrawls = new AtomicInteger();
+
+    /**
+     * The page through Firecrawl's browser, when the person set a key and this worker has credits left: checked like any fetch, rendered
+     * under a first line that says why. Null when there is no key, the quota is spent, Firecrawl could not read it either, or what came
+     * back is a wall too.
+     */
+    private String throughFirecrawl(String url, String terms, String why) throws Exception {
+        if (!Firecrawl.on() || firecrawls.incrementAndGet() > MOST_FIRECRAWL) return null;
+        Fetch.Result r = Firecrawl.scrape(url, Duration.ofSeconds(45));
+        if (r == null) return null;
+        PageCheck.Page p = PageCheck.check(r, policy, terms, url);
+        if (!p.kept()) return "ERROR: " + url + " was left out of this research (" + p.leftOut() + "). Read another source.";
+        String t = p.doc() == null ? "" : p.doc().text();
+        if (t == null || t.isBlank() || Fetch.wall(p.doc().title(), t) != null) return null;
+        return render(url, p, terms, "Read through Firecrawl's browser, because a plain fetch got " + why + ". ");
     }
 
     /** How many archived copies one tool (one worker) looks up: a dead site with many dead pages must not cost a lookup each. */

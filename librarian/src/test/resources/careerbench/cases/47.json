@@ -1,0 +1,46 @@
+{
+ "full_name": "Seeker 47",
+ "headline": "printing press operator",
+ "occupation": "printing press operator at Harrowgate SA",
+ "location_str": "Manchester, England",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2024
+   },
+   "ends_at": null,
+   "company": "Harrowgate SA",
+   "title": "printing press operator",
+   "description": null,
+   "location": "Manchester, England"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2020
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2024
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Ashgrove Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

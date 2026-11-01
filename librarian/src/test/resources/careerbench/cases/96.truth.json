@@ -1,0 +1,19 @@
+{
+ "trap": "region as place",
+ "expect": {
+  "work_words": [
+   "mathemat",
+   "lehrer",
+   "teacher"
+  ],
+  "place_decided": "Bayern",
+  "mobility_open": true,
+  "named_not": [
+   "Ashgrove"
+  ],
+  "keep_out_not": [
+   "homeoffice",
+   "remote"
+  ]
+ }
+}

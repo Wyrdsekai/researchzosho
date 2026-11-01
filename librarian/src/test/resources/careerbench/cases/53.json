@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 53",
+ "headline": "head of school",
+ "occupation": "head of school at Harrowgate County",
+ "location_str": "Pune",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2018
+   },
+   "ends_at": null,
+   "company": "Harrowgate County",
+   "title": "head of school",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2018
+   },
+   "company": "Juniper Ministry",
+   "title": "secondary school mathematics teacher",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2002
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2010
+   },
+   "company": "Juniper Ministry",
+   "title": "secondary school mathematics teacher",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1998
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2002
+   },
+   "field_of_study": "education",
+   "degree_name": "",
+   "school": "Ashgrove Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

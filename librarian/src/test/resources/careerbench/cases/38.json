@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 38",
+ "headline": "chief people officer",
+ "occupation": "chief people officer at Varnish County",
+ "location_str": "",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Varnish County",
+   "title": "chief people officer",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "company": "Marrow & Finch County",
+   "title": "human resources manager",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2018
+   },
+   "company": "Quillon Ministry",
+   "title": "human resources manager",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Penrose Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "de"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

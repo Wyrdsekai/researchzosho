@@ -133,4 +133,23 @@ class DossierTest {
         assertTrue(Dossier.isASpan("34") && Dossier.isASpan("1999 to 2006") && Dossier.isASpan("$68 billion") && Dossier.isASpan("$6.5 billion") && Dossier.isASpan("27.1%"));
         assertFalse(Dossier.isASpan("Garber") || Dossier.isASpan("1636 Forum"));
     }
+
+    @Test
+    void anOrganisationsOwnSiteIsItsOwnPublicationInItsDossier(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        String own = store.nextFindingId("ResearchZosho keeps a library");
+        store.write(new Finding(own, "ResearchZosho keeps a research library", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.high, "patron:test",
+                Instant.now().toString(), "2026-10-28", Finding.Volatility.stable, "", List.of(new Finding.Source("https://researchzosho.org/", "n/a", "its site")), List.of(), null,
+                "ResearchZosho keeps a research library with citations and memory.\n"));
+        String other = store.nextFindingId("ResearchZosho has a startup score");
+        store.write(new Finding(other, "ResearchZosho has a startup score of 69", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.low, "patron:test",
+                Instant.now().toString(), "2026-10-28", Finding.Volatility.slow, "", List.of(new Finding.Source("https://startupscores.com/open-source/researchzosho", "n/a", "a listing")), List.of(), null,
+                "A directory gives ResearchZosho a startup score of 69.\n"));
+        Dossier.Gathered d = Dossier.gather(store, "ResearchZosho");
+        assertEquals(1, d.byClass().getOrDefault(SourceClass.ownPublication, List.of()).size(), d.byClass().toString());
+        assertEquals(1, d.byClass().getOrDefault(SourceClass.thirdParty, List.of()).size());
+        String page = DossierPage.render(store, "ResearchZosho");
+        assertTrue(page.contains("ResearchZosho keeps a research library") && page.contains("c-own"), "the page shows its own site's claim as its own publication");
+        assertTrue(Dossier.of(store, "ResearchZosho").path("markdown").asText().contains("ResearchZosho keeps a research library [own publication"), Dossier.of(store, "ResearchZosho").path("markdown").asText());
+    }
 }

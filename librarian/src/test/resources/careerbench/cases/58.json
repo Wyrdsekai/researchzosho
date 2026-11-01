@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 58",
+ "headline": "payroll clerk",
+ "occupation": "payroll clerk at Varnish SA",
+ "location_str": "Manchester, England",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2021
+   },
+   "ends_at": null,
+   "company": "Varnish SA",
+   "title": "payroll clerk",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2021
+   },
+   "company": "Corvid GmbH",
+   "title": "payroll clerk",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2011
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2016
+   },
+   "company": "Brightwater Ltd",
+   "title": "payroll clerk",
+   "description": null,
+   "location": "Manchester, England"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2007
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2011
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Greywell Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

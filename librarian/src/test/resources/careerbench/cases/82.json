@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 82",
+ "headline": "retail sales assistant",
+ "occupation": "retail sales assistant at Halden K.K.",
+ "location_str": "Leipzig",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Halden K.K.",
+   "title": "retail sales assistant",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2022
+   },
+   "company": "Penrose K.K.",
+   "title": "retail sales assistant",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2018
+   },
+   "company": "Ironside Ltd",
+   "title": "retail sales assistant",
+   "description": null,
+   "location": "Leipzig"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Halden Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "de"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

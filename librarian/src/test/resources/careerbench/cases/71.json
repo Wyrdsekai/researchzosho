@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 71",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Leipzig",
+ "summary": "Certified in registered nurse.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2016
+   },
+   "ends_at": null,
+   "company": "Penrose Agency",
+   "title": "director of nursing",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2006
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2016
+   },
+   "company": "Fallow Staffing",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 1996
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2006
+   },
+   "company": "Northgate Staffing",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Leipzig"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1992
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1996
+   },
+   "field_of_study": "nursing",
+   "degree_name": "",
+   "school": "Juniper Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "de"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

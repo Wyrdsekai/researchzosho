@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 64",
+ "headline": "senior general practitioner",
+ "occupation": "senior general practitioner at Halden Ministry",
+ "location_str": "Pune",
+ "summary": "Certified in general practitioner.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Halden Ministry",
+   "title": "senior general practitioner",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2022
+   },
+   "company": "Ironside City Council",
+   "title": "general practitioner",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "company": "Juniper & Partners",
+   "title": "lawyer",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2004
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2008
+   },
+   "field_of_study": "nursing",
+   "degree_name": "",
+   "school": "Larkspur Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

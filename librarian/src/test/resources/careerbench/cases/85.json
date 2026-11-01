@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 85",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Belo Horizonte",
+ "summary": "Certified in civil engineer.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "ends_at": null,
+   "company": "Larkspur SA",
+   "title": "senior civil engineer",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2018
+   },
+   "company": "Juniper Ltd",
+   "title": "civil engineer",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2002
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2010
+   },
+   "company": "Halden K.K.",
+   "title": "civil engineer",
+   "description": null,
+   "location": "Belo Horizonte"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1998
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2002
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Northgate Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "pt"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

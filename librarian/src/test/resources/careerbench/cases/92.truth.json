@@ -1,0 +1,14 @@
+{
+ "trap": "contradiction",
+ "expect": {
+  "work_words": [
+   "nurse",
+   "nursing"
+  ],
+  "place_decided": "Lyon",
+  "place_not": [
+   "Pune"
+  ],
+  "mobility_open": true
+ }
+}

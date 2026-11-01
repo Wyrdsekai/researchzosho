@@ -1,0 +1,66 @@
+{
+ "full_name": "Seeker 11",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Valencia",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2022
+   },
+   "company": "Ironside Ltd",
+   "title": "kitchen assistant",
+   "description": null,
+   "location": "Valencia"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2018
+   },
+   "company": "Northgate SA",
+   "title": "kitchen assistant",
+   "description": null,
+   "location": "Valencia"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Larkspur Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "es"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

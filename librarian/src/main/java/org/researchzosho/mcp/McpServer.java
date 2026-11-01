@@ -668,6 +668,13 @@ public final class McpServer {
         tools.add(tool("library_status",
                 "library_id, library_name, contract, counts by kind and state, last_updated.",
                 schema(new String[]{}, patronProp())));
+        tools.add(tool("library_help",
+                "The library on ITSELF: what ResearchZosho is, which version is running, what it can and cannot do, how to do something in it, "
+                + "and why something does not work. Returns its live state (version, what this library holds, the model and whether it answers, "
+                + "the web search, the fields that are on, the chat's commands, the pages) and the sections of the program's own documentation "
+                + "that answer the question, with where to ask what neither answers. Use it for any question about the library or the program "
+                + "rather than answering from memory.",
+                schema(new String[]{}, prop("question", "string", "What the person wants to know about ResearchZosho, in English words; empty for the state alone."), patronProp())));
         tools.add(tool("library_sharpen",
                 "SHARPEN a rough research question BEFORE running it: the library looks at what it already holds, asks who studies "
                 + "the question and what each would ask, and answers with the question rewritten, the assumptions it made (read them: a model "
@@ -773,6 +780,7 @@ public final class McpServer {
             case "library_serials" -> p.serials(args);
             case "library_subjects" -> p.subjects(args);
             case "library_status" -> p.status(args);
+            case "library_help" -> p.help(args);
             case "library_changes" -> p.changes(args);
             case "library_request_access" -> p.requestAccess(args);
             case "library_access" -> p.access(args);

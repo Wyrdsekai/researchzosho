@@ -1,0 +1,14 @@
+{
+ "trap": "title in another language",
+ "expect": {
+  "work_words": [
+   "nurse",
+   "nursing",
+   "看護"
+  ],
+  "place_decided": "Osaka",
+  "keep_out_not": [
+   "remote"
+  ]
+ }
+}

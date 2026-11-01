@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 36",
+ "headline": "neuroscience researcher",
+ "occupation": "neuroscience researcher at Northgate Research Centre",
+ "location_str": "",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Northgate Research Centre",
+   "title": "neuroscience researcher",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2022
+   },
+   "company": "Quillon Institute",
+   "title": "neuroscience researcher",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2012
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2018
+   },
+   "company": "Larkspur Medical Centre",
+   "title": "registered nurse",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2012
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Quillon Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

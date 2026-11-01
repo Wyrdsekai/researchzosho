@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 45",
+ "headline": "chief executive",
+ "occupation": "chief executive at Stillwater Pty Ltd",
+ "location_str": "Columbus, Ohio",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2019
+   },
+   "ends_at": null,
+   "company": "Stillwater Pty Ltd",
+   "title": "chief executive",
+   "description": null,
+   "location": "Columbus, Ohio"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2012
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2019
+   },
+   "company": "Northgate SA",
+   "title": "chief executive of a mid-sized firm",
+   "description": null,
+   "location": "Columbus, Ohio"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2005
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2012
+   },
+   "company": "Dunmore SA",
+   "title": "chief executive of a mid-sized firm",
+   "description": null,
+   "location": "Columbus, Ohio"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2001
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2005
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Halden Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

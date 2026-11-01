@@ -1,0 +1,73 @@
+{
+ "full_name": "Seeker 73",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Osaka",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Tessaly Academy",
+   "title": "university lecturer in history",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2022
+   },
+   "company": "Juniper Inc.",
+   "title": "machine learning engineer",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2011
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2015
+   },
+   "field_of_study": "education",
+   "degree_name": "",
+   "school": "Oakum Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [
+  {
+   "name": "A result in education",
+   "publisher": "Oakum University",
+   "published_on": {
+    "day": 1,
+    "month": 5,
+    "year": 2015
+   },
+   "url": null
+  }
+ ],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

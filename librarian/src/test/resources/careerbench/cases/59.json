@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 59",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Toronto, Ontario",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2019
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2024
+   },
+   "company": "Fallow Staffing",
+   "title": "warehouse labourer",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2019
+   },
+   "company": "Ironside Staffing",
+   "title": "warehouse labourer",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2009
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2014
+   },
+   "company": "Fallow Staffing",
+   "title": "warehouse labourer",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2005
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2009
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Greywell College"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -1,5 +1,66 @@
 # Changelog
 
+## 0.6.7
+
+What's new: the library can help you look for work. It reads your resume, asks what you want, finds the employers of your place and reads their job openings. It also reads discussion threads on Reddit and the Stack Exchange sites, takes files from the browser, shows every place it reads on one Sources page, and can use Google's results and read hard pages through services you pay for, with a count of what a month cost.
+
+### Added
+
+- Looking for work. Hand the library your resume or your LinkedIn file, on the Career page or at the command
+  line. It writes a reading of your working life, asks you its questions one at a time, and keeps what you want
+  topic by topic; what you tell it in your own words is read at once for what it decides. The button at the top of your page starts the search: the library lists the employers of your
+  place, reads their openings from their own hiring pages, keeps the ones that fit what you decided, and has the
+  model read the nearest against what you want, saying what fits and what does not. The openings page shows the
+  ones that match the role and the place first; the near misses and the rest stay closed until you open them. You
+  like or pass on each, keep or drop employers, and with the watch on the library looks again every night. Where you work now is left out of the search, unless you
+  name it yourself. A search can vary what you decided for that run only, "without the pets
+  field, and New Hampshire as well", in the box beside the button, in the chat or at the command line; what you
+  decided stands, and that search's page judges its openings by its own cut. More than one person can be
+  kept; the Career page lists them. A person's page opens with the search box and their past searches, and every
+  section below folds open on a click. `researchzosho career`, `/career` in the chat, Career in the menu.
+
+- Where the employers come from. The field you decided to work in, say pets or animals, names the employers the
+  search looks for, beside your role and your place: the library's own research names the employers in that field
+  near you, as it answers any question, and each is checked by its hiring page. The search also starts from what is
+  on record, not from a web search: the company
+  registers of France, the United Kingdom and Japan; the lists of hospitals, nursing homes, schools and
+  universities in the United States, England, France and Brazil; the filings of money raised and the start-up
+  directories; and, for the kinds of employer no register lists, such as restaurants, hotels, law offices and
+  shops, the OpenStreetMap map made by volunteers. Before it reads anything, the library works out how jobs like
+  yours are filled in your place, posted openly, through a trade's board, through people, or by appointment, and
+  reads only what fits that. A hospital or a school with no site of its own is read through the organisation it
+  belongs to and the hiring portals such places use. A place you decide as a city means the towns near it too.
+  None of this needs a key.
+
+- Sources. Every place the library reads, registers, directories, job boards, saved searches and followed
+  podcasts, is on one Sources page: what each found and for whom, and whether it is still read. Add a place of
+  your own by its address and the next search reads it first; take one off and nothing reads it again.
+  `researchzosho sources`, `/sources` in the chat.
+
+- Files from the browser. The Add page takes a document from your own computer, a PDF, a Word file, a
+  presentation, an EPUB, a saved web page or a plain text file, or a page by its address, and shelves it; the file
+  itself stays yours. The Career page's forms take a resume or a LinkedIn file the same way. Before, a file went in
+  only at the command line on the machine that runs the library; a whole folder still does.
+
+- Discussion threads, read in full. A research run, and `researchzosho forums`, read what people say on a
+  subreddit or on any Stack Exchange site, such as The Workplace or Software Engineering: the best threads for
+  some words, and one thread with its answers and comments. Reddit is read through the Arctic Shift archive, a
+  copy kept by a volunteer, because Reddit's own pages may not be read by a program and its feeds close in
+  November 2026. Threads are what people say, not facts: a claim that rests only on one is filed as a draft, to be
+  confirmed elsewhere.
+
+- Google's results, if you pay for a key. With a key from Serper or SerpApi, every web search asks Google first,
+  before Brave and the free engines. Each search is paid for after the free allowance; the guide says what each
+  service charges. Google now gives only its top three links at once, and through Serper the library asks for the
+  rest with a free second call.
+
+- Hard pages, through Firecrawl. With a Firecrawl key, a page the library could not read, one drawn by scripts or
+  behind a bot wall, is read through Firecrawl's browser instead: at most twenty pages a run, paid per page after
+  the free credits.
+
+- What a month of searching cost. The library counts every search and every page it read through a service, by
+  month and by service, with the credits the paid ones charged. `researchzosho search status` says the tally.
+
 ## 0.6.6
 
 What's new: a dossier on any person or organisation, built from everything the library holds on them, and readable in another language; four new fields, law, patents, person and organisation; the library suggests what to do next; a question can be put to several models at once and their answers compared; and research runs use every model server you give them.

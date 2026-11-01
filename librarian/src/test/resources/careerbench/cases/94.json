@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 94",
+ "headline": "financial analyst",
+ "occupation": "financial analyst at Marrow & Finch K.K.",
+ "location_str": "Toronto, Ontario",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Marrow & Finch K.K.",
+   "title": "financial analyst",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2022
+   },
+   "company": "Oakum Inc.",
+   "title": "financial analyst",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2018
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Halden Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

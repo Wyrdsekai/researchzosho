@@ -1,0 +1,89 @@
+{
+ "full_name": "Seeker 80",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Manchester, England",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2020
+   },
+   "ends_at": null,
+   "company": "Ashgrove University",
+   "title": "head of data",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2020
+   },
+   "company": "Larkspur Institute",
+   "title": "data scientist",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2014
+   },
+   "company": "Oakum Institute",
+   "title": "data scientist",
+   "description": null,
+   "location": "Manchester, England"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2004
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2008
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Halden University"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [
+  {
+   "name": "A result in computer science",
+   "publisher": "Ironside Institute",
+   "published_on": {
+    "day": 1,
+    "month": 5,
+    "year": 2008
+   },
+   "url": null
+  }
+ ],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

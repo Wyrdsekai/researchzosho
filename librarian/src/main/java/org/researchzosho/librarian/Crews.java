@@ -145,6 +145,8 @@ public final class Crews {
             return o.checked() + " DOI(s) checked, " + o.retracted() + " retracted, " + o.concerns() + " concern(s)" + (o.notes().isEmpty() ? "" : " (" + String.join("; ", o.notes()) + ")");
         }));
         steps.add(step(store, "migrate-review-hashes", () -> store.migrateReviewHashes() + " carried"));
+        steps.add(step(store, "career", () -> CareerWatch.nightly(store, drive, stop())));
+        if (drive) steps.add(step(store, "career cards", () -> CareerCompany.nightly(store)));   // the company cards due: bounded research runs, filed to run after the housekeeping   // the companies of each person who watches, read again; the new openings that pass read by the model when it answers
         if (drive) {
             // the pages the person gave that were saved before a model could check them: checked now, and removed when the check finds them
             steps.add(step(store, "page-checks", () -> {

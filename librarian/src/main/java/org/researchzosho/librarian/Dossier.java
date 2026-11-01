@@ -34,6 +34,14 @@ public final class Dossier {
     /** What the shelves hold on a subject, gathered once: the view and the story are both written from it. */
     public record Gathered(String name, Graph.Node node, List<Graph.Edge> relations, Graph graph, List<Finding> claims, Map<SourceClass, List<Finding>> byClass, List<Investigation> reports, List<Frontier.Line> questions, String kind) {
         public String label() { return node == null ? name : node.label(); }
+        /** The subject's own sites, from its names and its kind. */
+        public SourceClass.Own own() { return ownOf(name, node, kind); }
+    }
+
+    static SourceClass.Own ownOf(String name, Graph.Node node, String kind) {
+        List<String> ns = new ArrayList<>(); if (name != null) ns.add(name);
+        if (node != null) { ns.add(node.label()); ns.addAll(node.aliases()); }
+        return SourceClass.Own.of(ns, kind);
     }
 
     /** The dossier as JSON: {subject, found, kind, aliases, claims, reports, questions, by_class, markdown}. */
@@ -86,8 +94,6 @@ public final class Dossier {
             if (mine) claims.add(f);
         }
         for (Graph.Edge e : relations) { Finding f = byId.get(e.findingId()); if (f != null && !claims.contains(f) && f.state() != Finding.State.retired) claims.add(f); }
-        Map<SourceClass, List<Finding>> byClass = new EnumMap<>(SourceClass.class);
-        for (Finding f : claims) byClass.computeIfAbsent(SourceClass.of(f.sources()), k -> new ArrayList<>()).add(f);
         // the reports about the subject: the question names it
         List<Investigation> reports = new ArrayList<>();
         if (Files.isDirectory(store.investigationsDir())) {
@@ -107,7 +113,11 @@ public final class Dossier {
             String t = l.text().toLowerCase(Locale.ROOT), k = l.kind().toLowerCase(Locale.ROOT);
             for (String n : names) if (t.contains(n) || k.contains(n)) { questions.add(l); break; }
         }
-        return new Gathered(name, node, relations, g, claims, byClass, reports, questions, kindOf(reports, Fields.runs(store), node));
+        String kind = kindOf(reports, Fields.runs(store), node);
+        SourceClass.Own own = ownOf(name, node, kind);   // the class needs the kind: a person's own site is not read from a name
+        Map<SourceClass, List<Finding>> byClass = new EnumMap<>(SourceClass.class);
+        for (Finding f : claims) byClass.computeIfAbsent(SourceClass.of(f.sources(), own), k -> new ArrayList<>()).add(f);
+        return new Gathered(name, node, relations, g, claims, byClass, reports, questions, kind);
     }
 
     /** A number, a span of years or an amount of money the writer put where a subject goes: "34", "1999 to 2006", "$68 billion". */
@@ -135,6 +145,7 @@ public final class Dossier {
 
     /** The printout, built with {@code w}: every piece of prose the reports and the claims give passes through it; the labels, names, ids and dates do not. */
     static String markdown(String name, Graph.Node node, List<Graph.Edge> relations, Graph g, List<Finding> claims, Map<SourceClass, List<Finding>> byClass, List<Investigation> reports, List<Frontier.Line> questions, String kind, Translate.Words w) {
+        SourceClass.Own own = ownOf(name, node, kind);
         StringBuilder b = new StringBuilder();
         String label = node == null ? name : node.label();
         b.append("# Dossier: ").append(label).append("\n\n");
@@ -171,25 +182,25 @@ public final class Dossier {
         for (Finding f : claims) { String y = yearOf(f); if (y == null) undated.add(f); else byYear.computeIfAbsent(y, k -> new ArrayList<>()).add(f); }
         if (!byYear.isEmpty()) {
             b.append("## Timeline\n\n");
-            for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("- ").append(e.getKey()).append(": ").append(line(f, w)).append('\n');
+            for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("- ").append(e.getKey()).append(": ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         List<Finding> decisions = decisions(claims);
         if (!decisions.isEmpty()) {
             b.append("## Decisions\n\nWhat the people in power decided, dated, with the reason they gave.\n\n");
-            for (Finding f : decisions) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w)).append('\n');
+            for (Finding f : decisions) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         List<Finding> said = statements(claims);
         if (!said.isEmpty()) {
             b.append("## In their own words\n\nWhat they said, dated and placed, as the record quotes them.\n\n");
-            for (Finding f : said) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w)).append('\n');
+            for (Finding f : said) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         List<Finding> media = media(claims);
         if (!media.isEmpty()) {
             b.append("## Media\n\nPhotographs, video and scans of the subject, each with its provenance: who made it, when, where it is published, the licence.\n\n");
-            for (Finding f : media) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w)).append('\n');
+            for (Finding f : media) b.append("- ").append(yearOf(f) == null ? "" : yearOf(f) + ": ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         List<Finding> told = byClass.getOrDefault(SourceClass.told, List.of());
@@ -201,7 +212,7 @@ public final class Dossier {
         for (SourceClass c : new SourceClass[]{SourceClass.publicRecord, SourceClass.ownPublication, SourceClass.supplied, SourceClass.thirdParty}) {
             List<Finding> fs = byClass.get(c); if (fs == null || fs.isEmpty()) continue;
             b.append("## ").append(Character.toUpperCase(c.label().charAt(0))).append(c.label().substring(1)).append("\n\n");
-            for (Finding f : fs) if (!byYear.values().stream().anyMatch(l -> l.contains(f))) b.append("- ").append(line(f, w)).append('\n'); else b.append("- ").append(line(f, w)).append('\n');
+            for (Finding f : fs) if (!byYear.values().stream().anyMatch(l -> l.contains(f))) b.append("- ").append(line(f, w, own)).append('\n'); else b.append("- ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         String storyTitle = "The story of " + label;
@@ -234,9 +245,11 @@ public final class Dossier {
 
     static String line(Finding f) { return line(f, Translate.AS_IS); }
 
-    static String line(Finding f, Translate.Words w) {
+    static String line(Finding f, Translate.Words w) { return line(f, w, SourceClass.Own.NONE); }
+
+    static String line(Finding f, Translate.Words w, SourceClass.Own own) {
         String date = f.validAsOf() == null ? "" : f.validAsOf();
-        return w.tr(f.title()) + " [" + SourceClass.of(f.sources()).label() + (date.isEmpty() ? "" : ", " + date) + "] (" + f.id() + ")";
+        return w.tr(f.title()) + " [" + SourceClass.of(f.sources(), own).label() + (date.isEmpty() ? "" : ", " + date) + "] (" + f.id() + ")";
     }
 
     /** The year a claim names in its title, else in its first sentence; null when it names none. */

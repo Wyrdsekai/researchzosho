@@ -14,6 +14,8 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.nio.file.Files;
+import java.util.Locale;
 import java.util.concurrent.Executors;
 
 import com.fasterxml.jackson.core.JacksonException;
@@ -231,6 +233,11 @@ public final class LibrarianDaemon {
                 StringBuilder sb = new StringBuilder();
                 for (var s : steps) sb.append(s.name()).append(": ").append(s.outcome()).append(" (").append(s.ms()).append("ms)\n");
                 return sb.toString();
+            }
+            case "career-search", "career-read" -> {   // the career field's search, or more of its readings (docs/DESIGN_CAREER.md, step 3)
+                String jid = job.path("job_id").asText("");
+                try { return CareerFind.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
             }
             case "translate" -> {   // the dossier read in another language, made by the library's model and kept until the dossier changes
                 try { return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), Translate.DRIVE.get()).summary(); }
@@ -489,6 +496,7 @@ public final class LibrarianDaemon {
         try { Fields.Migrated m = Fields.migrate(store); if (m != null) Crews.log(store, "upgrade", "fields ledger: " + m.fromLog() + " run(s) from the research log, " + m.byCommand() + " filed by a field's own command, " + m.fromQuestions() + " that researched a question a field's own command filed" + (m.notes().isEmpty() ? "" : ". " + String.join(" ", m.notes())), 0); }
         catch (IOException e) { Crews.log(store, "upgrade", "the fields ledger could not be written: " + e.getMessage() + ". researchzosho profile runs upgrade tries again", 0); }
         d.jobs.start();   // re-queues what a previous daemon left behind
+        Help.prefetch();   // an installed release fetches its documentation now, off this thread, so the first question finds it kept
         if (crewHour >= 0) {
             d.crews = Crews.nightly(store, crewHour, () -> {
                 try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not start the nightly tasks: " + e, 0); }
@@ -550,11 +558,18 @@ public final class LibrarianDaemon {
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
         try {
-            String bodyText = new String(x.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            byte[] bodyBytes = x.getRequestBody().readAllBytes();
+            String contentType = x.getRequestHeaders().getFirst("Content-Type");
+            boolean multipart = contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/form-data");
+            String bodyText = multipart ? "" : new String(bodyBytes, StandardCharsets.UTF_8);
             if (A2a.CARD.equals(path) || A2a.PATH.equals(path)) { a2a(x, path, method, bodyText); return; }   // the library as an agent for other agents
             if (Pages.isPage(path)) {
-                // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie
-                Map<String, String> form = Pages.form(bodyText, x.getRequestHeaders().getFirst("Content-Type"));
+                // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie; a file posted with a form is written to a folder of its own
+                Map<String, String> form;
+                if (multipart) {
+                    if (bodyBytes.length > Uploads.MAX) throw ProtocolError.invalidArgs("The file is larger than the page takes, 64 MB. Add it at the command line on this machine instead.");
+                    form = Uploads.multipart(bodyBytes, contentType, Files.createTempDirectory(Uploads.DIR));
+                } else form = Pages.form(bodyText, contentType);
                 x.setAttribute(BODY, bodyText);   // the passkey calls post JSON, not a form
                 Patrons.Patron who;
                 try { who = patron(x, M.createObjectNode()); }
@@ -667,6 +682,7 @@ public final class LibrarianDaemon {
                     case "frontier" -> p.frontier(body);
                     case "subjects" -> p.subjects(body);
                     case "status" -> p.status(body);
+                    case "help" -> p.help(body);
                     case "changes" -> p.changes(body);
                     case "request_access" -> p.requestAccess(body);
                     case "access" -> p.access(body);
@@ -677,8 +693,10 @@ public final class LibrarianDaemon {
                     case "sharpen" -> p.sharpen(body);
                     case "explain" -> p.explain(body);
                     case "serials" -> p.serials(body);
+                    case "career" -> p.career(body);
                     case "inbox" -> p.inbox(body);
                     case "settings" -> p.settings(body);
+                    case "sources" -> p.sources(body);
                     case "owned" -> p.owned(body);
                     default -> throw ProtocolError.notFound("route " + path);
                 };

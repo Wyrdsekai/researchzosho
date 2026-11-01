@@ -1,0 +1,46 @@
+{
+ "full_name": "Seeker 78",
+ "headline": "dairy farm worker",
+ "occupation": "dairy farm worker at Halden Ltd",
+ "location_str": "Columbus, Ohio",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Halden Ltd",
+   "title": "dairy farm worker",
+   "description": null,
+   "location": "Columbus, Ohio"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Harrowgate Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

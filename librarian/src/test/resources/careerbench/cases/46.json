@@ -1,0 +1,77 @@
+{
+ "full_name": "Seeker 46",
+ "headline": "doctoral student finishing in computer science",
+ "occupation": "doctoral student finishing in computer science at Ashgrove Research Centre",
+ "location_str": "Austin, Texas",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2024
+   },
+   "company": "Ashgrove Research Centre",
+   "title": "doctoral student finishing in computer science",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2021
+   },
+   "company": "Corvid Institute",
+   "title": "doctoral student finishing in computer science",
+   "description": null,
+   "location": "Austin, Texas"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2018
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Stillwater University"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [
+  {
+   "name": "A result in engineering",
+   "publisher": "Quillon University",
+   "published_on": {
+    "day": 1,
+    "month": 5,
+    "year": 2018
+   },
+   "url": null
+  }
+ ],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -1,0 +1,36 @@
+{
+ "full_name": "Seeker 16",
+ "headline": "software engineer",
+ "occupation": "software engineer",
+ "location_str": "",
+ "summary": "Code at codehost.example/seeker16.",
+ "experiences": [],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2026
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Juniper Research Centre"
+  }
+ ],
+ "skills": [
+  "Git",
+  "Python"
+ ],
+ "languages": [
+  "de"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

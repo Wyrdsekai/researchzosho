@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 84",
+ "headline": "quality assurance engineer",
+ "occupation": "quality assurance engineer at Harrowgate Staffing",
+ "location_str": "Osaka",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2016
+   },
+   "ends_at": null,
+   "company": "Harrowgate Staffing",
+   "title": "quality assurance engineer",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2006
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2016
+   },
+   "company": "Greywell Agency",
+   "title": "quality assurance engineer",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 1996
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2006
+   },
+   "company": "Ashgrove Staffing",
+   "title": "quality assurance engineer",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1992
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1996
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Halden Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

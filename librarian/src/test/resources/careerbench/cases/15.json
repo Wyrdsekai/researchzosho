@@ -1,0 +1,33 @@
+{
+ "full_name": "Seeker 15",
+ "headline": "paralegal",
+ "occupation": "paralegal",
+ "location_str": "Toronto, Ontario",
+ "summary": "",
+ "experiences": [],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2026
+   },
+   "field_of_study": "law",
+   "degree_name": "",
+   "school": "Tessaly College"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

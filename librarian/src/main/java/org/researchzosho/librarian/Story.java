@@ -61,10 +61,10 @@ public final class Story {
         StringBuilder body = new StringBuilder("# ").append(title).append("\n\nWritten by the library on ").append(LocalDate.now()).append(" from the ").append(d.claims().size())
                 .append(" claims it holds; every sentence cites the claim it rests on, and what a person told the library is said to be theirs. Written again when the shelves have grown.\n\n");
         int chapters = 0;
-        if (!undated.isEmpty()) { chapter(drive, d.label(), "Background", undated, body); chapters++; }
-        for (var e : eras.entrySet()) { chapter(drive, d.label(), e.getKey(), e.getValue(), body); chapters++; }
+        if (!undated.isEmpty()) { chapter(drive, d.label(), "Background", undated, body, d.own()); chapters++; }
+        for (var e : eras.entrySet()) { chapter(drive, d.label(), e.getKey(), e.getValue(), body, d.own()); chapters++; }
         body.append("## Sources\n\n");
-        for (Finding f : d.claims()) body.append("- [").append(f.id()).append("] ").append(f.title()).append(" (").append(SourceClass.of(f.sources()).label()).append(")\n");
+        for (Finding f : d.claims()) body.append("- [").append(f.id()).append("] ").append(f.title()).append(" (").append(SourceClass.of(f.sources(), d.own()).label()).append(")\n");
         String id = store.nextInvestigationId(title);
         Investigation inv = new Investigation(id, title, Finding.State.accepted, "librarian:story", Instant.now().toString(), d.claims().stream().map(Finding::id).toList(), List.of(), body.toString());   // a view over the claims: nothing in it to review
         store.write(inv);
@@ -95,7 +95,9 @@ public final class Story {
         return out;
     }
 
-    static void chapter(Researcher.Drive drive, String subject, String era, List<Finding> claims, StringBuilder body) {
+    static void chapter(Researcher.Drive drive, String subject, String era, List<Finding> claims, StringBuilder body) { chapter(drive, subject, era, claims, body, SourceClass.Own.NONE); }
+
+    static void chapter(Researcher.Drive drive, String subject, String era, List<Finding> claims, StringBuilder body, SourceClass.Own own) {
         ArrayNode messages = M.createArrayNode();
         messages.addObject().put("role", "system").put("content", "You write one chapter of the story of " + subject + ", the " + era + ", for a reader who wants the people and what "
                 + "happened. Write from the claims below and from nothing else; cite each claim you use by its id in square brackets right after the sentence it supports, like "
@@ -105,7 +107,7 @@ public final class Story {
                 + "no heading, no list.");
         StringBuilder u = new StringBuilder("The claims:\n");
         for (Finding f : claims) {
-            SourceClass c = SourceClass.of(f.sources());
+            SourceClass c = SourceClass.of(f.sources(), own);
             u.append("- [").append(f.id()).append("] ").append(f.title()).append(" — ").append(f.body().strip().replace("\n", " ")).append(" (").append(c.label());
             if (c == SourceClass.told) u.append(", told by ").append(f.writer().replaceFirst("^patron:", ""));
             if (f.validAsOf() != null && !f.validAsOf().isEmpty()) u.append(", ").append(f.validAsOf());

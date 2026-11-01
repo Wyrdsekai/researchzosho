@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 14",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Manchester, England",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2013
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2021
+   },
+   "company": "Brightwater Agency",
+   "title": "office cleaner",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2005
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2013
+   },
+   "company": "Dunmore Agency",
+   "title": "office cleaner",
+   "description": null,
+   "location": "Manchester, England"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 1997
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2005
+   },
+   "company": "Penrose Staffing",
+   "title": "office cleaner",
+   "description": null,
+   "location": "Manchester, England"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1993
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1997
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Ashgrove Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

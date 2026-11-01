@@ -1,0 +1,46 @@
+{
+ "full_name": "Seeker 09",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Pune",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Corvid (self-employed)",
+   "title": "chef",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2025
+   },
+   "field_of_study": "law",
+   "degree_name": "",
+   "school": "Varnish Secondary School"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -7,10 +7,14 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Matcher;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Arrays;
@@ -123,6 +127,61 @@ public final class Serials {
         return found[0];
     }
 
+    /** A shelf's name from the words of a search, short and unique in this library: "nurses-lyon", then "nurses-lyon-2". */
+    public static String slugFor(LibraryStore store, String query) {
+        String base = (query == null ? "" : query).toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "-").replaceAll("^-+|-+$", "");
+        if (base.length() > 40) base = base.substring(0, 40).replaceAll("-+$", "");
+        if (base.isEmpty()) base = "search";
+        Set<String> taken = new HashSet<>(); for (Shelf x : shelves(store)) taken.add(x.slug().toLowerCase(Locale.ROOT));
+        String slug = base; for (int i = 2; taken.contains(slug); i++) slug = base + "-" + i;
+        return slug;
+    }
+
+    /** What each shelf's checks have found so far, from the arrival table: the slug to {total, on the last date}, and the slug to that last date. */
+    static Map<String, int[]> arrivalsBy(LibraryStore store, Map<String, String> lastDate) {
+        Map<String, int[]> out = new HashMap<>();
+        Path a = arrivalsFile(store);
+        if (!Files.isRegularFile(a)) return out;
+        try {
+            Pattern line = Pattern.compile("^- (\\d{4}-\\d{2}-\\d{2}) \\[([^\\]]+)\\] \\S+");
+            for (String l : Files.readAllLines(a, StandardCharsets.UTF_8)) {
+                Matcher m = line.matcher(l.strip());
+                if (!m.find()) continue;
+                String date = m.group(1), slug = m.group(2);
+                int[] c = out.computeIfAbsent(slug, k -> new int[]{0, 0});
+                c[0]++;
+                String last = lastDate.get(slug);
+                if (last == null || date.compareTo(last) > 0) { lastDate.put(slug, date); c[1] = 1; }
+                else if (date.equals(last)) c[1]++;
+            }
+        } catch (IOException ignored) { }
+        return out;
+    }
+
+    /**
+     * The shelves as sources of the one list (docs/DESIGN_SOURCES.md): a saved search is a serial that yields pages, a followed podcast a
+     * podcast that yields episodes, each run on its cadence by the nightly check; what the checks found is its yield, from the arrival
+     * table; a parked shelf is shown as off. Their ids are the shelf's name after {@link Sources#SHELF}; taking one off parks it.
+     */
+    public static List<Sources.Source> asSources(LibraryStore store) {
+        List<Sources.Source> out = new ArrayList<>();
+        Map<String, String> lastDate = new HashMap<>();
+        Map<String, int[]> yields = arrivalsBy(store, lastDate);
+        for (Shelf x : shelves(store)) {
+            int[] y = yields.getOrDefault(x.slug(), new int[]{0, 0});
+            String last = x.lastChecked() == null || x.lastChecked().equals("-") ? "" : x.lastChecked();
+            out.add(new Sources.Source(Sources.SHELF + x.slug(), x.podcast() ? "podcast" : "serial", x.podcast() ? x.feedUrl() : x.query(), (x.podcast() ? "episodes" : "pages") + " every " + x.everyDays() + " days",
+                    "", "", "", "", "you", "", "", lastDate.getOrDefault(x.slug(), ""), y[0], y[1], x.parked() ? "off" : "active", last, 0, 0, x.slug()));
+        }
+        return out;
+    }
+
+    /** One shelf as a source; null when none has the name. */
+    public static Sources.Source asSource(LibraryStore store, String slug) {
+        for (Sources.Source x : asSources(store)) if (x.name().equalsIgnoreCase(slug)) return x;
+        return null;
+    }
+
     /** Stop keeping a search; false when no shelf has that slug. */
     public static boolean remove(LibraryStore store, String slug) throws IOException {
         boolean[] found = {false};
@@ -175,9 +234,12 @@ public final class Serials {
         for (int i = 0; i < all.size(); i++) {
             Shelf s = all.get(i);
             if (!s.due(today)) continue;
+            SourceRules rules = SourceRules.load(store);
             for (String[] hit : search.apply(s.query())) {
                 String url = hit.length > 1 ? hit[1] : hit[0];
                 if (url == null || url.isBlank() || known.contains(norm(url))) continue;
+                if (rules.refused(url)) continue;   // a host the person refused never lands on the arrival table
+
                 known.add(norm(url));
                 arrivals.add(new Arrival(s.slug(), url, hit.length > 1 ? hit[0] : ""));
             }

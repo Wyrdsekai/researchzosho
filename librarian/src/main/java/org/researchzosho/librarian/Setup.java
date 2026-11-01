@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.researchzosho.Config;
+import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.drive.anthropic.Anthropic;
 import org.researchzosho.drive.openai.OpenAI;
 
@@ -402,6 +403,7 @@ public final class Setup {
         //    no install) first; then SearXNG (free, private: one already running, or started through Docker);
         //    then the built-in fallback, which needs nothing and is the weakest. A run never comes back
         //    empty for want of a search backend without the wizard having said so.
+        if (WebSearchTool.googleConfigured()) out.println("  Web search: Google, through the " + (Config.get(WebSearchTool.SERPER_KEY) != null && !Config.get(WebSearchTool.SERPER_KEY).isBlank() ? "Serper" : "SerpApi") + " key you have; it is paid per search, so a Brave key or SearXNG is read when it stops answering.");
         String braveKey = Config.get("RESEARCHZOSHO_BRAVE_KEY");
         boolean haveBrave = braveKey != null && !braveKey.isBlank() && probe.brave(braveKey);
         if (haveBrave) out.println("  Web search: the Brave Search API key you have works.");

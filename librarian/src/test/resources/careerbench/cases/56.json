@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 56",
+ "headline": "welder",
+ "occupation": "welder at Tessaly Inc.",
+ "location_str": "",
+ "summary": "Certified in welder.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2020
+   },
+   "ends_at": null,
+   "company": "Tessaly Inc.",
+   "title": "welder",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2020
+   },
+   "company": "Halden GmbH",
+   "title": "welder",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2014
+   },
+   "company": "Penrose GmbH",
+   "title": "welder",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2004
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2008
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Marrow & Finch Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

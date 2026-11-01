@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 60",
+ "headline": "senior solutions architect",
+ "occupation": "senior solutions architect at Northgate Inc.",
+ "location_str": "Leipzig",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2023
+   },
+   "company": "Northgate Inc.",
+   "title": "senior solutions architect",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2009
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2016
+   },
+   "company": "Tessaly Inc.",
+   "title": "solutions architect",
+   "description": null,
+   "location": "Leipzig"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2002
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2009
+   },
+   "company": "Varnish Ltd",
+   "title": "solutions architect",
+   "description": null,
+   "location": "Leipzig"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1998
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2002
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Corvid Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "de"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

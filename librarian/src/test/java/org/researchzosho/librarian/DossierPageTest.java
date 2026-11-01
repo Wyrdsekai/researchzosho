@@ -73,6 +73,6 @@ class DossierPageTest {
         assertTrue(html.contains("<b>cite-check</b> 3 cited sentence(s)") && html.contains("<b>references by class</b> 1 public record"), html);
         assertTrue(html.contains("Not yet on this page"), html);
         String none = DossierPage.render(store, "Nobody Known");
-        assertTrue(none.contains("holds nothing on <b>Nobody Known</b> yet") && none.contains("/research?q=Who%20is%20Nobody%20Known%3F"), none);
+        assertTrue(none.contains("holds nothing on <b>Nobody Known</b> yet") && none.contains("<button name=\"request\" value=\"1\">Request the dossier</button>"), "one button files the research: " + none);
     }
 }

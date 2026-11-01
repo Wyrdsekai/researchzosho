@@ -1,0 +1,33 @@
+{
+ "full_name": "Seeker 57",
+ "headline": "user experience designer",
+ "occupation": "user experience designer",
+ "location_str": "Austin, Texas",
+ "summary": "Portfolio at portfolio.example/seeker57.",
+ "experiences": [],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2026
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Ashgrove University"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 70",
+ "headline": "database administrator",
+ "occupation": "database administrator at Penrose City Council",
+ "location_str": "Toronto, Ontario",
+ "summary": "Certified in database administrator.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2017
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2020
+   },
+   "company": "Penrose City Council",
+   "title": "database administrator",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2017
+   },
+   "company": "Greywell County",
+   "title": "database administrator",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2011
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2014
+   },
+   "company": "Juniper Ministry",
+   "title": "database administrator",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2007
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2011
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Halden Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

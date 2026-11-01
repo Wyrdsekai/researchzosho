@@ -1,0 +1,16 @@
+{
+ "trap": "changes mind",
+ "expect": {
+  "work_words": [
+   "financial",
+   "analyst"
+  ],
+  "remote_decided_contains": [
+   "on site",
+   "office",
+   "not needed",
+   "no longer",
+   "on-site"
+  ]
+ }
+}

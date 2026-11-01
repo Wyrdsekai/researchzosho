@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 04",
+ "headline": "head of engineering",
+ "occupation": "head of engineering at Penrose Ministry",
+ "location_str": "Toronto, Ontario",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Penrose Ministry",
+   "title": "head of engineering",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2022
+   },
+   "company": "Ironside Ministry",
+   "title": "backend software engineer",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2018
+   },
+   "company": "Fallow County",
+   "title": "backend software engineer",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Harrowgate Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

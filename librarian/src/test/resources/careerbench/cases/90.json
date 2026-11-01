@@ -1,0 +1,85 @@
+{
+ "full_name": "Seeker 90",
+ "headline": "data analyst",
+ "occupation": "data analyst at Oakum City Council",
+ "location_str": "Austin, Texas",
+ "summary": "Code at codehost.example/seeker90.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2020
+   },
+   "company": "Oakum City Council",
+   "title": "data analyst",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2015
+   },
+   "company": "Quillon Ministry",
+   "title": "data analyst",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2005
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2010
+   },
+   "company": "Kestrel County",
+   "title": "data analyst",
+   "description": null,
+   "location": "Austin, Texas"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2001
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2005
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Harrowgate University"
+  }
+ ],
+ "skills": [
+  "Git",
+  "Python"
+ ],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

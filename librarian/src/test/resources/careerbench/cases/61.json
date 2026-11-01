@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 61",
+ "headline": "senior bookkeeper",
+ "occupation": "senior bookkeeper at Ashgrove GmbH",
+ "location_str": "Lyon",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2023
+   },
+   "ends_at": null,
+   "company": "Ashgrove GmbH",
+   "title": "senior bookkeeper",
+   "description": null,
+   "location": "Lyon"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2020
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2023
+   },
+   "company": "Northgate K.K.",
+   "title": "bookkeeper",
+   "description": null,
+   "location": "Lyon"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2020
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Larkspur Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "fr"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

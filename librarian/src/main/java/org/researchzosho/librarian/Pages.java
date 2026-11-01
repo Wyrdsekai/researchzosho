@@ -16,6 +16,8 @@ import java.util.List;
 import java.util.HexFormat;
 import java.security.SecureRandom;
 import java.util.Map;
+import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,9 +61,9 @@ final class Pages {
     private Pages() { }
 
     static boolean isPage(String path) {
-        return path.equals("/") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
+        return path.equals("/") || path.equals("/add") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/dossier") || path.equals("/suggest") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/panel") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
+                || path.equals("/research") || path.equals("/help") || path.equals("/sources") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/panel") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
                 || Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
     }
 
@@ -108,7 +110,14 @@ final class Pages {
                     send(x, 200, suggestPage(store, patron));
                 }
                 case "/dossier" -> {
-                    if ("POST".equals(method) && form.containsKey("watch")) {   // the page's Watch button: a standing search on the subject
+                    if ("POST".equals(method) && form.containsKey("request")) {   // the page's Request button on a subject the library holds nothing on: the research run that starts the dossier
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        String subject = form.getOrDefault("subject", "").strip();
+                        if (subject.isEmpty()) { redirect(x, "/dossier"); return; }
+                        Map<String, String> ask = new LinkedHashMap<>();
+                        ask.put("question", "Who is " + subject + "? A full dossier."); ask.put("mode", "broad"); ask.put("field", "person"); ask.put("told", "1"); ask.put("once", "dossier-" + subject);
+                        send(x, 200, researchPost(d, store, patron, ask));
+                    } else if ("POST".equals(method) && form.containsKey("watch")) {   // the page's Watch button: a standing search on the subject
                         Patrons.check(store, patron, Patrons.Level.write);
                         String subject = form.getOrDefault("subject", "").strip();
                         if (!subject.isEmpty()) Serials.add(store, DossierPage.watchSlug(subject), subject, 7);
@@ -122,6 +131,16 @@ final class Pages {
                 case "/jobs" -> { if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron, q)); }
                 case "/explain" -> send(x, 200, explain(store, p, patron, q));
                 case "/download" -> download(x, store, patron, q);
+                case "/add" -> {   // a document of the person's own onto the shelves: a file from their computer, or a page by its address
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    if ("POST".equals(method)) send(x, 200, page(store, patron, "Add", addPost(store, p, patron, form)));
+                    else send(x, 200, page(store, patron, "Add", addPage()));
+                }
+                case "/sources" -> {
+                    Patrons.check(store, patron, Patrons.Level.read);
+                    if ("POST".equals(method)) { String note = SourcesPage.post(store, patron, form); redirect(x, "/sources?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); }
+                    else send(x, 200, page(store, patron, "Sources", SourcesPage.body(store, mayWrite(store, patron), q)));
+                }
                 case "/settings" -> {
                     String op = form.getOrDefault("op", "");
                     if ("POST".equals(method) && op.equals("invite")) {
@@ -139,6 +158,7 @@ final class Pages {
                     else send(x, 200, settings(store, p, patron, q));
                 }
                 case "/owned" -> { if ("POST".equals(method)) { ownedPost(p, patron, form); redirect(x, "/owned"); } else send(x, 200, owned(store, p, patron, q)); }
+                case "/help" -> { Patrons.check(store, patron, Patrons.Level.read); send(x, 200, page(store, patron, "Help", HelpPage.body(store, q.getOrDefault("q", ""), q.getOrDefault("doc", "")))); }
                 case "/map" -> { Patrons.check(store, patron, Patrons.Level.read); send(x, 200, page(store, patron, "Map", MapPage.body(q.getOrDefault("focus", "")), 0, null, true)); }
                 case "/research" -> {
                     if ("POST".equals(method) && "1".equals(form.get("sharpen"))) send(x, 200, sharpenStart(store, patron, form.getOrDefault("question", ""), form.getOrDefault("field", "")));
@@ -646,6 +666,35 @@ final class Pages {
     }
 
     /** The forms on the questions page. Returns where to go next. */
+    /** The Add page: a file from the person's own computer, or a page on the web, onto the shelves. */
+    static String addPage() {
+        return "<p class=\"k\">A document of your own goes onto the shelves here: a PDF, a Word file, a presentation, an EPUB, a web page saved as HTML, a plain text file, or a page by its address. "
+                + "The library reads the text into the shelves; the file itself stays yours.</p>"
+                + "<h2 id=\"file\">A file from this computer</h2><form method=\"post\" action=\"/add\" enctype=\"multipart/form-data\" class=\"stack\"><input type=\"file\" name=\"file\" required aria-label=\"the file to add\"> "
+                + "<input name=\"collection\" placeholder=\"a collection to shelve it under (optional)\" aria-label=\"the collection\"> <button>Add the file</button></form>"
+                + "<h2 id=\"url\">A page or a document on the web</h2><form method=\"post\" action=\"/add\" class=\"stack\"><input name=\"url\" placeholder=\"https://…\" required aria-label=\"the address\"> "
+                + "<input name=\"collection\" placeholder=\"a collection (optional)\" aria-label=\"the collection\"> <button>Add the page</button></form>"
+                + "<p class=\"k\">A whole folder, or a file to be read where it lies, goes in at the command line on the machine that runs the library: <code>researchzosho add</code> and the path. A program does the same with the tool library_add.</p>";
+    }
+
+    /** What the Add page's forms do: the file written by the upload or the address given goes through the same add as the command line's. */
+    static String addPost(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        String path = form.getOrDefault("file.path", "").strip(), url = form.getOrDefault("url", "").strip(), collection = form.getOrDefault("collection", "").strip();
+        try {
+            if (path.isEmpty() && url.isEmpty()) return "<p>Choose a file, or write a page's address.</p>" + addPage();
+            ObjectNode a = args(patron);
+            if (!path.isEmpty()) a.put("path", path); else a.put("url", url);
+            if (!collection.isEmpty()) a.put("collection", collection);
+            ObjectNode r;
+            try { r = p.add(a); }
+            catch (ProtocolError e) { return "<p>" + esc(e.getMessage()) + "</p>" + addPage(); }
+            String what = !path.isEmpty() ? form.getOrDefault("file.name", "the file") : url;
+            String title = r.path("title").asText("").strip(), summary = r.path("summary").asText("").strip();
+            return "<p><b>Added:</b> " + esc(what) + (title.isEmpty() || title.equals(what) ? "" : " — " + esc(title)) + (summary.isEmpty() ? "" : ". " + esc(summary)) + ". It is on the shelves now: "
+                    + "<a href=\"/search?q=" + enc(title.isEmpty() ? what : title) + "\">find it</a>, or <a href=\"/ask\">ask a question of it</a>.</p>" + addPage();
+        } finally { Uploads.drop(form); }
+    }
+
     private static String questionsPost(LibrarianDaemon d, LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
         ObjectNode a = args(patron);
         switch (form.getOrDefault("op", "")) {
@@ -805,7 +854,7 @@ final class Pages {
         b.append("<p>These are the settings of this library, from ").append(esc(r.path("config_file").asText())).append(". A change takes effect at once, except where a setting says otherwise. A key is shown only as set or not.</p>\n");
         // the models by name, and what the runs cost on them
         {
-            java.util.Map<String, ModelEntries.Entry> entries = ModelEntries.all();
+            Map<String, ModelEntries.Entry> entries = ModelEntries.all();
             b.append("<h2>Models</h2><p class=\"k\">The models a run may use, by name (researchzosho models adds one; the research form, /model in the chat and the MCP tool pick one).</p><table><tr><th>name</th><th>model</th><th>host</th><th>prices per M</th><th>cap</th><th>key</th></tr>");
             for (ModelEntries.Entry e : entries.values()) b.append("<tr><td>").append(esc(e.name())).append("</td><td>").append(esc(e.model())).append("</td><td>").append(esc(e.host())).append("</td><td>").append(esc(e.pricesText())).append("</td><td>").append(e.cap() > 0 ? Spend.dollars(e.cap()) + " a month" : "").append("</td><td>").append(!e.hosted() ? "none needed" : DriveClient.hostKey(e.host()) != null || (e.name().equals(ModelEntries.DEFAULT) && Config.get("RESEARCHZOSHO_API_KEY") != null) ? "kept" : "<b>none</b>").append("</td></tr>");
             b.append("</table>");
@@ -1953,6 +2002,23 @@ final class Pages {
         return s == null ? "" : runsStrip(lp, patron, s);
     }
 
+    /** A turn the library answers itself: what was said and the answer, kept in the session as the model's turns are. */
+    static void chatReplied(Librarian.Session s, String said, String answer) throws IOException {
+        ObjectNode u = M.createObjectNode(); u.put("role", "user"); u.put("content", said); s.append(u);
+        ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", answer); s.append(a);
+    }
+
+    /** The browser chat's /help: what it answers itself, and each field's own commands. */
+    static String chatHelp(LibraryStore store) {
+        StringBuilder b = new StringBuilder("Ask anything about what the library holds; it answers from its shelves, with the sources. These commands the library answers itself:\n");
+        b.append("- /help and some words, to look them up in the program's own documentation; the Help page does the same\n");
+        b.append("- /model, to see the models this chat can talk to; /model and a name switches to one\n");
+        b.append("- /interview and a name, to have the library ask you what it does not know about someone\n");
+        b.append("- /suggest, for what the library suggests you do next\n");
+        for (Profile p : Fields.enabled(store)) if (!p.chatCommandHelp().isBlank()) b.append("- ").append(p.chatCommandHelp().strip()).append('\n');
+        return b.toString().strip();
+    }
+
     /** One turn from the form: the words go to the Librarian, the reply lands in the session, the page shows it. */
     static void chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
         String words = form.getOrDefault("say", "").strip();
@@ -1983,6 +2049,14 @@ final class Pages {
             ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", answer); s.append(reply);
             return;
         }
+        if (words.equals("/help")) { chatReplied(s, words, chatHelp(store)); return; }
+        if (words.equals("/sources") || words.startsWith("/sources ")) { chatReplied(s, words, SourcesPage.chat(store, patron, words, "/sources")); return; }
+        if (words.startsWith("/help ")) { chatReplied(s, words, Help.lookup(store, words.substring(6))); return; }
+        for (Profile p : Fields.enabled(store)) {   // a field's own command, or a plain line for the field that holds this conversation (an interview)
+            String r = p.chatReply(store, patron, "web:" + s.id, words);
+            if (r != null) { chatReplied(s, words, ChatCapture.unindent(r)); return; }
+        }
+        if (words.startsWith("/")) { chatReplied(s, words, "That is not one of the chat's commands. /help lists them."); return; }
         new Librarian(store, d.chatDrive(s), patron, s).say(words);
     }
 
@@ -2063,7 +2137,7 @@ final class Pages {
             + ".badge{display:inline-block;padding:0 .5em;border-radius:.6em;font-size:.8em;background:var(--line)}.badge.accepted{background:#3f8a4f;color:#fff}.badge.disputed,.badge.failed{background:var(--accent);color:#fff}.badge.running{background:#2e6fb0;color:#fff}"
             + "pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);padding:.8em;font-size:.9em}pre.raw{max-height:70vh;overflow:auto}"
             + ".body{margin:1em 0}.triple{font-style:italic}code{font-size:.92em}"
-            + ".notice{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);padding:.6em 1em}"
+            + ".notice{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--accent);padding:.6em 1em}details.sec{margin:.9em 0 0 0}details.sec>summary{cursor:pointer}details.sec>summary h2{display:inline;margin:0}"
             + ".working{display:flex;gap:1em;align-items:flex-start;margin:1.5em 0}.spin{flex:none;width:22px;height:22px;margin-top:1em;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}"
             + ".body{word-break:break-word}p.src{margin:.3em 0}progress{width:10em;height:.7em;vertical-align:middle;accent-color:var(--accent)}p.run{margin:.3em 0}"
             + "p.ref{margin:.3em 0;padding-left:2.2em;text-indent:-2.2em;word-break:break-word}p.ref b{color:var(--k)}"
@@ -2161,9 +2235,9 @@ final class Pages {
     static String siteNav(LibraryStore store, Patrons.Patron patron) {
         boolean yours = patron.person() || (patron.web() && !WebAccess.signInRequired());
         StringBuilder b = new StringBuilder();
-        b.append(navGroup("Library", navLink("/", "Home", "⌂") + navLink("/ask", "Ask", "?") + navLink("/search", "Search", "⌕") + navLink("/subjects", "Subjects", "☷") + navLink("/map", "Map", "⊞") + navLink("/dossier", "Dossiers", "▤")));   // the dossiers are the library's own front door to its people and organizations, not a field's page
-        b.append(navGroup("Work", navLink("/inbox", "Inbox", "✉") + navLink("/questions", "Open questions", "⁇") + navLink("/jobs", "Runs", "▶") + navLink("/research", "Research", "⚗") + navLink("/suggest", "Suggested", "✦") + navLink("/changes", "Changes", "↻")));
-        b.append(navGroup("Yours", navLink("/chat", "Chat", "❝") + (yours ? navLink("/owned", "Owned", "◆") + navLink("/settings", "Settings", "⚙") : "") + (SignIn.hasAccountPage(patron) ? navLink("/account", "Account", "☺") : "")));
+        b.append(navGroup("Library", navLink("/", "Home", "⌂") + navLink("/add", "Add", "+") + navLink("/ask", "Ask", "?") + navLink("/search", "Search", "⌕") + navLink("/subjects", "Subjects", "☷") + navLink("/map", "Map", "⊞") + navLink("/dossier", "Dossiers", "▤")));   // the dossiers are the library's own front door to its people and organizations, not a field's page
+        b.append(navGroup("Work", navLink("/inbox", "Inbox", "✉") + navLink("/questions", "Open questions", "⁇") + navLink("/jobs", "Runs", "▶") + navLink("/research", "Research", "⚗") + navLink("/sources", "Sources", "☵") + navLink("/suggest", "Suggested", "✦") + navLink("/changes", "Changes", "↻")));
+        b.append(navGroup("Yours", navLink("/chat", "Chat", "❝") + navLink("/help", "Help", "ⓘ") + (yours ? navLink("/owned", "Owned", "◆") + navLink("/settings", "Settings", "⚙") : "") + (SignIn.hasAccountPage(patron) ? navLink("/account", "Account", "☺") : "")));
         String fields = fieldMenu(store, patron);
         b.append("<div class=\"nav-group nav-look\"><b>Look</b><button type=\"button\" id=\"theme-toggle\" class=\"theme-toggle\" title=\"Light or dark\"><span class=\"ico\">☾</span><span class=\"lbl\">Dark</span></button></div>");
         if (!fields.isEmpty()) b.append(navGroup("Fields", fields));

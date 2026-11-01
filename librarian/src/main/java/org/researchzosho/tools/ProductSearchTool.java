@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.librarian.Settings;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 /**
  * {@code product_search}: the real products a shopping run may put in its table — what shops list right now with the price and the
@@ -32,7 +34,7 @@ public final class ProductSearchTool implements Tool {
                 + "メルカリ, ヤフオク!, ラクマ, 日本の古本屋, AbeBooks) a search link each for the person to open, with the words typed in; books=true adds the bookshops. kind=specs: a "
                 + "product's datasheet by brand and model, or by barcode (Open Icecat, with the person's account; the Open Facts databases by barcode otherwise): "
                 + "title, category, release date, end of life, the features. kind=identity: a product's barcode and brand by words (the Open Facts databases). "
-                + "kind=owners: what owners wrote, with the date and the score (Reddit, through the person's own app). kind=repair: the repairability score "
+                + "kind=owners: what owners wrote, with the date and the score: Reddit threads found by the web search and read from the Arctic Shift archive, with their best comments (through the person's own Reddit app when one is set). kind=repair: the repairability score "
                 + "(iFixit). The market is the person's own unless the question names another; say the market and the time with every price.";
     }
 
@@ -159,16 +161,45 @@ public final class ProductSearchTool implements Tool {
         } catch (Exception e) { return "The Open Facts databases did not answer (" + e.getMessage() + ")."; }
     }
 
-    static String owners(String query, int limit) {
+    /** The web search that finds Reddit threads about a product, as text with their addresses; a test puts its own here. */
+    public static volatile Function<String, String> REDDIT_SEARCH = q -> { try { return new WebSearchTool().execute(M.createObjectNode().put("query", q).put("limit", 10)); } catch (Exception e) { return ""; } };
+
+    public static String owners(String query, int limit) {
         if (query.isEmpty()) return "ERROR: query is needed: the product's name.";
         if (!Shops.redditOn()) {
-            // Reddit stopped creating apps for new personal use in 2025 (its form reloads with only the policy link), so without credentials
-            // the owners' words come as the search engine's snippets of Reddit threads: pointed at, never fetched, as Reddit's terms ask
-            String note = "No Reddit app is set (the settings reddit_client_id and reddit_client_secret work for an app made before Reddit closed its form to new personal apps), "
-                    + "so these are the search engine's snippets of Reddit threads about \"" + query + "\": a title and a few words each, one person's experience, paid or planted praise "
-                    + "included — weigh it, never count it. The addresses are to point the person at; Reddit's terms do not allow reading the pages.\n";
-            try { return note + new WebSearchTool().execute(M.createObjectNode().put("query", "site:reddit.com " + query).put("limit", Math.max(3, Math.min(limit, 10)))); }
-            catch (Exception e) { return note + "The web search did not answer (" + e.getMessage() + "). What owners say can still be found through video_search and podcast_search."; }
+            // without a Reddit app of the person's own, the search engine finds the threads and the archive reads them; Reddit's own pages are never read
+            String found = REDDIT_SEARCH.apply("site:reddit.com " + query);
+            if (!Forums.redditArchiveOn()) {
+                String note = "Reddit is pointed at and never read on this library (the setting reddit_archive is off, and no Reddit app is set), so these are the search engine's snippets of Reddit "
+                        + "threads about \"" + query + "\": a title and a few words each, one person's experience, paid or planted praise included — weigh it, never count it.\n";
+                return note + (found.isBlank() ? "The web search did not answer. What owners say can still be found through video_search and podcast_search." : found);
+            }
+            List<String> ids = Forums.redditIdsIn(found);
+            String note = "Reddit threads about \"" + query + "\", found by the web search and " + Forums.ARCHIVE_NOTE + ". A thread is one person's experience, and it may carry paid or planted "
+                    + "praise — weigh it, never count it, and cite the thread's address.\n";
+            if (ids.isEmpty()) return note + "The web search found no Reddit thread for \"" + query + "\". What owners say can still be found through video_search and podcast_search.";
+            try {
+                List<Forums.Topic> ts = Forums.redditByIds(ids.subList(0, Math.min(ids.size(), limit)));
+                if (ts.isEmpty()) return note + "The archive holds none of the " + ids.size() + " thread(s) the search found.";
+                StringBuilder b = new StringBuilder(note).append(ts.size()).append(" thread(s):\n");
+                int read = 0;
+                for (Forums.Topic t : ts) {
+                    b.append("- ").append(t.site()).append(", ").append(t.date()).append(", score ").append(t.score()).append(", ").append(t.replies()).append(" replies: ").append(Shops.clean(t.title()))
+                     .append(t.text().isEmpty() ? "" : " — " + Shops.clean(ForumSearchTool.cut(t.text(), 300))).append(" — ").append(t.url()).append('\n');
+                    if (read < 3 && t.replies() > 0) {   // the best comments of the first three threads: that is where owners answer each other
+                        read++;
+                        try {
+                            int shown = 0;
+                            for (Forums.Reply r : Forums.redditThread(t.id()).replies()) {
+                                if (r.depth() > 0) continue;
+                                b.append("    ").append(r.author().isEmpty() ? "someone" : Shops.clean(r.author())).append(", score ").append(r.score()).append(": ").append(Shops.clean(ForumSearchTool.cut(r.text(), 240))).append('\n');
+                                if (++shown >= 3) break;
+                            }
+                        } catch (IOException e) { b.append("    (the archive did not give the comments: ").append(e.getMessage()).append(")\n"); }
+                    }
+                }
+                return b.toString();
+            } catch (IOException e) { return note + "The Arctic Shift archive did not answer (" + e.getMessage() + ")."; }
         }
         try {
             List<Shops.Voice> v = Shops.reddit(query, limit);

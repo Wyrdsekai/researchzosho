@@ -1,0 +1,83 @@
+{
+ "full_name": "Seeker 18",
+ "headline": "platform engineer",
+ "occupation": "platform engineer at Dunmore GmbH",
+ "location_str": "",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2018
+   },
+   "ends_at": null,
+   "company": "Dunmore GmbH",
+   "title": "platform engineer",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2018
+   },
+   "company": "Larkspur Inc.",
+   "title": "platform engineer",
+   "description": null,
+   "location": null
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2002
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2010
+   },
+   "company": "Tessaly SA",
+   "title": "platform engineer",
+   "description": null,
+   "location": null
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1998
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2002
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Stillwater Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": [
+  {
+   "title": "Talk at a platform engineer conference",
+   "activity_status": "spoke"
+  }
+ ]
+}

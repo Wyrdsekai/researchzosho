@@ -1,0 +1,66 @@
+{
+ "full_name": "Seeker 62",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Osaka",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2019
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2022
+   },
+   "company": "Dunmore SA",
+   "title": "senior construction site supervisor",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2019
+   },
+   "company": "Larkspur Pty Ltd",
+   "title": "construction site supervisor",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2012
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2016
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Penrose Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

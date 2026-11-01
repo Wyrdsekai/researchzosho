@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 52",
+ "headline": "real estate agent",
+ "occupation": "real estate agent at Tessaly (self-employed)",
+ "location_str": "Belo Horizonte",
+ "summary": "Certified in real estate agent.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Tessaly (self-employed)",
+   "title": "real estate agent",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2019
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2025
+   },
+   "company": "Stillwater General Hospital",
+   "title": "medical laboratory technician",
+   "description": null,
+   "location": "Belo Horizonte"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2019
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Ashgrove College"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "pt"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

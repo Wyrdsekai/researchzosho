@@ -1,0 +1,46 @@
+{
+ "full_name": "Seeker 12",
+ "headline": "bus driver",
+ "occupation": "bus driver at Juniper City Council",
+ "location_str": "Columbus, Ohio",
+ "summary": "Certified in bus driver.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Juniper City Council",
+   "title": "bus driver",
+   "description": null,
+   "location": "Columbus, Ohio"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2025
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Kestrel Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

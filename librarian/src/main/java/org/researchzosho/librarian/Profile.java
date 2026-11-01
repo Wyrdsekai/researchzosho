@@ -180,6 +180,27 @@ public interface Profile {
     /** The chat's help line for this field's command; "" for none. */
     default String chatCommandHelp() { return ""; }
 
+    /** The words this field's chat commands begin with ("/family"), so a chat knows whose a line is before anything runs. */
+    default List<String> chatCommandWords() { return List.of(); }
+
+    /**
+     * A line of a chat this field answers itself, as the reply's text; null when the line is not its own. {@code chat} names the
+     * conversation ("terminal", or "web:" and the browser chat's session), so a field holding a conversation, an interview in progress,
+     * knows whose plain lines are its answers. The browser chat asks every enabled field before the model; the terminal chat asks for
+     * plain lines and runs commands through {@link #chatCommand}, which prints. By default a field answers its own command, printed and
+     * caught, for the library's owner and for those who may write.
+     */
+    default String chatReply(LibraryStore store, Patrons.Patron patron, String chat, String line) throws IOException {
+        if (line == null) return null;
+        String l = line.strip(), first = l.split("\\s+", 2)[0];
+        if (!chatCommandWords().contains(first)) return null;
+        if (!patron.person() && !Patrons.mayWrite(store, patron)) return "This command changes the library, so it is for those who may write to it.";
+        return ChatCapture.run(() -> chatCommand(store, l));
+    }
+
+    /** Whether this field holds the conversation {@code chat}, so its plain lines are this field's: an interview in progress. */
+    default boolean chatHolds(LibraryStore store, String chat) throws IOException { return false; }
+
     /**
      * A page of this field's own, at its own address: the title and the body, drawn in the library's frame ({@code wide}: the whole
      * window), or {@code redirect}, where to go after a form was sent.

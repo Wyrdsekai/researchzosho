@@ -1,0 +1,81 @@
+{
+ "full_name": "Seeker 10",
+ "headline": "senior backend software engineer",
+ "occupation": "senior backend software engineer at Kestrel LLP",
+ "location_str": "Perth",
+ "summary": "Code at codehost.example/seeker10.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2017
+   },
+   "ends_at": null,
+   "company": "Kestrel LLP",
+   "title": "senior backend software engineer",
+   "description": null,
+   "location": "Perth"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2017
+   },
+   "company": "Harrowgate Associates",
+   "title": "backend software engineer",
+   "description": null,
+   "location": "Perth"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 1999
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2008
+   },
+   "company": "Harrowgate LLP",
+   "title": "backend software engineer",
+   "description": null,
+   "location": "Perth"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1995
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1999
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Stillwater Institute"
+  }
+ ],
+ "skills": [
+  "Git",
+  "Python"
+ ],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

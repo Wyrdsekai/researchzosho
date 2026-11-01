@@ -9,6 +9,31 @@ import static org.junit.jupiter.api.Assertions.*;
 class SourceClassTest {
 
     @Test
+    void aSitesWhoseAddressCarriesTheSubjectsNameIsItsOwnPublication() {
+        SourceClass.Own rz = SourceClass.Own.of(List.of("ResearchZosho"), "organization");
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://researchzosho.org/download/", rz));
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://blog.researchzosho.org/x", rz), "a site of its own under its name");
+        assertEquals(SourceClass.thirdParty, SourceClass.of("https://startupscores.com/open-source/researchzosho", rz), "a page about it elsewhere is third-party");
+        assertEquals(SourceClass.thirdParty, SourceClass.of("https://researchzosho.org/download/"), "with no subject known, nothing changes");
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://www.newschool.edu/about", SourceClass.Own.of(List.of("The New School"), "organization")));
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://www.harvard.edu/", SourceClass.Own.of(List.of("Harvard University"), "organization")));
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://about.mercari.com/en/", SourceClass.Own.of(List.of("Mercari US"), "organization")));
+        assertEquals(SourceClass.ownPublication, SourceClass.of("https://www.bbc.co.uk/news", SourceClass.Own.of(List.of("BBC"), "organization")), "a two-part suffix: the name stands one place further left");
+        assertEquals(SourceClass.publicRecord, SourceClass.of("https://www.usa.gov/agencies", SourceClass.Own.of(List.of("USA gov"), "organization")), "a stronger class stays");
+        assertEquals(SourceClass.Own.NONE, SourceClass.Own.of(List.of("Jane Doe"), "person"), "a person's own site is not read from a name: a namesake's would pass for theirs");
+        assertEquals(SourceClass.thirdParty, SourceClass.of("https://janedoe.com/", SourceClass.Own.of(List.of("Jane Doe"), "person")));
+    }
+
+    @Test
+    void aRunReadsTheSubjectsOwnSitesFromItsQuestionsOwnWords() {
+        SourceClass.Own q = SourceClass.Own.inText("Who is ResearchZosho, and what does the BBC say about The New School?");
+        assertTrue(q.owns("https://researchzosho.org/") && q.owns("https://www.bbc.co.uk/x") && q.owns("https://newschool.edu/"), q.labels().toString());
+        assertFalse(q.owns("https://whois.com/x"), "small words never make a name");
+        assertFalse(q.owns("https://say.com/x") || q.owns("https://doesthe.com/"), q.labels().toString());
+        assertEquals(SourceClass.Own.NONE, SourceClass.Own.inText(""));
+    }
+
+    @Test
     void aRegisterAFilingACourtAndAGovernmentHostArePublicRecord() {
         for (String l : new String[]{"https://efts.sec.gov/LATEST/search-index?q=x", "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1", "https://search.gleif.org/#/record/549300683FM6U8ZDR046",
                 "https://projects.propublica.org/nonprofits/organizations/43291770", "https://www.courtlistener.com/opinion/1/x/", "https://kokkai.ndl.go.jp/txt/1/22", "https://laws.e-gov.go.jp/law/1/35",

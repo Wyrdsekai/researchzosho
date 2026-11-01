@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 65",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Perth",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2023
+   },
+   "company": "Kestrel SA",
+   "title": "financial analyst",
+   "description": null,
+   "location": "Perth"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2005
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2014
+   },
+   "company": "Varnish Inc.",
+   "title": "financial analyst",
+   "description": null,
+   "location": "Perth"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 7,
+    "year": 1996
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2005
+   },
+   "company": "Quillon SA",
+   "title": "financial analyst",
+   "description": null,
+   "location": "Perth"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1992
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1996
+   },
+   "field_of_study": "business",
+   "degree_name": "",
+   "school": "Quillon Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

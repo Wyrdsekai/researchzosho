@@ -437,9 +437,9 @@ public final class LibraryProtocol {
             store.circulate("add", patron.label() + " :: " + url);
             return r;
         }
-        // paths are the keeper's: the terminal, or the pages while they are open (the same rule Patrons.check applies to a browser)
-        if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can add files and folders on this machine, from the terminal or the library's own pages. A url can be added from here.");
         Path target = Path.of(path).toAbsolutePath().normalize();
+        // paths are the keeper's: the terminal, or the pages while they are open (the same rule Patrons.check applies to a browser); a file the browser posted is the person's own, whoever they are
+        if (!Uploads.isUpload(target) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can add files and folders on this machine, from the terminal or the library's own pages. A url can be added from here, and a file of your own on the Add page.");
         if (!Files.exists(target)) throw ProtocolError.notFound("Nothing is at " + target + ". Is the drive mounted?");
         if (Files.isDirectory(target)) {
             if (collection.isEmpty()) collection = Corpus.nameFor(target);
@@ -1161,6 +1161,60 @@ public final class LibraryProtocol {
      * re-reads the pages and keeps a new capture when one changes.
      */
     /**
+     * sources (0.6.6, docs/DESIGN_SOURCES.md): the places the library mines. op=list (field?, for?, off=true to include the ones taken
+     * off) and op=show (id) need read access; op=add (address, for?, field?, kind?, yields?, note?), op=remove (id) and op=restore (id)
+     * need write access. Each answer has {@code sources[]} or {@code source}, {@code text} in sentences, and {@code note} for a change.
+     */
+    public ObjectNode sources(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").strip().toLowerCase();
+        ObjectNode r = envelope();
+        String how = args.path("patron").path("runtime").asText("").startsWith("web") ? "/sources" : "researchzosho sources";
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                try { CareerBoards.seed(store); } catch (IOException seeding) { /* the list is shown as it is */ }   // the boards the library knows are on the list from the first look
+                List<Sources.Source> all = Sources.all(store), out = new ArrayList<>();
+                String field = args.path("field").asText("").strip(), words = args.path("for").asText("").strip();
+                boolean off = args.path("off").asBoolean(false);
+                for (Sources.Source x : all) {
+                    if (!off && x.off()) continue;
+                    if (!field.isEmpty() && !x.field().equalsIgnoreCase(field)) continue;
+                    if (!words.isEmpty() && !(x.address() + " " + x.subject() + " " + x.place() + " " + x.forWhom() + " " + x.note()).toLowerCase().contains(words.toLowerCase())) continue;
+                    out.add(x);
+                }
+                r.set("sources", Sources.json(out)); r.put("text", Sources.text(out, true, how));
+            }
+            case "show" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Sources.Source x = Sources.get(store, args.path("id").asText(""));
+                if (x == null) throw ProtocolError.invalidArgs("No source has the id " + args.path("id").asText("") + ". " + how + " lists them.");
+                r.set("source", Sources.json(List.of(x)).get(0)); r.put("text", x.line());
+            }
+            case "add" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String address = args.path("address").asText("").strip();
+                if (address.isEmpty()) throw ProtocolError.invalidArgs("A source needs an address, or the words of a search to run again.");
+                Sources.Source x;
+                try { x = Sources.add(store, args.path("kind").asText(""), address, args.path("yields").asText(""), args.path("field").asText(""), "", "", args.path("for").asText(""), "you", args.path("note").asText("")); }
+                catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+                r.set("source", Sources.json(List.of(x)).get(0)); r.put("note", x.shelf() ? "Kept as " + x.id() + ", a search the nightly check runs again every 7 days; what it finds new lands on the arrival table for you to admit. researchzosho shelf every " + x.name() + " <days> changes how often."
+                        : "Kept as " + x.id() + ", a " + x.kind() + (x.forWhom().isEmpty() ? "" : " for " + x.forWhom()) + ". The next search of " + (x.field().isEmpty() ? "any field" : "the " + x.field() + " field") + " reads it."); r.put("text", x.line());
+            }
+            case "remove", "restore" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String id = args.path("id").asText("").strip();
+                boolean done = op.equals("remove") ? Sources.remove(store, id) : Sources.restore(store, id);
+                if (!done) throw ProtocolError.invalidArgs("No source has the id " + id + ". " + how + " lists them.");
+                boolean shelf = id.toLowerCase().startsWith(Sources.SHELF);
+                r.put("note", op.equals("remove") ? (shelf ? "Parked: " + id + ". The nightly check does not run it until you bring it back." : "Taken off: " + id + ". No search reads it until you bring it back.") : (shelf ? "Back in the rotation: " + id + ". The nightly check runs it again on its days." : "Brought back: " + id + ". The next search reads it.")); r.put("text", r.path("note").asText());
+            }
+            default -> throw ProtocolError.invalidArgs("op is list, show, add, remove or restore.");
+        }
+        return r;
+    }
+
+    /**
      * library_settings (0.5.5): op=list — every setting the library has, with its value as it may be shown (a secret only as set or not);
      * op=set with name and value writes one (a blank value unsets it). Both need write access: the settings say where the models and the
      * keys are. A value that cannot be the setting's is refused with the reason.
@@ -1204,11 +1258,11 @@ public final class LibraryProtocol {
                     r.put("name", e.name()); r.put("line", e.line()); r.put("key", DriveClient.hostKey(e.host()) != null);
                     r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : ""));
                 }
-                case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(java.util.Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
+                case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
                 case "key" -> {
                     String host = args.path("host").asText("").strip();
                     if (host.isEmpty()) throw ProtocolError.invalidArgs("key needs the host (openrouter.ai, or a word: openrouter, anthropic, openai, gemini, nebius, huggingface).");
-                    String h = DriveClient.hostOf(ModelEntries.hostAddress(host)); if (h == null) h = host.toLowerCase(java.util.Locale.ROOT);
+                    String h = DriveClient.hostOf(ModelEntries.hostAddress(host)); if (h == null) h = host.toLowerCase(Locale.ROOT);
                     String value = args.path("value").asText("").strip();
                     Config.set(DriveClient.hostKeySetting(h), value);
                     r.put("host", h); r.put("set", !value.isEmpty()); r.put("note", value.isEmpty() ? "The key for " + h + " is forgotten." : "A key is kept for " + h + " (ends with …" + value.substring(Math.max(0, value.length() - 3)) + "). It goes to that host and nowhere else.");
@@ -1683,6 +1737,235 @@ public final class LibraryProtocol {
      * library_serials: the searches the housekeeping keeps running. op=list; op=add files {name, query, every_days};
      * op=remove stops one. A kept search is re-run on its cadence and whatever is new is listed for the person.
      */
+    /**
+     * The career field's record of a person looking for work (docs/DESIGN_CAREER.md): op=list the people; op=read (seeker) the reading,
+     * what they want and what changed lately; op=evidence (seeker) the facts; op=provide (what: a file, a web address or words; name)
+     * keeps what they hand over, and reads a file only for the library's owner on this machine; op=reading (seeker) has the model write
+     * the reading and draft what they want; op=wants (seeker) drafts what they want again; op=want (seeker, dimension, state, want) sets
+     * one topic in their own words; op=questions (seeker) the interview's questions with their answers; op=answers (seeker, answers: an
+     * object of question numbers to words) answers them, read together for what they settle. The search (step 3): op=company (seeker,
+     * words, drop) a company the search looks at; op=keep_out (seeker, words, drop) something it keeps out; op=search (seeker) files a
+     * search as one of the library's runs, op=more (seeker) more readings; op=openings (seeker, show) what it found, in words and as
+     * rows; op=react (seeker, id, reaction like|pass|"" to take it back, why); op=company_state (seeker, name, state kept|dropped|"");
+     * op=cut (seeker; with any of titles, titles_also, titles_not, areas, places, remote, remote_where, prefer_titles, prefer_places it sets them, with
+     * again=true the library makes it again); op=watch (seeker, on) the nightly watch on or off, or, without on, whether it is; op=resettle (seeker) reads every answer again for what it settles; op=companies (seeker, show) the companies of the place from the public records, each read against the wants; op=react with company (and reaction, why) reacts to one of them. {@code how}: the command the person types, for the hints in the text ("researchzosho
+     * career" if none).
+     */
+    public ObjectNode career(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("read").toLowerCase(Locale.ROOT), how = args.path("how").asText("researchzosho career");
+        ObjectNode r = envelope();
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                ArrayNode a = r.putArray("seekers");
+                List<String> names = new ArrayList<>();
+                for (Career.Seeker s : Career.seekers(store)) { a.addObject().put("name", s.name()).put("slug", s.slug()).put("facts", Career.evidence(store, s).size()); names.add(s.name()); }
+                r.put("summary", names.isEmpty() ? "Nobody's working life is kept here yet. Hand over a resume, a LinkedIn file or some words about what you want."
+                        : "This library keeps the working life of " + Career.and(names) + ".");
+            }
+            case "provide" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Provided p;
+                try { p = Career.provide(store, reqStr(args, "what"), args.path("name").asText(""), patron.person()); }   // a path is read only for the owner on this machine
+                catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+                r.put("seeker", p.seeker().name()).put("slug", p.seeker().slug()).put("added", p.added()).put("kind", p.kind()).put("facts", Career.evidence(store, p.seeker()).size());
+                String said = Career.providedText(store, p);
+                if (p.kind().equals("told") && p.added() > 0) { String set = CareerInterview.settleTold(store, p.seeker(), reqStr(args, "what")); if (!set.isEmpty()) { said = said + "\n" + set; r.put("settled", set); } }   // the words read at once for what they decide
+                r.put("summary", said);
+            }
+            case "evidence" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Career.Seeker s = seekerOf(args);
+                r.put("seeker", s.name()).set("facts", Career.evidence(store, s));
+                String t = Career.evidenceText(store, s);
+                r.put("text", t); r.put("summary", t);
+            }
+            case "reading" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                String md = Career.reading(store, s);
+                if (md.isBlank()) throw ProtocolError.unavailable("The model did not answer, so there is no reading yet. Check that the model server is running, then ask again.");
+                ObjectNode w = Career.wants(store, s);
+                r.put("seeker", s.name()).put("markdown", md).set("wants", w);
+                r.put("text", Career.text(store, s, how));
+                r.put("summary", "The library wrote its reading of " + s.name() + "'s working life and drafted what they want.");
+            }
+            case "shape" -> {   // how seats are filled for them, drawn by the model from the role and the place; with words, the person's own word on it, which outranks the model's
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                String words = args.path("words").asText("").strip();
+                String t = words.isEmpty() ? CareerShape.text(CareerShape.current(store, s)) : CareerShape.tell(store, s, words);
+                r.put("seeker", s.name()).put("text", t).put("summary", t);
+            }
+            case "wants" -> {   // drafted again from the reading as kept and from what was said; a topic the person set stays theirs
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                ObjectNode w;
+                try { w = Career.wants(store, s); }
+                catch (RuntimeException e) { throw new IllegalStateException("No model answered, so the library could not draft what " + s.name() + " wants: drafting needs the model. Check researchzosho doctor, or set the model server with researchzosho settings set drive <address>, then try again."); }
+                r.put("seeker", s.name()).set("wants", w);
+                r.put("text", Career.text(store, s, how));
+                r.put("summary", "The library drafted again what " + s.name() + " wants.");
+            }
+            case "questions" -> {   // the interview: the reading's questions, each with any answer and what the library took from it
+                Patrons.check(store, patron, Patrons.Level.read);
+                Career.Seeker s = seekerOf(args);
+                JsonNode o = CareerInterview.state(store, s);
+                ArrayNode qs = r.putArray("questions");
+                StringBuilder t = new StringBuilder();
+                for (CareerInterview.Question q : CareerInterview.questions(o)) {
+                    String a = CareerInterview.answerOf(o, q.n());
+                    qs.addObject().put("n", q.n()).put("question", q.text()).put("about", q.tag()).put("followup_to", q.followupTo()).put("answer", a).put("taken", CareerInterview.takenOf(o, q.n()));
+                    t.append(q.main() ? q.n() + ". " : "A follow-up to question " + q.followupTo() + ": ").append(q.text()).append(a.isEmpty() ? "" : "\n   You said: " + a).append('\n');
+                }
+                r.put("seeker", s.name());
+                r.put("summary", qs.isEmpty() ? "There are no questions yet: they come from the reading." : t.toString().strip());
+            }
+            case "resettle" -> {   // every answer read again for what it settles; the topics set from answers set again
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                r.put("seeker", s.name()).put("summary", CareerInterview.resettle(store, s)).set("wants", Career.wantsKept(store, s));
+            }
+            case "answers" -> {   // answers to the interview's questions, by number, read together for what they settle
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                Map<String, String> byN = new LinkedHashMap<>();
+                args.path("answers").properties().forEach(e -> byN.put(e.getKey(), e.getValue().asText("")));
+                String said = CareerInterview.saveAnswers(store, s, byN);
+                r.put("seeker", s.name());
+                r.put("summary", said.isBlank() ? "No new answers were given." : said);
+            }
+            case "company", "keep_out" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                String words = reqStr(args, "words"), list = op.equals("company") ? "companies" : "keep_out";
+                boolean drop = args.path("drop").asBoolean(false), done;
+                done = drop ? CareerSearch.remove(store, s, list, words) : op.equals("company") ? CareerSearch.addCompany(store, s, words, "") : CareerSearch.addKeepOut(store, s, words, "");
+                r.put("seeker", s.name()).put("changed", done);
+                r.put("summary", op.equals("company") ? (drop ? (done ? "The search no longer looks at " + words + "." : "That company is not on the list.") : (done ? "The search will look at " + words + "." : CareerSearch.kept(store, s, "companies", words) + " is on the list already."))
+                        : (drop ? (done ? "The search no longer keeps out " + words + "." : "That is not kept out.") : (done ? "The search will keep out " + words + "." : CareerSearch.kept(store, s, "keep_out", words) + " is kept out already.")));
+            }
+            case "search", "more" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                r.put("seeker", s.name()).put("summary", CareerFind.file(store, s, patron.did(), op.equals("more") ? "career-read" : "career-search", args.path("vary").asText("")));
+            }
+            case "openings" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Career.Seeker s = seekerOf(args);
+                CareerFind.View v = CareerFind.view(store, s);
+                ArrayNode rows = r.putArray("openings");
+                for (CareerFind.Row row : v.passing()) {
+                    CareerSources.Opening o = row.opening();
+                    ObjectNode x = rows.addObject().put("id", o.id()).put("title", o.title()).put("company", o.company()).put("place", o.location()).put("remote", o.remote()).put("url", o.url())
+                            .put("posted", o.posted()).put("posted_note", o.postedNote()).put("pay", o.pay()).put("source", o.source()).put("last_seen", row.kept() == null ? "" : row.kept().path("last_seen").asText(""))
+                            .put("reaction", row.reactionWord());
+                    if (row.read()) x.set("reading", row.reading());
+                }
+                r.put("seeker", s.name()).put("cut", CareerCut.summary(v.cut())).put("searched", v.searched());
+                String t = CareerFind.text(store, s, how, Math.max(1, args.path("show").asInt(10)));
+                r.put("text", t); r.put("summary", t);
+            }
+            case "react" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                String reaction = args.path("reaction").asText(""), why = args.path("why").asText("");
+                try {
+                    String said;
+                    if (args.has("company")) said = CareerCompanies.react(store, s, reqStr(args, "company"), reaction, why);
+                    else {
+                        try { said = CareerFind.react(store, s, reqStr(args, "id"), reaction, why); }
+                        catch (IllegalArgumentException noOpening) {   // not an opening's short name: a company of the place, which may spell like one
+                            try { said = CareerCompanies.react(store, s, reqStr(args, "id"), reaction, why); } catch (IllegalArgumentException noCompany) { throw noOpening; }
+                        }
+                    }
+                    r.put("seeker", s.name()).put("summary", said);
+                }
+                catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+            }
+            case "companies" -> {   // the companies of the place, from the public records, each read against what the person wants
+                Patrons.check(store, patron, Patrons.Level.read);
+                Career.Seeker s = seekerOf(args);
+                CareerCut.Cut cut = CareerCut.kept(store, s); if (cut == null) cut = CareerCut.Cut.NONE;
+                ArrayNode rows = r.putArray("companies");
+                for (ObjectNode e : CareerCompanies.standing(store, s, cut)) rows.add(e);
+                String t = CareerCompanies.text(store, s, cut, how, Math.max(1, args.path("show").asInt(8)));
+                r.put("seeker", s.name()).put("text", t).put("summary", t);
+            }
+            case "company_state" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                try { r.put("seeker", s.name()).put("summary", CareerFind.companyState(store, s, reqStr(args, "name"), args.path("state").asText(""))); }
+                catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+            }
+            case "watch" -> {
+                Career.Seeker s = seekerOf(args);
+                if (args.has("on")) { Patrons.check(store, patron, Patrons.Level.write); r.put("summary", CareerWatch.set(store, s, args.path("on").asBoolean(false))); }
+                else { Patrons.check(store, patron, Patrons.Level.read); r.put("summary", CareerWatch.on(store, s) ? "The nightly watch is on." : "The nightly watch is off."); }
+                r.put("seeker", s.name()).put("on", CareerWatch.on(store, s));
+            }
+            case "cut" -> {
+                Career.Seeker s = seekerOf(args);
+                Map<String, String> f = new LinkedHashMap<>();
+                for (String k : List.of("titles", "titles_also", "titles_not", "areas", "places", "remote", "remote_where", "max_people", "min_people", "prefer_titles", "prefer_places")) if (args.has(k)) f.put(k, args.path(k).isArray() ? String.join(", ", textList(args.path(k))) : args.path(k).asText(""));
+                CareerCut.Cut c;
+                if (args.path("again").asBoolean(false)) { Patrons.check(store, patron, Patrons.Level.write); c = CareerCut.make(store, s); }
+                else if (!f.isEmpty()) { Patrons.check(store, patron, Patrons.Level.write); try { c = CareerCut.set(store, s, f); } catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); } }
+                else { Patrons.check(store, patron, Patrons.Level.read); c = CareerCut.kept(store, s); }
+                r.put("seeker", s.name()).put("summary", c == null ? "There is no cut yet: the first search makes it from what you decided." : "The cut: " + CareerCut.summary(c) + ".");
+                if (c != null) r.put("by", c.by()).put("at", c.at());
+            }
+            case "want" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Career.Seeker s = seekerOf(args);
+                ObjectNode e;
+                try { e = Career.setWant(store, s, reqStr(args, "dimension"), reqStr(args, "state"), args.path("want").asText("")); }
+                catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+                r.put("seeker", s.name()).set("dimension", e);
+                r.put("summary", "Saved. " + Career.line(e));
+            }
+            default -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Career.Seeker s = seekerOf(args);
+                r.put("seeker", s.name()).put("markdown", Career.readingKept(store, s)).set("wants", Career.wantsKept(store, s));
+                ArrayNode log = r.putArray("log"); for (String l : Career.logTail(store, s, 12)) log.add(l);
+                String t = Career.text(store, s, how);
+                r.put("text", t); r.put("summary", t);
+            }
+        }
+        return r;
+    }
+
+    private static List<String> textList(JsonNode a) { List<String> out = new ArrayList<>(); for (JsonNode x : a) out.add(x.asText("")); return out; }
+
+    private Career.Seeker seekerOf(JsonNode args) throws IOException {
+        String name = args.path("seeker").asText(args.path("name").asText("")).strip();
+        Career.Seeker s = Career.seeker(store, name);
+        if (s != null) return s;
+        List<String> names = new ArrayList<>(); for (Career.Seeker x : Career.seekers(store)) names.add(x.name());
+        if (names.isEmpty()) throw ProtocolError.notFound("Nobody's working life is kept here yet. Hand over a resume, a LinkedIn file or some words about what you want first.");
+        if (name.isEmpty()) throw ProtocolError.invalidArgs("This library keeps more than one person's working life: " + Career.and(names) + ". Say whose.");
+        throw ProtocolError.notFound("There is nobody called " + name + " here. The people here are: " + Career.and(names) + ".");
+    }
+
+    /**
+     * The library on itself (library_help): its live state, the version, holdings, model and whether it answers, web search, fields,
+     * commands and pages, and the sections of the program's own documentation that answer {@code question}, with where to ask what
+     * neither answers. Anyone who may read the library may ask.
+     */
+    public ObjectNode help(JsonNode args) throws IOException {
+        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+        String q = args.path("question").asText("").strip();
+        ObjectNode r = envelope();
+        r.put("version", Version.string());
+        ArrayNode sections = r.putArray("sections");
+        for (Help.Section s : Help.find(q, 3)) sections.addObject().put("doc", s.doc()).put("heading", s.heading()).put("text", s.text().length() > 1800 ? s.text().substring(0, 1800) + " …" : s.text());
+        r.put("issues", Help.ISSUES);
+        r.put("summary", Help.answer(store, q));
+        return r;
+    }
+
     public ObjectNode serials(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         String op = args.path("op").asText("list").toLowerCase(Locale.ROOT);
@@ -2082,7 +2365,7 @@ public final class LibraryProtocol {
         if (!readIn.isEmpty()) { ArrayNode ri = a.putArray("read_in"); readIn.forEach(ri::add); }
         if (quick) a.put("quick", true);
         // the named model this run runs on (researchzosho models): the service looks it up when the run starts
-        String entryName = args.path("model").asText("").strip().toLowerCase(java.util.Locale.ROOT);
+        String entryName = args.path("model").asText("").strip().toLowerCase(Locale.ROOT);
         if (entryName.isEmpty() && Auto.isDefault()) entryName = Auto.NAME;   // nothing named, and there is a choice: best judgement, made when the run starts
         if (!entryName.isEmpty() && !entryName.equals(ModelEntries.DEFAULT)) {
             if (!entryName.equals(Auto.NAME) && ModelEntries.get(entryName) == null) throw ProtocolError.invalidArgs("No model is named " + entryName + ". The names are: auto, " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");

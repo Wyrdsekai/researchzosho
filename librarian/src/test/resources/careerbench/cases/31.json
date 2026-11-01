@@ -1,0 +1,57 @@
+{
+ "full_name": "Seeker 31",
+ "headline": "postdoctoral researcher in physics",
+ "occupation": "postdoctoral researcher in physics at Northgate Research Centre",
+ "location_str": "Pune",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Northgate Research Centre",
+   "title": "postdoctoral researcher in physics",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2025
+   },
+   "field_of_study": "engineering",
+   "degree_name": "",
+   "school": "Quillon Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [
+  {
+   "name": "A result in engineering",
+   "publisher": "Greywell Research Centre",
+   "published_on": {
+    "day": 1,
+    "month": 5,
+    "year": 2025
+   },
+   "url": null
+  }
+ ],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

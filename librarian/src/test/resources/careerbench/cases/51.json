@@ -1,0 +1,46 @@
+{
+ "full_name": "Seeker 51",
+ "headline": "security guard",
+ "occupation": "security guard at Harrowgate GmbH",
+ "location_str": "Osaka",
+ "summary": "Certified in security guard.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2025
+   },
+   "ends_at": null,
+   "company": "Harrowgate GmbH",
+   "title": "security guard",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2021
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2025
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Corvid Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

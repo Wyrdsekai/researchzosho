@@ -160,6 +160,7 @@ tasks.register("printCp") {
 }
 
 // A run from the source tree has no jar manifest; the version goes into a resource so the pages and --version can say it.
+// The documentation is not put into the program: Help reads the tree's own, or fetches the release's from GitHub, so a docs change never needs a build.
 tasks.processResources {
     val v = project.version.toString()
     inputs.property("version", v)

@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 01",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Columbus, Ohio",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Greywell K.K.",
+   "title": "senior data scientist",
+   "description": null,
+   "location": "Columbus, Ohio"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2022
+   },
+   "company": "Juniper Ltd",
+   "title": "data scientist",
+   "description": null,
+   "location": "Columbus, Ohio"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 7,
+    "year": 2018
+   },
+   "company": "Juniper Ltd",
+   "title": "database administrator",
+   "description": null,
+   "location": "Columbus, Ohio"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2006
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2010
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Varnish Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

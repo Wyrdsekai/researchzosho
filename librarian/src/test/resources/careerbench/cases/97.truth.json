@@ -1,0 +1,16 @@
+{
+ "trap": "licence held",
+ "expect": {
+  "work_words": [
+   "electrician"
+  ],
+  "right_not": [
+   "transfer",
+   "sponsor",
+   "need",
+   "recogni",
+   "sort out"
+  ],
+  "asks_right_minimum": false
+ }
+}

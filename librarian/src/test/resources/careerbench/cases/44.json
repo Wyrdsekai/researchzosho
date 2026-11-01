@@ -1,0 +1,78 @@
+{
+ "full_name": "Seeker 44",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Valencia",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Marrow & Finch Secondary School",
+   "title": "administrative assistant",
+   "description": null,
+   "location": "Valencia"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 12,
+    "year": 2022
+   },
+   "company": "Fallow College",
+   "title": "administrative assistant",
+   "description": null,
+   "location": "Valencia"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2018
+   },
+   "company": "Brightwater College",
+   "title": "administrative assistant",
+   "description": null,
+   "location": "Valencia"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2010
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2014
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Juniper Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "es"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

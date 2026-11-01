@@ -1,0 +1,16 @@
+{
+ "trap": "keep-out said softly",
+ "expect": {
+  "work_words": [
+   "nurse",
+   "nursing"
+  ],
+  "keep_out_contains": [
+   "night",
+   "agency"
+  ],
+  "named_not": [
+   "Stillwater"
+  ]
+ }
+}

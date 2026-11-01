@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 98",
+ "headline": "看護師",
+ "occupation": "看護師",
+ "location_str": "Osaka",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2023
+   },
+   "ends_at": null,
+   "company": "Stillwater Clinic",
+   "title": "看護師",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 11,
+    "year": 2020
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2023
+   },
+   "company": "Juniper General Hospital",
+   "title": "看護師",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2020
+   },
+   "field_of_study": "nursing",
+   "degree_name": "",
+   "school": "Marrow & Finch Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

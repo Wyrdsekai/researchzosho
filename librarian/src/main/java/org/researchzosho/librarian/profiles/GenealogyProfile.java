@@ -15,6 +15,7 @@ import org.researchzosho.librarian.Gedcom;
 import org.researchzosho.librarian.LibraryStore;
 import org.researchzosho.librarian.Mentions;
 import org.researchzosho.librarian.Profile;
+import org.researchzosho.librarian.ChatCapture;
 import org.researchzosho.librarian.Vocabulary;
 
 import java.nio.file.Path;
@@ -502,6 +503,26 @@ public final class GenealogyProfile implements Profile {
     @Override public String example() { return "genealogy import tree.ged"; }
 
     @Override public String chatCommandHelp() { return "/family (your family: tell, read, tree, check) · to research a question as family history, say \"in genealogy mode\" with it"; }
+
+    @Override public List<String> chatCommandWords() { return List.of("/family"); }
+
+    /**
+     * The family commands in a chat other than the terminal. The library's owner runs every one, as at the terminal. Anyone else runs
+     * those that only read the family's facts; the ones that change them are taken from the person whose family it is, because what is
+     * told is told by its teller ("my grandfather" is read as the teller's).
+     */
+    @Override public String chatReply(LibraryStore store, Patrons.Patron patron, String chat, String line) throws IOException {
+        if (line == null) return null;
+        String l = line.strip();
+        if (!(l.equals("/family") || l.startsWith("/family "))) return null;
+        if (!patron.person()) {
+            String verb = l.length() > 7 ? l.substring(7).strip().split("\\s+", 2)[0] : "";
+            if (Set.of("tell", "read", "split", "different").contains(verb))
+                return "This one changes the family's facts, and the library takes those from the person whose family it is. Sign in as the library's owner, or use the terminal: researchzosho chat, then /family " + verb + ".";
+            if (!Patrons.mayRead(store, patron)) return "The family's facts are for those who may read this library.";
+        }
+        return ChatCapture.run(() -> chatCommand(store, l));
+    }
 
     @Override public List<String> pagePaths() { return FamilyPages.PATHS; }
 

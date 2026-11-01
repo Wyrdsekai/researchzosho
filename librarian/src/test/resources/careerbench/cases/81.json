@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 81",
+ "headline": "home care worker",
+ "occupation": "home care worker at Corvid Agency",
+ "location_str": "Toronto, Ontario",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2023
+   },
+   "ends_at": null,
+   "company": "Corvid Agency",
+   "title": "home care worker",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2020
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2023
+   },
+   "company": "Quillon Agency",
+   "title": "home care worker",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2020
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Quillon Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

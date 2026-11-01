@@ -1,0 +1,81 @@
+{
+ "full_name": "Seeker 24",
+ "headline": "head of machine learning",
+ "occupation": "head of machine learning at Brightwater Research Centre",
+ "location_str": "Austin, Texas",
+ "summary": "Code at codehost.example/seeker24.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2017
+   },
+   "ends_at": null,
+   "company": "Brightwater Research Centre",
+   "title": "head of machine learning",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2008
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2017
+   },
+   "company": "Brightwater Institute",
+   "title": "machine learning engineer",
+   "description": null,
+   "location": "Austin, Texas"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 10,
+    "year": 1999
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2008
+   },
+   "company": "Harrowgate Institute",
+   "title": "machine learning engineer",
+   "description": null,
+   "location": "Austin, Texas"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1995
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1999
+   },
+   "field_of_study": "computer science",
+   "degree_name": "",
+   "school": "Tessaly Institute"
+  }
+ ],
+ "skills": [
+  "Git",
+  "Python"
+ ],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

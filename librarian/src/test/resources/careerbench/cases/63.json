@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 63",
+ "headline": "call centre agent",
+ "occupation": "call centre agent at Ironside Inc.",
+ "location_str": "Belo Horizonte",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2022
+   },
+   "ends_at": null,
+   "company": "Ironside Inc.",
+   "title": "call centre agent",
+   "description": null,
+   "location": "Belo Horizonte"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2022
+   },
+   "company": "Varnish Inc.",
+   "title": "call centre agent",
+   "description": null,
+   "location": "Belo Horizonte"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2014
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2018
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Juniper Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "pt"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

@@ -1,0 +1,17 @@
+{
+ "trap": "namesake",
+ "expect": {
+  "work_words": [
+   "dental",
+   "hygienist"
+  ],
+  "named_contains": [
+   "Oracle Dental Clinic",
+   "Amazon Smiles Ltd"
+  ],
+  "named_not": [
+   "Oracle Corporation",
+   "Amazon.com"
+  ]
+ }
+}

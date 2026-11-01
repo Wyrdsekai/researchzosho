@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 48",
+ "headline": "secondary school mathematics teacher",
+ "occupation": "secondary school mathematics teacher at Penrose College",
+ "location_str": "Toronto, Ontario",
+ "summary": "Certified in secondary school mathematics teacher.",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2023
+   },
+   "ends_at": null,
+   "company": "Penrose College",
+   "title": "secondary school mathematics teacher",
+   "description": null,
+   "location": "Toronto, Ontario"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 3,
+    "year": 2020
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 10,
+    "year": 2023
+   },
+   "company": "Halden Academy",
+   "title": "secondary school mathematics teacher",
+   "description": null,
+   "location": "Toronto, Ontario"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2016
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2020
+   },
+   "field_of_study": "education",
+   "degree_name": "",
+   "school": "Ashgrove Research Centre"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

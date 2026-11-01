@@ -1,0 +1,62 @@
+{
+ "full_name": "Seeker 92",
+ "headline": "registered nurse",
+ "occupation": "registered nurse at Ashgrove General Hospital",
+ "location_str": "Pune",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 4,
+    "year": 2024
+   },
+   "ends_at": null,
+   "company": "Ashgrove General Hospital",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Pune"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2022
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 1,
+    "year": 2024
+   },
+   "company": "Penrose General Hospital",
+   "title": "registered nurse",
+   "description": null,
+   "location": "Pune"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 2018
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 2022
+   },
+   "field_of_study": "nursing",
+   "degree_name": "",
+   "school": "Fallow Institute"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "en"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}

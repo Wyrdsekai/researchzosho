@@ -1,0 +1,82 @@
+{
+ "full_name": "Seeker 29",
+ "headline": "",
+ "occupation": "",
+ "location_str": "Osaka",
+ "summary": "",
+ "experiences": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2015
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2024
+   },
+   "company": "Harrowgate SA",
+   "title": "hairdresser",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 2,
+    "year": 2006
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 5,
+    "year": 2015
+   },
+   "company": "Tessaly SA",
+   "title": "hairdresser",
+   "description": null,
+   "location": "Osaka"
+  },
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 12,
+    "year": 1997
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 8,
+    "year": 2006
+   },
+   "company": "Fallow GmbH",
+   "title": "hairdresser",
+   "description": null,
+   "location": "Osaka"
+  }
+ ],
+ "education": [
+  {
+   "starts_at": {
+    "day": 1,
+    "month": 9,
+    "year": 1993
+   },
+   "ends_at": {
+    "day": 1,
+    "month": 6,
+    "year": 1997
+   },
+   "field_of_study": "",
+   "degree_name": "",
+   "school": "Dunmore Academy"
+  }
+ ],
+ "skills": [],
+ "languages": [
+  "ja"
+ ],
+ "accomplishment_publications": [],
+ "accomplishment_patents": [],
+ "recommendations": [],
+ "activities": []
+}
