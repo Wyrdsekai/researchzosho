@@ -1697,14 +1697,10 @@ public final class Researcher {
      * Returns null when the budget was spent before its first turn: a worker with no turn to read anything
      * answered from memory (measured, J-0007: one turn, {@code done} only, a 444-character summary of nothing).
      */
-    /** The next worker's number, for its slot on a llama.cpp server; counted up over the run. */
-    private final AtomicInteger workerSeq = new AtomicInteger();
-
     String investigate(Ask ask, String sub, Budget budget) {
-        DriveClient.pinSlot(workerSeq.getAndIncrement(), workersNow());
         DriveClient.countInto(usage);   // a worker's thread counts for the run
         try { return investigateOnSlot(ask, sub, budget); }
-        finally { DriveClient.unpinSlot(); DriveClient.stopCounting(); }
+        finally { DriveClient.stopCounting(); }
     }
 
     private String investigateOnSlot(Ask ask, String sub, Budget budget) {

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.9
+
+What's new: Fixes: a research report could come out on the wrong subject, two safety problems on the library's pages, and the nightly update.
+
+### Fixed
+
+- A research report could be written on another question's subject. When two libraries used one model server at the
+  same time, one could be handed the other's answers. If more than one library uses your model server, update each.
+- A page on another website could send a form to your library in your name.
+- Through the shared door, one visitor's sign-in details could reach the next visitor's request.
+- A library that listens on this computer only now answers only to this computer's own name.
+- The library updates itself at night. It asked while its own housekeeping was still running, so it never found a
+  quiet moment; it waits for the housekeeping to end now.
+
 ## 0.6.8
 
 What's new: Fast fix: the Career page is in the menu now.

@@ -43,41 +43,17 @@ class DriveSlotPinTest {
     static ArrayNode hello() { ArrayNode msgs = M.createArrayNode(); msgs.addObject().put("role", "user").put("content", "hello"); return msgs; }
 
     @Test
-    void aWorkerKeepsToItsSlotAndAQuickDecisionTakesTheSpareOne() throws Exception {
-        List<JsonNode> bodies = new CopyOnWriteArrayList<>();
-        HttpServer s = fake(4, bodies);
-        try {
-            DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m");
-            c.contextWindow();   // a set window (the test environment's) skips the probe; the pin asks on its own
-            c.chat(hello(), null, 8, "auto");
-            assertFalse(bodies.get(0).has("id_slot"), "no worker pinned: the server picks");
-            DriveClient.pinSlot(1, 3);
-            try {
-                c.chat(hello(), null, 8, "auto");
-                assertEquals(1, bodies.get(1).path("id_slot").asInt(), "worker 1 → slot 1");
-                c.classify(hello(), 8);
-                assertEquals(3, bodies.get(2).path("id_slot").asInt(), "a quick decision → the spare slot past the three workers");
-            } finally { DriveClient.unpinSlot(); }
-            DriveClient.pinSlot(5, 3);
-            try { c.chat(hello(), null, 8, "auto"); assertEquals(1, bodies.get(3).path("id_slot").asInt(), "worker 5 on a four-slot server → slot 1 (5 mod 4)"); }
-            finally { DriveClient.unpinSlot(); }
-            DriveClient.pinSlot(0, 4);
-            try { c.classify(hello(), 8); assertFalse(bodies.get(4).has("id_slot"), "four workers on four slots: no spare, the server picks for a decision"); }
-            finally { DriveClient.unpinSlot(); }
-            c.chat(hello(), null, 8, "auto");
-            assertFalse(bodies.get(5).has("id_slot"), "unpinned again");
-        } finally { s.stop(0); }
-    }
-
-    @Test
-    void aOneSlotServerAndAServerThatSaysNothingAreSentAsBefore() throws Exception {
-        for (Integer slots : new Integer[]{1, null}) {
+    void noRequestEverNamesASlot() throws Exception {
+        // a llama.cpp server with four slots, with one, and one that says nothing of itself: a chat turn and a quick decision name no slot,
+        // since two conversations sent to one named slot were answered with each other's replies (DriveClient says how it was measured)
+        for (Integer slots : new Integer[]{4, 1, null}) {
             List<JsonNode> bodies = new CopyOnWriteArrayList<>();
             HttpServer s = fake(slots, bodies);
             try {
                 DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m");
-                DriveClient.pinSlot(2, 3);
-                try { c.chat(hello(), null, 8, "auto"); c.classify(hello(), 8); } finally { DriveClient.unpinSlot(); }
+                c.contextWindow();
+                c.chat(hello(), null, 8, "auto"); c.classify(hello(), 8);
+                assertEquals(2, bodies.size());
                 for (JsonNode b : bodies) assertFalse(b.has("id_slot"), "slots=" + slots + ": " + b);
             } finally { s.stop(0); }
         }

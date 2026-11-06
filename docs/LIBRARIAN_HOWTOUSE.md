@@ -2457,9 +2457,13 @@ researchzosho web signin off
 ```
 
 A person signs in with their name and password, from any phone or computer. On the library's own
-computer your browser is you, with no sign-in (`web.local = signin` in the settings turns that off,
-for a computer other people use). `share` asks for your account before it opens the library, so you
-can get in from outside yourself.
+computer your browser is you, with no sign-in, when it opens the library by this computer's own name: localhost,
+127.0.0.1 or the computer's name (`web.local = signin` in the settings turns that off, for a computer other
+people use). A library that listens on this computer only answers to localhost and 127.0.0.1, so a page on
+another site cannot reach it by pointing a name of its own at your computer. `share` asks for your account
+before it opens the library, so you can get in from outside yourself. Every form on the pages is carried out
+only when your browser says it was sent from the library's own page, so a page on another site that you happen
+to open cannot send one in your name; a program's call with a key is no form and is not asked.
 
 `reader invite` prints a link. Send it to the person; when they open it, they choose a password, and
 from then on they sign in with their name and it. They stay signed in for a year in that browser. The

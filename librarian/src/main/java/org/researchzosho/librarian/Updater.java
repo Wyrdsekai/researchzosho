@@ -270,15 +270,26 @@ public final class Updater {
 
     /** The auto mode's turn: after the housekeeping, when no run is active. Returns what it did, or "" when nothing. */
     public static String maybeAuto(LibraryStore store, boolean idle) {
-        if (!mode().equals("auto") || !Version.isRelease() || !idle) return "";
-        String latest = Version.latest();
-        if (latest == null || Version.compare(latest, Version.string()) <= 0) return "";
+        if (!mode().equals("auto")) return "";
+        boolean release = Version.isRelease();
+        String latest = release && idle ? Version.latest() : null;
+        String whyNot = whyNot(release, idle, latest, Version.string());
+        if (!whyNot.isEmpty()) { Crews.log(store, "update", "auto: " + whyNot, 0); return ""; }   // said, so a night that did nothing is never silent
         var buf = new ByteArrayOutputStream();
         Outcome o = now(latest, true, new PrintStream(buf, true));
         Crews.log(store, "update", o.note(), 0);
         // Windows: the helper swaps the folders once this server has ended, then starts the service again
         if (o.finishesAfterExit()) Runtime.getRuntime().exit(0);
         return o.note();
+    }
+
+    /** Why the auto mode does nothing tonight, in a line for the log; "" when a newer release should be swapped in. */
+    static String whyNot(boolean release, boolean idle, String latest, String installed) {
+        if (!release) return "this is not an installed release, so nothing is swapped";
+        if (!idle) return "a run was still active after the wait; the next try is tomorrow night, or researchzosho update now";
+        if (latest == null) return "the latest release could not be read from GitHub; the next try is tomorrow night";
+        if (Version.compare(latest, installed) <= 0) return "up to date (" + installed + ")";
+        return "";
     }
 
     /**

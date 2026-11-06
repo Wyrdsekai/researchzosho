@@ -540,7 +540,6 @@ public final class DriveClient {
             body.put("tool_choice", toolChoice);
         }
         body.put("max_tokens", maxTokens);
-        { int slot = slotFor(false); if (slot >= 0) body.put("id_slot", slot); }
         // RESEARCHZOSHO_TEMP=none omits the field entirely — claude-fable-5 400s on ANY temperature
         // ("deprecated for this model", measured 2026-08-29); a number overrides the caller's
         // choice for engines whose default sampling is better left alone.
@@ -947,29 +946,15 @@ public final class DriveClient {
     /** The chat requests this thread is inside of: a stream holds its slot while it is read, and the requests it makes meanwhile take none. */
     private static final ThreadLocal<int[]> HELD = ThreadLocal.withInitial(() -> new int[1]);
 
-    /** The worker this thread serves and how many there are, when a research worker set them: its requests go to one llama.cpp slot. */
-    private static final ThreadLocal<int[]> PIN = new ThreadLocal<>();
-
     /**
-     * A research worker keeps to one slot of a llama.cpp server for the whole of its work, and its quick decisions go to a spare slot
-     * when the server has one: llama.cpp keeps one prompt cache per slot, and a worker that lands on another worker's slot throws that
-     * worker's cached prefix away — 39 % of the prompt tokens of a local run were processed again for that reason, at 3 ms each
-     * (2026-10-15, the 27B on an Ada: 21 minutes of a 45-minute run). A hosted API caches by prefix and needs none of this.
+     * NO REQUEST NAMES A SLOT (0.6.9). From 0.6.3 a research worker's requests carried id_slot (worker n to slot n, its quick decisions to a
+     * spare one), to keep each worker's prompt cache. Two conversations that begin alike and are sent to one named slot make llama.cpp
+     * (b10711) answer one with the other's reply, and in time loop for good erasing one context checkpoint: measured 2026-11-05 on the 27B,
+     * two clients with the same 3,500-token opening on slot 1, 4 of 40 replies were the other client's and a second run wedged the slot;
+     * with no slot named, 0 of 40, and 0 of 72 with six conversations on four slots. A run on one computer wrote its whole report on the
+     * subject another computer's run was researching on the same model server (2026-11-06). Left to itself the server sends a
+     * conversation to the slot that holds its own earlier turns.
      */
-    public static void pinSlot(int worker, int workers) { PIN.set(new int[]{Math.max(0, worker), Math.max(1, workers)}); }
-    public static void unpinSlot() { PIN.remove(); }
-
-    /** The slot a request from this thread goes to: the worker's own, a quick decision's the spare one past the workers; -1 for none. */
-    int slotFor(boolean quick) {
-        int[] pin = PIN.get();
-        if (pin == null) return -1;
-        if (serverStyle.isEmpty()) vllmStyle();   // asks the server what it is, when a set window skipped that
-        if (!"llama.cpp".equals(serverStyle)) return -1;
-        int slots = served().slots();
-        if (slots < 2) return -1;
-        if (!quick) return pin[0] % slots;
-        return slots > pin[1] ? slots - 1 : -1;   // no spare slot: the server picks, as before
-    }
 
     /** What this client's server says of itself, asked once in this process (again later when it could not be reached). */
     Served served() {
@@ -1079,7 +1064,6 @@ public final class DriveClient {
         body.set("messages", messages);
         body.put("max_tokens", maxTokens);
         decisionSettings(body);
-        { int slot = slotFor(true); if (slot >= 0) body.put("id_slot", slot); }
         body.put("stream", false);
         CLASSIFY_PROBLEM.set("");
         CLASSIFY_UNANSWERED.remove();

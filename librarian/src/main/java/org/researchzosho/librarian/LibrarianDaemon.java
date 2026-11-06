@@ -485,10 +485,11 @@ public final class LibrarianDaemon {
         McpServer.setToolFilter(n -> n.startsWith("library_"));
         LibrarianDaemon d = new LibrarianDaemon(store, s, driveUrl, model);
         d.lease = lease;
+        d.loopbackOnly = LocalName.loopbackOnly(s.getAddress());   // listening on the loopback only: it answers only to the loopback's names
         d.followVault();
         d.watchStalls();
         Runtime.getRuntime().addShutdownHook(new Thread(lease::close, "serve-lease-release"));   // systemd stops us with SIGTERM
-        s.createContext("/", d::handle);
+        s.createContext("/", x -> d.handle(new PerRequest(x)));   // each request's marks are its own: the server's are shared by every request
         s.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-http"); t.setDaemon(true); return t; }));
         s.start();
         if (doorPort >= 0) { try { d.openDoor(doorPort); } catch (IOException e) { d.stop(); throw e; } }
@@ -514,7 +515,7 @@ public final class LibrarianDaemon {
     public synchronized void openDoor(int port) throws IOException {
         if (door != null) return;
         HttpServer d2 = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
-        d2.createContext("/", x -> { x.setAttribute(DOOR, Boolean.TRUE); handle(x); });
+        d2.createContext("/", x -> { HttpExchange own = new PerRequest(x); own.setAttribute(DOOR, Boolean.TRUE); handle(own); });
         d2.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-door"); t.setDaemon(true); return t; }));
         d2.start();
         door = d2;
@@ -554,9 +555,14 @@ public final class LibrarianDaemon {
 
     // ---- dispatch ----
 
+    /** Whether the main port listens on the loopback only. */
+    private volatile boolean loopbackOnly;
+
     private void handle(HttpExchange x) throws IOException {
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
+        // on the loopback only, a request under another name came from a page elsewhere that pointed its own name here (LocalName)
+        if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
         try {
             byte[] bodyBytes = x.getRequestBody().readAllBytes();
             String contentType = x.getRequestHeaders().getFirst("Content-Type");
@@ -564,6 +570,8 @@ public final class LibrarianDaemon {
             String bodyText = multipart ? "" : new String(bodyBytes, StandardCharsets.UTF_8);
             if (A2a.CARD.equals(path) || A2a.PATH.equals(path)) { a2a(x, path, method, bodyText); return; }   // the library as an agent for other agents
             if (Pages.isPage(path)) {
+                // a form posted from a page of another site is refused before it is read, whoever the browser is here (OwnPage)
+                if (!OwnPage.allowed(x)) { OwnPage.refuse(x); return; }
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie; a file posted with a form is written to a folder of its own
                 Map<String, String> form;
                 if (multipart) {
@@ -795,6 +803,7 @@ public final class LibrarianDaemon {
         }
         // a browser on the library's own computer, on the main port, is the person who keeps it (the setting web.local; never through the door)
         if (!Boolean.TRUE.equals(x.getAttribute(DOOR)) && Pages.isPage(x.getRequestURI().getPath()) && WebAccess.signInRequired() && WebAccess.localOwner()
+                && LocalName.thisComputer(x.getRequestHeaders().getFirst("Host"))   // asked by this computer's own name, never one a page elsewhere pointed here
                 && x.getRemoteAddress() != null && x.getRemoteAddress().getAddress() != null && x.getRemoteAddress().getAddress().isLoopbackAddress()) return Patrons.Patron.OWNER_WEB;
         return Boolean.TRUE.equals(x.getAttribute(DOOR)) ? Patrons.Patron.DOOR_ANONYMOUS : Patrons.Patron.ANONYMOUS;
     }

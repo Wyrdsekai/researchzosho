@@ -472,6 +472,23 @@ public final class Crews {
     /** The nightly scheduler thread; daemon, so it never keeps a JVM alive. {@code fire} runs (or enqueues) the crews. */
     public static Thread nightly(LibraryStore store, int hour, Runnable fire) { return nightly(store, hour, fire, () -> true); }
 
+    /** How long the nightly waits for the daemon to go idle before the auto-update, and how often it looks. */
+    static final long UPDATE_WAIT_MS = 3L * 60 * 60 * 1000, UPDATE_LOOK_MS = 30_000;
+
+    /**
+     * Waits until {@code idle} says no run is active, looking every {@code step} ms, for at most {@code max} ms; true when idle. The
+     * housekeeping the nightly has just queued is a run too, so the quiet moment comes after it ends, not in the same breath: asked at
+     * once, idle was always false, and the auto-update never fired on a daemon that runs the nightly.
+     */
+    static boolean waitForIdle(BooleanSupplier idle, long max, long step) throws InterruptedException {
+        long until = System.currentTimeMillis() + max;
+        while (!idle.getAsBoolean()) {
+            if (System.currentTimeMillis() >= until) return false;
+            Thread.sleep(step);
+        }
+        return true;
+    }
+
     /** As above; {@code idle} says whether no run is active, which is when the auto-update may swap the program. */
     public static Thread nightly(LibraryStore store, int hour, Runnable fire, BooleanSupplier idle) {
         Thread t = new Thread(() -> {
@@ -481,8 +498,10 @@ public final class Crews {
                     log(store, "nightly", "begin (" + LocalDateTime.now().withNano(0) + ")", 0);
                     Service.rotate(Config.home().resolve("logs").resolve("librarian-serve.log"), 20L * 1024 * 1024);
                     fire.run();
-                    // the quiet moment: the housekeeping is done; in auto mode a newer release is swapped in and the service restarts
-                    try { Updater.maybeAuto(store, idle.getAsBoolean()); } catch (Throwable e) { log(store, "update", "FAILED: " + e, 0); }
+                    // the quiet moment: the housekeeping has ended and no run is active; in auto mode a newer release is swapped in and the service restarts
+                    try { Updater.maybeAuto(store, waitForIdle(idle, UPDATE_WAIT_MS, UPDATE_LOOK_MS)); }
+                    catch (InterruptedException e) { return; }
+                    catch (Throwable e) { log(store, "update", "FAILED: " + e, 0); }
                 } catch (InterruptedException e) {
                     return;
                 } catch (Throwable e) {
