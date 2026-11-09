@@ -42,6 +42,7 @@ import java.util.TreeSet;
 import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
+import java.util.function.IntConsumer;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -596,22 +597,28 @@ public final class Translation {
      * of each flagged unit in a fresh call, kept only when its score improves (or its mechanical flags clear with the score no worse); the
      * back-translation sample when the checker is the translator's model; for the reviewed and thorough tiers the second seat's reading,
      * worst-scored first, with the typology, the revision of what it flagged major or critical and the reading of the revision again. The
-     * units nothing flagged go on the record.
+     * units nothing flagged go on the record. The scorers live as long as the checks: MetricX's process starts at the first unit it scores
+     * and is ended when the checks end, however they end.
      */
     static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop) throws IOException {
+        List<Integer> read = new ArrayList<>(); for (int i : todo) if (words.get(i) != null) read.add(i);
+        tell(progress, "scoring", 0, read.size(), q);
+        try (Scorers sc = TranslationScores.SCORERS.get()) {
+            Checked c = check(store, units, todo, words, glossary, binding, code, fromCode, seats, q, progress, stop, sc, read);
+            c.scorersSaid = sc.said();   // said after the scoring, so a scorer that stopped partway is in it
+            return c;
+        }
+    }
+
+    static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop, Scorers sc, List<Integer> read) throws IOException {
         String language = Translate.LANGUAGES.getOrDefault(code, code);
         Checked c = new Checked();
         Map<Integer, List<Flag>> byUnit = new TreeMap<>();
         for (int i : todo) for (Flag f : mechanical(i, units.get(i).text(), words.get(i), glossary, binding, code, "")) byUnit.computeIfAbsent(i, x -> new ArrayList<>()).add(f);
-        List<Integer> read = new ArrayList<>(); for (int i : todo) if (words.get(i) != null) read.add(i);
-        tell(progress, "scoring", 0, read.size(), q);
-        // the scores, and their flags against what the pair's accepted units say
-        Scorers sc = TranslationScores.SCORERS.get();
-        c.scorersSaid = sc.said();
+        // the scores, a step of units at a time with the count told after each, and their flags against what the pair's accepted units say
         c.thresholds = TranslationScores.thresholds(store, fromCode, code);
-        score(sc, units, words, read, c.labse, c.metricx);
+        score(sc, units, words, read, c.labse, c.metricx, scored -> tell(progress, "scoring", scored, read.size(), q), stop);
         for (int i : read) for (Flag f : scoreFlags(i, units.get(i).text(), c.labse.get(i), c.metricx.get(i), c.thresholds, sc)) byUnit.computeIfAbsent(i, x -> new ArrayList<>()).add(f);
-        tell(progress, "scoring", read.size(), read.size(), q);
         Set<Integer> flaggedByScores = new TreeSet<>(byUnit.keySet());
         // each flagged unit translated again in a fresh call; the revision kept only when its score improves, or its mechanical flags clear with the score no worse
         int n = 0;
@@ -736,16 +743,29 @@ public final class Translation {
         return (l == null ? 0 : 1 - l) * 25 + (m == null ? 0 : m);
     }
 
+    /** The units scored in one step: the job line's count moves after each step, and a stop is heeded between them. */
+    static final int SCORED_AT_ONCE = 64;
+
     /** The scores of the units {@code read}, by each scorer at hand, into the maps. */
-    static void score(Scorers sc, List<Unit> units, Map<Integer, String> words, List<Integer> read, Map<Integer, Double> labse, Map<Integer, Double> metricx) {
-        if (read.isEmpty()) return;
-        List<String[]> pairs = new ArrayList<>(); for (int i : read) pairs.add(new String[]{units.get(i).text(), words.get(i)});
-        for (int k = 0; k < 2; k++) {
-            Scorer s = k == 0 ? sc.labse() : sc.metricx();
-            if (s == null) continue;
-            List<Double> got;
-            try { got = s.score(pairs); } catch (IOException e) { continue; }
-            for (int j = 0; j < read.size() && j < got.size(); j++) if (got.get(j) != null) (k == 0 ? labse : metricx).put(read.get(j), got.get(j));
+    static void score(Scorers sc, List<Unit> units, Map<Integer, String> words, List<Integer> read, Map<Integer, Double> labse, Map<Integer, Double> metricx) throws IOException {
+        score(sc, units, words, read, labse, metricx, n -> { }, () -> false);
+    }
+
+    /** The same, {@link #SCORED_AT_ONCE} units a step, {@code scored} told the count after each; a scorer that fails is left out for the rest. */
+    static void score(Scorers sc, List<Unit> units, Map<Integer, String> words, List<Integer> read, Map<Integer, Double> labse, Map<Integer, Double> metricx, IntConsumer scored, BooleanSupplier stop) throws IOException {
+        boolean[] failed = new boolean[2];
+        for (int from = 0; from < read.size(); from += SCORED_AT_ONCE) {
+            if (stop.getAsBoolean()) throw new IOException("Stopped during the scoring; nothing was written.");
+            List<Integer> step = read.subList(from, Math.min(read.size(), from + SCORED_AT_ONCE));
+            List<String[]> pairs = new ArrayList<>(); for (int i : step) pairs.add(new String[]{units.get(i).text(), words.get(i)});
+            for (int k = 0; k < 2; k++) {
+                Scorer s = k == 0 ? sc.labse() : sc.metricx();
+                if (s == null || failed[k]) continue;
+                List<Double> got;
+                try { got = s.score(pairs); } catch (IOException e) { failed[k] = true; continue; }
+                for (int j = 0; j < step.size() && j < got.size(); j++) if (got.get(j) != null) (k == 0 ? labse : metricx).put(step.get(j), got.get(j));
+            }
+            scored.accept(from + step.size());
         }
     }
 

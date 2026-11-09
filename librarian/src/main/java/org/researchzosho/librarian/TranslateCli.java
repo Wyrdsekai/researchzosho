@@ -118,6 +118,7 @@ final class TranslateCli {
         String phase = p.path("phase").asText(""); int done = p.path("units_done").asInt(), total = p.path("units_total").asInt();
         return switch (phase) {
             case "translating" -> "translating, " + done + " of " + total + " units";
+            case "scoring" -> "scoring, " + done + " of " + total + " units";
             case "checking" -> "checking, " + done + " of " + total + " units read side by side";
             case "revising" -> "revising, " + done + " of " + total + " flagged units";
             case "writing" -> "writing the file";

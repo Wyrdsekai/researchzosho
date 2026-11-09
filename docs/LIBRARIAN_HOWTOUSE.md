@@ -1392,7 +1392,9 @@ sample alone and the note says the scores were not available; `RESEARCHZOSHO_LAB
 `off`. MetricX-24 (google/metricx-24-hybrid-large-v2p6, Apache 2.0) is optional and off until installed:
 `researchzosho translate scorers install` says the sizes first (about 4.7 GB for the model, up to twice that when both of
 its weight files are fetched, about 1 GB for its Python packages) and sets it up in a Python environment of its own; until then the tier runs on LaBSE alone and the note
-says so. `researchzosho translate scorers status` says what is there.
+says so. One MetricX-24 process scores a whole translation, the model loaded once; a process that gives no score for
+five minutes (twenty for its first, which includes the load) is ended, the rest of the translation goes on without it,
+and the note says so. `researchzosho translate scorers status` says what is there.
 
 Who reads, for `reviewed` and `thorough`, depends on what is set up (`researchzosho models`, section 12):
 

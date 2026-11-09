@@ -22,6 +22,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 import java.time.Instant;
@@ -54,8 +56,8 @@ public final class TranslationScores {
     /** Accepted units a pair needs on record before a score flags anything. */
     public static final int MIN_ACCEPTED = 20;
 
-    /** A scorer: one score a pair (source, translation), null for a pair it could not score. */
-    public interface Scorer {
+    /** A scorer: one score a pair (source, translation), null for a pair it could not score. A translation closes its scorers when it ends. */
+    public interface Scorer extends AutoCloseable {
         List<Double> score(List<String[]> pairs) throws IOException;
         /** The scorer's name for the note: LaBSE, MetricX-24. */
         String name();
@@ -63,18 +65,25 @@ public final class TranslationScores {
         String model();
         /** Whether a higher score is the better one. */
         boolean higherIsBetter();
+        /** What made the scorer give no more scores partway through, for the note; "" when nothing did. */
+        default String stopped() { return ""; }
+        /** Ends what the scorer keeps running, MetricX's process; a scorer that keeps nothing running has nothing to end. */
+        @Override default void close() { }
     }
 
-    /** The scorers at hand: LaBSE, and MetricX when it is installed; either null when not. */
-    public record Scorers(Scorer labse, Scorer metricx) {
+    /** The scorers at hand: LaBSE, and MetricX when it is installed; either null when not. Closed when the translation's checks end. */
+    public record Scorers(Scorer labse, Scorer metricx) implements AutoCloseable {
         public boolean any() { return labse != null || metricx != null; }
-        /** The scorers that ran, named for the note. */
+        /** The scorers that ran, named for the note, and what stopped one partway. */
         public String said() {
             List<String> parts = new ArrayList<>();
             if (labse != null) parts.add(labse.name() + " (" + labse.model() + ")");
             if (metricx != null) parts.add(metricx.name() + " (" + metricx.model() + ")");
-            return parts.isEmpty() ? "no scorer: LaBSE is not set up and MetricX-24 is not installed" : String.join(", ", parts) + (metricx == null ? "; MetricX-24 is not installed, so the tier ran on LaBSE alone" : "");
+            StringBuilder stops = new StringBuilder();
+            for (Scorer s : new Scorer[]{labse, metricx}) if (s != null && !s.stopped().isEmpty()) stops.append("; ").append(s.stopped());
+            return parts.isEmpty() ? "no scorer: LaBSE is not set up and MetricX-24 is not installed" : String.join(", ", parts) + (metricx == null ? "; MetricX-24 is not installed, so the tier ran on LaBSE alone" : "") + stops;
         }
+        @Override public void close() { if (labse != null) labse.close(); if (metricx != null) metricx.close(); }
     }
 
     /** The scorers for a run; a test stands this in. */
@@ -268,8 +277,8 @@ public final class TranslationScores {
     static void awaitSetup() throws InterruptedException { Thread t = setupThread; if (t != null) t.join(60_000); }
 
     /**
-     * The MetricX script follows the release: when the build's differs from the installed one it is copied over (the script runs afresh at
-     * each scoring call, so nothing restarts; its packages are pip's, upgraded at install, and not keyed). One line, "" when nothing was to
+     * The MetricX script follows the release: when the build's differs from the installed one it is copied over (the script runs afresh for
+     * each translation, so nothing restarts; its packages are pip's, upgraded at install, and not keyed). One line, "" when nothing was to
      * do or MetricX is not installed. Run at the daemon's start and by {@code translate scorers status|install}.
      */
     public static String refreshMetricxScript() {
@@ -336,28 +345,150 @@ public final class TranslationScores {
 
     static String last(String s) { String[] ls = (s == null ? "" : s).strip().split("\n"); return ls.length == 0 ? "" : ls[ls.length - 1].strip(); }
 
-    /** MetricX-24 in QE mode over the pairs: the script loaded once for the batch, one line a unit. */
-    static Scorer metricx() {
-        return new Scorer() {
-            @Override public List<Double> score(List<String[]> pairs) throws IOException {
-                List<Double> out = new ArrayList<>();
-                if (pairs.isEmpty()) return out;
-                Process pr = new ProcessBuilder(pythonCommand(metricxPython())).redirectError(ProcessBuilder.Redirect.DISCARD).start();
-                try (Writer w = new OutputStreamWriter(pr.getOutputStream(), StandardCharsets.UTF_8)) {
-                    for (String[] p : pairs) { ObjectNode j = M.createObjectNode(); j.put("source", DocUnits.plainText(p[0])); j.put("hypothesis", DocUnits.plainText(p[1])); w.write(j.toString()); w.write('\n'); }
-                }
-                try (BufferedReader r = new BufferedReader(new InputStreamReader(pr.getInputStream(), StandardCharsets.UTF_8))) {
-                    String line;
-                    while ((line = r.readLine()) != null) { if (line.isBlank()) continue; try { JsonNode j = M.readTree(line); out.add(j.has("score") ? j.get("score").asDouble() : null); } catch (IOException e) { out.add(null); } }
-                }
-                try { if (!pr.waitFor(30, TimeUnit.MINUTES)) pr.destroyForcibly(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-                while (out.size() < pairs.size()) out.add(null);
-                return out;
+    /** No score from MetricX for this long on one unit is a scorer that has stopped answering: its process is ended and the translation goes on without it. */
+    static volatile Duration METRICX_STALL = Duration.ofMinutes(5);
+    /** The wait for a fresh process's first score, which comes after the model's load as well. */
+    static volatile Duration METRICX_FIRST = Duration.ofMinutes(20);
+
+    /** MetricX-24 in QE mode, one helper process for a whole translation. */
+    static Scorer metricx() { return new Metricx(() -> pythonCommand(metricxPython())); }
+
+    /**
+     * MetricX-24 in QE mode, one helper process for a whole translation: started at the first unit, so the model is loaded once, and ended
+     * when the translation closes its scorers. One unit is in flight at a time, its line written and its score read before the next is
+     * written, so neither pipe fills: written all at once with the replies read after, the replies filled their pipe at about 3,600 units
+     * and the two sides waited on each other with no end (a translation of 11,637 units sat 8.5 hours in scoring, 2026-11-09), and a
+     * process started for each revised unit loaded the 4.7 GB model again each time. The writing and the reading are a thread of the
+     * process's own, so the wait for a score always ends: no score within {@link #METRICX_STALL} ({@link #METRICX_FIRST} for a fresh
+     * process) ends the process and the scorer, which gives no score for the units after. A process that ends is started once more; when
+     * the second ends too, or a process cannot be started, the scorer gives no more scores. Each such stop is one WARN in the log and a
+     * line in the note.
+     */
+    static final class Metricx implements Scorer {
+        /** What the thread puts for a process that ended or could not be written to, and what it takes as the end of the input: no line of the script's or of a unit's is either. */
+        private static final String ENDED = "\0ended", CLOSE = "\0close";
+        private final Supplier<List<String>> command;
+        private Process process;
+        private BlockingQueue<String> requests, replies;
+        private boolean loaded;
+        private int starts, scored;
+        private String stopped = "";
+
+        Metricx(Supplier<List<String>> command) { this.command = command; }
+
+        @Override public synchronized List<Double> score(List<String[]> pairs) {
+            List<Double> out = new ArrayList<>();
+            for (String[] p : pairs) {
+                if (!stopped.isEmpty()) { out.add(null); continue; }
+                ObjectNode j = M.createObjectNode(); j.put("source", DocUnits.plainText(p[0])); j.put("hypothesis", DocUnits.plainText(p[1]));
+                out.add(ask(j.toString()));
             }
-            @Override public String name() { return "MetricX-24"; }
-            @Override public String model() { return METRICX_MODEL + " in QE mode, " + (Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank() ? "in its own Python environment" : "with " + Config.get("RESEARCHZOSHO_METRICX_PYTHON", "")); }
-            @Override public boolean higherIsBetter() { return false; }
-        };
+            return out;
+        }
+
+        /** One unit's score; null for a unit the script could not score, and for every unit once the scorer has stopped. */
+        private Double ask(String line) {
+            while (stopped.isEmpty()) {
+                if (process == null && !start()) return null;
+                Duration wait = loaded ? METRICX_STALL : METRICX_FIRST;
+                String reply;
+                try { requests.put(line); reply = replies.poll(wait.toMillis(), TimeUnit.MILLISECONDS); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); stop("the wait for a score was interrupted"); return null; }
+                if (reply == null) { stop("no score came for " + said(wait) + (loaded ? " on one unit" : " after its process started")); return null; }
+                if (reply.equals(ENDED)) { ended(); continue; }
+                loaded = true;
+                JsonNode j;
+                try { j = M.readTree(reply); } catch (IOException e) { return null; }
+                if (!j.has("score")) return null;
+                scored++;
+                return j.get("score").asDouble();
+            }
+            return null;
+        }
+
+        /** Starts the process and the thread that writes its units and reads its replies; false when it cannot be started, the scorer stopped. */
+        private boolean start() {
+            Process pr;
+            try { pr = new ProcessBuilder(command.get()).redirectError(ProcessBuilder.Redirect.DISCARD).start(); }
+            catch (IOException e) { stop("its process could not be started: " + e.getMessage()); return false; }
+            starts++;
+            BlockingQueue<String> rq = new LinkedBlockingQueue<>(), rp = new LinkedBlockingQueue<>();
+            Thread t = new Thread(() -> pump(pr, rq, rp), "metricx-scorer");
+            t.setDaemon(true);
+            t.start();
+            process = pr; requests = rq; replies = rp; loaded = false;
+            return true;
+        }
+
+        /** The process ended under a unit: started once more the first time, the scorer stopped the second. */
+        private void ended() {
+            Process pr = process; process = null; loaded = false;
+            String how = "with its output closed";
+            try { if (pr.waitFor(2, TimeUnit.SECONDS)) how = "with exit code " + pr.exitValue(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            end(pr);
+            if (starts >= 2) { stop("its process ended twice, the second time " + how); return; }
+            log.warn("MetricX-24's process ended {} after {} scored; starting it once more", how, units(scored));
+        }
+
+        /**
+         * The process's own thread: takes a unit, writes it, and reads lines until the script's reply to it (a line with a score or an error;
+         * anything else a library prints is passed over), which it hands back; ENDED when the process ends or cannot be written to. CLOSE
+         * closes the script's input, and the script ends as at the end of a file.
+         */
+        private static void pump(Process pr, BlockingQueue<String> requests, BlockingQueue<String> replies) {
+            try (Writer w = new OutputStreamWriter(pr.getOutputStream(), StandardCharsets.UTF_8);
+                 BufferedReader r = new BufferedReader(new InputStreamReader(pr.getInputStream(), StandardCharsets.UTF_8))) {
+                while (true) {
+                    String line = requests.take();
+                    if (line.equals(CLOSE)) return;
+                    w.write(line); w.write('\n'); w.flush();
+                    String reply;
+                    do reply = r.readLine(); while (reply != null && !isReply(reply));
+                    replies.put(reply == null ? ENDED : reply);
+                    if (reply == null) return;
+                }
+            } catch (IOException | InterruptedException e) { replies.offer(ENDED); }
+        }
+
+        static boolean isReply(String line) {
+            try { JsonNode j = M.readTree(line); return j != null && j.isObject() && (j.has("score") || j.has("error")); } catch (IOException e) { return false; }
+        }
+
+        /** The scorer gives no more scores: one WARN, the process ended. */
+        private void stop(String why) {
+            stopped = "MetricX-24 gave no " + (scored == 0 ? "scores" : "more scores after " + units(scored)) + ": " + why;
+            log.warn("{}; the translation goes on without it", stopped);
+            Process pr = process; process = null; loaded = false;
+            end(pr);
+        }
+
+        static String units(int n) { return n + (n == 1 ? " unit" : " units"); }
+
+        private static void end(Process pr) {
+            if (pr == null) return;
+            pr.descendants().forEach(ProcessHandle::destroyForcibly);
+            pr.destroyForcibly();
+        }
+
+        static String said(Duration d) {
+            long m = d.toMinutes(), s = Math.max(1, (d.toMillis() + 999) / 1000);
+            return m >= 1 && d.toSeconds() % 60 == 0 ? m + (m == 1 ? " minute" : " minutes") : s + (s == 1 ? " second" : " seconds");
+        }
+
+        @Override public synchronized String stopped() { return stopped; }
+
+        /** The script's input closed, so it ends as at the end of a file; ended by force when it has not within five seconds. */
+        @Override public synchronized void close() {
+            Process pr = process; process = null; loaded = false;
+            if (pr == null) return;
+            requests.offer(CLOSE);
+            try { if (pr.waitFor(5, TimeUnit.SECONDS)) return; } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            end(pr);
+        }
+
+        @Override public String name() { return "MetricX-24"; }
+        @Override public String model() { return METRICX_MODEL + " in QE mode, " + (Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank() ? "in its own Python environment" : "with " + Config.get("RESEARCHZOSHO_METRICX_PYTHON", "")); }
+        @Override public boolean higherIsBetter() { return false; }
     }
 
     // ---- the distribution of accepted units, per language pair ----

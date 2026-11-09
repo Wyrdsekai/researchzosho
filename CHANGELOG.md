@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.1
+
+What's new: fixes for translating long documents. A checked translation no longer stalls while it is scored, revising one is faster, and the job line shows how far the scoring has got.
+
+### Fixed
+
+- A checked translation of a long document no longer stalls in scoring: the MetricX-24 scorer's replies are now read while the units are sent to it. A scorer that stops answering is given up on after a wait, and the translation goes on without it and says so in its note.
+- MetricX-24 is started once for a translation instead of once for every revised unit, so revising a long document is faster: a revised unit no longer waits for the model to load.
+- The job line shows how many units have been scored while the scoring runs, and stopping the job takes effect during the scoring.
+
 ## 0.7.0
 
 What's new: the chat is the first page; a home search in the United States and Japan; prior-art search; the library discerns from your ask the best methods to get the answer, whether it is a job search, a purchase, a how-to, a book or a podcast to choose, a patent search, a legal question, a family history or a video you remember; a report checked against your question before it is filed; reports and pages in your language; document translation; pictures found, judged and placed in reports; a PDF, Word or Markdown download of any report.

@@ -17,16 +17,20 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
 import java.util.Set;
@@ -391,5 +395,134 @@ class TranslationTest {
         assertTrue(Glossary.remove(store, "Acme Corp", "de")); assertFalse(Glossary.remove(store, "Acme Corp", "de"));
         assertTrue(Files.readString(Glossary.file(store)).contains("\"rendering\" : \"アクメ株式会社\""));
         assertThrows(ProtocolError.class, () -> Glossary.add(store, "", "ja", "x"));
+    }
+
+    // ---- MetricX-24 as one process for a translation, through a stand-in that RESEARCHZOSHO_METRICX_PYTHON names ----
+
+    static boolean windows() { return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"); }
+
+    /** A home of the test's own, so the setting that names the stand-in stays there; the earlier home, to put back. */
+    static String ownHome(Path tmp) { String home = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate(); return home; }
+    static void homeBack(String home) { System.setProperty("user.home", home); Config.invalidate(); }
+
+    /** A stand-in for MetricX's Python in {@code dir}: a shell script that writes a line to {@code dir/starts} each time it starts, then runs {@code loop} over its input; named by the setting. The file of starts. */
+    static Path metricxStandIn(Path dir, String loop) throws IOException {
+        Files.createDirectories(dir);
+        Path starts = dir.resolve("starts"), py = dir.resolve("python");
+        Files.writeString(py, "#!/bin/sh\necho started >> '" + starts + "'\n" + loop + "\n", StandardCharsets.UTF_8);
+        assertTrue(py.toFile().setExecutable(true));
+        Config.set("RESEARCHZOSHO_METRICX_PYTHON", py.toString());
+        return starts;
+    }
+
+    static int lines(Path f) throws IOException { return Files.exists(f) ? Files.readAllLines(f).size() : 0; }
+
+    static List<String[]> pairs(int n) {
+        List<String[]> out = new ArrayList<>();
+        for (int i = 0; i < n; i++) out.add(new String[]{"The gear train " + i + " turns the dial of the Saros, which counts the lunar months between one eclipse and the next.", "歯車 " + i + " はサロスの文字盤を回し、ある食から次の食までの朔望月を数える。"});
+        return out;
+    }
+
+    /**
+     * Six thousand units through one MetricX process, each with its own score in order. Each unit's line is written and its score read
+     * before the next is written; written all at once with the replies read after, the replies filled their pipe at about 3,600 units and
+     * the two sides waited on each other with no end.
+     */
+    @Test void metricxScoresSixThousandUnitsInOrderThroughOneProcess(@TempDir Path tmp) throws Exception {
+        assumeFalse(windows(), "the stand-in scorer is a shell script");
+        String home = ownHome(tmp);
+        try {
+            Path starts = metricxStandIn(tmp.resolve("count"), "n=0\nwhile IFS= read -r line; do n=$((n+1)); printf '{\"score\": %d}\\n' \"$n\"; done");
+            List<String[]> pairs = pairs(6000);
+            try (TranslationScores.Scorer s = TranslationScores.metricx()) {
+                long t0 = System.nanoTime();
+                List<Double> got = assertTimeoutPreemptively(Duration.ofSeconds(120), () -> s.score(pairs), "the scorer waited with no end");
+                double seconds = (System.nanoTime() - t0) / 1e9;
+                System.out.printf(Locale.ROOT, "MetricX stand-in: %d units in %.2f s, %.0f units a second%n", got.size(), seconds, got.size() / seconds);
+                assertEquals(6000, got.size());
+                for (int i = 0; i < got.size(); i++) assertEquals(Double.valueOf(i + 1), got.get(i), "unit " + i + " has its own score, in order");
+                assertEquals("", s.stopped());
+            }
+            assertEquals(1, lines(starts), "one process for all six thousand");
+        } finally { homeBack(home); }
+    }
+
+    /** One process serves every call of a translation, the single units of the revisions too; a process that ends is started once more, and when that one ends too the scorer gives no more scores. */
+    @Test void oneMetricxProcessServesEveryCallAndOneThatEndsIsStartedOnceMore(@TempDir Path tmp) throws Exception {
+        assumeFalse(windows(), "the stand-in scorer is a shell script");
+        String home = ownHome(tmp);
+        try {
+            Path starts = metricxStandIn(tmp.resolve("steady"), "while IFS= read -r line; do printf '{\"score\": 2.5}\\n'; done");
+            try (TranslationScores.Scorer s = TranslationScores.metricx()) {
+                assertEquals(List.of(2.5, 2.5, 2.5), s.score(pairs(3)));
+                for (int k = 0; k < 5; k++) assertEquals(List.of(2.5), s.score(pairs(1)), "a revised unit, scored alone");
+                assertEquals(List.of(), s.score(List.of()));
+                assertEquals(1, lines(starts), "the model loaded once for every call, not once a call");
+            }
+            // a process that answers one unit and ends: started once more, then the scorer stops and starts nothing again
+            Path brief = metricxStandIn(tmp.resolve("brief"), "IFS= read -r line\nprintf '{\"score\": 3.5}\\n'");
+            try (TranslationScores.Scorer s = TranslationScores.metricx()) {
+                List<Double> got = assertTimeoutPreemptively(Duration.ofSeconds(30), () -> s.score(pairs(4)));
+                assertEquals(Arrays.asList(3.5, 3.5, null, null), got);
+                assertEquals(2, lines(brief), "started once more after the first ended, and not again");
+                assertTrue(s.stopped().startsWith("MetricX-24 gave no more scores after 2 units: its process ended twice, the second time with exit code 0"), s.stopped());
+                assertEquals(Arrays.asList((Double) null), s.score(pairs(1)));
+                assertEquals(2, lines(brief));
+            }
+            // a Python that is not there: no score, said, and no exception for the translation to stop on
+            Config.set("RESEARCHZOSHO_METRICX_PYTHON", tmp.resolve("nowhere").resolve("python").toString());
+            try (TranslationScores.Scorer s = TranslationScores.metricx()) {
+                assertEquals(Arrays.asList(null, null), s.score(pairs(2)));
+                assertTrue(s.stopped().startsWith("MetricX-24 gave no scores: its process could not be started"), s.stopped());
+            }
+        } finally { homeBack(home); }
+    }
+
+    /** A MetricX that never answers: the wait ends, its units have no score, nothing is started again, and the translation goes on with LaBSE and says in its note that MetricX stopped. */
+    @Test void aMetricxThatNeverAnswersIsGivenUpOnAndTheTranslationGoesOn(@TempDir Path tmp) throws Exception {
+        assumeFalse(windows(), "the stand-in scorer is a shell script");
+        String home = ownHome(tmp);
+        Duration stall = TranslationScores.METRICX_STALL, first = TranslationScores.METRICX_FIRST;
+        try {
+            TranslationScores.METRICX_STALL = Duration.ofMillis(300); TranslationScores.METRICX_FIRST = Duration.ofMillis(600);
+            Path starts = metricxStandIn(tmp.resolve("silent"), "while IFS= read -r line; do :; done");
+            try (TranslationScores.Scorer s = TranslationScores.metricx()) {
+                List<Double> got = assertTimeoutPreemptively(Duration.ofSeconds(30), () -> s.score(pairs(5)), "the wait for a score ends");
+                assertEquals(Arrays.asList(null, null, null, null, null), got);
+                assertEquals("MetricX-24 gave no scores: no score came for 1 second after its process started", s.stopped());
+                assertEquals(Arrays.asList((Double) null), s.score(pairs(1)), "given up: the next call answers at once");
+                assertEquals(1, lines(starts));
+            }
+            // a translation with it ends, scored by LaBSE, and its note says what became of MetricX
+            TranslationScores.SCORERS = () -> new TranslationScores.Scorers(labseStandIn(), TranslationScores.metricx());
+            LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+            Path in = fixture(Files.createDirectories(tmp.resolve("docs")));
+            Outcome o = assertTimeoutPreemptively(Duration.ofSeconds(60), () -> Translation.run(store, in, "ja", "", "checked", null, null, seats(new Script()), null, () -> false));
+            assertTrue(o.labse().size() == 10 && o.metricx().isEmpty(), o.labse() + " " + o.metricx());
+            String note = Files.readString(o.note());
+            assertTrue(note.contains("MetricX-24 (" + TranslationScores.METRICX_MODEL) && note.contains("; MetricX-24 gave no scores: no score came for 1 second after its process started"), note);
+            assertEquals(2, lines(starts), "the translation's own process, started once");
+        } finally { TranslationScores.METRICX_STALL = stall; TranslationScores.METRICX_FIRST = first; homeBack(home); }
+    }
+
+    /** The job line counts the units as they are scored, a step at a time, and a stop is heeded between the steps. */
+    @Test void theScoringTellsItsCountAsItGoesAndHeedsAStop(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        StringBuilder doc = new StringBuilder("# The gears\n\n");
+        for (int i = 1; i <= 150; i++) doc.append("Gear ").append(i).append(" turns the dial a little further than the one before it.\n\n");
+        Path in = Files.createDirectories(tmp.resolve("docs")).resolve("gears.md");
+        Files.writeString(in, doc.toString(), StandardCharsets.UTF_8);
+        List<ObjectNode> progress = new ArrayList<>();
+        Translation.run(store, in, "ja", "", "checked", null, null, seats(new Script()), progress::add, () -> false);
+        List<ObjectNode> scoring = progress.stream().filter(p -> p.path("phase").asText().equals("scoring")).toList();
+        assertEquals(List.of(0, 64, 128, 151), scoring.stream().map(p -> p.path("units_done").asInt()).toList(), "told at the start and after each step of " + Translation.SCORED_AT_ONCE + ": " + scoring);
+        assertTrue(scoring.stream().allMatch(p -> p.path("units_total").asInt() == 151), scoring.toString());
+        assertEquals("scoring, 64 of 151 units", TranslateCli.progressWords(scoring.get(1)));
+        // a stop once the first step is told: the run ends there, nothing written
+        List<ObjectNode> second = new ArrayList<>();
+        IOException e = assertThrows(IOException.class, () -> Translation.run(store, in, "ja", "", "checked", tmp.resolve("stopped.md"), null, seats(new Script()), second::add,
+                () -> second.stream().anyMatch(p -> p.path("phase").asText().equals("scoring") && p.path("units_done").asInt() >= 64)));
+        assertEquals("Stopped during the scoring; nothing was written.", e.getMessage());
+        assertFalse(Files.exists(tmp.resolve("stopped.md")));
     }
 }
