@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 import java.io.UncheckedIOException;
+import java.net.URLEncoder;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.Base64;
@@ -35,7 +36,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.researchzosho.drive.DriveClient;
 import org.researchzosho.Config;
+import org.researchzosho.Stopping;
 import org.researchzosho.Version;
+import org.researchzosho.librarian.profiles.YoutubeProfile;
 import org.researchzosho.tools.DocText;
 import org.researchzosho.tools.MyShelfTool;
 import org.researchzosho.librarian.dna.Browse;
@@ -53,6 +56,8 @@ import org.researchzosho.tools.Recalls;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.tools.Fetch;
 import org.researchzosho.tools.PageCheck;
+import org.researchzosho.tools.Podcasts;
+import java.util.function.BiFunction;
 /**
  * The library protocol, contract 1.0 (docs/LIBRARY_PROTOCOL.md) — what a patron runtime speaks
  * to The Librarian. Transport-free: JSON in, JSON out, {@link ProtocolError} for the stable error
@@ -268,6 +273,17 @@ public final class LibraryProtocol {
             r.put("count", claims.size());
             return r;
         }
+        String in = args.path("in").asText("").strip();
+        if (!in.isEmpty()) {   // a report read in another language (0.7.0): the translation kept when current, else made now by the library's model; one written in that language as it is
+            if (!"investigation".equals(e.path("kind").asText())) throw ProtocolError.invalidArgs("in=<language> reads a report (I-…) in that language; " + id + " is " + e.path("kind").asText() + ".");
+            String written = Translate.writtenIn(store.investigation(id));
+            e.put("written_in", written);
+            if (!Translate.code(in).equals(written)) {
+                Translate.Translated t = Translate.reportIn(store, id, in, Translate.DRIVE.get());
+                e.put("body", t.markdown()); e.put("title", t.words().getOrDefault(e.path("title").asText(""), e.path("title").asText("")));
+                e.put("read_in", t.lang()); e.put("translated_fresh", t.fresh());
+            } else e.put("read_in", written);
+        }
         // A record can run past what a tool call may carry (an investigation of 150,000 characters, measured 2026-09-11):
         // a caller asks for one section, or a window of the body, and gets the whole list of sections either way.
         String body = e.path("body").asText("");
@@ -441,6 +457,21 @@ public final class LibraryProtocol {
         // paths are the keeper's: the terminal, or the pages while they are open (the same rule Patrons.check applies to a browser); a file the browser posted is the person's own, whoever they are
         if (!Uploads.isUpload(target) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can add files and folders on this machine, from the terminal or the library's own pages. A url can be added from here, and a file of your own on the Add page.");
         if (!Files.exists(target)) throw ProtocolError.notFound("Nothing is at " + target + ". Is the drive mounted?");
+        if (Files.isRegularFile(target) && Archives.isArchive(target.getFileName().toString())) {
+            // an archive: unpacked into a folder of the library's own, shelved as a folder is, the folder removed after; the same rules as a folder posted from the browser
+            if (!mode.equals("keep")) throw ProtocolError.invalidArgs("An archive is always kept: its files are unpacked into a folder of the library's own, which is removed after. link and survey are for a folder on this machine.");
+            Archives.Added ad = Archives.add(store, target, collection);
+            if (ad.outcome() == null) throw ProtocolError.invalidArgs(ad.line());
+            Corpus.Outcome o = ad.outcome();
+            r.put("kind", "archive"); r.put("path", target.toString()); r.put("collection", ad.collection()); r.put("mode", "keep");
+            r.put("unpacked", ad.unpacked().files()); r.put("left_out", ad.unpacked().leftOut().size());
+            r.put("seen", o.seen()); r.put("added", o.added()); r.put("unchanged", o.unchanged()); r.put("changed", o.changed()); r.put("skipped", o.skipped());
+            ArrayNode pr = r.putArray("problems"); for (String x : ad.problems()) pr.add(x);
+            r.put("summary", ad.line());
+            r.put("next", "Research it with library_research {sources: \"shelves\", collections: [\"" + ad.collection() + "\"]}");
+            store.circulate("add", patron.label() + " :: " + target + " (archive)");
+            return r;
+        }
         if (Files.isDirectory(target)) {
             if (collection.isEmpty()) collection = Corpus.nameFor(target);
             r.put("kind", "folder"); r.put("path", target.toString()); r.put("collection", collection); r.put("mode", mode);
@@ -463,6 +494,13 @@ public final class LibraryProtocol {
             return r;
         }
         if (mode.equals("survey")) throw ProtocolError.invalidArgs("survey is for a folder. Add a single file with keep or link.");
+        if (WatchHistory.looksLike(target)) {   // Google Takeout's YouTube watch history: a shelf of watched videos, read first when a remembered video is looked for
+            int added = WatchHistory.add(store, target);
+            r.put("kind", "watch-history"); r.put("path", target.toString()); r.put("added", added);
+            r.put("summary", "Filed " + added + (added == 1 ? " watched video" : " watched videos") + " from the YouTube watch history. " + WatchHistory.summary(store) + " When you look for a video you remember, the library reads this history first.");
+            store.circulate("add", patron.label() + " :: " + target + " (watch history)");
+            return r;
+        }
         Path raw = Corpus.addFile(store, target, collection, mode.equals("link"));
         if (raw == null) throw ProtocolError.unavailable("No text could be read from " + target.getFileName() + "." + Corpus.whyNoText());
         r.put("kind", "file"); r.put("path", target.toString()); r.put("mode", mode); r.put("raw", raw.getFileName().toString());
@@ -471,6 +509,242 @@ public final class LibraryProtocol {
         r.put("added", 1);
         r.put("next", "Ask about it with library_ask, or research it with library_research {sources: \"shelves\"}");
         store.circulate("add", patron.label() + " :: " + target + " (" + mode + ")");
+        return r;
+    }
+
+    /**
+     * library_images: pictures as a capability (0.7.0, the first increment). op=find: candidates for {@code words} from Brave (with its key)
+     * and the library's SearXNG, merged and told apart, at most {@code count}; with {@code criteria} each is judged by the seeing model;
+     * with {@code keep} (write access) each is fetched onto the shelves under {@code collection}. op=keep: {@code images[]} (addresses, or
+     * found[] objects) kept. op=describe: the seeing model's words about each of {@code images[]} (an address, a kept picture's file or
+     * entry, a path from the keeper), with {@code question} answered after. op=judge: {@code criteria} against each of {@code images[]},
+     * one typed verdict each. {@code unavailable} with the sentence that says how a seeing model is added when none is set.
+     */
+    public ObjectNode images(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("find").strip().toLowerCase(Locale.ROOT);
+        boolean keep = args.path("keep").asBoolean(false) || op.equals("keep");
+        Patrons.check(store, patron, keep ? Patrons.Level.write : Patrons.Level.read);
+        boolean paths = patron.person() || (patron.web() && !WebAccess.signInRequired());
+        String collection = args.path("collection").asText("").strip();
+        ObjectNode r = envelope();
+        r.put("op", op);
+        switch (op) {
+            case "find" -> {
+                String words = args.path("words").asText(args.path("query").asText("")).strip();
+                if (words.isEmpty()) throw ProtocolError.invalidArgs("Say what pictures to find: words.");
+                int count = Math.min(Math.max(args.path("count").asInt(Images.DEFAULT_COUNT), 1), Images.MOST);
+                String criteria = args.path("criteria").asText("").strip();
+                ModelEntries.Entry eyes = criteria.isEmpty() ? null : ModelEntries.seeing();
+                if (!criteria.isEmpty() && eyes == null) throw ProtocolError.unavailable(ModelEntries.noEyes());
+                Images.Result found = Images.find(store, words, count);
+                r.put("words", words); r.put("count", found.found().size());
+                ArrayNode fs = r.putArray("found"); for (Images.Found f : found.found()) fs.add(f.json(M));
+                ArrayNode engines = r.putArray("engines"); for (String e : found.answered()) engines.add(e);
+                ArrayNode silent = r.putArray("silent"); for (String e : found.silent()) silent.add(e);
+                Map<String, Images.Judged> verdicts = new LinkedHashMap<>();
+                if (!criteria.isEmpty()) {
+                    r.put("criteria", criteria); r.put("model", eyes.model());
+                    ArrayNode vs = r.putArray("verdicts");
+                    for (Images.Judged j : Images.judge(eyes, criteria, found.found())) { vs.add(j.json(M)); verdicts.put(j.found().image(), j); }
+                }
+                String summary = found.said(words);
+                if (!criteria.isEmpty()) { long yes = verdicts.values().stream().filter(Images.Judged::yes).count(); summary += " Judged against \"" + criteria + "\" by " + eyes.name() + ": " + yes + " of " + verdicts.size() + (yes == 1 ? " shows" : " show") + " it."; }
+                if (keep) summary += " " + keepAll(r, found.found(), collection, verdicts);
+                r.put("summary", summary);
+                r.put("next", found.found().isEmpty() ? "Try other words, or fewer." : keep ? "The kept pictures are entries on the shelves; library_search finds them by their words, and each is shown at its url." : "op=keep with images (the addresses found) puts them on the shelves; op=judge with criteria judges them; op=describe reads one.");
+            }
+            case "keep" -> {
+                List<Images.Found> found = foundArgs(args);
+                if (found.isEmpty()) throw ProtocolError.invalidArgs("keep needs images: the addresses of the pictures to keep, or the found[] objects of a find.");
+                r.put("count", found.size());
+                r.put("summary", keepAll(r, found, collection, Map.of()));
+            }
+            case "describe" -> {
+                ModelEntries.Entry eyes = ModelEntries.seeing();
+                if (eyes == null) throw ProtocolError.unavailable(ModelEntries.noEyes());
+                List<String> refs = refs(args);
+                if (refs.isEmpty()) throw ProtocolError.invalidArgs("describe needs images: a web address, a kept picture's file or entry" + (paths ? ", or a path on this machine" : "") + ".");
+                String question = args.path("question").asText("").strip();
+                r.put("model", eyes.model()); r.put("entry", eyes.name());
+                ArrayNode ds = r.putArray("descriptions");
+                int said = 0;
+                for (String ref : refs) {
+                    ObjectNode d = ds.addObject(); d.put("image", ref);
+                    Images.Fetched got;
+                    try { got = Images.bytesOf(store, ref, paths); } catch (IOException e) { d.put("description", ""); d.put("why", e.getMessage()); continue; }
+                    String words = Images.describe(eyes, got.bytes(), got.contentType(), question);
+                    d.put("description", words); if (words.isEmpty()) d.put("why", "the model gave no description"); else said++;
+                }
+                r.put("summary", said + " of " + refs.size() + (refs.size() == 1 ? " picture" : " pictures") + " described by " + eyes.name() + " (" + eyes.model() + ").");
+            }
+            case "judge" -> {
+                String criteria = args.path("criteria").asText("").strip();
+                if (criteria.isEmpty()) throw ProtocolError.invalidArgs("judge needs criteria: what the pictures should show, in words.");
+                ModelEntries.Entry eyes = ModelEntries.seeing();
+                if (eyes == null) throw ProtocolError.unavailable(ModelEntries.noEyes());
+                List<Images.Found> found = foundArgs(args);
+                if (found.isEmpty()) throw ProtocolError.invalidArgs("judge needs images: web addresses, kept pictures' files or entries" + (paths ? ", paths on this machine" : "") + ", or the found[] objects of a find.");
+                r.put("criteria", criteria); r.put("model", eyes.model()); r.put("entry", eyes.name());
+                ArrayNode vs = r.putArray("verdicts");
+                int yes = 0;
+                // with a reference, each picture is judged beside it: the same thing (mode same, criteria naming what: a person, a place) or like it in the aspect the criteria name (mode concept)
+                Images.Reference ref = referenceArg(args, paths, eyes, false);
+                String mode = args.path("mode").asText(Images.SAME).strip().toLowerCase(Locale.ROOT);
+                boolean two = ref != null && Vision.seesTwo(eyes);
+                if (ref != null) { r.set("reference", ref.json(M)); r.put("mode", Images.CONCEPT.equals(mode) ? Images.CONCEPT : Images.SAME); r.put("two_pictures", two); }
+                for (Images.Found f : found) {
+                    Images.Judged j; LikenessHelper.Measure mm = null;
+                    try {
+                        Images.Fetched got = f.image().matches("(?i)^https?://.+") ? Images.fetch(store, f) : Images.bytesOf(store, f.image(), paths);
+                        if (!Images.looksAtable(got)) j = new Images.Judged(f, Images.Verdict.UNJUDGED, Images.notLookable(got), eyes.model(), criteria);   // an SVG, a PDF: said, not sent to the model
+                        else j = ref == null ? Images.judge(eyes, criteria, f, got.bytes(), got.contentType()) : two ? Images.judgeAgainst(eyes, ref, mode, criteria, Images.nameOf(args.path("name").asText(args.path("words").asText("")), ref), f, got.bytes(), got.contentType()) : Images.judgeByWords(eyes, ref, mode, criteria, Images.nameOf(args.path("name").asText(args.path("words").asText("")), ref), f, got.bytes(), got.contentType());
+                        if (ref != null && j.verdict() != Images.Verdict.UNJUDGED) { mm = Images.measure(ref, got.bytes(), got.contentType()); String nm = Images.nameOf(args.path("name").asText(args.path("words").asText("")), ref); j = Images.measured(j, mm, Images.CONCEPT.equals(mode) ? Images.CONCEPT : Images.SAME, nm != null || !Images.kindWord(criteria).isEmpty(), nm); }   // the helper's number first (0.7.0)
+                    } catch (IOException e) { j = new Images.Judged(f, Images.Verdict.UNJUDGED, e.getMessage(), eyes.model(), criteria); }
+                    if (j.yes()) yes++;
+                    ObjectNode vj = j.json(M); if (mm != null) vj.set("likeness", mm.json(M)); vs.add(vj);
+                }
+                r.put("summary", "Judged against \"" + criteria + "\" by " + eyes.name() + " (" + eyes.model() + "): " + yes + " of " + found.size() + (yes == 1 ? " shows" : " show") + " it.");
+                if (ref != null) r.put("likeness_helper", LikenessHelper.said());
+            }
+            case "like" -> {   // a picture as the ask (0.7.0): the reference described, the candidates found for its words and the person's, each judged beside it
+                ModelEntries.Entry eyes = ModelEntries.seeing();
+                if (eyes == null) throw ProtocolError.unavailable(ModelEntries.noEyes());
+                String mode = args.path("mode").asText(Images.SAME).strip().toLowerCase(Locale.ROOT);
+                if (!mode.equals(Images.SAME) && !mode.equals(Images.CONCEPT)) throw ProtocolError.invalidArgs("mode is same (the same person, place or thing as the reference) or concept (like it in the aspect what names).");
+                String words = args.path("words").asText("").strip(), what = args.path("what").asText("").strip();
+                if (mode.equals(Images.CONCEPT) && what.isEmpty()) what = words;
+                if (mode.equals(Images.CONCEPT) && what.isEmpty()) throw ProtocolError.invalidArgs("concept needs the aspect to match, in words: what (or words).");
+                if (mode.equals(Images.SAME) && what.isEmpty()) what = "thing";
+                int count = Math.min(Math.max(args.path("count").asInt(Images.DEFAULT_COUNT), 1), Images.MOST);
+                Images.Reference ref = referenceArg(args, paths, eyes, Patrons.mayWrite(store, patron));
+                if (ref == null) throw ProtocolError.invalidArgs("like needs the reference: a kept picture's entry or /images/ path, a web address" + (paths ? ", a path on this machine" : "") + ", or bytes (base64) with content_type.");
+                if (ref.description().isEmpty()) throw ProtocolError.unavailable("The seeing model (" + eyes.name() + ", " + eyes.model() + ") gave no description of the reference, so there were no words to search by.");
+                Images.Liked liked = Images.like(store, eyes, ref, mode, what, words, count, true);
+                r.set("reference", ref.json(M)); r.put("mode", liked.mode()); r.put("mode_why", liked.modeWhy()); r.put("two_pictures", liked.twoPictures()); r.put("how", liked.how(eyes)); r.put("what", what);
+                r.put("words", liked.words()); r.put("words_why", liked.wordsWhy()); r.put("count", liked.found().found().size()); r.put("skipped", liked.skipped() + liked.found().skipped()); r.put("unsure", liked.unsure());
+                ArrayNode fs = r.putArray("found"); for (Images.Found f : liked.found().found()) fs.add(f.json(M));
+                ArrayNode engines = r.putArray("engines"); for (String e : liked.found().answered()) engines.add(e);
+                ArrayNode vs = r.putArray("verdicts"); Map<String, Images.Judged> verdicts = new LinkedHashMap<>();
+                for (Images.Judged j : liked.judged()) { ObjectNode vj = j.json(M); LikenessHelper.Measure mm = liked.measures().get(j.found().image()); if (mm != null) vj.set("likeness", mm.json(M)); vs.add(vj); verdicts.put(j.found().image(), j); }
+                r.put("likeness_helper", LikenessHelper.said());
+                ArrayNode same = r.putArray("same_as_reference"); for (Images.Found f : liked.sameAsReference()) same.add(f.json(M));
+                String summary = (ref.kept() == null ? "The reference was read" : "The reference is kept as " + ref.id()) + ". Searched for \"" + liked.words() + "\" (" + liked.wordsWhy() + "): " + liked.found().said(liked.words())
+                        + (liked.skipped() == 0 ? "" : " " + liked.skipped() + (liked.skipped() == 1 ? " more was" : " more were") + " skipped after the fetch as not pictures the model can look at.") + " " + liked.how(eyes) + " " + liked.tally(Images.CONCEPT.equals(liked.mode()) ? "" : what) + (liked.appearsAlso().isEmpty() ? "" : " " + liked.appearsAlso());
+                if (keep) { List<Images.Found> yes = new ArrayList<>(); for (Images.Judged j : liked.judged()) if (j.yes()) yes.add(j.found()); summary += yes.isEmpty() ? " Nothing to keep." : " " + keepAll(r, yes, collection, verdicts); }
+                r.put("summary", summary);
+                r.put("next", "op=keep with the images judged yes puts them on the shelves; op=judge with reference judges pictures you name against it; mode=concept with what=<an aspect> looks for pictures like it rather than the same one.");
+            }
+            default -> throw ProtocolError.invalidArgs("op is find, keep, describe, judge or like.");
+        }
+        return r;
+    }
+
+    /**
+     * The reference a request names: {@code reference} (a kept picture's entry or /images/ path, a web address, a path from the keeper) or
+     * {@code bytes} (base64) with {@code content_type} and {@code name}; kept on the shelves as the person's own when {@code keep} and it
+     * came as bytes or a path; described by the seeing model when {@code describe}. Null when the request names none.
+     */
+    private Images.Reference referenceArg(JsonNode args, boolean paths, ModelEntries.Entry eyes, boolean keep) throws IOException {
+        Images.Fetched got; Images.Kept kept = null; String name = args.path("name").asText("");
+        if (args.hasNonNull("bytes") && !args.path("bytes").asText().isBlank()) {
+            byte[] b; try { b = Base64.getDecoder().decode(args.path("bytes").asText().strip()); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs("bytes is not base64."); }
+            String type = args.path("content_type").asText(""); if (type.isBlank()) { String ext = Images.extension("", b); if (ext == null) throw ProtocolError.invalidArgs("bytes is not a picture the library keeps (JPEG, PNG, GIF, WebP, BMP or TIFF)."); type = Images.contentType("x." + ext); }
+            got = new Images.Fetched(b, type);
+            if (keep) kept = Images.keepGiven(store, b, type, name, "", args.path("collection").asText(""));
+        } else {
+            String ref = args.path("reference").asText("").strip();
+            if (ref.isEmpty()) return null;
+            got = Images.bytesOf(store, ref, paths);
+            Images.Shelved held = ref.matches("(?i)^https?://.+") ? null : Images.byHash(store, Images.sha256(got.bytes()));
+            if (held != null) kept = new Images.Kept(held.raw(), held.id(), held.file(), held.url(), held.cited(null));
+            else if (keep && !ref.matches("(?i)^https?://.+")) kept = Images.keepGiven(store, got.bytes(), got.contentType(), name.isEmpty() ? ref.replaceAll("^.*[\\\\/]", "") : name, "", args.path("collection").asText(""));
+        }
+        return Images.describeReference(eyes, got.bytes(), got.contentType(), kept);
+    }
+
+    /** The pictures a request names: {@code images[]} as strings or found objects, or one {@code image}. */
+    private static List<Images.Found> foundArgs(JsonNode args) {
+        List<Images.Found> out = new ArrayList<>();
+        JsonNode imgs = args.path("images");
+        if (imgs.isArray()) for (JsonNode n : imgs) { if (n.isTextual() && !n.asText().isBlank()) out.add(new Images.Found(n.asText().strip(), "", "", "", 0, 0, "")); else if (n.isObject() && !n.path("image").asText("").isBlank()) out.add(Images.Found.from(n)); }
+        else if (imgs.isTextual() && !imgs.asText().isBlank()) out.add(new Images.Found(imgs.asText().strip(), "", "", "", 0, 0, ""));
+        if (!args.path("image").asText("").isBlank()) out.add(new Images.Found(args.path("image").asText().strip(), "", "", "", 0, 0, ""));
+        return out;
+    }
+
+    private static List<String> refs(JsonNode args) { List<String> out = new ArrayList<>(); for (Images.Found f : foundArgs(args)) out.add(f.image()); return out; }
+
+    /** Every candidate kept, the outcome per picture on {@code r} (kept[], not_kept[]) and in one sentence. */
+    private String keepAll(ObjectNode r, List<Images.Found> found, String collection, Map<String, Images.Judged> verdicts) {
+        ArrayNode ks = r.putArray("kept"), nk = r.putArray("not_kept");
+        for (Images.Found f : found) {
+            try {
+                Images.Kept k = Images.keep(store, f, "", collection, verdicts.get(f.image()));
+                ks.addObject().put("image", f.image()).put("raw", k.id()).put("file", k.file()).put("url", k.url()).put("title", f.title());
+            } catch (IOException e) { nk.addObject().put("image", f.image()).put("why", e.getMessage()); }
+        }
+        store.circulate("images", "kept " + ks.size() + " of " + found.size());
+        return ks.size() + " of " + found.size() + (ks.size() == 1 ? " picture is" : " pictures are") + " on the shelves" + (collection.isEmpty() ? "" : " under " + collection) + (nk.isEmpty() ? "." : "; " + nk.size() + " not kept (not_kept says why each).");
+    }
+
+    /**
+     * library_translate: a document the person has (txt, md, pdf, docx, epub) translated into a language and written out in a format, as
+     * a job; op=glossary lists the glossary or, with term and rendering, adds to it. A path is the keeper's to give, or a file the
+     * browser posted; raw names a document on the shelves by its entry. The plan comes back at once: the units, the characters, the time
+     * at either tier; library_job follows the run, whose result names the file, its note and the shelves.
+     */
+    public ObjectNode translate(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);
+        String op = args.path("op").asText("translate").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        r.put("op", op);
+        if (op.equals("glossary")) {
+            String term = args.path("term").asText("").strip(), rendering = args.path("rendering").asText("").strip(), lang = args.path("lang").asText(args.path("to").asText("")).strip();
+            if (!term.isEmpty() && !rendering.isEmpty()) r.put("summary", Glossary.add(store, term, lang, rendering));
+            else if (!term.isEmpty() && args.path("remove").asBoolean(false)) r.put("summary", Glossary.remove(store, term, lang) ? "Removed \"" + term + "\" for " + ReadIn.name(lang) + " from the glossary." : "The glossary has no entry \"" + term + "\" for " + ReadIn.name(lang) + ".");
+            else r.put("summary", Glossary.describe(store, lang));
+            ArrayNode es = r.putArray("entries");
+            for (Glossary.Entry e : Glossary.list(store)) if (lang.isEmpty() || e.lang().equals(Translate.code(lang))) es.addObject().put("term", e.term()).put("lang", e.lang()).put("rendering", e.rendering()).put("added", e.added());
+            return r;
+        }
+        if (!op.equals("translate")) throw ProtocolError.invalidArgs("op must be translate or glossary.");
+        String path = args.path("path").asText("").strip(), raw = args.path("raw").asText("").strip(), to = args.path("to").asText("").strip();
+        if (to.isEmpty()) throw ProtocolError.invalidArgs("Say which language: to=Japanese, or a code such as ja.");
+        Path file;
+        if (!path.isEmpty()) {
+            file = Path.of(path).toAbsolutePath().normalize();
+            if (!Uploads.isUpload(file) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can name a file on this machine, from the terminal or the library's own pages. A document on the shelves can be named by its entry (raw).");
+            if (!Files.isRegularFile(file)) throw ProtocolError.notFound("Nothing is at " + file + ".");
+        } else if (!raw.isEmpty()) {
+            Path capture = RawCapture.find(store, raw);
+            if (capture == null) throw ProtocolError.notFound("No document on the shelves is " + raw + ".");
+            String[] parts = RawCapture.read(capture);
+            file = parts[0].startsWith("file://") && Files.isRegularFile(Path.of(parts[0].substring(7))) ? Path.of(parts[0].substring(7)) : null;
+            if (file == null) {   // the file is not on this machine: the shelved text is translated, as Markdown
+                file = Translation.inbox(store).resolve((parts[1].isBlank() ? raw : parts[1]).replaceAll("[^A-Za-z0-9._ ()\\-\\p{L}\\p{N}]", "_") + ".md");
+                Files.createDirectories(file.getParent());
+                Files.writeString(file, (parts[1].isBlank() ? "" : "# " + parts[1] + "\n\n") + parts[2], StandardCharsets.UTF_8);
+            }
+        } else throw ProtocolError.invalidArgs("Give the document: path (a file on this machine, or one the browser posted) or raw (an entry on the shelves).");
+        String judge = args.path("judge").asText("").strip(), model = args.path("model").asText("").strip(), back = args.has("back_translation") ? (args.path("back_translation").asBoolean(false) ? "on" : "off") : "";
+        if (!Translation.anyModel()) throw ProtocolError.unavailable(Translation.NO_MODEL);
+        Translation.Plan plan;
+        try { plan = Translation.plan(store, file, to, args.path("as").asText(""), args.path("quality").asText(Translation.DEFAULT), Translation.configuredSeat()[1], model, judge); }
+        catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        Path out = args.path("out").asText("").isEmpty() ? null : Path.of(args.path("out").asText()).toAbsolutePath().normalize();
+        if (out != null && !patron.person()) throw ProtocolError.forbidden("Only the library owner names where the file is written; without out it goes under the library's exports.");
+        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, args.path("collection").asText(""), out == null ? "mcp" : "cli", judge, model, back);
+        String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron.did(), a);
+        r.put("job_id", id); r.put("file", file.getFileName().toString()); r.put("format", plan.format()); r.put("from", plan.from()); r.put("to", plan.to()); r.put("as", plan.as()); r.put("quality", plan.quality());
+        r.put("units", plan.units()); r.put("characters", plan.chars()); r.put("estimate_seconds", plan.seconds()); r.put("estimate", plan.saidFor()); r.put("estimate_measured", plan.measured()); r.put("estimates", plan.said());
+        ObjectNode secs = r.putObject("estimate_seconds_by_tier"); secs.put("quick", plan.quickSeconds()); secs.put("checked", plan.checkedSeconds()); secs.put("reviewed", plan.reviewedSeconds()); secs.put("thorough", plan.thoroughSeconds());
+        if (!judge.isEmpty()) { r.put("judge", plan.judge()); r.put("judge_hosted", plan.judgeHosted()); if (plan.judgeHosted()) { r.put("judge_cost_dollars", Math.round(plan.judgeCost() * 100) / 100.0); r.put("judge_tokens", plan.judgeTokens()); } }
+        if (!model.isEmpty()) { r.put("model", plan.translator()); r.put("model_hosted", plan.translatorHosted()); if (plan.translatorHosted()) { r.put("model_cost_dollars", Math.round(plan.translatorCost() * 100) / 100.0); r.put("model_tokens", plan.translatorTokens()); } }
+        r.put("summary", "Filed " + id + ": \"" + file.getFileName() + "\" (" + plan.units() + " units, " + plan.chars() + " characters, written in " + ReadIn.name(plan.from()) + ") into " + ReadIn.name(plan.to()) + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
+        r.put("next", "library_job with job_id follows it; its result names the file (under the library's exports, served at /exports/<name>), the translation note beside it, and both documents on the shelves.");
+        store.circulate("translate", patron.label() + " :: " + file.getFileName() + " → " + plan.to() + " (" + plan.quality() + ")");
         return r;
     }
 
@@ -1215,17 +1489,158 @@ public final class LibraryProtocol {
     }
 
     /**
+     * library_crews: the housekeeping. op=plan (read): what the next run will do, from the same files and the same plan it uses — the
+     * searches due and the ones not yet due, the open questions the explorer takes and in what bundles, the counts; op=run (write):
+     * the tasks filed as a job now, which the service runs behind any run in progress.
+     */
+    public ObjectNode crews(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("plan").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "plan" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                Tonight.Plan p = Tonight.plan(store);
+                r.put("date", p.date().toString()).put("hour", p.hour());
+                for (Map.Entry<String, List<Serials.Shelf>> part : List.of(Map.entry("due", p.due()), Map.entry("later", p.later()))) {
+                    ArrayNode a = r.putArray(part.getKey());
+                    for (Serials.Shelf sh : part.getValue()) a.addObject().put("name", sh.slug()).put("query", sh.query()).put("every_days", sh.everyDays()).put("last", sh.lastChecked()).put("parked", sh.parked());
+                }
+                ArrayNode runs = r.putArray("runs");
+                for (Crews.Bundle b : p.bundles()) {
+                    ObjectNode o = runs.addObject().put("question", b.question()).put("type", b.head().type());
+                    ArrayNode more = o.putArray("more"); for (Frontier.Line l : b.more()) more.add(Frontier.strip(l.text()));
+                }
+                r.put("queued", p.queued()).put("parked", p.parked()).put("budget", p.budget()).put("standing", p.standing()).put("override", p.override()).put("still_open", p.stillOpen()).put("weekly", p.weekly()).put("monthly", p.monthly());
+                String text = Tonight.text(p);
+                r.put("text", text);
+                r.put("summary", text.lines().findFirst().orElse("") + " " + p.due().size() + (p.due().size() == 1 ? " kept search is due" : " kept searches are due") + " and the explorer takes " + p.picks().size() + (p.picks().size() == 1 ? " open question" : " open questions") + " in " + p.bundles().size() + (p.bundles().size() == 1 ? " run." : " runs."));
+            }
+            case "run" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("filed only"); });
+                jobs.migrate();
+                String id = jobs.submit("crews", patron.did(), M.createObjectNode());
+                r.put("job_id", id).put("state", "queued");
+                r.put("summary", "The housekeeping's tasks are filed as " + id + "; the service runs them behind any run in progress. library_job reads how they go.");
+            }
+            default -> throw ProtocolError.invalidArgs("op is plan or run.");
+        }
+        return r;
+    }
+
+    /**
+     * library_spend: what research runs cost, at each model's list prices — the library's arithmetic on the servers' usage counts, not
+     * a bill — this month and in all, by host and by named model, with a cap where one is set (write access, as the settings).
+     */
+    public ObjectNode spend(JsonNode args) throws IOException {
+        Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.write);
+        ObjectNode r = envelope();
+        ObjectNode sum = Spend.summary(store);
+        r.setAll(sum);
+        StringBuilder t = new StringBuilder("What research runs cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".\n");
+        for (String part : new String[]{"hosts", "entries"}) {
+            if (sum.path(part).isEmpty()) continue;
+            t.append(part.equals("hosts") ? "  By host:\n" : "  By named model:\n");
+            for (JsonNode row : sum.path(part)) t.append("    ").append(row.path("name").asText()).append(": ").append(Spend.dollars(row.path("month").asDouble())).append(" this month (").append(row.path("runs_month").asInt()).append(row.path("runs_month").asInt() == 1 ? " run" : " runs").append("), ").append(Spend.dollars(row.path("all").asDouble())).append(" in all (").append(row.path("runs_all").asInt()).append(")").append(row.has("cap") ? ", cap " + Spend.dollars(row.path("cap").asDouble()) + " a month" : "").append('\n');
+        }
+        if (sum.path("hosts").isEmpty()) t.append("  No run has been recorded yet. A run on a named model with prices is counted when it files its report.\n");
+        r.put("text", t.toString());
+        double month = 0; for (JsonNode row : sum.path("hosts")) month += row.path("month").asDouble();
+        r.put("summary", sum.path("hosts").isEmpty() ? "No run has been recorded yet." : "Research runs have cost " + Spend.dollars(month) + " this month at list prices, over " + sum.path("hosts").size() + (sum.path("hosts").size() == 1 ? " host." : " hosts."));
+        return r;
+    }
+
+    /** How a podcast feed is read for its show's title before it is followed: the feed itself; a test replaces it. Null when it did not answer or is not a podcast feed. */
+    public static volatile Function<String, String> PODCAST_TITLE = feed -> { var fe = Podcasts.feed(feed, 1); return fe == null ? null : fe.getKey().title(); };
+
+    /**
+     * library_follow: the podcasts followed — a kept search whose query names the feed, so its new episodes land on the arrival table
+     * and the housekeeping transcribes them at night. op=list (read); op=follow (write) with feed and every (days, 1 unless set);
+     * op=unfollow (write) with which, the show's name as listed or its feed address. The transcripts already in the library stay.
+     */
+    public ObjectNode follow(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "list" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                List<Serials.Shelf> shows = PodcastsPage.followed(store);
+                ArrayNode a = r.putArray("shows");
+                for (Serials.Shelf sh : shows) a.addObject().put("name", sh.slug()).put("feed", sh.feedUrl()).put("every_days", sh.everyDays()).put("last", sh.lastChecked()).put("parked", sh.parked());
+                r.put("count", shows.size()); r.put("summary", PodcastsPage.stateLine(shows));
+            }
+            case "follow" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String feed = reqStr(args, "feed").strip();
+                int every = Math.max(1, args.path("every").asInt(1));
+                List<Serials.Shelf> shelves = new ArrayList<>(Serials.shelves(store));
+                for (Serials.Shelf sh : shelves) if (sh.podcast() && sh.feedUrl().equalsIgnoreCase(feed)) {
+                    r.put("name", sh.slug()).put("feed", sh.feedUrl()).put("every_days", sh.everyDays()).put("already", true).put("summary", "Already following " + sh.slug() + " (" + sh.feedUrl() + ").");
+                    return r;
+                }
+                String title = PODCAST_TITLE.apply(feed);
+                if (title == null) throw ProtocolError.invalidArgs("The feed at " + feed + " did not answer or is not a podcast feed.");
+                String slug = title.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "-").replaceAll("^-|-$", "");
+                if (slug.isEmpty()) slug = "podcast";
+                String base = slug; int n = 2;
+                while (true) { String want = slug; if (shelves.stream().noneMatch(sh -> sh.slug().equals(want))) break; slug = base + "-" + n++; }
+                shelves.add(new Serials.Shelf(slug, Serials.PODCAST + feed, every, "", false));
+                Serials.writeShelves(store, shelves);
+                r.put("name", slug).put("title", title).put("feed", feed).put("every_days", every).put("already", false);
+                r.put("summary", "Following " + title + " as " + slug + ": its new episodes arrive on the arrival table every " + (every == 1 ? "day" : every + " days") + ", and the housekeeping transcribes them at night. op=unfollow with which=" + slug + " stops it.");
+            }
+            case "unfollow" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                String which = reqStr(args, "which").strip();
+                List<Serials.Shelf> shelves = new ArrayList<>(Serials.shelves(store));
+                boolean removed = shelves.removeIf(sh -> sh.podcast() && (sh.slug().equalsIgnoreCase(which) || sh.feedUrl().equalsIgnoreCase(which)));
+                if (!removed) throw ProtocolError.invalidArgs("No followed podcast is " + which + ". op=list names them.");
+                Serials.writeShelves(store, shelves);
+                r.put("name", which).put("removed", true).put("summary", "No longer following " + which + ". The transcripts already in the library stay.");
+            }
+            default -> throw ProtocolError.invalidArgs("op is list, follow or unfollow.");
+        }
+        return r;
+    }
+
+    /**
      * library_settings (0.5.5): op=list — every setting the library has, with its value as it may be shown (a secret only as set or not);
      * op=set with name and value writes one (a blank value unsets it). Both need write access: the settings say where the models and the
-     * keys are. A value that cannot be the setting's is refused with the reason.
+     * keys are. A value that cannot be the setting's is refused with the reason. op=read_in with value (0.7.0) sets the caller's own
+     * language to read reports in, a blank unsets it; read access is enough, and list carries it as read_in.
      */
     public ObjectNode settings(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
-        Patrons.check(store, patron, Patrons.Level.write);
-        String op = args.path("op").asText("list").strip().toLowerCase();
+        String op = args.path("op").asText("list").strip().toLowerCase().replace('-', '_');
         ObjectNode r = envelope();
-        if (op.equals("list")) { r.set("settings", Settings.list(M)); r.put("config_file", Config.userConfigPath().toString()); return r; }
-        if (!op.equals("set") && !op.equals("unset")) throw ProtocolError.invalidArgs("op is list, set or unset.");
+        if (op.equals("read_in")) {   // the caller's own language to read reports in (0.7.0): theirs to set, whatever they may do to the library
+            Patrons.check(store, patron, Patrons.Level.read);
+            r.put("note", ReadIn.set(store, patron, args.path("value").asText("")));
+            r.put("read_in", ReadIn.of(store, patron));
+            return r;
+        }
+        Patrons.check(store, patron, Patrons.Level.write);
+        if (op.equals("list")) {
+            ArrayNode settings = Settings.list(M);
+            for (JsonNode s : settings) {   // a key's service: what it adds, its terms with the day they were read, the link to get one, this month's use, the last check
+                OutsideServices.Service svc = OutsideServices.of(s.path("key").asText(""));
+                if (svc == null) continue;
+                ObjectNode o = (ObjectNode) s;
+                o.put("service", svc.name()).put("adds", svc.adds()).put("terms", svc.terms()).put("checked_on", svc.checkedOn()).put("link", svc.link());
+                for (JsonNode row : OutsideServices.json(store)) if (row.path("service").asText().equals(svc.name())) { o.put("use_this_month", row.path("use_this_month").asText()); if (row.has("last_check")) o.set("last_check", row.get("last_check")); }
+            }
+            r.set("settings", settings); r.set("services", OutsideServices.json(store)); r.put("config_file", Config.userConfigPath().toString()); r.put("read_in", ReadIn.of(store, patron)); return r;
+        }
+        if (op.equals("check")) {   // every service with a key asked whether it is accepted and what is left; the answers kept and returned
+            List<OutsideServices.Result> rs = OutsideServices.check(store);
+            ArrayNode a = r.putArray("checks");
+            for (OutsideServices.Result c : rs) { ObjectNode o = a.addObject(); o.put("service", c.service()); if (c.accepted() != null) o.put("accepted", c.accepted()); o.put("said", c.said()); o.put("at", c.at()); }
+            r.put("note", Pages.keysChecked(rs));
+            return r;
+        }
+        if (!op.equals("set") && !op.equals("unset")) throw ProtocolError.invalidArgs("op is list, set, unset, read_in or check.");
         String name = args.path("name").asText("").strip();
         Settings.Setting s = Settings.named(name);
         if (s == null) throw ProtocolError.invalidArgs("No setting is named " + name + ". library_settings op=list names them all.");
@@ -1239,8 +1654,31 @@ public final class LibraryProtocol {
     }
 
     /**
+     * mcp (0.7.0): the other MCP servers whose tools the library's research may use as sources, the keeper's alone. op=list (each server,
+     * how it is reached, whether it answers when check is true, the default, and its tools with whether research may call each); tools or
+     * test (name); add (name, and command[] with env{} for a program this computer starts, or url with header_key, header and header_value
+     * for a server at an address, or a preset's name alone: exa, tavily; readers, cap, timeout); remove (name); allow and forbid (name,
+     * tool); readers (name, value on|off); cap (name, value: calls a month, or off); call (name, tool, arguments). A key is never returned.
+     */
+    public ObjectNode mcp(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        return McpSetup.op(store, patron, args, envelope());
+    }
+
+    /** How a model entry is probed for library_models op=test: a functional probe of its server, which a test replaces with a stand-in. */
+    public static volatile Function<ModelEntries.Entry, Crews.DriveState> MODEL_PROBE = e -> Crews.driveState(e.drive(), e.model(), Duration.ofSeconds(30));
+    /** Whether an entry sees pictures, probed with a small square ({@link Vision}); a test replaces it with a stand-in. */
+    public static volatile Function<ModelEntries.Entry, Vision.Probe> VISION_PROBE = Vision::probe;
+
+    /** What a hosted entry's add says about pictures when nothing probed it. */
+    static String notProbedHosted(String name) { return "sees: not probed; researchzosho models test " + name + " asks it (one small paid call)."; }
+
+    /**
      * library_models: the models a library can run on, by name — list; add (name, drive, model, prices, effort, cap, note); remove (name);
-     * key (host, value — a blank value forgets it). A key is never returned, only whether one is kept.
+     * key (host, value — a blank value forgets it); test (name: whether the entry's server answers now, as the command line's
+     * {@code models test} says). A key is never returned, only whether one is kept, as a word: kept, missing, or not needed for a local
+     * server. The list states the default outright, as {@code default} (name, model, host, drive) and in a {@code summary} sentence,
+     * because a model reading {@code key: true} on a local entry took it for the rule that picks the default (2026-11-08).
      */
     public ObjectNode models(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
@@ -1249,16 +1687,44 @@ public final class LibraryProtocol {
         ObjectNode r = envelope();
         try {
             switch (op) {
-                case "list" -> { r.set("models", ModelEntries.list(M)); r.put("config_file", Config.userConfigPath().toString()); }
+                case "list" -> { r.set("default", ModelEntries.defaultNode(M)); r.set("models", ModelEntries.list(M)); r.put("summary", ModelEntries.summary()); r.put("config_file", Config.userConfigPath().toString()); }
                 case "add" -> {
                     String name = args.path("name").asText("").strip();
                     ModelEntries.Entry e = ModelEntries.put(name, args.hasNonNull("drive") ? args.path("drive").asText() : null, args.hasNonNull("model") ? args.path("model").asText() : null,
                             args.hasNonNull("prices") ? args.path("prices").asText() : null, args.hasNonNull("effort") ? args.path("effort").asText() : null,
-                            args.hasNonNull("cap") ? args.path("cap").asText() : null, args.hasNonNull("note") ? args.path("note").asText() : null, args.hasNonNull("tier") ? args.path("tier").asText() : null);
-                    r.put("name", e.name()); r.put("line", e.line()); r.put("key", DriveClient.hostKey(e.host()) != null);
-                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : ""));
+                            args.hasNonNull("cap") ? args.path("cap").asText() : null, args.hasNonNull("note") ? args.path("note").asText() : null, args.hasNonNull("tier") ? args.path("tier").asText() : null, args.hasNonNull("sees") ? args.path("sees").asText() : null);
+                    // a local entry is probed for pictures at once (its calls are free) when its server answers now and nothing said; a hosted one is not, since the call is paid
+                    String pictures;
+                    if (e.sees() != null) pictures = e.seesText() + (args.hasNonNull("sees") ? ", as said" : "") + ".";
+                    else if (e.hosted()) pictures = notProbedHosted(e.name());
+                    else if (args.hasNonNull("drive") && !args.hasNonNull("model") && e.name().equals(ModelEntries.DEFAULT)) pictures = "";
+                    else if (MODEL_PROBE.apply(e) == Crews.DriveState.ANSWERS) { Vision.Probe pr = VISION_PROBE.apply(e); ModelEntries.sees(e.name(), pr.sees()); e = e.withSees(pr.sees()); pictures = e.seesText() + " (" + pr.why() + ")."; }
+                    else pictures = "sees: not probed, its server does not answer now; researchzosho models test " + e.name() + " asks it when it does.";
+                    r.put("name", e.name()); r.put("line", e.line()); r.put("key", ModelEntries.keyWord(e));
+                    if (e.sees() != null) r.put("sees", e.sees());
+                    r.put("sees_text", e.seesText());
+                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : "") + (pictures.isEmpty() ? "" : " " + pictures));
                 }
                 case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
+                case "test" -> {   // the entry's server asked for a completion now: answers, is starting, or does not answer
+                    String name = args.path("name").asText("").strip();
+                    if (name.isEmpty()) throw ProtocolError.invalidArgs("test needs the entry's name; op=list names them.");
+                    ModelEntries.Entry e = ModelEntries.get(name);
+                    if (e == null) throw ProtocolError.invalidArgs("No entry is named " + name + ". op=list names them.");
+                    Crews.DriveState st = MODEL_PROBE.apply(e);
+                    boolean noKey = e.hosted() && DriveClient.hostKey(e.host()) == null;
+                    String state = st == Crews.DriveState.ANSWERS ? "answers" : st == Crews.DriveState.STARTING ? "starting" : "down";
+                    r.put("name", e.name()); r.put("line", e.line()); r.put("answers", st == Crews.DriveState.ANSWERS); r.put("state", state);
+                    String pictures = "";
+                    if (st == Crews.DriveState.ANSWERS) {   // then whether it sees pictures, kept on the entry: one small call, two on a local entry
+                        Vision.Probe pr = VISION_PROBE.apply(e);
+                        ModelEntries.sees(e.name(), pr.sees());
+                        if (pr.sees() != null) r.put("sees", pr.sees());
+                        r.put("sees_text", pr.word()); r.put("sees_why", pr.why());
+                        pictures = " " + Character.toUpperCase(pr.word().charAt(0)) + pr.word().substring(1) + " (" + pr.why() + ").";
+                    }
+                    r.put("note", e.line() + ": " + (st == Crews.DriveState.ANSWERS ? "answers." + pictures : st == Crews.DriveState.STARTING ? "is starting; ask again in a moment." : "does not answer." + (noKey ? " No key is kept for " + e.host() + ": op=key with host and value keeps one." : "")));
+                }
                 case "key" -> {
                     String host = args.path("host").asText("").strip();
                     if (host.isEmpty()) throw ProtocolError.invalidArgs("key needs the host (openrouter.ai, or a word: openrouter, anthropic, openai, gemini, nebius, huggingface).");
@@ -1267,7 +1733,7 @@ public final class LibraryProtocol {
                     Config.set(DriveClient.hostKeySetting(h), value);
                     r.put("host", h); r.put("set", !value.isEmpty()); r.put("note", value.isEmpty() ? "The key for " + h + " is forgotten." : "A key is kept for " + h + " (ends with …" + value.substring(Math.max(0, value.length() - 3)) + "). It goes to that host and nowhere else.");
                 }
-                default -> throw ProtocolError.invalidArgs("op is list, add, remove or key.");
+                default -> throw ProtocolError.invalidArgs("op is list, add, remove, key or test.");
             }
         } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         return r;
@@ -1649,8 +2115,41 @@ public final class LibraryProtocol {
         return r;
     }
 
+    /**
+     * library_export (0.7.0, read): a report ({@code id}) or a dossier ({@code subject}) as a PDF or a Word file ({@code format} pdf or docx),
+     * holding what its page shows, written under the library's catalog/exports/ and served by the web pages at /exports/&lt;name&gt;. A
+     * report is in the language {@code in} names, else in the caller's own language to read in, when the library keeps that translation;
+     * a dossier in the language {@code in} names. When no translation is kept the file is as written, and {@code note} says so.
+     */
+    public ObjectNode export(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
+        String id = args.path("id").asText("").strip(), subject = args.path("subject").asText("").strip(), format = args.path("format").asText("pdf");
+        if (id.isEmpty() == subject.isEmpty()) throw ProtocolError.invalidArgs("Name one thing to save as a file: id, a report's id (I-…), or subject, the person or organisation of a dossier.");
+        if (Export.format(format) == null) throw ProtocolError.invalidArgs("format is pdf, docx (a Word file) or md (Markdown).");
+        String in = args.path("in").asText("").strip();
+        if (in.isEmpty() && !id.isEmpty()) in = ReadIn.of(store, patron);   // a report comes in the reader's own language, as its page does
+        Export.Made m = id.isEmpty() ? Export.dossier(store, subject, format, in) : Export.report(store, id, format, in);
+        Path p = Export.save(store, m.file());
+        ObjectNode r = envelope();
+        r.put("kind", m.kind());
+        if (!id.isEmpty()) r.put("id", id); else r.put("subject", subject);
+        r.put("format", Export.format(format)); r.put("file", m.file().name()); r.put("path", p.toString());
+        r.put("url", "/exports/" + URLEncoder.encode(m.file().name(), StandardCharsets.UTF_8).replace("+", "%20"));
+        r.put("bytes", m.file().bytes().length);
+        if (!m.writtenIn().isEmpty()) r.put("written_in", m.writtenIn());
+        if (m.translated()) r.put("read_in", m.readIn());
+        if (!m.note().isEmpty()) r.put("note", m.note());
+        if (m.unshown() > 0) r.put("unshown", m.unshown());
+        String what = (m.kind().equals("report") ? "The report" : "The dossier") + (m.translated() ? " in " + ReadIn.name(m.readIn()) : "");
+        r.put("summary", what + " is saved as a " + (Export.PDF.equals(Export.format(format)) ? "PDF" : Export.MARKDOWN.equals(Export.format(format)) ? "Markdown" : "Word") + " file at " + p + ". The web pages serve it at /exports/" + m.file().name() + "."
+                + (m.note().isEmpty() ? "" : " " + m.note())
+                + (m.unshown() > 0 ? " Some characters could not be shown, because no font on this computer has them; the first page says which." : ""));
+        return r;
+    }
+
     /** What the told claims' leads are listed by; tests put a stand-in here. */
-    static volatile java.util.function.BiFunction<String, String, List<String>> LEADS = (subject, text) -> {
+    static volatile BiFunction<String, String, List<String>> LEADS = (subject, text) -> {
         var f = Conversations.modelLeads(Explain.drive(), subject);
         return f == null ? List.of() : f.apply(text);
     };
@@ -1751,6 +2250,98 @@ public final class LibraryProtocol {
      * again=true the library makes it again); op=watch (seeker, on) the nightly watch on or off, or, without on, whether it is; op=resettle (seeker) reads every answer again for what it settles; op=companies (seeker, show) the companies of the place from the public records, each read against the wants; op=react with company (and reaction, why) reacts to one of them. {@code how}: the command the person types, for the hints in the text ("researchzosho
      * career" if none).
      */
+    /**
+     * Finding what was seen in a video: {@code saw} (query, k) answers with the moments in what was said or seen; {@code picture}
+     * (description, kinds) files the search through the frames; {@code status} says what the library has read.
+     */
+    public ObjectNode video(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("status");
+        ObjectNode r = envelope();
+        switch (op) {
+            case "saw" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                String q = args.path("query").asText("").strip();
+                if (q.isEmpty()) throw ProtocolError.invalidArgs("Give the words you remember hearing or seeing (query).");
+                List<VideoRecall.Hit> hits = VideoRecall.saw(store, q, Math.max(1, Math.min(50, args.path("k").asInt(8))));
+                ArrayNode a = r.putArray("moments");
+                for (VideoRecall.Hit h : hits) a.addObject().put("video", h.videoId()).put("title", h.title()).put("seconds", h.seconds()).put("at", h.clock()).put("kind", h.kind()).put("line", h.line()).put("link", h.link());
+                r.put("summary", VideoRecall.sawText(hits, q));
+            }
+            case "look" -> {   // the look at a video at any address (DESIGN_BRAIN.md §4): the video field's reading once it lands, a plain sentence until then
+                Patrons.check(store, patron, Patrons.Level.read);
+                String video = args.path("video").asText("").strip(), what = args.path("what").asText("").strip();
+                if (video.isEmpty()) throw ProtocolError.invalidArgs("Give the video's address (video), and what to look for in it (what).");
+                try { r.setAll(VideoLook.look(store, video, what, args.path("sparse").asBoolean(false), patron.did())); }
+                catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+                catch (IllegalStateException e) { throw ProtocolError.unavailable(e.getMessage()); }
+            }
+            case "picture" -> {
+                Patrons.check(store, patron, Patrons.Level.write);
+                List<String> kinds = new ArrayList<>(); for (JsonNode k : args.path("kinds")) kinds.add(k.asText(""));
+                try { r.put("summary", VideoRecall.file(store, args.path("description").asText(""), kinds, patron.did())); }
+                catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+            }
+            case "candidates" -> {   // the candidate pool for a remembered video: the thing's name per language in, the pool best fit first out (Since 0.7.0)
+                Patrons.check(store, patron, Patrons.Level.read);
+                Candidates.Ask ask = Candidates.Ask.of(args);
+                if (ask.things().isEmpty()) throw ProtocolError.invalidArgs("Give the name of the thing made or shown, in two to four words, in each language the video may be in (things).");
+                Candidates.Result res = Candidates.run(store, ask, s -> { }, Stopping.current());
+                ArrayNode things = r.putArray("things"); for (String t : ask.things()) things.add(t);
+                ArrayNode remembered = r.putArray("remembered"); for (String t : ask.remembered()) remembered.add(t);
+                r.put("pool", res.pool().size()).put("page", res.page()).put("per_page", Candidates.SHOWN).put("excluded", res.excluded()).put("outside_dates", res.outsideDates()).put("outside_length", res.outsideLength());
+                ObjectNode by = r.putObject("by_source"); res.bySource().forEach(by::put);
+                ArrayNode notes = r.putArray("notes"); for (String n : res.notes()) notes.add(n);
+                ArrayNode a = r.putArray("candidates");
+                int from = (res.page() - 1) * Candidates.SHOWN;
+                for (int i = from; i < Math.min(res.pool().size(), from + Candidates.SHOWN); i++) a.add(res.pool().get(i).json());
+                r.put("key", res.key()).put("cut", res.cut()).put("outside_language", res.outsideLanguage());
+                r.put("summary", res.text());
+            }
+            case "sift" -> {   // the funnel over a kept pool: every candidate's thumbnail and first sheet judged, the survivors best first (Since 0.7.0)
+                Patrons.check(store, patron, Patrons.Level.read);
+                Sift.Ask ask = Sift.Ask.of(args);
+                if (ask.what().isEmpty()) throw ProtocolError.invalidArgs("Say what you remember of the video, one thing after another (what), and give the pool's key (from) as candidates said it, or the videos themselves (videos).");
+                Sift.Result res;
+                try { res = Sift.run(store, ask, s -> { }, Stopping.current()); }
+                catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+                r.setAll(Sift.json(res));
+            }
+            case "status" -> {
+                Patrons.check(store, patron, Patrons.Level.read);
+                List<VideoRecall.Held> held = VideoRecall.held(store);
+                r.put("videos", held.size()).put("with_said", held.stream().filter(VideoRecall.Held::said).count()).put("with_shown", held.stream().filter(VideoRecall.Held::shown).count()).put("with_seen", held.stream().filter(VideoRecall.Held::seen).count()).put("vision", VideoRecall.visionAnswers()).put("model", VideoRecall.modelName());
+                r.put("summary", "The library has read " + held.size() + (held.size() == 1 ? " video" : " videos") + ", " + held.stream().filter(VideoRecall.Held::said).count() + " with what was said, " + held.stream().filter(VideoRecall.Held::shown).count() + " with the words on screen and " + held.stream().filter(VideoRecall.Held::seen).count() + " with what is seen.");
+            }
+            default -> throw ProtocolError.invalidArgs("op must be saw, look, candidates, sift, picture or status.");
+        }
+        return r;
+    }
+
+    /**
+     * Prior art from the patent office's own records (Since 0.7.0): {@code pool} (classes, from_year, to_year, features, exclude, page)
+     * enumerates every publication of the classes in the years, one line a family, ordered by the features their titles and abstracts
+     * name; {@code abstracts} (from, limit, page) has the model read the pool's abstracts, twenty to a call; {@code claims} (from, or
+     * publications with features; limit, page) reads the claims from the office's full text and quotes each feature's closest claim.
+     */
+    public ObjectNode patents(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.read);
+        String op = args.path("op").asText("pool").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        switch (op) {
+            case "pool" -> {
+                Patents.Ask ask = Patents.Ask.of(args);
+                if (ask.classes().isEmpty()) throw ProtocolError.invalidArgs("Give the classification symbols the invention sits in (classes), each a group with its slash, like A47G19/22. " + Patents.HOW_TO_FIND_A_CLASS);
+                r.setAll(Patents.json(Patents.run(store, ask, s -> { }, Stopping.current())));
+            }
+            case "abstracts" -> r.setAll(PatentReading.json(PatentReading.abstracts(store, PatentReading.AbstractsAsk.of(args), null, s -> { }, Stopping.current(), 0)));
+            case "claims" -> r.setAll(PatentReading.json(PatentReading.claims(store, PatentReading.ClaimsAsk.of(args), null, s -> { }, Stopping.current(), 0)));
+            default -> throw ProtocolError.invalidArgs("op must be pool, abstracts or claims.");
+        }
+        return r;
+    }
+
     public ObjectNode career(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         String op = args.path("op").asText("read").toLowerCase(Locale.ROOT), how = args.path("how").asText("researchzosho career");
@@ -1925,6 +2516,21 @@ public final class LibraryProtocol {
                 r.put("seeker", s.name()).set("dimension", e);
                 r.put("summary", "Saved. " + Career.line(e));
             }
+            case "board" -> {   // an employer's or institution's own careers board and its openings (DESIGN_BRAIN.md §4)
+                Patrons.check(store, patron, Patrons.Level.read);
+                String employer = args.path("employer").asText("").strip();
+                if (employer.isEmpty()) throw ProtocolError.invalidArgs("Give the employer's or institution's name (employer).");
+                List<String> towns = new ArrayList<>(), words = new ArrayList<>();
+                for (JsonNode t : args.path("towns")) if (t.isTextual() && !t.asText().isBlank()) towns.add(t.asText().strip());
+                for (JsonNode w : args.path("words")) if (w.isTextual() && !w.asText().isBlank()) words.add(w.asText().strip());
+                CareerSources.Found f = CareerPortals.inTowns(CareerPortals.find(employer, towns, words, towns), towns);   // cut to the towns, whichever way the board was found
+                r.put("employer", employer);
+                if (f != null && f.feed() != null) r.putObject("board").put("system", f.feed().kind()).put("how", f.feed().how() == null ? "" : f.feed().how());
+                ArrayNode a = r.putArray("openings");
+                if (f != null) for (CareerSources.Opening o : f.openings()) a.addObject().put("title", o.title()).put("location", o.location() == null ? "" : o.location()).put("remote", o.remote()).put("url", o.url() == null ? "" : o.url()).put("posted", o.posted() == null ? "" : o.posted());
+                r.put("note", f == null || f.note() == null ? "" : f.note());
+                r.put("summary", CareerPortals.boardText(employer, f, towns));
+            }
             default -> {
                 Patrons.check(store, patron, Patrons.Level.read);
                 Career.Seeker s = seekerOf(args);
@@ -1938,6 +2544,126 @@ public final class LibraryProtocol {
     }
 
     private static List<String> textList(JsonNode a) { List<String> out = new ArrayList<>(); for (JsonNode x : a) out.add(x.asText("")); return out; }
+
+    /** The home field (0.6.9): a person looking for a home. {@code op}: list, start, read, tell, want, keep_out, search, listings, react, card, add. */
+    public ObjectNode home(JsonNode args) throws IOException {
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        String op = args.path("op").asText("read").toLowerCase(Locale.ROOT);
+        ObjectNode r = envelope();
+        try {
+            switch (op) {
+                case "list" -> {
+                    Patrons.check(store, patron, Patrons.Level.read);
+                    ArrayNode a = r.putArray("searches");
+                    List<String> lines = new ArrayList<>();
+                    for (Home.Search s : Home.searches(store)) { a.addObject().put("name", s.name()).put("slug", s.slug()).put("listings", Home.listings(store, s).size()); lines.add(Home.standing(store, s)); }
+                    r.put("summary", lines.isEmpty() ? "No home search is started yet." : String.join("\n", lines));
+                }
+                case "start" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = Home.start(store, reqStr(args, "name"));
+                    r.put("search", s.name()).put("slug", s.slug()).put("summary", "The search \"" + s.name() + "\" is started. Say what you want, topic by topic or in your own words; then search.");
+                }
+                case "read" -> {
+                    Patrons.check(store, patron, Patrons.Level.read);
+                    Home.Search s = homeSearchOf(args);
+                    r.put("search", s.name()).set("wants", Home.wantsKept(store, s));
+                    ArrayNode out = r.putArray("keep_out"); for (String k : Home.keepOut(store, s)) out.add(k);
+                    ArrayNode log = r.putArray("log"); for (String l : Home.lately(store, s, 12)) log.add(l);
+                    String t = Home.standing(store, s) + "\n" + Home.wantsText(store, s);
+                    r.put("text", t).put("summary", t);
+                }
+                case "tell" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    String said = Home.tell(store, s, reqStr(args, "words"));
+                    r.put("search", s.name()).put("summary", said.isEmpty() ? "Your words are kept. No topic was settled from them; set one yourself, or say it more plainly." : said);
+                }
+                case "want" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    ObjectNode e = Home.setWant(store, s, reqStr(args, "dimension"), reqStr(args, "state"), args.path("want").asText(""), "you", "what you typed");
+                    r.put("search", s.name()).set("topic", e);
+                    r.put("summary", "Saved. " + Home.label(e.path("dimension").asText()) + ": " + (e.path("state").asText().equals("open") ? "open" : (e.path("state").asText().equals("decided") ? "decided, " : "a guess, ") + e.path("want").asText()) + ".");
+                }
+                case "keep_out" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    String words = reqStr(args, "words");
+                    boolean drop = args.path("drop").asBoolean(false);
+                    r.put("search", s.name()).put("summary", drop ? (Home.removeKeepOut(store, s, words) ? "The search no longer keeps out " + words + "." : "That is not kept out.") : (Home.addKeepOut(store, s, words) ? "The search will keep out " + words + "." : words + " is kept out already."));
+                }
+                case "search" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    r.put("search", s.name()).put("summary", HomeFind.file(store, s, patron.did(), args.path("more").asBoolean(false)));
+                }
+                case "listings" -> {
+                    Patrons.check(store, patron, Patrons.Level.read);
+                    Home.Search s = homeSearchOf(args);
+                    HomeFind.View v = HomeFind.view(store, s);
+                    ArrayNode rows = r.putArray("listings");
+                    for (HomeFind.Row row : v.passing()) {
+                        Home.Listing l = row.listing();
+                        ObjectNode one = rows.addObject().put("id", l.id()).put("address", l.address()).put("city", l.city()).put("state", l.state()).put("price", l.price()).put("beds", l.beds()).put("baths", l.baths()).put("sqft", l.sqft())
+                                .put("kind", l.kind()).put("tenure", l.tenure()).put("source", l.source()).put("url", l.url()).put("listed", l.listed()).put("first_seen", l.firstSeen()).put("last_seen", l.lastSeen())
+                                .put("tier", row.tier()).put("reaction", row.reactionWord()).put("card", HomeCard.state(row.card()))
+                                .put("link", l.link()).put("seen_on", l.seenOn());   // the home itself, its own page or a search for its address; the page of listings it was seen on
+                        if (l.japan()) one.put("currency", "JPY").put("name", l.extra().name()).put("layout", l.extra().layout()).put("area_m2", l.extra().areaM2()).put("built", l.extra().built()).put("line_station", (l.extra().line().isEmpty() ? "" : l.extra().line() + " ") + l.extra().station()).put("walk", l.extra().walk()).put("floor", l.extra().floor()).put("price_text", l.priceText()).put("per_m2", l.perM2Text());
+                        ArrayNode unknown = one.putArray("not_known");
+                        for (String x : HomeCut.unknown(v.cut(), l)) unknown.add(x);
+                    }
+                    ArrayNode aside = r.putArray("aside");
+                    for (HomeFind.Row row : v.aside()) aside.addObject().put("id", row.listing().id()).put("line", row.listing().line()).put("why", row.verdict().why());
+                    ArrayNode portals = r.putArray("portals"); for (String[] p : v.portals()) portals.addObject().put("name", p[0]).put("url", p[1]);
+                    r.put("search", s.name()).put("cut", HomeCut.summary(v.cut())).put("searched", v.searched());
+                    if (v.more() != null) r.put("rentcast_total", v.more().total()).put("rentcast_fetched", v.more().fetched());
+                    String t = HomeFind.text(store, s, Math.max(1, args.path("show").asInt(12)));
+                    r.put("text", t).put("summary", t);
+                }
+                case "react" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    r.put("search", s.name()).put("summary", Home.react(store, s, reqStr(args, "id"), args.path("reaction").asText(""), args.path("why").asText("")));
+                }
+                case "card" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    r.put("search", s.name()).put("summary", HomeFind.card(store, s, reqStr(args, "id"), patron.did()));
+                }
+                case "add" -> {
+                    Patrons.check(store, patron, Patrons.Level.write);
+                    Home.Search s = homeSearchOf(args);
+                    r.put("search", s.name()).put("summary", HomeFind.save(store, s, reqStr(args, "words"), args.path("url").asText(""), args.path("tenure").asText("")));
+                }
+                case "records" -> {   // the public records of one address, as a card reads them (DESIGN_BRAIN.md §4)
+                    Patrons.check(store, patron, Patrons.Level.read);
+                    String address = args.path("address").asText("").strip();
+                    if (address.isEmpty()) throw ProtocolError.invalidArgs("Give the address (address), as street, city, state.");
+                    HomeSensors.Records rec;
+                    try { rec = HomeSensors.records(store, address); } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+                    r.put("address", address).put("place", rec.place()).put("line", rec.line());
+                    ArrayNode sa = r.putArray("sales"); for (String x : rec.sales()) sa.add(x);
+                    ArrayNode pa = r.putArray("permits"); for (String x : rec.permits()) pa.add(x);
+                    if (!rec.census().isEmpty()) r.put("census", rec.census());
+                    ArrayNode lk = r.putArray("looked"); for (String x : rec.looked()) lk.add(x);
+                    r.put("summary", HomeSensors.recordsText(rec));
+                }
+                 default -> throw ProtocolError.invalidArgs("The home operations are list, start, read, tell, want, keep_out, search, listings, react, card, add and records.");
+            }
+        } catch (IllegalArgumentException x) { throw ProtocolError.invalidArgs(x.getMessage()); }
+        return r;
+    }
+
+    private Home.Search homeSearchOf(JsonNode args) throws IOException {
+        String name = args.path("search").asText(args.path("name").asText("")).strip();
+        Home.Search s = Home.search(store, name);
+        if (s != null) return s;
+        List<String> names = new ArrayList<>(); for (Home.Search x : Home.searches(store)) names.add(x.name());
+        if (names.isEmpty()) throw ProtocolError.notFound("No home search is started yet. Start one with a name first.");
+        if (name.isEmpty()) throw ProtocolError.invalidArgs("This library holds more than one home search: " + String.join(", ", names) + ". Say which.");
+        throw ProtocolError.notFound("There is no search called " + name + ". The searches are: " + String.join(", ", names) + ".");
+    }
 
     private Career.Seeker seekerOf(JsonNode args) throws IOException {
         String name = args.path("seeker").asText(args.path("name").asText("")).strip();
@@ -2116,17 +2842,116 @@ public final class LibraryProtocol {
         return r;
     }
 
-    /** What became of a request. Approved and claimed with the right secret: the token, once. */
+    /**
+     * What became of a request (op=collect, the default: approved and claimed with the right secret, the token, once); and the keeper's
+     * side of access, each op a thin call over what the command line and the Keep page do: readers (the list and the default), allow
+     * (did, level, name), remove (did), invite (name, level: a link that works once), requests (what waits), approve (request_id, level),
+     * deny (request_id and reason, or did), keys (the keeper's keys for programs), key (label, level: a new key, shown once), revoke
+     * (key_id). The keeper only: anyone else is refused with one sentence.
+     */
     public ObjectNode access(JsonNode args) throws IOException {
-        String id = reqStr(args, "request_id").strip();
-        String claim = args.path("claim").asText("");
-        AccessRequests.Outcome o;
-        try { o = AccessRequests.claim(store, id, claim); }
-        catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        String op = args.path("op").asText("collect").strip().toLowerCase(Locale.ROOT).replace('-', '_');
+        if (op.isEmpty() || op.equals("collect")) {
+            String id = reqStr(args, "request_id").strip();
+            String claim = args.path("claim").asText("");
+            AccessRequests.Outcome o;
+            try { o = AccessRequests.claim(store, id, claim); }
+            catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+            ObjectNode r = envelope();
+            r.put("request_id", o.id()); r.put("state", o.state());
+            if (!o.token().isEmpty()) { r.put("token", o.token()); r.put("level", o.level()); r.put("note", "Use it as Authorization: Bearer <token>. It is shown only once."); }
+            if (!o.reason().isEmpty()) r.put("reason", o.reason());
+            return r;
+        }
+        Patrons.Patron patron = Patrons.Patron.from(args);
+        Patrons.check(store, patron, Patrons.Level.write);   // a key that reads only is refused with its own sentence first
+        if (!patron.person()) throw ProtocolError.forbidden("Only the person who keeps this library may see or change who reads it; a program acts for them with a key that writes.");
         ObjectNode r = envelope();
-        r.put("request_id", o.id()); r.put("state", o.state());
-        if (!o.token().isEmpty()) { r.put("token", o.token()); r.put("level", o.level()); r.put("note", "Use it as Authorization: Bearer <token>. It is shown only once."); }
-        if (!o.reason().isEmpty()) r.put("reason", o.reason());
+        r.put("op", op);
+        try {
+            switch (op) {
+                case "readers" -> {
+                    Patrons.Policy pol = Patrons.load(store);
+                    r.put("default", pol.dflt().name());
+                    ArrayNode a = r.putArray("readers");
+                    for (Patrons.Entry e : pol.listed()) {
+                        Accounts.Account acc = Accounts.byDid(store, e.did());
+                        a.addObject().put("did", e.did()).put("name", e.name()).put("level", e.level().name())
+                                .put("signs_in_with", acc == null ? (e.tokenHash() == null ? "nothing yet" : "a token (a program)") : acc.ways());
+                    }
+                    r.put("summary", (a.isEmpty() ? "Nobody is listed; " : a.size() + (a.size() == 1 ? " reader is listed; " : " readers are listed; ")) + "anyone unlisted gets " + pol.dflt().name() + ".");
+                }
+                case "allow" -> {
+                    String did = reqStr(args, "did").strip();
+                    Patrons.Level lvl = Patrons.levelOf(args.path("level").asText(""));
+                    if (lvl == null) throw ProtocolError.invalidArgs("Say what " + did + " may do: level is deny, read or write.");
+                    String name = args.path("name").asText("").strip();
+                    Patrons.set(store, did, name, lvl);
+                    r.put("did", did).put("name", name).put("level", lvl.name());
+                    r.put("summary", did + (name.isEmpty() ? "" : " (" + name + ")") + (lvl == Patrons.Level.deny ? " is denied." : " may " + lvl + "."));
+                }
+                case "remove" -> {
+                    String did = reqStr(args, "did").strip();
+                    Patrons.remove(store, did); Accounts.remove(store, did);
+                    r.put("did", did).put("removed", true).put("summary", did + " is removed from the readers and falls back to the default.");
+                }
+                case "invite" -> {
+                    String name = reqStr(args, "name").strip();
+                    Patrons.Level lvl = args.path("level").asText("").isBlank() ? Patrons.Level.read : Patrons.levelOf(args.path("level").asText(""));
+                    if (lvl == null || lvl == Patrons.Level.deny) throw ProtocolError.invalidArgs("An invite lets a person read or write: level is read or write.");
+                    Invites.Invite inv = Invites.make(store, name, lvl);
+                    r.put("did", inv.did()).put("name", inv.name()).put("level", inv.level().name()).put("link", inv.link()).put("days", Invites.DAYS);
+                    r.put("summary", inv.name() + " may " + inv.level() + ". Send them the link; it works once, for " + Invites.DAYS + " days, and they choose a password when they open it. It is shown only once.");
+                }
+                case "requests" -> {
+                    ArrayNode a = r.putArray("requests");
+                    long pending = 0;
+                    for (AccessRequests.Request q : AccessRequests.list(store)) {
+                        if (q.state().equals("pending")) pending++;
+                        a.addObject().put("id", q.id()).put("date", q.date()).put("state", q.state()).put("did", q.did()).put("name", q.name()).put("note", q.note()).put("reason", q.reason());
+                    }
+                    r.put("pending", pending);
+                    r.put("summary", a.isEmpty() ? "Nobody has asked to be let in." : pending + (pending == 1 ? " request waits" : " requests wait") + " for an answer, of " + a.size() + " on record.");
+                }
+                case "approve" -> {
+                    String id = reqStr(args, "request_id").strip();
+                    Patrons.Level lvl = args.path("level").asText("").isBlank() ? Patrons.Level.read : Patrons.levelOf(args.path("level").asText(""));
+                    if (lvl == null || lvl == Patrons.Level.deny) throw ProtocolError.invalidArgs("level is read or write.");
+                    AccessRequests.Request q = AccessRequests.approve(store, id, lvl);
+                    r.put("request_id", q.id()).put("did", q.did()).put("level", lvl.name()).put("state", "approved");
+                    r.put("summary", q.did() + " may " + lvl + ". They collect their token with the claim secret they were given.");
+                }
+                case "deny" -> {
+                    String id = args.path("request_id").asText("").strip(), did = args.path("did").asText("").strip();
+                    if (!id.isEmpty()) {
+                        AccessRequests.Request q = AccessRequests.deny(store, id, args.path("reason").asText(""));
+                        r.put("request_id", q.id()).put("did", q.did()).put("state", "denied").put("summary", "Request " + q.id() + " from " + q.did() + " is denied.");
+                    } else if (!did.isEmpty()) {
+                        Patrons.set(store, did, null, Patrons.Level.deny);
+                        r.put("did", did).put("level", "deny").put("summary", did + " is denied.");
+                    } else throw ProtocolError.invalidArgs("deny takes request_id (a request, with reason) or did (a reader).");
+                }
+                case "keys" -> {
+                    ArrayNode a = r.putArray("keys");
+                    for (ApiKeys.Key k : ApiKeys.list(store, Accounts.OWNER)) a.addObject().put("id", k.id()).put("prefix", k.prefix()).put("level", k.level().name()).put("label", k.label()).put("made", k.made()).put("used", k.used());
+                    r.put("summary", a.isEmpty() ? "You have no keys. op=key with a label makes one." : a.size() + (a.size() == 1 ? " key; " : " keys; ") + "a program sends one as Authorization: Bearer <key>.");
+                }
+                case "key" -> {
+                    String label = args.path("label").asText("").strip();
+                    Patrons.Level lvl = args.path("level").asText("").isBlank() ? Patrons.Level.read : Patrons.levelOf(args.path("level").asText(""));
+                    if (lvl == null || lvl == Patrons.Level.deny) throw ProtocolError.invalidArgs("level is read or write.");
+                    ApiKeys.Minted m = ApiKeys.mint(store, Accounts.OWNER, label, lvl);
+                    r.put("id", m.key().id()).put("prefix", m.key().prefix()).put("level", m.key().level().name()).put("label", m.key().label()).put("key", m.secret());
+                    r.put("summary", "A new key for " + m.key().label() + ", which " + (m.key().reads() ? "reads" : "reads and writes") + ". It is shown this once; the library keeps only its hash.");
+                }
+                case "revoke" -> {
+                    String which = reqStr(args, "key_id").strip();
+                    if (!ApiKeys.revoke(store, Accounts.OWNER, which)) throw ProtocolError.invalidArgs("There is no key of yours named " + which + ". op=keys lists them.");
+                    r.put("key_id", which).put("revoked", true).put("summary", "The key is revoked; a program that used it is refused from now on.");
+                }
+                default -> throw ProtocolError.invalidArgs("op is collect, readers, allow, remove, invite, requests, approve, deny, keys, key or revoke.");
+            }
+        } catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         return r;
     }
 
@@ -2196,6 +3021,8 @@ public final class LibraryProtocol {
     static volatile long SUBMIT_CHECK_MS = Math.max(1, Config.getInt("RESEARCHZOSHO_SUBMIT_CHECK_SECONDS", 45)) * 1000L;   // a test shortens it
 
     public static final int DEFAULT_TURNS = 0;
+    /** The minutes a run about a video the person remembers has when they set none: the candidates, the sift over a thousand pictures, the looks. */
+    public static final int FIND_ONE_MINUTES = 90;
 
     /**
      * Before the checks that refuse a question too short to research: a program's short question that reads as a person asking about
@@ -2223,6 +3050,8 @@ public final class LibraryProtocol {
         if (!sources.equals("both") && !sources.equals("shelves") && !sources.equals("web")) throw ProtocolError.invalidArgs("sources must be both, shelves or web.");
         JsonNode quick = args.path("quick");
         if (!quick.isMissingNode() && !quick.isNull() && !quick.isBoolean()) throw ProtocolError.invalidArgs("quick, when given, is true or false.");
+        JsonNode paid = args.path("paid");
+        if (!paid.isMissingNode() && !paid.isNull() && !paid.isBoolean()) throw ProtocolError.invalidArgs("paid, when given, is true or false: false leaves the paid search places off for this run.");
         JsonNode colls = args.path("collections");
         if (!colls.isMissingNode() && !colls.isNull() && (!colls.isArray() || colls.size() > 8)) throw ProtocolError.invalidArgs("collections must be an array of at most 8 names.");
         JsonNode subs = args.path("sub_questions");
@@ -2233,6 +3062,7 @@ public final class LibraryProtocol {
         JsonNode field = args.path("field");
         if (!field.isMissingNode() && !field.isNull() && (!field.isTextual() || field.asText().isBlank())) throw ProtocolError.invalidArgs("field, when given, is the name of one of the library's fields, for example \"science\".");
         validateAllow(args);
+        ReportOptions.of(args);   // length, citations, shape (0.7.0): a value none of its option's is refused with what it takes
     }
 
     /** What {@code allow}, when given, may say: a list of the names in {@link ContentPolicy#ALLOW_NAMES}, once each. */
@@ -2279,6 +3109,12 @@ public final class LibraryProtocol {
     }
 
     /** The fields a job's arguments ask for: {@code field}, one name (older jobs carry none). */
+    /** The goal a filed run serves by name, from its job's args: what the asker named, kept so the run's workers get its rules. */
+    public static List<String> goalsOf(JsonNode args) {
+        String g = args == null ? "" : args.path("goal").asText("").strip();
+        return g.isEmpty() ? List.of() : List.of(g.toLowerCase(Locale.ROOT));
+    }
+
     public static List<String> fieldsOf(JsonNode args) {
         String f = args == null ? "" : args.path("field").asText("").strip();
         return f.isEmpty() ? List.of() : List.of(f.toLowerCase(Locale.ROOT));
@@ -2295,6 +3131,19 @@ public final class LibraryProtocol {
     }
 
     public ObjectNode research(JsonNode args) throws IOException { return research(args, Way.PROGRAM); }
+
+    /**
+     * The field a goal's name resolves to, through the goals registry: a goal backed by one field names it; a goal backed by several (a
+     * dossier on a person or an organisation) names none, and the run's fields choose by the question as they do; a name that is no goal
+     * is refused with the goals' names.
+     */
+    static String goalField(String goal) {
+        String g = goal == null ? "" : goal.strip();
+        if (g.isEmpty()) return "";
+        Goal known = Goals.named(g);
+        if (known == null) throw ProtocolError.invalidArgs("This library has no goal called \"" + g + "\". Its goals are: " + String.join(", ", Goals.known().stream().map(Goal::name).toList()) + ".");
+        return known.profiles().size() == 1 ? known.profiles().get(0).name() : "";
+    }
 
     /**
      * A research run filed. {@code field} names a field the run is to be (a field that joins only when asked joins only this way); a name
@@ -2325,7 +3174,16 @@ public final class LibraryProtocol {
         Patrons.check(store, patron, Patrons.Level.write);
         if (offer == null) helpBeforeTooShort(args, way);
         validateResearch(args);
+        if (args.path("choices").isArray() && args.path("choices").size() > 0) {   // a question with named choices: the run waits for one of them, or for the time to pass
+            List<String> choices = new ArrayList<>();
+            for (JsonNode c : args.path("choices")) if (c.isTextual() && !c.asText().isBlank() && choices.size() < 8 && !choices.contains(c.asText().strip())) choices.add(c.asText().strip());
+            if (choices.size() < 2) throw ProtocolError.invalidArgs("choices needs two to eight names to choose among.");
+            String cq = args.path("choice_question").asText("").strip();
+            offer = (offer == null ? new Jobs.Offer(null, false, List.of()) : offer).withChoices(choices, cq.isEmpty() ? "Which of these is meant?" : cq);
+            if (offeredUntil <= 0) offeredUntil = System.currentTimeMillis() + Librarian.OFFER_MINUTES * 60_000L;
+        }
         String field = args.path("field").asText("").strip();
+        if (field.isEmpty()) field = goalField(args.path("goal").asText("").strip());   // a goal names the run's shape (DESIGN_BRAIN.md §5)
         if (!field.isEmpty()) {
             Profile p = Profiles.named(field);
             List<String> on = Profiles.enabledProfiles(store).stream().map(Profile::name).toList();
@@ -2368,7 +3226,7 @@ public final class LibraryProtocol {
         String entryName = args.path("model").asText("").strip().toLowerCase(Locale.ROOT);
         if (entryName.isEmpty() && Auto.isDefault()) entryName = Auto.NAME;   // nothing named, and there is a choice: best judgement, made when the run starts
         if (!entryName.isEmpty() && !entryName.equals(ModelEntries.DEFAULT)) {
-            if (!entryName.equals(Auto.NAME) && ModelEntries.get(entryName) == null) throw ProtocolError.invalidArgs("No model is named " + entryName + ". The names are: auto, " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");
+            if (!entryName.equals(Auto.NAME) && ModelEntries.get(entryName) == null) throw ProtocolError.invalidArgs(ModelEntries.noMatch(entryName));
             a.put("model_entry", entryName);
         }
         // "this one first": a full run, with the full limits, ahead of the others waiting — quick is a lookup with short limits, not this
@@ -2379,6 +3237,7 @@ public final class LibraryProtocol {
             for (JsonNode s : args.path("sub_questions")) subs.add(s.asText().strip());
         }
         a.put("sources", args.path("sources").asText("both"));
+        if (!args.path("paid").asBoolean(true)) a.put("paid", false);   // no paid search place for this run: the tally's gate leaves them off (SearchTally)
         if (args.hasNonNull("seek") && !args.get("seek").asText().isBlank()) a.put("seek", Seeks.checkedName(args.get("seek").asText()));   // a seek: its own copy of the shelves
         if (args.path("collections").isArray() && args.path("collections").size() > 0) {
             ArrayNode cs = a.putArray("collections");
@@ -2386,6 +3245,11 @@ public final class LibraryProtocol {
         }
         Fields.Suggestion told = null;
         if (!field.isEmpty()) { a.put("field", field); a.put("field_how", way.how()); }
+        String goalAsked = args.path("goal").asText("").strip();   // a goal named by the asker travels with the run, so its workers get the goal's rules (a goal backed by several fields names no field)
+        if (!goalAsked.isEmpty() && Goals.named(goalAsked) != null) a.put("goal", Goals.named(goalAsked).name());
+        // a run about a video the person remembers plans for the funnel: the candidates, the sift over their thumbnails and first sheets, then the looks; ninety minutes when the person set no ceiling
+        boolean findOneMinutes = maxMinutes == 0 && !quick && "choose".equals(a.path("goal").asText("")) && YoutubeProfile.findOne(question);
+        if (findOneMinutes) { maxMinutes = FIND_ONE_MINUTES; a.put("max_minutes", maxMinutes); }
         else if (way.tell() && (told = Fields.tell(store, question, way.where())) != null) a.putObject("suggested").put("field", told.field()).put("offer", told.offer());
         // what this run lets in that the library leaves out by default: only what the caller named in allow, for this run alone
         if (!allow.isEmpty()) {
@@ -2401,6 +3265,8 @@ public final class LibraryProtocol {
         if (!key.isEmpty()) a.put("idempotency_key", key);
         String title = args.path("title").asText("").strip();
         if (!title.isEmpty()) a.put("title", Acquisitions.compress(title, 160));
+        ReportOptions options = ReportOptions.of(args);   // the report's length, citations and shape, as the ask named them; the run adds the library's defaults
+        options.put(a);
         String deltaOf = args.path("delta_of").asText("").strip();
         if (!deltaOf.isEmpty()) {
             if (!deltaOf.startsWith("I-") || !LibraryStore.safeName(deltaOf)) throw ProtocolError.invalidArgs("delta_of names an earlier report by its id (I-…).");
@@ -2423,14 +3289,18 @@ public final class LibraryProtocol {
         ObjectNode r = envelope();
         r.put("job_id", id);
         r.put("state", offer != null ? Jobs.OFFERED : "queued");
+        if (offer != null && offer.asksChoice()) { ArrayNode oc = r.putArray("offered_choices"); offer.choices().forEach(oc::add); r.put("offered_question", offer.question()); }
         if (quick) r.put("quick", true);
         if (priority) r.put("priority", true);
+        if (a.has("paid")) r.put("paid", false);
+        if (findOneMinutes) { r.put("max_minutes", maxMinutes); r.put("note", "A run about a video you remember has " + FIND_ONE_MINUTES + " minutes by default: it gathers the candidates, sifts their thumbnails and first sheets, then looks at the survivors. --max-minutes sets another ceiling."); }
         if (!field.isEmpty()) r.put("field", field);
         if (!allow.isEmpty()) r.set("allow", a.get("allow").deepCopy());
         if (told != null) r.putObject("suggestion").put("field", told.field()).put("why", told.offer()).put("how", told.how());
         if (!needs.isEmpty()) r.set("content_suggestion", ContentOffer.suggestion(needs));
         if (pending) r.put("content_check", "pending");
         if (a.hasNonNull("title")) r.put("title", a.get("title").asText());
+        if (!options.isEmpty()) r.set("options", options.json());
         // the judge could not tell whether the question is a person asking about harming themselves: the help is shown anyway, it costs nothing
         if (detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !allow.contains(ContentPolicy.SELF_HARM)) {
             Locale l = localeOf(args);
@@ -2636,6 +3506,17 @@ public final class LibraryProtocol {
             r.put("paused", op.equals("pause"));
             return r;
         }
+        if (op.equals("choose")) {   // the person's answer to a run that waits for one of the named choices: a program sends it only after asking them
+            Patrons.check(store, patron, Patrons.Level.write);
+            if (id.isEmpty()) throw ProtocolError.invalidArgs("choose needs job_id.");
+            ObjectNode j = jobs.get(id);
+            if (j == null || !Jobs.OFFERED.equals(j.path("state").asText()) || !Jobs.choiceWaits(j)) throw ProtocolError.invalidArgs("Research run " + id + " is not waiting for a choice.");
+            String choice = Jobs.choiceOf(j, args.path("choice").asText(""));
+            if (choice == null) { List<String> cs = new ArrayList<>(); int n = 0; for (JsonNode c : j.path("offered_choices")) cs.add(++n + " " + c.asText()); throw ProtocolError.invalidArgs("Say which, by number or by name: " + String.join(", ", cs) + "."); }
+            if (!jobs.releaseChoice(id, choice)) throw ProtocolError.invalidArgs("Research run " + id + " is not waiting for a choice.");
+            r.put("job_id", id); r.put("choice", choice); r.put("state", jobs.get(id).path("state").asText());
+            return r;
+        }
         if (op.equals("allow") || op.equals("decline")) {   // the person's answer to a run the service held: a program sends it only after asking them
             Patrons.check(store, patron, Patrons.Level.write);
             if (id.isEmpty()) throw ProtocolError.invalidArgs(op + " needs job_id.");
@@ -2804,9 +3685,18 @@ public final class LibraryProtocol {
                 if (inv == null) return null;
                 ObjectNode e = M.createObjectNode();
                 e.put("id", inv.id()); e.put("kind", "investigation"); e.put("state", inv.state().name());
-                e.put("claim_type", "synthesis"); e.put("confidence", "medium");
+                // a report one of its own checks holds back is a draft that waits for the keeper's eye: its confidence is low, and waits says who held it and why
+                ReportStanding.Row hold = inv.state() == Finding.State.draft ? ReportStanding.held(store, inv) : null;
+                e.put("claim_type", "synthesis"); e.put("confidence", hold != null ? "low" : "medium");
                 e.put("writer", inv.writer()); e.put("recorded_at", inv.recordedAt());
                 e.put("title", inv.title());
+                if (!inv.language().isEmpty()) e.put("language", inv.language());   // the language it was written in, when the library's setting or the question decided it
+                if (!inv.options().isEmpty()) e.set("options", inv.options().json());   // the length, citations and shape it was written with (0.7.0)
+                if (hold != null) {
+                    ObjectNode w = e.putObject("waits");
+                    w.put("held_by", hold.by()); w.put("date", hold.date()); w.put("topic", hold.topic().equals("-") ? "" : hold.topic());
+                    ArrayNode why = w.putArray("reasons"); for (String reason : hold.reasons()) why.add(reason);
+                }
                 e.put("body", full ? inv.body() : Acquisitions.compress(inv.body(), 500));
                 ArrayNode fs = e.putArray("findings");
                 for (String fid : inv.findings()) fs.add(fid);
@@ -3214,6 +4104,15 @@ public final class LibraryProtocol {
                 for (String k : List.of("report", "subject", "kind", "tier", "confidence", "writer", "state", "language", "q")) if (args.hasNonNull(k)) f.put(k, args.path(k).asText());
                 ArrayNode items = r.putArray("items");
                 for (var o : inboxList()) if (inboxMatches(o, f)) items.add(o);
+                // the reports that wait for the keeper's eye, beside the claims: each with why it waits; op=accept with its id accepts it as it stands
+                ArrayNode reports = r.putArray("reports");
+                for (ReportStanding.Waiting w : ReportStanding.waiting(store)) {
+                    if (f.containsKey("report") && !w.report().id().startsWith(f.get("report"))) continue;
+                    ObjectNode o = reports.addObject();
+                    o.put("id", w.report().id()); o.put("title", w.report().title()); o.put("state", w.report().state().name());
+                    o.put("held_by", w.hold().by()); o.put("date", w.hold().date()); o.put("topic", w.hold().topic().equals("-") ? "" : w.hold().topic());
+                    ArrayNode why = o.putArray("reasons"); for (String reason : w.hold().reasons()) why.add(reason);
+                }
                 ArrayNode recalls = r.putArray("recalls");   // notices that may concern what the person owns, beside the claims
                 for (Recalls.Hit h : Recalls.hits(store, true)) recalls.add(h.json());
             }
@@ -3230,6 +4129,14 @@ public final class LibraryProtocol {
                 Council c = new Council(store);
                 ArrayNode decided = r.putArray("decided");
                 for (String id : new LinkedHashSet<>(ids)) {
+                    // a report's own id: accept takes the report as it stands, the keeper having looked; the other two are for claims
+                    if (id.matches("I-\\d+-[a-z0-9-]+")) {
+                        if (!op.equals("accept")) throw ProtocolError.invalidArgs("A report can be accepted; dispute and retire are for claims. " + id + " is a report.");
+                        if (store.investigation(id) == null) throw ProtocolError.notFound("No report has the id " + id + ".");
+                        Investigation accepted = ReportStanding.accept(store, id, ReportStanding.PERSON);
+                        ObjectNode d = decided.addObject(); d.put("id", accepted.id()); d.put("state", accepted.state().name()); d.put("title", accepted.title()); d.put("kind", "report");
+                        continue;
+                    }
                     if (store.finding(id) == null) throw ProtocolError.notFound("No claim has the id " + id + ".");
                     Finding f = switch (op) { case "accept" -> c.accept(id); case "retire" -> c.retire(id); default -> c.dispute(id, why); };
                     ObjectNode d = decided.addObject(); d.put("id", f.id()); d.put("state", f.state().name()); d.put("title", f.title());

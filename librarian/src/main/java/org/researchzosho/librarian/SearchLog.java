@@ -17,6 +17,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.text.Normalizer;
 
 /**
@@ -51,9 +52,27 @@ public final class SearchLog {
      */
     public static String outcome(String observation) {
         String o = observation == null ? "" : observation.strip();
-        if (o.startsWith(ALREADY) || o.startsWith(RecordSearchTool.USED_UP) || o.startsWith("ERROR: no source") || o.startsWith("ERROR: empty query")) return null;
+        if (o.startsWith(ALREADY) || o.startsWith(RecordSearchTool.USED_UP) || o.startsWith("ERROR: no source") || o.startsWith("ERROR: empty query") || NOT_MADE.matcher(o).lookingAt()) return null;
         if (o.isEmpty() || o.startsWith("ERROR") || o.startsWith(DEGRADED)) return FAILED;
         return OK;
+    }
+
+    /**
+     * How a place says the call was not one it could make, so nothing was searched: a word missing or of the wrong kind ("site is needed",
+     * "kind must be one of …", "episodes needs feed"), or the place's own count of calls in one run used up. Never a collection that did
+     * not answer.
+     */
+    static final Pattern NOT_MADE = Pattern.compile("ERROR: (?:\\w+ is (?:empty|needed)|\\w+ must be |kind is |site is |\\w+ needs |this run has made its |\\w+ has been called )");
+
+    /** The places whose answers list their results as lines that start with a dash, not with a number: the threads, the books, the shops' listings. */
+    static final Set<String> LISTED_WITH_DASHES = Set.of("forums", "books", "shops");
+
+    /** How many results a search's answer lists: its numbered lines, or for a place that lists with dashes, the lines that start with one. */
+    public static int found(String where, String observation) {
+        if (observation == null) return 0;
+        int n = (int) observation.lines().filter(l -> l.matches("\\d+\\. .*")).count();
+        if (n == 0 && LISTED_WITH_DASHES.contains(where)) n = (int) observation.lines().filter(l -> l.startsWith("- ")).count();
+        return n;
     }
 
     private static final ObjectMapper M = new ObjectMapper();

@@ -23,6 +23,8 @@ public final class CraftsProfile implements Profile {
 
     @Override public String name() { return "crafts"; }
 
+    @Override public String goalName() { return "learn-a-craft"; }
+
     @Override public String description() { return "doing and making: any craft, hobby, sport, martial art, trade or community people join, with the kit — what one needs, what its rules demand, how it goes together, how to make it today, where to learn, what substitutes, where to get it"; }
 
     @Override public List<Vocabulary.Term> predicates() {
@@ -38,7 +40,9 @@ public final class CraftsProfile implements Profile {
             "how to make", "how do i make", "how can i make", "how to build", "how do i build", "how to weave", "how to knit", "how to sew", "how to carve", "how to forge", "how to cast", "how to dye", "how to braid", "how to replicate",
             "how do i weave", "how do i knit", "how do i sew", "how do i carve", "how do i forge", "what do i need to", "what do you need to", "what is needed to", "what tools do i need", "what materials do i need", "which tools do i need",
             "supplies for", "materials for", "a kit for", "the kit for", "pattern for", "patterns for", "knitting pattern", "sewing pattern", "crochet pattern", "weaving draft", "woodworking plan", "make my own", "making my own",
-            "do it yourself", "handicraft", "handicrafts", "作り方", "作るには", "必要な道具", "必要な材料", "手作り", "工芸", "手芸", "編み方", "織り方");
+            "do it yourself", "handicraft", "handicrafts", "作り方", "作るには", "必要な道具", "必要な材料", "手作り", "編み方", "織り方",
+            // 工芸 and 手芸 only with a word of doing: bare, they took a craft workshop's hiring page and a history of crafts (2026-11-05)
+            "工芸を始め", "工芸を習", "工芸を学", "工芸の技法", "手芸を始め", "手芸で作", "手芸の手順", "手芸の作り方");
 
     /** The words of taking something up — a sport, a martial art, a trade: what one needs, how it goes together, where to learn. They count only
      *  with a kind the list names ("how do I get into PRS"), since "how do I start" alone opens a family tree as readily as a sport. */

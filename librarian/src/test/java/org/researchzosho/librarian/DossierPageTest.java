@@ -27,6 +27,8 @@ class DossierPageTest {
         String html = DossierPage.render(store, "Ada Example");
         assertTrue(html.contains("<h2 id=\"identity\">Identity</h2>") && html.contains("<b>Ada Example</b>") && html.contains("How resolved</b> Resolved by two handles."), html);
         assertTrue(html.contains("Question of the latest run</div>Who is Ada Example?"), html);
+        assertTrue(html.contains("<details class=\"sec made\"><summary><h2>How this was made</h2> <span class=\"gist\">1 run, 2 claims, 1 site, 1 told, last run ") && !html.contains("class=\"sec made\" open"), "how it was made, behind a fold closed by default: " + html.substring(html.indexOf("How this was made") - 60, html.indexOf("How this was made") + 200));
+        assertTrue(html.contains("<dt>Runs</dt><dd><ul class=\"plain\"><li><a href=\"/entry/" + i1 + "\">Who is Ada Example?</a>") && html.contains("from 1 site (www.sec.gov); 1 told.") && html.contains("<dt>Dates</dt><dd>The claims were recorded on "), html.substring(html.indexOf("<dl class=\"made\">"), html.indexOf("<dl class=\"made\">") + 700));
         assertTrue(html.contains("<h2 id=\"reading\">") && html.contains("Ada Example is an engineer"), html);
         assertTrue(html.contains("<h2 id=\"work\">What they do</h2>") && html.contains("No report describes the work yet"), "a report without The work or Material says so: " + html.substring(html.indexOf("id=\"work\""), html.indexOf("id=\"work\"") + 300));
         String i2 = store.nextInvestigationId("Who is Ada Example? Her work.");

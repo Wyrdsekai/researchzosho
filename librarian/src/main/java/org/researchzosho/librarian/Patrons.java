@@ -133,7 +133,11 @@ public final class Patrons {
     }
 
     /** Throws {@code forbidden} when the patron's level is below {@code need}. */
+    /** The runtimes a key gives its patron: a write key does what the person may; a read key reads only, whatever they may. */
+    public static final String KEY = "key", KEY_READ = "key-read";
+
     public static void check(LibraryStore store, Patron patron, Level need) throws IOException {
+        if (KEY_READ.equals(patron.runtime()) && need == Level.write) throw ProtocolError.forbidden("This key reads only. A key that writes is made on the Keep page, or with researchzosho keys new --write.");
         if (patron.person()) return;   // the keeper of the library, on their own machine
         // through the shared door only a listed reader gets in, whatever the default says: the door faces the world, the main port faces the house
         if (patron.door() && (patron.anonymous() || patron.web())) throw ProtocolError.forbidden("Through the shared door only a listed reader gets in. Sign in with your name and password, or ask to be let in from the sign-in page.");

@@ -3,6 +3,7 @@ package org.researchzosho.drive;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
@@ -58,4 +59,48 @@ class DriveSlotPinTest {
             } finally { s.stop(0); }
         }
     }
+
+    static ArrayNode picture() {
+        ArrayNode msgs = M.createArrayNode();
+        ArrayNode content = msgs.addObject().put("role", "user").putArray("content");
+        content.addObject().put("type", "text").put("text", "What words are on this frame?");
+        content.addObject().put("type", "image_url").putObject("image_url").put("url", "data:image/png;base64," + "A".repeat(600_000));
+        return msgs;
+    }
+
+    @Test
+    void aPictureTakesNoCachedPromptAndCountsAsAPictureForItsTime() throws Exception {
+        List<JsonNode> bodies = new CopyOnWriteArrayList<>();
+        HttpServer s = fake(4, bodies);
+        try {
+            DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m");
+            c.contextWindow();
+            c.classify(picture(), 8);
+            JsonNode b = bodies.get(bodies.size() - 1);
+            assertFalse(b.has("id_slot"), "a picture names no slot: " + b.path("id_slot"));
+            assertFalse(b.path("cache_prompt").asBoolean(true), "and llama.cpp does not reuse a cached prompt for it");
+            c.classify(hello(), 8);
+            assertFalse(bodies.get(bodies.size() - 1).has("id_slot"), "words alone name none either");
+            assertFalse(bodies.get(bodies.size() - 1).has("cache_prompt"), "and keep the server's own caching");
+        } finally { s.stop(0); }
+        // the time limit counts a picture as about 1,500 tokens, never as its base64
+        ObjectNode body = M.createObjectNode(); body.set("messages", picture());
+        int chars = DriveClient.promptChars(body);
+        assertTrue(chars < 6_000 && chars >= DriveClient.PICTURE_CHARS, "a 600,000-character picture counts as " + chars);
+        assertTrue(DriveClient.carriesPicture(picture()) && !DriveClient.carriesPicture(hello()));
+        ObjectNode words = M.createObjectNode(); words.set("messages", hello());
+        assertEquals(words.toString().length(), DriveClient.promptChars(words), "words count as they are");
+    }
+
+    @Test
+    void aServerThatIsNotLlamaCppIsSentNoLlamaCppField() throws Exception {
+        List<JsonNode> bodies = new CopyOnWriteArrayList<>();
+        HttpServer s = fake(null, bodies);   // a server that says nothing of itself: not llama.cpp
+        try {
+            DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m");
+            c.classify(picture(), 8);
+            assertFalse(bodies.get(bodies.size() - 1).has("cache_prompt"), "only llama.cpp is told not to reuse its cache");
+        } finally { s.stop(0); }
+    }
 }
+

@@ -2,44 +2,65 @@ package org.researchzosho.librarian;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.fontbox.ttf.TrueTypeCollection;
-import org.apache.fontbox.ttf.TrueTypeFont;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDFont;
-import org.apache.pdfbox.pdmodel.font.PDType0Font;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.researchzosho.librarian.ExportDoc.Block;
+import org.researchzosho.librarian.ExportDoc.Heading;
+import org.researchzosho.librarian.ExportDoc.Para;
+import org.researchzosho.librarian.ExportDoc.Span;
 
-import java.io.ByteArrayOutputStream;
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.function.UnaryOperator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import java.util.Arrays;
-import org.apache.fontbox.ttf.OpenTypeFont;
-import org.apache.fontbox.ttf.TTFParser;
-import org.apache.pdfbox.io.RandomAccessReadBufferedFile;
-import org.researchzosho.Config;
 /**
- * An entry, or a reading of it, as a file to keep or send: Markdown as it is, or a PDF laid out here with
- * PDFBox — headings, paragraphs, lists, page numbers — in a system font that can show Japanese and the
- * rest of the world's scripts when one is installed (Noto CJK, Hiragino, Meiryo…), Helvetica otherwise.
- * The PDF is a rendering of the record; the record stays the file in the library.
+ * An entry, a report or a dossier as a file to keep or send. An entry, or a reading of it: Markdown as it is, or a PDF. A report or a
+ * dossier (0.7.0): a PDF ({@link ExportPdf}) or a Word file ({@link ExportDocx}) that holds what its page shows, in the language the page
+ * is read in: a report's title, question, the answer's sections, how each point was checked, the open questions and sub-goals, the
+ * library's checks, the claims with their marks and the sources with links the reader clicks; a dossier's sections, the Reading first.
+ * The file is a rendering of the record; the record stays the file in the library. The protocol's export keeps the file under
+ * catalog/exports/, where the web pages serve it at /exports/&lt;name&gt;.
  */
 public final class Export {
 
     private Export() { }
 
     public record File(String name, String contentType, byte[] bytes) { }
+
+    /**
+     * A report or a dossier made into a file, with what a person is told of it: the language it was written in, the language of the file
+     * when it is a translation, a sentence when the file is not what was asked (no translation kept yet), and how many different characters
+     * no font on this computer could show (a PDF says which on its first page).
+     */
+    public record Made(File file, String kind, String writtenIn, String readIn, String note, int unshown) {
+        public boolean translated() { return !readIn.isEmpty(); }
+    }
+
+    public static final String PDF = "pdf", DOCX = "docx", MARKDOWN = "md";
+
+    /** A format as a person or a program names it: pdf, docx (word, doc), or md (markdown); null when it is none of them. */
+    public static String format(String f) {
+        String t = f == null ? "" : f.strip().toLowerCase(Locale.ROOT).replaceFirst("^\\.", "");
+        return switch (t) { case "pdf" -> PDF; case "docx", "word", "doc", "msword" -> DOCX; case "md", "markdown" -> MARKDOWN; default -> null; };
+    }
+
+    /** The three formats, as the error that refuses another names them. */
+    static final String FORMATS = "pdf, docx (Word) or md (Markdown)";
+
+    static String contentType(String format) {
+        return PDF.equals(format) ? "application/pdf" : MARKDOWN.equals(format) ? "text/markdown; charset=utf-8" : "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
 
     /** The Markdown document for an entry (as written) or a reading of it at a rung. */
     /** {@code brief}: the answer alone — the report's sections without the run's own checks, evidence and worker findings — and no claims list. */
@@ -53,6 +74,11 @@ public final class Export {
         try { return pdf(store, id, reading); } finally { BRIEF.remove(); }
     }
 
+    public static File docx(LibraryStore store, String id, Explain.Reading reading, boolean brief) throws IOException {
+        BRIEF.set(brief);
+        try { return docx(store, id, reading); } finally { BRIEF.remove(); }
+    }
+
     private static final ThreadLocal<Boolean> BRIEF = new ThreadLocal<>();
 
     public static File markdown(LibraryStore store, String id, Explain.Reading reading) throws IOException {
@@ -64,14 +90,28 @@ public final class Export {
         return new File(stem + ".md", "text/markdown; charset=utf-8", md.getBytes(StandardCharsets.UTF_8));
     }
 
-    public static File pdf(LibraryStore store, String id, Explain.Reading reading) throws IOException {
+    public static File pdf(LibraryStore store, String id, Explain.Reading reading) throws IOException { return laidOut(store, id, reading, PDF); }
+
+    public static File docx(LibraryStore store, String id, Explain.Reading reading) throws IOException { return laidOut(store, id, reading, DOCX); }
+
+    private static File laidOut(LibraryStore store, String id, Explain.Reading reading, String format) throws IOException {
         LibraryProtocol p = new LibraryProtocol(store);
         ObjectNode e = p.entry(id, p.kindOf(id), true);
         if (e == null) throw ProtocolError.notFound("entry " + id);
         String md = document(store, e, reading);
         String stem = id + (reading == null || reading.rung() == Explain.Rung.written ? "" : "-" + reading.rung().name());
         String footer = store.identity().name() + " · " + id + " · " + LocalDate.now();
-        return new File(stem + ".pdf", "application/pdf", render(md, footer));
+        ExportDoc d = ExportDoc.of(e.path("title").asText(id), Translate.languageOf(md), footer, md, Map.of(), src -> picture(store, src));
+        return new File(stem + "." + format, contentType(format), PDF.equals(format) ? ExportPdf.write(d).bytes() : ExportDocx.write(d));
+    }
+
+    /** A kept picture by its address under this library, with its bytes and the page it came from, for the writers to embed; null for any other address. */
+    static ExportDoc.Image picture(LibraryStore store, String src) {
+        if (src == null || !src.startsWith("/images/")) return null;
+        Path f = Images.kept(store, src.substring("/images/".length()));
+        if (f == null) return null;
+        Images.Shelved s = Images.entryFor(store, src);
+        try { return new ExportDoc.Image(s == null ? "" : s.title(), src, Files.readAllBytes(f), s == null ? "" : s.page()); } catch (IOException e) { return null; }
     }
 
     /** The document: a title, a line of facts, the text, then the sources; a reading says what it is and rests on. */
@@ -125,262 +165,242 @@ public final class Export {
         return sb.toString();
     }
 
-    // ---- PDF ----
+    // ---- a report and a dossier, as their pages show them (0.7.0) ----
 
-    static final float PAGE_W = PDRectangle.A4.getWidth(), PAGE_H = PDRectangle.A4.getHeight(), MARGIN = 56f;
+    /** The sections of a report a file leaves out: the run's own working, which the page folds away or lists for the record. */
+    static final List<String> WORKING = List.of("evidence", "worker findings", "sources cited", "languages of the sources", "web search", "source requests", "archived copies");
+    /** The library's own checks of a report, in the order the report carries them. */
+    static final List<String> CHECKS = List.of("revision after the checks", "checks", "cite-check", "coverage check", "declined");
 
-    static byte[] render(String markdown, String footer) throws IOException {
-        try (PDDocument doc = new PDDocument()) {
-            Fonts fonts = Fonts.load(doc);
-            Writer w = new Writer(doc, fonts, footer);
-            for (String raw : markdown.split("\n")) {
-                String line = raw.stripTrailing();
-                if (line.isBlank()) { w.gap(6); continue; }
-                if (line.startsWith("---")) { w.rule(); continue; }
-                if (line.startsWith("#")) {
-                    int n = 0; while (n < line.length() && line.charAt(n) == '#') n++;
-                    w.paragraph(plain(line.substring(n).strip()), fonts.bold, n == 1 ? 17f : n == 2 ? 13f : 11.5f, 0, n == 1 ? 10 : 8);
-                    continue;
-                }
-                if (line.strip().startsWith("|") && line.strip().endsWith("|")) {
-                    // a table row: the separator line is dropped; a row becomes one indented block, cells joined
-                    String body = line.strip();
-                    if (body.matches("\\|?\\s*:?-{2,}:?\\s*(\\|\\s*:?-{2,}:?\\s*)*\\|?")) continue;
-                    String[] cells = body.substring(1, body.length() - 1).split("(?<!\\\\)\\|");
-                    StringBuilder row = new StringBuilder();
-                    for (String cell : cells) { if (row.length() > 0) row.append("   ·   "); row.append(plain(cell.strip())); }
-                    w.paragraph(row.toString(), fonts.regular, 9.5f, 14, 4);
-                    continue;
-                }
-                if (line.matches("^\\s*[-*•]\\s+.*")) { w.paragraph("•  " + plain(line.replaceFirst("^\\s*[-*•]\\s+", "")), fonts.regular, 10.5f, 14, 2); continue; }
-                if (line.matches("^\\s*\\d+[.)]\\s+.*")) { w.paragraph(plain(line.strip()), fonts.regular, 10.5f, 14, 2); continue; }
-                boolean italic = line.startsWith("*") && line.endsWith("*") && line.length() > 2 && !line.startsWith("**");
-                w.paragraph(plain(line), italic ? fonts.italic : fonts.regular, italic ? 9.5f : 10.5f, 0, 3);
-            }
-            w.close();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            doc.save(out);
-            return out.toByteArray();
+    /**
+     * A report as a file: {@code format} pdf or docx; {@code in} the language it is read in ("" or "written": as written). A translation is
+     * the one the library keeps; when none is kept yet the file is the report as written, and says so under its title.
+     */
+    public static Made report(LibraryStore store, String id, String format, String in) throws IOException {
+        String fmt = format(format);
+        if (fmt == null) throw ProtocolError.invalidArgs("A report is saved as " + FORMATS + ".");
+        Investigation inv = id == null || !LibraryStore.safeName(id.strip()) ? null : store.investigation(id.strip());
+        if (inv == null) throw ProtocolError.notFound("No report has the id " + id + ".");
+        String written = Translate.writtenIn(inv), lang = language(in);
+        Translate.Translated tr = !lang.isEmpty() && !lang.equals(written) ? Translate.currentReport(store, inv, lang) : null;
+        String note = !lang.isEmpty() && !lang.equals(written) && tr == null
+                ? "There is no translation of this report into " + ReadIn.name(lang) + " yet, so this file is the report as it was written. Open the report's page and read it in " + ReadIn.name(lang) + " to have one made, then save the file again." : "";
+        UnaryOperator<String> t = s -> tr == null ? s : tr.words().getOrDefault(s, s);
+        String title = t.apply(inv.title());
+        if (MARKDOWN.equals(fmt)) {   // the same document as text: the title, the line of facts, the note, then the sections as the page shows them
+            String md = "# " + title.replace('\n', ' ') + "\n\n*" + facts(store, inv, written, tr == null ? "" : lang) + "*\n\n" + (note.isEmpty() ? "" : note + "\n\n") + reportMarkdown(store, inv, t);
+            return new Made(new File(inv.id() + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), md.getBytes(StandardCharsets.UTF_8)), "report", written, tr == null ? "" : lang, note, 0);
         }
+        List<Block> blocks = new ArrayList<>();
+        blocks.add(new Heading(1, List.of(Span.plain(title.replace('\n', ' ')))));
+        blocks.add(new Para(List.of(Span.plain(facts(store, inv, written, tr == null ? "" : lang))), true));
+        if (!note.isEmpty()) blocks.add(new Para(List.of(Span.plain(note)), false));
+        blocks.addAll(ExportDoc.parse(reportMarkdown(store, inv, t), cites(inv.body())));
+        ExportDoc d = new ExportDoc(title, tr == null ? written : lang, store.identity().name() + " · " + shortId(inv.id()) + " · " + LocalDate.now(), blocks);
+        return made(d, inv.id() + (tr == null ? "" : "." + lang), fmt, "report", written, tr == null ? "" : lang, note);
     }
 
-    /** Markdown marks off, for a line of PDF text. */
-    static String plain(String s) {
-        return s.replaceAll("\\*\\*([^*]+)\\*\\*", "$1").replaceAll("(?<!\\*)\\*([^*]+)\\*(?!\\*)", "$1").replace("`", "")
-                .replaceAll("\\[([^\\]]+)\\]\\((https?://[^)]+)\\)", "$1 <$2>").replaceAll("\\[\\[([^\\]|]+)(?:\\|[^\\]]+)?\\]\\]", "$1");
+    /** A report's full id from what a person types: the full id, or its number alone ("I-0265", "0265"); as given when nothing matches. */
+    static String reportId(LibraryStore store, String typed) throws IOException {
+        String t = typed == null ? "" : typed.strip();
+        if (t.matches("\\d{1,5}")) t = "I-" + "0".repeat(Math.max(0, 4 - t.length())) + t;
+        if (!t.matches("I-\\d{4,5}") || !Files.isDirectory(store.investigationsDir())) return t;
+        try (var files = Files.list(store.investigationsDir())) {
+            String prefix = t + "-";
+            for (Path p : files.sorted().toList()) { String n = p.getFileName().toString(); if (n.startsWith(prefix) && n.endsWith(".md")) return n.substring(0, n.length() - 3); }
+        }
+        return t;
     }
 
-    /** A font family that can show the text: a system CJK-capable TrueType when one is installed, Helvetica otherwise. */
-    static final class Fonts {
-        final PDFont regular, bold, italic; final boolean unicode;
-        /** For the characters the Latin family lacks — Japanese, Chinese, Korean — a wide font, when the box has one. */
-        PDFont fallback;
-        Fonts(PDFont r, PDFont b, PDFont i, boolean unicode) { regular = r; bold = b; italic = i; this.unicode = unicode; }
-
-        static final String[][] LATIN = {
-            {"/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Italic.ttf"},
-            {"/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSerif-Bold.ttf", "/usr/share/fonts/truetype/liberation/LiberationSerif-Italic.ttf"},
-            {"/System/Library/Fonts/Supplemental/Georgia.ttf", "/System/Library/Fonts/Supplemental/Georgia Bold.ttf", "/System/Library/Fonts/Supplemental/Georgia Italic.ttf"},
-            {"/System/Library/Fonts/Supplemental/Times New Roman.ttf", "/System/Library/Fonts/Supplemental/Times New Roman Bold.ttf", "/System/Library/Fonts/Supplemental/Times New Roman Italic.ttf"},
-            {"C:\\Windows\\Fonts\\georgia.ttf", "C:\\Windows\\Fonts\\georgiab.ttf", "C:\\Windows\\Fonts\\georgiai.ttf"},
-            {"C:\\Windows\\Fonts\\times.ttf", "C:\\Windows\\Fonts\\timesbd.ttf", "C:\\Windows\\Fonts\\timesi.ttf"},
-        };
-
-        // TrueType (glyf) fonts only: PDFBox subsets those, so a PDF stays small. The Noto CJK files are OpenType CFF,
-        // which it cannot subset — embedding one whole is 25 MB per PDF — so they are not on this list.
-        static final String[][] CANDIDATES = {
-            {"/usr/share/fonts/truetype/fonts-japanese-gothic.ttf", null},
-            {"/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf", null},
-            {"/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf", null},
-            {"/usr/share/fonts/truetype/wqy/wqy-microhei.ttc", null},
-            {"/System/Library/Fonts/Hiragino Sans GB.ttc", null},
-            {"/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc", "/System/Library/Fonts/ヒラギノ角ゴシック W6.ttc"},
-            {"/Library/Fonts/Arial Unicode.ttf", null},
-            {"C:\\Windows\\Fonts\\YuGothM.ttc", "C:\\Windows\\Fonts\\YuGothB.ttc"},
-            {"C:\\Windows\\Fonts\\meiryo.ttc", "C:\\Windows\\Fonts\\meiryob.ttc"},
-            {"C:\\Windows\\Fonts\\msgothic.ttc", null},
-            {"/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"},
-        };
-
-        static Fonts load(PDDocument doc) {
-            Fonts f = null;
-            for (String[] trio : LATIN) {
-                try {
-                    PDFont r = open(doc, trio[0]);
-                    if (r == null) continue;
-                    PDFont b = open(doc, trio[1]), i = open(doc, trio[2]);
-                    f = new Fonts(r, b == null ? r : b, i == null ? r : i, true);
-                    break;
-                } catch (Exception ignored) { }
-            }
-            if (f == null) f = new Fonts(new PDType1Font(Standard14Fonts.FontName.HELVETICA), new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD),
-                    new PDType1Font(Standard14Fonts.FontName.HELVETICA_OBLIQUE), false);
-            String override = Config.get("RESEARCHZOSHO_PDF_FONT", "");
-            List<String[]> tries = new ArrayList<>();
-            if (!override.isBlank()) tries.add(new String[]{override, null});
-            tries.addAll(Arrays.asList(CANDIDATES));
-            for (String[] pair : tries) {
-                try { PDFont w = open(doc, pair[0]); if (w != null) { f.fallback = w; break; } } catch (Exception ignored) { }
-            }
-            return f;
-        }
-
-        /** Whether some font on this box can show the character (the box may have a Latin family and no CJK one). */
-        boolean canShow(int cp) { return fontFor(regular, cp) != null; }
-
-        /** The font that shows this character: the family's own, the wide fallback, or null when nothing can. */
-        PDFont fontFor(PDFont family, int cp) {
-            String ch = new String(Character.toChars(cp));
-            try { family.encode(ch); return family; } catch (Exception e) { }
-            if (fallback != null) { try { fallback.encode(ch); return fallback; } catch (Exception e) { } }
-            return null;
-        }
-
-        static PDFont open(PDDocument doc, String path) throws IOException {
-            java.io.File f = new java.io.File(path);
-            if (!f.isFile()) return null;
-            if (path.toLowerCase(Locale.ROOT).endsWith(".ttc")) {
-                TrueTypeCollection ttc = new TrueTypeCollection(f);
-                final TrueTypeFont[] pick = {null, null};
-                ttc.processAllFonts(t -> { if (pick[0] == null) pick[0] = t; if (pick[1] == null && t.getName() != null && t.getName().toLowerCase(Locale.ROOT).contains("jp")) pick[1] = t; });
-                TrueTypeFont chosen = pick[1] != null ? pick[1] : pick[0];
-                if (chosen == null || (chosen instanceof OpenTypeFont o && o.isPostScript())) return null;   // CFF: cannot be subset
-                return PDType0Font.load(doc, chosen, true);
-            }
-            TrueTypeFont ttf = new TTFParser().parse(new RandomAccessReadBufferedFile(f));
-            if (ttf instanceof OpenTypeFont o && o.isPostScript()) { ttf.close(); return null; }
-            return PDType0Font.load(doc, ttf, true);
-        }
+    /** The language a file is asked in, as a code; "" for the language it was written in. */
+    static String language(String in) {
+        String s = in == null ? "" : in.strip();
+        return s.isEmpty() || s.equalsIgnoreCase("written") ? "" : Translate.code(s);
     }
 
-    /** Lines onto pages: word-wrapped, CJK breaks anywhere, a footer with the page number. */
-    static final class Writer {
-        final PDDocument doc; final Fonts fonts; final String footer;
-        PDPageContentStream cs; float y; int pageNo = 0;
-        Writer(PDDocument doc, Fonts fonts, String footer) throws IOException { this.doc = doc; this.fonts = fonts; this.footer = footer; newPage(); }
+    private static Made made(ExportDoc d, String stem, String fmt, String kind, String written, String readIn, String note) throws IOException {
+        byte[] bytes; int unshown = 0;
+        if (PDF.equals(fmt)) { ExportPdf.Result r = ExportPdf.write(d); bytes = r.bytes(); unshown = r.unshown(); }
+        else bytes = ExportDocx.write(d);
+        return new Made(new File(stem + "." + fmt, contentType(fmt), bytes), kind, written, readIn, note, unshown);
+    }
 
-        void newPage() throws IOException {
-            if (cs != null) { foot(); cs.close(); }
-            PDPage page = new PDPage(PDRectangle.A4);
-            doc.addPage(page);
-            cs = new PDPageContentStream(doc, page);
-            pageNo++;
-            y = PAGE_H - MARGIN;
-        }
-        void foot() throws IOException {
-            cs.beginText();
-            cs.setFont(fonts.regular, 8f);
-            cs.newLineAtOffset(MARGIN, MARGIN / 2);
-            cs.showText(safe(fonts.regular, footer + " · page " + pageNo));
-            cs.endText();
-        }
-        void gap(float pts) { y -= pts; }
-        void rule() throws IOException {
-            if (y < MARGIN + 20) newPage();
-            y -= 6;
-            cs.setLineWidth(0.5f); cs.moveTo(MARGIN, y); cs.lineTo(PAGE_W - MARGIN, y); cs.stroke();
-            y -= 8;
-        }
-        /** A piece of text in one font. */
-        record Run(PDFont font, String text, float width) { }
+    /** A claim's state in the words its page uses. */
+    static String stateWord(Finding.State s) {
+        return switch (s) { case accepted -> "accepted"; case draft -> "waiting for review"; case disputed -> "disputed"; case retired -> "retired"; case superseded -> "replaced by a newer claim"; };
+    }
 
-        void paragraph(String text, PDFont family, float size, float indent, float after) throws IOException {
-            float leading = size * 1.42f;
-            float width = PAGE_W - 2 * MARGIN - indent;
-            for (List<Run> line : wrap(text, family, size, width)) {
-                if (y < MARGIN + leading) newPage();
-                cs.beginText();
-                cs.newLineAtOffset(MARGIN + indent, y - size);
-                for (Run r : line) { cs.setFont(r.font(), size); cs.showText(r.text()); }
-                cs.endText();
-                y -= leading;
-            }
-            y -= after;
-        }
-        void close() throws IOException { foot(); cs.close(); }
+    /** "I-0265" of "I-0265-find-homes-…". */
+    static String shortId(String id) { String[] p = id.split("-"); return p.length >= 2 ? p[0] + "-" + p[1] : id; }
 
-        /** The footer's text in the family font, with anything it cannot show as a question mark. */
-        String safe(PDFont font, String s) {
-            StringBuilder b = new StringBuilder();
-            for (int i = 0; i < s.length(); ) {
-                int cp = s.codePointAt(i); i += Character.charCount(cp);
-                String ch = new String(Character.toChars(cp));
-                try { font.encode(ch); b.append(ch); } catch (Exception e) { b.append('?'); }
-            }
-            return b.toString();
-        }
+    /** The line of facts under a report's title: its id, when it was filed, its claims and open questions, its checks, its language. */
+    static String facts(LibraryStore store, Investigation inv, String written, String readIn) {
+        List<String> f = new ArrayList<>();
+        f.add("Report " + shortId(inv.id()));
+        String day = day(inv.recordedAt());
+        if (!day.isEmpty()) f.add("filed " + day);
+        f.add(inv.findings().size() + (inv.findings().size() == 1 ? " claim" : " claims") + ", " + inv.open().size() + (inv.open().size() == 1 ? " open question" : " open questions"));
+        JsonNode led = Pages.reportRun(store, inv.id()).ledger();
+        if (led != null && led.path("cite_checked").asInt(0) > 0)
+            f.add(led.path("cite_supported").asInt() + " of " + led.path("cite_checked").asInt() + " cited sentences checked against their sources" + (led.path("cite_unsupported").asInt(0) > 0 ? ", " + led.path("cite_unsupported").asInt() + " marked" : ""));
+        if (!inv.options().isEmpty()) f.add("written as asked: " + inv.options().described());
+        if (!readIn.isEmpty()) f.add("written in " + ReadIn.name(written) + ", read in " + ReadIn.name(readIn) + ": translated by the model, the cites, the claim ids, the dates and the sources as they stand");
+        else if (!written.equals("en")) f.add("written in " + ReadIn.name(written));
+        return String.join(" · ", f) + ".";
+    }
 
-        /**
-         * Lines of runs. A token is a word (kept whole), a space, or one CJK character (breaks anywhere, as the
-         * script does); each character takes the family font when it has the glyph, the wide fallback when not,
-         * and a question mark when nothing on the box can show it. An overlong token (a URL) breaks by character.
-         */
-        List<List<Run>> wrap(String text, PDFont family, float size, float width) throws IOException {
-            List<List<Run>> out = new ArrayList<>();
-            List<Run> line = new ArrayList<>();
-            float lineW = 0;
-            List<String> tokens = new ArrayList<>();
-            StringBuilder tok = new StringBuilder();
-            for (int i = 0; i < text.length(); ) {
-                int cp = text.codePointAt(i); i += Character.charCount(cp);
-                if (cp == '\t') cp = ' ';
-                boolean cjk = Character.isIdeographic(cp) || Character.UnicodeScript.of(cp) == Character.UnicodeScript.HIRAGANA || Character.UnicodeScript.of(cp) == Character.UnicodeScript.KATAKANA || Character.UnicodeScript.of(cp) == Character.UnicodeScript.HANGUL;
-                if (cp == ' ') { if (tok.length() > 0) { tokens.add(tok.toString()); tok.setLength(0); } tokens.add(" "); }
-                else if (cjk) { if (tok.length() > 0) { tokens.add(tok.toString()); tok.setLength(0); } tokens.add(new String(Character.toChars(cp))); }
-                else tok.appendCodePoint(cp);
-            }
-            if (tok.length() > 0) tokens.add(tok.toString());
-            for (String t : tokens) {
-                List<Run> runs = runs(t, family, size);
-                float w = 0; for (Run r : runs) w += r.width();
-                if (w > width) {   // a URL or the like: character by character
-                    for (int i = 0; i < t.length(); ) {
-                        int cp = t.codePointAt(i); i += Character.charCount(cp);
-                        List<Run> one = runs(new String(Character.toChars(cp)), family, size);
-                        float cw = one.get(0).width();
-                        if (lineW + cw > width && !line.isEmpty()) { out.add(line); line = new ArrayList<>(); lineW = 0; }
-                        append(line, one.get(0)); lineW += cw;
-                    }
-                    continue;
+    static String day(String iso) {
+        try { return Instant.parse(iso).atZone(ZoneId.systemDefault()).toLocalDate().format(DateTimeFormatter.ofPattern("d MMMM yyyy", Locale.ENGLISH)); }
+        catch (RuntimeException e) { return iso == null || iso.length() < 10 ? "" : iso.substring(0, 10); }
+    }
+
+    private static final Pattern REF = Pattern.compile("^\\[(\\d{1,5})\\]\\s+(.*)$");
+    private static final Pattern URL = Pattern.compile("https?://[^\\s<>\"\\]\\[]+");
+
+    /** A source's number → its address on the web, from the report's References, else its Sources section, wherever in the body they stand. */
+    static Map<Integer, String> cites(String body) {
+        Map<Integer, String> out = new LinkedHashMap<>();
+        for (String want : List.of("references", "sources")) {
+            for (String sec : Translate.sections(body)) {
+                if (!sec.toLowerCase(Locale.ROOT).startsWith("## " + want + "\n")) continue;
+                for (String line : sec.split("\n")) {
+                    Matcher m = REF.matcher(line.strip());
+                    if (!m.matches()) continue;
+                    Matcher u = URL.matcher(m.group(2));
+                    if (u.find()) out.putIfAbsent(Integer.parseInt(m.group(1)), u.group().replaceAll("[).,;:!?'\"]+$", ""));
                 }
-                if (lineW + w > width && !line.isEmpty()) {
-                    out.add(trim(line)); line = new ArrayList<>(); lineW = 0;
-                    if (t.equals(" ")) continue;
-                }
-                for (Run r : runs) append(line, r);
-                lineW += w;
             }
-            if (!line.isEmpty()) out.add(trim(line));
-            if (out.isEmpty()) out.add(List.of());
-            return out;
         }
+        return out;
+    }
 
-        List<Run> runs(String t, PDFont family, float size) throws IOException {
-            List<Run> runs = new ArrayList<>();
-            for (int i = 0; i < t.length(); ) {
-                int cp = t.codePointAt(i); i += Character.charCount(cp);
-                PDFont f = fonts.fontFor(family, cp);
-                String ch = f == null ? "?" : new String(Character.toChars(cp));
-                if (f == null) f = family;
-                float w = f.getStringWidth(ch) / 1000f * size;
-                Run last = runs.isEmpty() ? null : runs.get(runs.size() - 1);
-                if (last != null && last.font() == f) runs.set(runs.size() - 1, new Run(f, last.text() + ch, last.width() + w));
-                else runs.add(new Run(f, ch, w));
+    /**
+     * The body of a report's file, each section as the page shows it ({@code t}: the section's translation, when it is read in another
+     * language): the question; the answer's own sections; how each point was checked; the open questions and sub-goals; the library's
+     * checks; what was found and left out of the answer; the claims with their marks; the sources. The run's working is left out.
+     */
+    static String reportMarkdown(LibraryStore store, Investigation inv, UnaryOperator<String> t) throws IOException {
+        StringBuilder question = new StringBuilder(), answer = new StringBuilder(), checked = new StringBuilder(), open = new StringBuilder(), checks = new StringBuilder(), found = new StringBuilder();
+        String references = "", sources = "";
+        for (String sec : Translate.sections(inv.body())) {
+            String s = sec.strip();
+            if (s.isEmpty()) continue;
+            int nl = s.indexOf('\n');
+            String heading = s.startsWith("## ") ? (nl < 0 ? s : s.substring(0, nl)).substring(3).strip().toLowerCase(Locale.ROOT) : "";
+            if (s.startsWith("## ") && (nl < 0 || s.substring(nl).isBlank())) continue;   // a heading with nothing under it
+            String shown = t.apply(s).strip() + "\n\n";
+            if (WORKING.stream().anyMatch(heading::startsWith)) continue;
+            if (heading.equals("question")) question.append(shown);
+            else if (heading.equals(ReportBasis.CHECKED_HEADING.toLowerCase(Locale.ROOT))) checked.append(shown);
+            else if (heading.equals(ReportBasis.OPEN_HEADING.toLowerCase(Locale.ROOT))) open.append(shown);
+            else if (CHECKS.contains(heading)) checks.append(shown);
+            else if (heading.startsWith("found and not in the answer")) found.append(shown);
+            else if (heading.equals("references")) references = shown;
+            else if (heading.equals("sources")) sources = shown;
+            else answer.append(shown);
+        }
+        StringBuilder b = new StringBuilder();
+        b.append(question.length() > 0 ? question : "## Question\n\n" + inv.title() + "\n\n");
+        b.append(answer).append(checked);
+        if (open.length() > 0) b.append(open);
+        else if (!inv.open().isEmpty()) { b.append("## Open questions\n\n"); for (String q : inv.open()) b.append("- ").append(q.replace('\n', ' ')).append('\n'); b.append('\n'); }
+        b.append(checks).append(found);
+        if (!inv.findings().isEmpty()) {
+            b.append("## Claims\n\n● established: accepted · ○ not yet: waiting for review, disputed or retired.\n\n");
+            for (String fid : inv.findings()) {
+                Finding f; try { f = store.finding(fid); } catch (IOException | RuntimeException e) { f = null; }
+                if (f == null) { b.append("- ").append(fid).append('\n'); continue; }
+                boolean est = f.state() == Finding.State.accepted;
+                b.append("- ").append(est ? "● " : "○ ").append(f.title().replace('\n', ' ')).append(" — ").append(stateWord(f.state())).append(" (").append(shortId(f.id())).append(")\n");
             }
-            return runs;
+            b.append('\n');
         }
-        static void append(List<Run> line, Run r) {
-            Run last = line.isEmpty() ? null : line.get(line.size() - 1);
-            if (last != null && last.font() == r.font()) line.set(line.size() - 1, new Run(r.font(), last.text() + r.text(), last.width() + r.width()));
-            else line.add(r);
+        String list = !references.isEmpty() ? references : sources;
+        if (!list.isEmpty()) b.append("## Sources\n\n").append(list.replaceFirst("^## [^\\n]*\\n", "").strip()).append("\n\n");
+        else {
+            List<ObjectNode> rows = new LibraryProtocol(store).investigationSources(inv.body());
+            if (!rows.isEmpty()) {
+                b.append("## Sources\n\n");
+                for (ObjectNode r : rows) b.append("[").append(r.path("n").asInt()).append("] ").append(r.path("title").asText("").isBlank() ? "" : r.path("title").asText() + " — ").append(r.path("locator").asText()).append('\n');
+                b.append('\n');
+            }
         }
-        static List<Run> trim(List<Run> line) {
-            if (line.isEmpty()) return line;
-            Run last = line.get(line.size() - 1);
-            String t = last.text().stripTrailing();
-            if (t.isEmpty()) { line.remove(line.size() - 1); return trim(line); }
-            if (t.length() != last.text().length()) line.set(line.size() - 1, new Run(last.font(), t, last.width()));
-            return line;
+        return b.toString();
+    }
+
+    /**
+     * A dossier as a file: its sections as the printout writes them, with the Reading for the latest run's question first, as the page
+     * opens with it; {@code in} the language it is read in, a translation the library keeps, else the dossier as written with a sentence.
+     */
+    public static Made dossier(LibraryStore store, String subject, String format, String in) throws IOException {
+        String fmt = format(format);
+        if (fmt == null) throw ProtocolError.invalidArgs("A dossier is saved as " + FORMATS + ".");
+        String asked = subject == null ? "" : subject.strip();
+        if (asked.isEmpty()) throw ProtocolError.invalidArgs("A dossier is on somebody or something: give the name.");
+        ObjectNode plain = Dossier.of(store, asked);
+        if (!plain.path("found").asBoolean(false)) throw ProtocolError.notFound("The library holds nothing on " + asked + " yet, so there is no dossier to save. A research run starts one: researchzosho research ask \"Who is " + asked + "?\"");
+        String label = plain.path("subject").asText(asked), lang = language(in);
+        Translate.Translated tr = lang.isEmpty() ? null : Translate.current(store, label, lang);
+        Translate.Words w = tr == null ? Translate.AS_IS : tr.lookup();
+        String note = !lang.isEmpty() && tr == null ? "There is no translation of this dossier into " + ReadIn.name(lang) + " yet, so this file is the dossier as it was written. Open the dossier's page and read it in " + ReadIn.name(lang) + " to have one made, then save the file again." : "";
+        String md = tr == null ? plain.path("markdown").asText() : tr.markdown();
+        // the printout's head: "# Dossier: X", then its line of facts; the Reading goes in before its first section
+        String[] lines = md.split("\n", 3);
+        String title = lines[0].replaceFirst("^#\\s*", "").strip();
+        String rest = lines.length > 2 ? lines[2] : "";
+        int cut = rest.indexOf("\n## ");
+        String head = (cut < 0 ? rest : rest.substring(0, cut)).strip(), sections = cut < 0 ? "" : rest.substring(cut + 1);
+        if (MARKDOWN.equals(fmt)) {   // the dossier as text, the Reading first as its page opens
+            String text = "# " + title + "\n\n" + (head.isEmpty() ? "" : head + "\n\n") + (note.isEmpty() ? "" : note + "\n\n") + reading(store, label, w) + sections;
+            return new Made(new File("dossier-" + fileSlug(label) + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), text.getBytes(StandardCharsets.UTF_8)), "dossier", Translate.languageOf(plain.path("markdown").asText()), tr == null ? "" : lang, note, 0);
         }
+        List<Block> blocks = new ArrayList<>();
+        blocks.add(new Heading(1, List.of(Span.plain(title))));
+        if (!head.isEmpty() && !head.startsWith("The library holds nothing")) blocks.add(new Para(List.of(Span.plain(head)), true));
+        else if (!head.isEmpty()) blocks.addAll(ExportDoc.parse(head, Map.of()));
+        if (!note.isEmpty()) blocks.add(new Para(List.of(Span.plain(note)), false));
+        blocks.addAll(ExportDoc.parse(reading(store, label, w) + sections, Map.of()));
+        ExportDoc d = new ExportDoc(title, tr == null ? Translate.languageOf(md) : lang, store.identity().name() + " · " + title + " · " + LocalDate.now(), blocks);
+        return made(d, "dossier-" + fileSlug(label) + (tr == null ? "" : "." + lang), fmt, "dossier", Translate.languageOf(plain.path("markdown").asText()), tr == null ? "" : lang, note);
+    }
+
+    /** The Reading for the latest run's question, as the dossier's page opens with it, with the sources it cites; "" when no report has one. */
+    static String reading(LibraryStore store, String label, Translate.Words w) throws IOException {
+        Dossier.Gathered g = Dossier.gather(store, label);
+        Investigation latest = null;
+        for (Investigation inv : g.reports()) if (!inv.title().equals("The story of " + g.label())) latest = inv;
+        if (latest == null) return "";
+        String body = latest.body();
+        String r = DossierPage.section(body, "Reading");
+        if (r.isEmpty()) r = DossierPage.section(body, "Answer");
+        if (r.isEmpty()) r = DossierPage.sectionStarting(body, "Answer (");
+        if (r.isEmpty()) return "";
+        String src = Dossier.sourcesLine(r, latest);
+        return "## Reading, for that question\n\n" + w.tr(r) + "\n\n" + (src.isEmpty() ? "" : src + "\n\n");
+    }
+
+    /** A name a file can carry on every system: the subject's letters and digits in ASCII, or a short hash of it when it has none. */
+    static String fileSlug(String subject) {
+        String s = Translate.slug(subject).replaceAll("[^a-z0-9-]", "").replaceAll("-{2,}", "-").replaceAll("^-|-$", "");
+        if (s.length() > 60) s = s.substring(0, 60).replaceAll("-$", "");
+        return s.isEmpty() ? "x" + Translate.sha256(subject).substring(0, 10) : s;
+    }
+
+    /** Where the protocol's exports are kept: catalog/exports/ under the library. */
+    static Path exportsDir(LibraryStore store) { return store.root().resolve("catalog").resolve("exports"); }
+
+    /** The file written under catalog/exports/, whole or not at all; the path it was written to. */
+    public static Path save(LibraryStore store, File f) throws IOException {
+        Path p = LibraryStore.under(exportsDir(store), f.name());
+        if (p == null) throw ProtocolError.invalidArgs("The file's name cannot be kept: " + f.name());
+        Files.createDirectories(p.getParent());
+        AtomicWrite.bytes(p, f.bytes());
+        return p;
+    }
+
+    /** A kept export by its name, or null when the name is not one of catalog/exports/'s files. */
+    static Path kept(LibraryStore store, String name) {
+        Path p = LibraryStore.under(exportsDir(store), name == null ? "" : name);
+        return p != null && Files.isRegularFile(p) ? p : null;
     }
 }

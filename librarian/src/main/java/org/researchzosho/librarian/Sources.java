@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import java.nio.file.StandardCopyOption;
 /**
  * The sources the library mines (docs/DESIGN_SOURCES.md): the places that list the things a field looks for, a register, a
  * directory, a board, a list page, a feed, a saved search, an index. Each is kept with its kind, its address, what it yields, what
@@ -79,7 +80,7 @@ public final class Sources {
         Files.createDirectories(file(store).getParent());
         Path tmp = file(store).resolveSibling("sources.json.tmp");
         M.writerWithDefaultPrettyPrinter().writeValue(tmp.toFile(), doc);
-        Files.move(tmp, file(store), java.nio.file.StandardCopyOption.REPLACE_EXISTING, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+        Files.move(tmp, file(store), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
     }
 
     static Source of(JsonNode n) {

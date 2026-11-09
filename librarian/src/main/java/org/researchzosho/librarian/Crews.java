@@ -204,6 +204,7 @@ public final class Crews {
         steps.add(step(store, "vault", () -> Vault.refresh(store)));
         steps.add(step(store, "heat", () -> Heat.fold(store, Heat.DAYS) + " entr(ies) with uses in the last " + Heat.DAYS + " days"));
         if (cadence.weekly()) {
+            steps.add(step(store, "keys", () -> Pages.keysChecked(OutsideServices.check(store))));   // every key asked whether it is accepted; a refused one is said on the Keep page until the next check
             steps.add(step(store, "duplicates", () -> Reports.duplicates(store)));
             steps.add(step(store, "orphans", () -> Reports.orphans(store)));
         }
@@ -309,7 +310,7 @@ public final class Crews {
 
     /** The nightly review of every draft report, what it did in a line. A draft the model declined to review, unchanged since, is left. */
     static String reviewDrafts(LibraryStore store, LibrarianReview review) throws Exception {
-        int reviewed = 0, accepted = 0, disputed = 0, leftDeclined = 0;
+        int reviewed = 0, accepted = 0, disputed = 0, leftDeclined = 0, waiting = 0;
         try (var files = Files.list(store.investigationsDir())) {
             for (var p : files.sorted().toList()) {
                 if (!p.toString().endsWith(".md")) continue;
@@ -318,12 +319,15 @@ public final class Crews {
                 if (inv.title().startsWith("The story of ")) continue;   // a story is written from the claims; reviewing it would file them again, sourced by themselves (2026-10-26)
                 // the model declined to review this report before, and the report has not changed: it is not sent again
                 if (Declines.declinedBefore(store, "review", inv.id(), Conversations.hash8(inv.body()))) { leftDeclined++; continue; }
+                // the report waits for the keeper's eye, its claims are read out already, and it has not changed: it is not read again
+                if (ReportStanding.reviewedWhileHeld(store, inv)) { waiting++; continue; }
                 var out = review.review(inv);
                 reviewed++; accepted += out.accepted().size(); disputed += out.disputed().size();
             }
         }
         return reviewed + " draft investigation(s) reviewed: " + accepted + " finding(s) accepted, " + disputed + " disputed"
-                + (leftDeclined == 0 ? "" : "; " + leftDeclined + " left as drafts because " + Declines.notAskedAgain("to review them"));
+                + (leftDeclined == 0 ? "" : "; " + leftDeclined + " left as drafts because " + Declines.notAskedAgain("to review them"))
+                + (waiting == 0 ? "" : "; " + waiting + " left as " + (waiting == 1 ? "a draft that waits" : "drafts that wait") + " for the keeper's eye (researchzosho inbox lists " + (waiting == 1 ? "it" : "them") + ")");
     }
 
     static void log(LibraryStore store, String name, String outcome, long ms) {
@@ -341,7 +345,7 @@ public final class Crews {
     private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
 
     /** What a probe of a drive found: it answered a completion; it is reachable but still loading; or nothing is there. */
-    enum DriveState { ANSWERS, STARTING, DOWN }
+    public enum DriveState { ANSWERS, STARTING, DOWN }
 
     /** A functional probe, never a port check: llama.cpp answers 503 while loading. */
     /**

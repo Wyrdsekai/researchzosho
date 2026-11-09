@@ -15,6 +15,10 @@ public final class SoftwareProfile implements Profile {
 
     @Override public String name() { return "software"; }
 
+    @Override public String goalName() { return "choose"; }
+
+    @Override public String sourceName() { return "software"; }
+
     @Override public String description() { return "projects, libraries and tools: repository and package search, judged by activity and licence, not stars"; }
 
     @Override public List<Vocabulary.Term> predicates() {

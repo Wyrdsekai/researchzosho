@@ -19,8 +19,13 @@ import java.util.List;
 public final class RunProgress {
 
     /** One run, ready to show. */
-    /** {@code declined}: the sentence that says the model declined the run or parts of it; "" when it declined nothing. */
-    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined) {
+    /**
+     * {@code declined}: the sentence that says the model declined the run or parts of it; "" when it declined nothing. {@code result}: what the
+     * run ended with, the error's text when it failed, "" while it runs. {@code drive}: the model server's address the run's record names;
+     * {@code model}: the entry the run named, "" for the library's default.
+     */
+    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined, String result, String drive, String model) {
+        public View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined) { this(id, state, stage, elapsedSeconds, percent, question, report, declined, "", "", ""); }
         public boolean active() { return state.equals("queued") || state.equals("running") || state.equals(Jobs.OFFERED); }
     }
 
@@ -51,21 +56,28 @@ public final class RunProgress {
             case "stopped" -> "Stopped";
             default -> stage(p);
         };
-        return new View(job.path("job_id").asText(""), state, stage, elapsed, percent, job.path("question").asText(""), job.path("investigation").asText(""), job.path("declined").path("statement").asText(""));
+        return new View(job.path("job_id").asText(""), state, stage, elapsed, percent, job.path("question").asText(""), job.path("investigation").asText(""), job.path("declined").path("statement").asText(""),
+                job.path("result").asText(""), job.path("drive").asText(""), job.path("model").asText(""));
     }
 
     /** The stage in plain words. */
     public static String stage(JsonNode p) {
         String phase = p.path("phase").asText("");
         int done = p.path("workers_done").asInt(), total = p.path("workers_total").asInt(), round = p.path("round").asInt();
+        Chrome c = Chrome.now();
         return switch (phase) {
-            case "planning" -> "Planning";
-            case "workers" -> "Reading" + (total > 0 ? ", " + done + " of " + total + " parts done" : "") + (round > 1 ? " (second pass)" : "");
-            case "critic" -> "Checking what is still missing";
-            case "synthesis" -> "Writing the report";
-            case "cite-check" -> "Checking citations";
-            case "filing" -> "Saving the report and its claims";
-            case "" -> "Starting";
+            case "planning" -> c.t("Planning");
+            case "workers" -> c.t("Reading") + (total > 0 ? ", " + c.t("{0} of {1} parts done", done, total) : "") + (round > 1 ? " (" + c.t("second pass") + ")" : "");
+            case "critic" -> c.t("Checking what is still missing");
+            case "synthesis" -> c.t("Writing the report");
+            case "cite-check" -> c.t("Checking citations");
+            case "filing" -> c.t("Saving the report and its claims");
+            case "translating" -> c.t("Translating, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "scoring" -> c.t("Scoring the translation, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "checking" -> c.t("Checking the translation, {0} of {1} units read side by side", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "revising" -> c.t("Revising the flagged units, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "writing" -> c.t("Writing the file");
+            case "" -> c.t("Starting");
             default -> phase;
         };
     }
@@ -76,8 +88,17 @@ public final class RunProgress {
     static int percent(JsonNode p, long startedMs, long nowMs, long typicalSeconds) {
         int done = p.path("workers_done").asInt(), total = p.path("workers_total").asInt(), round = Math.max(1, p.path("round").asInt());
         double f = total > 0 ? Math.min(1.0, done / (double) total) : 0;
+        int ud = p.path("units_done").asInt(), ut = p.path("units_total").asInt();
+        double uf = ut > 0 ? Math.min(1.0, ud / (double) ut) : 0;
+        String tier = p.path("quality").asText("");   // a translation: one pass is most of a quick run, over half of a checked one, under half of a reviewed one
+        boolean readTier = tier.equals("reviewed") || tier.equals("thorough"), quickTier = tier.equals("quick");
         double byStage = switch (p.path("phase").asText("")) {
             case "planning" -> 3;
+            case "translating" -> 2 + (quickTier ? 92 : readTier ? 40 : 60) * uf;
+            case "scoring" -> (readTier ? 42 : 62) + 8 * uf;
+            case "checking" -> (readTier ? 55 : 75) + (readTier ? 25 : 10) * uf;
+            case "revising" -> (readTier ? 82 : 86) + 10 * uf;
+            case "writing" -> 96;
             case "workers" -> round <= 1 ? 5 + 50 * f : 57 + 13 * f;   // the first pass is most of the reading; a second pass is shorter and starts after the first check
             case "critic" -> round <= 1 ? 56 : 71;
             case "synthesis" -> 75;
@@ -117,17 +138,19 @@ public final class RunProgress {
 
     /** "1 hour 4 min", "12 min", "40 sec". */
     public static String elapsed(long seconds) {
-        if (seconds < 60) return seconds + " sec";
+        Chrome c = Chrome.now();
+        if (seconds < 60) return c.t("{0} sec", seconds);
         long min = seconds / 60, h = min / 60;
-        if (h == 0) return min + " min";
-        return h + (h == 1 ? " hour " : " hours ") + (min % 60) + " min";
+        if (h == 0) return c.t("{0} min", min);
+        return (h == 1 ? c.t("{0} hour", h) : c.t("{0} hours", h)) + " " + c.t("{0} min", min % 60);
     }
 
     /** One line for a terminal or a page: the id, the stage, the time, the percent. */
     public static String line(View v) {
-        if (v.state().equals("queued")) return v.id() + " · Waiting to start";
-        if (!v.active()) return v.id() + " · " + v.stage() + " after " + elapsed(v.elapsedSeconds());
-        return v.id() + " · " + v.stage() + " · " + elapsed(v.elapsedSeconds()) + " elapsed · about " + v.percent() + "% done";
+        Chrome c = Chrome.now();
+        if (v.state().equals("queued")) return v.id() + " · " + c.t("Waiting to start");
+        if (!v.active()) return v.id() + " · " + c.t("{0} after {1}", v.stage(), elapsed(v.elapsedSeconds()));
+        return v.id() + " · " + v.stage() + " · " + c.t("{0} elapsed", elapsed(v.elapsedSeconds())) + " · " + c.t("about {0}% done", v.percent());
     }
 
     static long millis(String iso) { try { return iso == null || iso.isBlank() ? 0 : Instant.parse(iso).toEpochMilli(); } catch (Exception e) { return 0; } }

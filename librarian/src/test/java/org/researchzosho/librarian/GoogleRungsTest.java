@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.IOException;
 /** Google through Serper and SerpApi, pages through Firecrawl, and the month's tally, against stand-in servers: nothing here touches the web or the box's settings. */
 class GoogleRungsTest {
     static final ObjectMapper M = new ObjectMapper();
@@ -62,7 +63,7 @@ class GoogleRungsTest {
 
     @AfterEach void restore() throws Exception { server.stop(0); WebSearchTool.GOOGLE.putAll(savedGoogle); Firecrawl.BASE.putAll(savedFirecrawl); setLoopback(loopbackWas); tallyAt(null); System.setProperty("user.home", realHome); Config.invalidate(); }
 
-    static void send(HttpExchange x, int status, String body) throws java.io.IOException {
+    static void send(HttpExchange x, int status, String body) throws IOException {
         byte[] b = body.getBytes(StandardCharsets.UTF_8);
         x.getResponseHeaders().add("Content-Type", status == 403 ? "text/html; charset=utf-8" : "application/json");
         x.sendResponseHeaders(status, b.length);

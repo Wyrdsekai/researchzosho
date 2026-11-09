@@ -10,6 +10,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Comparator;
 /** The recommendation prints the serve command in the form the machine's GPU takes. */
 class ModelsGpuTest {
 
@@ -39,7 +40,7 @@ class ModelsGpuTest {
         assertTrue(s.startsWith("This machine's card has 192 GB."), s);
         assertTrue(s.contains("--device /dev/kfd --device /dev/dri --group-add video -p 127.0.0.1:8080:8080") && s.contains("llama.cpp:server-rocm"), s);
         assertFalse(s.contains("--gpus all") || s.contains("server-cuda"), s);
-        Files.walk(sys.resolve("kfd").resolve("1")).sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+        Files.walk(sys.resolve("kfd").resolve("1")).sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
         Files.writeString(sys.resolve("drm").resolve("card0").resolve("device").resolve("device"), "0x744c\n");   // an RX 7900, 24 GB
         Files.writeString(sys.resolve("drm").resolve("card0").resolve("device").resolve("mem_info_vram_total"), (24L << 30) + "\n");
         s = Models.describeThisMachine();

@@ -21,6 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.time.LocalDate;
 /** The registers by jurisdiction against stand-in answers: nothing here reaches the web, the box's settings or a model. */
 class CareerRegistersTest {
     Function<String, String> savedRaw; BiFunction<String, Map<String, String>, String> savedHeaded; BiFunction<String, String, String> savedOverpass; Function<String, String> savedNominatim; String realHome;
@@ -196,7 +198,7 @@ class CareerRegistersTest {
         CareerTargets.Found g = CareerRegisters.read(store, s, "Austin, TX", "teacher", "a school", 10, SourceRules.load(store));
         assertEquals(List.of("Rooster Springs El"), new ArrayList<>(g.employers().keySet()), "the town's open schools only, from the state's directory");
         assertTrue(g.employers().get("Rooster Springs El").contains("in Austin, TX, a primary school, of Dripping Springs Isd, 827 pupils — https://nces.ed.gov/ccd/schoolsearch/school_detail.asp?ID=480000000001"), g.employers().get("Rooster Springs El"));
-        assertTrue(java.nio.file.Files.isRegularFile(store.root().resolve("catalog/career-cache").resolve("us-schools-TX-" + (java.time.LocalDate.now().getYear() - 2) + ".json")), "the state's directory is kept a month");
+        assertTrue(Files.isRegularFile(store.root().resolve("catalog/career-cache").resolve("us-schools-TX-" + (LocalDate.now().getYear() - 2) + ".json")), "the state's directory is kept a month");
     }
 
     @Test void englandBrazilAndTheWorldListOfUniversitiesAreReadEachByItsOwnKey(@TempDir Path tmp) throws Exception {

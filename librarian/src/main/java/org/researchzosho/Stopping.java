@@ -140,9 +140,32 @@ public final class Stopping {
      */
     public static <T> HttpResponse<T> send(HttpClient http, HttpRequest request, HttpResponse.BodyHandler<T> body, Duration limit, String what)
             throws IOException, InterruptedException {
+        return send(http, request, body, limit, what, null);
+    }
+
+    /**
+     * A request the other side took and then lost: it restarted, or it stopped answering anything, while the request waited. An
+     * IOException and not a timeout, so a caller takes it for a server that was away and asks again once it answers.
+     */
+    public static final class LostRequest extends IOException {
+        public LostRequest(String message) { super(message); }
+    }
+
+    /** How long a request waits before the other side is first asked whether it is still working on it, and how often after that; tests shorten them. */
+    public static volatile long LOST_GRACE_MS = 60_000, LOST_EVERY_MS = 30_000;
+
+    /**
+     * The same, with a look at the other side while the request waits: {@code lost} is asked after a minute and then every half minute,
+     * and when it says the request is lost the wait ends at once with {@link LostRequest}. Without it a server that froze or restarted
+     * held every open request for its whole limit, up to an hour for a long prompt, since nothing closes the connection (homebox,
+     * 2026-11-05: a run sat an hour on five dead connections after the box was back).
+     */
+    public static <T> HttpResponse<T> send(HttpClient http, HttpRequest request, HttpResponse.BodyHandler<T> body, Duration limit, String what, BooleanSupplier lost)
+            throws IOException, InterruptedException {
         check();
         long started = System.nanoTime();
-        try { return await(http.sendAsync(request, body), limit, what, request.timeout().orElse(null)); }
+        try { return await(http.sendAsync(request, body), limit, what, request.timeout().orElse(null), lost); }
+        catch (LostRequest gone) { throw gone; }   // the other side lost it: the caller waits for it and asks again, not this method
         catch (IOException e) {
             // the pooled connection had been closed by the server while it was idle: nothing of the request was answered, so it goes
             // once more, on a fresh connection, within what is left of the limit (HttpSettings says why this happens)
@@ -150,7 +173,7 @@ public final class Stopping {
             STALE_RETRIES.incrementAndGet();
             Duration left = limit.minus(Duration.ofNanos(System.nanoTime() - started));
             if (left.isNegative() || left.isZero()) throw e;
-            return await(http.sendAsync(request, body), left, what, request.timeout().orElse(null));
+            return await(http.sendAsync(request, body), left, what, request.timeout().orElse(null), lost);
         }
     }
 
@@ -180,12 +203,23 @@ public final class Stopping {
     public static <T> T await(CompletableFuture<T> f, Duration limit, String what) throws IOException, InterruptedException { return await(f, limit, what, null); }
 
     /** The same, for a request whose own time limit is {@code own} (null: none): the client's giving it up is said as the limit passing here is. */
-    private static <T> T await(CompletableFuture<T> f, Duration limit, String what, Duration own) throws IOException, InterruptedException {
-        long end = System.nanoTime() + limit.toNanos();
+    private static <T> T await(CompletableFuture<T> f, Duration limit, String what, Duration own) throws IOException, InterruptedException { return await(f, limit, what, own, null); }
+
+    private static <T> T await(CompletableFuture<T> f, Duration limit, String what, Duration own, BooleanSupplier lost) throws IOException, InterruptedException {
+        long began = System.nanoTime(), end = began + limit.toNanos();
+        long nextLook = began + TimeUnit.MILLISECONDS.toNanos(LOST_GRACE_MS);
         while (true) {
             if (requested()) { f.cancel(true); throw new Requested(); }
             long left = end - System.nanoTime();
             if (left <= 0) { f.cancel(true); throw unanswered(what, limit, null); }
+            if (lost != null && System.nanoTime() >= nextLook && !f.isDone()) {
+                nextLook = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(LOST_EVERY_MS);
+                if (lost.getAsBoolean() && !f.isDone()) {
+                    f.cancel(true);
+                    throw new LostRequest(what + " is no longer working on the request (it restarted, or it stopped answering), so the request was given up after "
+                            + said(Duration.ofNanos(System.nanoTime() - began)) + " and its connection closed");
+                }
+            }
             try { return f.get(Math.min(TimeUnit.MILLISECONDS.toNanos(LOOK_MS), left), TimeUnit.NANOSECONDS); }
             catch (TimeoutException notYet) { /* look again */ }
             catch (InterruptedException e) { f.cancel(true); throw e; }

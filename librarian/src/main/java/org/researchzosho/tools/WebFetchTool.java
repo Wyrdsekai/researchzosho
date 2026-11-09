@@ -115,6 +115,12 @@ public final class WebFetchTool implements Tool {
                     + "another part of it, or write the answer now and call task_done.";
         String terms = args.path("find").asText("");
         if (terms.isBlank()) terms = focus;
+        // a PubMed Central article or a PubMed record is read through NCBI's E-utilities, the way PubMed Central lets programs read it: the
+        // article's full text with its sections, or the abstract; an address on one of the run's lists goes the ordinary way, which leaves it out
+        if (PubMed.reads(url) && policy.fetchPolicy().leftOut(url) == null) {
+            String via = throughPubMed(url, terms);
+            if (via != null) return via;
+        }
         PageCheck.Page page;
         try {
             // fetched under the run's lists, converted, and checked before anything of it is shown or saved
@@ -134,7 +140,8 @@ public final class WebFetchTool implements Tool {
         Fetch.Result resp = page.fetched();
         url = resp.url();   // after redirects — what was actually read is what gets cited
         if (resp.status() >= 400) {
-            if (resp.status() == 401 || resp.status() == 403 || resp.status() == 406 || resp.status() == 429 || resp.status() >= 500) {   // a site that turns a plain fetch away may let a browser in
+            boolean turnedAway = resp.status() == 401 || resp.status() == 403 || resp.status() == 406 || resp.status() == 429 || resp.status() >= 500;
+            if (turnedAway) {   // a site that turns a plain fetch away may let a browser in
                 String via = throughFirecrawl(url, terms, "HTTP " + resp.status());
                 if (via != null) return via;
             }
@@ -144,7 +151,7 @@ public final class WebFetchTool implements Tool {
             // title-search API resolves the guess; enrich the error with the top real titles.
             String didYouMean = wikiTitleSuggestions(url);
             if (didYouMean.isEmpty()) { String copy = archivedCopy(url, terms, "HTTP " + resp.status()); if (copy != null) return copy; }
-            return "ERROR: HTTP " + resp.status() + " for " + url + didYouMean;
+            return "ERROR: HTTP " + resp.status() + " for " + url + didYouMean + (turnedAway ? Firecrawl.usedUp() : "");
         }
         // Bytes → sniff → text: PDF, DOCX/PPTX/ODT/EPUB and HTML all arrive here as bytes and are
         // converted by what they ARE (DocText), never by what the URL or content-type claims.
@@ -170,7 +177,7 @@ public final class WebFetchTool implements Tool {
             if (copy != null) return copy;
             request(url, what);
             return "ERROR: " + url + " answered with " + what + " instead of the page — recorded as a source request for the person. "
-                    + "Try an open version (arXiv, a repository, the author's page) or another source.";
+                    + "Try an open version (arXiv, a repository, the author's page) or another source." + Firecrawl.usedUp();
         }
         if (text.strip().length() < 400 && bytes.length > 15_000 && new String(bytes, 0, Math.min(bytes.length, 6000), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT).contains("<script")) {
             String via = throughFirecrawl(url, terms, "a page built by scripts: " + text.strip().length() + " characters of text in " + bytes.length + " bytes");   // a script shell: the page is drawn in the browser
@@ -197,6 +204,23 @@ public final class WebFetchTool implements Tool {
         String t = p.doc() == null ? "" : p.doc().text();
         if (t == null || t.isBlank() || Fetch.wall(p.doc().title(), t) != null) return null;
         return render(url, p, terms, "Read through Firecrawl's browser, because a plain fetch got " + why + ". ");
+    }
+
+    /**
+     * A PubMed Central article (its full text with its section headings) or a PubMed record (its abstract, or the article's full text when
+     * PubMed Central has it), read through NCBI's E-utilities and checked like any page before it is shown or kept, under a first line that
+     * says what it is. Null when NCBI did not answer, and the address is fetched as a page.
+     */
+    private String throughPubMed(String url, String terms) throws Exception {
+        PubMed.Read read;
+        try { read = PubMed.read(url); } catch (Stopping.Requested stop) { throw stop; } catch (RuntimeException e) { return null; }
+        if (read == null) return null;
+        Fetch.Result r = new Fetch.Result(read.address(), 200, read.text().getBytes(StandardCharsets.UTF_8), "text/plain; charset=utf-8");
+        PageCheck.Page p = PageCheck.check(r, policy, terms, url);
+        if (!p.kept()) return "ERROR: " + url + " was left out of this research (" + p.leftOut() + "). Read another source.";
+        if (p.doc() == null || p.doc().text() == null || p.doc().text().isBlank()) return null;
+        PageCheck.Page titled = new PageCheck.Page(p.fetched(), new DocText.Doc(p.doc().text(), read.title(), read.full() ? "full text from PubMed Central" : "abstract from PubMed"), null, p.unchecked());
+        return render(read.address(), titled, terms, read.firstLine());
     }
 
     /** How many archived copies one tool (one worker) looks up: a dead site with many dead pages must not cost a lookup each. */
@@ -483,7 +507,7 @@ public final class WebFetchTool implements Tool {
         return Integer.parseInt(v.replace("px", ""));
     }
 
-    private static final Pattern IMG = Pattern.compile("(?is)<img\\b(?:\"[^\"]*\"|'[^']*'|[^>\"'])*>");
+    private static final Pattern IMG = Pattern.compile("(?is)<img\\b[^>\"']*(?:(?:\"[^\"]*\"|'[^']*')[^>\"']*)*>");
 
     /**
      * The pictures of a page's own content, for the model to have one read ({@code web_fetch} on its address, the same path a person's own
@@ -558,7 +582,9 @@ public final class WebFetchTool implements Tool {
             s = s.replaceAll("(?i)</t[dh]>", " | ");
             s = s.replaceAll("(?i)<(br|/p|/div|/li|/h[1-6]|/tr)[^>]*>", "\n");
             // a tag ends at the first > outside its quoted attributes: a page that keeps its source in an attribute has > inside one
-            s = s.replaceAll("(?s)<[a-zA-Z/!?](?:\"[^\"]*\"|'[^']*'|[^>\"'])*>", " ");
+            // the tag's body as runs of plain characters with the quoted attributes between them: the engine recurses once per quoted attribute, where a loop of alternatives
+            // recursed once per character and overflowed the stack on a tag that carries kilobytes of data in an attribute (a county's map page did)
+            s = s.replaceAll("(?s)<[a-zA-Z/!?][^>\"']*(?:(?:\"[^\"]*\"|'[^']*')[^>\"']*)*>", " ");
         }
         s = Entities.decode(s);
         s = s.replaceAll("[ \\t\\x0B\\f\\r]+", " ").replaceAll("\\n\\s*\\n\\s*\\n+", "\n\n");

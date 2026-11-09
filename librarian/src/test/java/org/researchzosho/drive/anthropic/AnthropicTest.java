@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.HashMap;
 /** The client's own behaviour: the headers, the waits the limits ask for, a spend cap that is not waited for, the models and their windows. */
 class AnthropicTest {
 
@@ -22,7 +23,7 @@ class AnthropicTest {
     /** A transport that answers from a script and keeps what was sent. */
     static final class Script implements Anthropic.Transport {
         final List<Anthropic.Answer> answers = new ArrayList<>(); final List<Sent> sent = new ArrayList<>();
-        Script then(int status, String body, String... headers) { Map<String, String> h = new java.util.HashMap<>(); for (int i = 0; i + 1 < headers.length; i += 2) h.put(headers[i], headers[i + 1]); answers.add(new Anthropic.Answer(status, body, h)); return this; }
+        Script then(int status, String body, String... headers) { Map<String, String> h = new HashMap<>(); for (int i = 0; i + 1 < headers.length; i += 2) h.put(headers[i], headers[i + 1]); answers.add(new Anthropic.Answer(status, body, h)); return this; }
         @Override public Anthropic.Answer send(String method, URI uri, Map<String, String> headers, String body, Duration timeout) {
             sent.add(new Sent(method, uri, headers, body));
             if (answers.isEmpty()) throw new IllegalStateException("no answer scripted for " + uri);

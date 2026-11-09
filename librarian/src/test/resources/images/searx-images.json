@@ -1,0 +1,153 @@
+{
+ "query": "red fox",
+ "results": [
+  {
+   "template": "images.html",
+   "title": "Alaska Red Fox (Vulpes vulpes)",
+   "url": "https://commons.wikimedia.org/wiki/File:Alaska_Red_Fox_(Vulpes_vulpes).jpg",
+   "content": "Alike 2.0 truetrue 29 May 2015 English Vulpes vulpes (Red Fox) near Nome, Alaska, USA Spanish Zorro rojo (Vulpes vulpes) en los alrededores de Nome, Alaska",
+   "img_src": "https://upload.wikimedia.org/wikipedia/commons/8/8e/Alaska_Red_Fox_%28Vulpes_vulpes%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+   "thumbnail_src": "https://thumb.wikimedia.org/wikipedia/commons/thumb/8/8e/Alaska_Red_Fox_%28Vulpes_vulpes%29.jpg/250px-Alaska_Red_Fox_%28Vulpes_vulpes%29.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+   "resolution": "3805 x 2750",
+   "img_format": "image/jpeg",
+   "filesize": "6.97 MB",
+   "engine": "wikicommons.images",
+   "parsed_url": [
+    "https",
+    "commons.wikimedia.org",
+    "/wiki/File:Alaska_Red_Fox_(Vulpes_vulpes).jpg",
+    "",
+    "",
+    ""
+   ],
+   "thumbnail": "",
+   "priority": "",
+   "engines": [
+    "wikicommons.images"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1.0,
+   "category": "images",
+   "publishedDate": null
+  },
+  {
+   "template": "images.html",
+   "url": "https://www.treehugger.com/surprising-facts-about-the-red-fox-4864544",
+   "thumbnail_src": "https://ts4.mm.bing.net/th?id=OIP.Bry0v-G_EvCmwPdpe7AoEgHaF7&pid=15.1",
+   "img_src": "https://www.treehugger.com/thmb/KVcD4MzIz4oFu36kc84wS5iDKCI=/2664x2131/filters:no_upscale():max_bytes(150000):strip_icc()/red-fox-in-algonquin-673505406-3680d9bae149459cb6777e1b40ca4b40.jpg",
+   "content": "8 Surprising Facts About the Red Fox",
+   "title": "8 Surprising Facts About the Red Fox",
+   "source": "TreeHugger",
+   "resolution": "2664×2131",
+   "img_format": null,
+   "engine": "bing images",
+   "parsed_url": [
+    "https",
+    "www.treehugger.com",
+    "/surprising-facts-about-the-red-fox-4864544",
+    "",
+    "",
+    ""
+   ],
+   "thumbnail": "",
+   "priority": "",
+   "engines": [
+    "bing images"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1.0,
+   "category": "images",
+   "publishedDate": null
+  },
+  {
+   "template": "images.html",
+   "url": "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/azuredatafactory/azuredatafactory-original.svg",
+   "title": "azuredatafactory",
+   "content": "Base color: #095ca2",
+   "img_src": "https://cdn.jsdelivr.net/gh/devicons/devicon@latest/icons/azuredatafactory/azuredatafactory-original.svg",
+   "img_format": "SVG",
+   "engine": "devicons",
+   "parsed_url": [
+    "https",
+    "cdn.jsdelivr.net",
+    "/gh/devicons/devicon@latest/icons/azuredatafactory/azuredatafactory-original.svg",
+    "",
+    "",
+    ""
+   ],
+   "thumbnail": "",
+   "priority": "",
+   "engines": [
+    "devicons"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1.0,
+   "category": "images",
+   "publishedDate": null
+  },
+  {
+   "url": "https://artic.edu/artworks/31588",
+   "title": "City of Chicago (1967) // Red Grooms (American, born 1937) and Mimi Gross (American, born 1940) with Ruckus Construction Company",
+   "content": "Five sculptural elements: plywood and beaverboard, acrylic paint, motors, and speakers, with audio // Installed: 365.8 × 762 × 762 cm (144 × 300 × 300 in.)",
+   "author": "Red Grooms",
+   "img_src": "https://www.artic.edu/iiif/2//99c5e390-9684-147d-bea6-a153fcce1e82/full/843,/0/default.jpg",
+   "template": "images.html",
+   "engine": "artic",
+   "parsed_url": [
+    "https",
+    "artic.edu",
+    "/artworks/31588",
+    "",
+    "",
+    ""
+   ],
+   "thumbnail": "",
+   "priority": "",
+   "engines": [
+    "artic"
+   ],
+   "positions": [
+    1
+   ],
+   "score": 1.0,
+   "category": "images",
+   "publishedDate": null
+  }
+ ],
+ "answers": [],
+ "corrections": [],
+ "infoboxes": [],
+ "suggestions": [],
+ "unresponsive_engines": [
+  [
+   "brave.images",
+   "too many requests"
+  ],
+  [
+   "duckduckgo images",
+   "HTTP connection error"
+  ],
+  [
+   "google cse images",
+   "too many requests"
+  ],
+  [
+   "openverse",
+   "timeout"
+  ],
+  [
+   "startpage images",
+   "CAPTCHA"
+  ],
+  [
+   "unsplash",
+   "parsing error"
+  ]
+ ]
+}

@@ -69,6 +69,11 @@ public final class RawCapture {
 
     /** With the page's own publication date (YYYY-MM-DD, or "" when the page does not say): kept in the capture's head. */
     public static Path capture(LibraryStore store, String locator, String text, String title, String by, String collection, String published) {
+        return capture(store, locator, text, title, by, collection, published, Map.of());
+    }
+
+    /** The same, with more lines for the head ({@code more}: name → value; a translation's {@code translation_of} and {@code language}). */
+    public static Path capture(LibraryStore store, String locator, String text, String title, String by, String collection, String published, Map<String, String> more) {
         try {
             if (locator == null || text == null || text.isBlank()) return null;
             String hash = HexFormat.of().formatHex(
@@ -95,8 +100,10 @@ public final class RawCapture {
                     }
                 } catch (Exception ignored) { }
             }
+            StringBuilder extra = new StringBuilder();
+            for (var e : more.entrySet()) if (e.getKey() != null && e.getValue() != null && e.getKey().matches("[a-z_]+") && !e.getValue().isBlank()) extra.append('\n').append(e.getKey()).append(": ").append(e.getValue().replaceAll("[\\r\\n]+", " ").strip());
             Files.writeString(p, "---\nurl: " + locator + "\ntitle: " + t + "\nfetched_at: "
-                    + Instant.now() + "\nfetched_by: " + by + (collection == null || collection.isBlank() ? "" : "\ncollection: " + collection) + (published == null || published.isBlank() ? "" : "\npublished: " + published) + "\n---\n" + body, StandardCharsets.UTF_8);
+                    + Instant.now() + "\nfetched_by: " + by + (collection == null || collection.isBlank() ? "" : "\ncollection: " + collection) + (published == null || published.isBlank() ? "" : "\npublished: " + published) + extra + "\n---\n" + body, StandardCharsets.UTF_8);
             // raw joins the catalog: "do we hold anything on X?" must see the documents, not
             // just the claims extracted from them.
             try {
@@ -163,9 +170,19 @@ public final class RawCapture {
         } catch (NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
+    /** One line of a capture's head by its name ({@code image}, {@code page}, {@code verdict}…), or "" when the head has none. */
+    public static String field(Path raw, String name) { return headField(raw, name + ": "); }
+
     private static String headField(Path raw, String key) {
+        // the head, up to its closing ---: a kept picture's head runs past twelve lines (kind, image, page, source, found, size, hash, verdict)
         try (var lines = Files.lines(raw, StandardCharsets.UTF_8)) {
-            return lines.limit(12).filter(l -> l.startsWith(key)).map(l -> l.substring(key.length()).strip()).findFirst().orElse("");
+            var it = lines.iterator();
+            for (int n = 0; it.hasNext() && n < 64; n++) {
+                String l = it.next();
+                if (n > 0 && l.equals("---")) break;
+                if (l.startsWith(key)) return l.substring(key.length()).strip();
+            }
+            return "";
         } catch (Exception e) { return ""; }
     }
 

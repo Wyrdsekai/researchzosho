@@ -10,10 +10,15 @@ import org.researchzosho.librarian.dna.Prefs;
 import org.researchzosho.tools.BookSearchTool;
 import org.researchzosho.tools.ContentPolicy;
 import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import org.researchzosho.librarian.Profile;
 import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
+import org.researchzosho.librarian.BooksPage;
+import org.researchzosho.librarian.Patrons;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -26,6 +31,18 @@ import java.util.regex.Pattern;
 public final class BooksProfile implements Profile {
 
     @Override public String name() { return "books"; }
+
+    @Override public String goalName() { return "choose"; }
+
+    @Override public String sourceName() { return "books"; }
+
+    @Override public List<String> pagePaths() { return List.of(BooksPage.PATH); }
+    @Override public List<Link> menu() { return List.of(new Link(BooksPage.PATH, "Books", false, "▤")); }
+    @Override public Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> query, Map<String, String> form) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        if ("POST".equals(method)) { Patrons.check(store, patron, Patrons.Level.write); return new Page("Books", "", false, BooksPage.PATH + "?note=" + URLEncoder.encode(BooksPage.post(store, patron, form), StandardCharsets.UTF_8)); }
+        return new Page("Books", BooksPage.body(store, patron, query), false, null);
+    }
 
     @Override public String description() { return "which book: real books from the catalogues, found by subject, lists and syllabi rather than sales, judged by fit to the ask or to the person's own shelf"; }
 

@@ -16,6 +16,8 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Collections;
+import java.util.function.Function;
 /** The story of a subject (0.6.6): chapters by decade from the claims, every sentence citing its claim, filed as a report and listed on the dossier. */
 class StoryTest {
     private static final ObjectMapper J = new ObjectMapper();
@@ -30,7 +32,7 @@ class StoryTest {
 
     @Test
     void thinDecadesFoldIntoTheNextChapterAndAThinTailIntoTheOneBefore() {
-        java.util.function.Function<Integer, List<Finding>> n = k -> java.util.Collections.nCopies(k, (Finding) null);
+        Function<Integer, List<Finding>> n = k -> Collections.nCopies(k, (Finding) null);
         Map<String, List<Finding>> decades = new TreeMap<>(Map.of("1950s", n.apply(1), "1980s", n.apply(1), "1990s", n.apply(4), "2010s", n.apply(3), "2020s", n.apply(1)));
         assertEquals(List.of("1950s–1990s", "2010s–2020s"), new ArrayList<>(Story.chapters(decades).keySet()));
         assertEquals(6, Story.chapters(decades).get("1950s–1990s").size()); assertEquals(4, Story.chapters(decades).get("2010s–2020s").size());

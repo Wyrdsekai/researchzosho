@@ -11,7 +11,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -214,5 +216,48 @@ class LibraryAddTest {
         boolean served = false;
         for (var t : McpServer.allTools()) if ("library_add".equals(t.path("name").asText())) served = true;
         assertTrue(served, "the MCP server offers it");
+    }
+
+    /** An archive on the server's own disk, by path, as a program adds one over MCP or /v1/add: the corpus path, the same safety, the reply says what went on and what was skipped. */
+    @Test
+    void anArchivePathGoesThroughTheCorpusPathWithTheSameSafetyAndTheReplySaysWhatWasSkipped(@TempDir Path home) throws Exception {
+        LibraryStore store = library(home);
+        LibraryProtocol p = new LibraryProtocol(store);
+        Path archive = Files.write(home.resolve("things.zip"), ArchivesTest.trickyZip());
+        ObjectNode a = M.createObjectNode(); a.put("path", archive.toString()); a.putObject("patron").put("did", "person").put("name", "me").put("runtime", "cli");
+        List<Path> before = ArchivesTest.unpackFolders();
+        ObjectNode r = p.add(a);
+        assertEquals(before, ArchivesTest.unpackFolders(), "the folder it was unpacked into is removed");
+        assertEquals("archive", r.path("kind").asText()); assertEquals("things", r.path("collection").asText()); assertEquals("keep", r.path("mode").asText());
+        assertEquals(2, r.path("unpacked").asInt()); assertEquals(3, r.path("left_out").asInt());
+        assertEquals(2, r.path("seen").asInt()); assertEquals(2, r.path("added").asInt()); assertEquals(0, r.path("skipped").asInt());
+        assertEquals(3, r.path("problems").size(), r.toString());
+        assertEquals("\"../evil.txt\": its path points outside the folder, skipped", r.path("problems").get(0).asText());
+        assertEquals("\"things/inner.zip\": an archive inside the archive, not opened", r.path("problems").get(2).asText());
+        assertTrue(r.path("summary").asText().startsWith("From things.zip: 2 added, 0 unchanged, 0 skipped of 2 document(s), under the collection things; 3 entries of the archive were left out."), r.path("summary").asText());
+        assertTrue(r.path("next").asText().contains("collections: [\"things\"]"), r.path("next").asText());
+        assertEquals(2, ArchivesTest.raws(store).size());
+        // link and survey are for a folder on the machine, not an archive
+        ObjectNode l = a.deepCopy(); l.put("mode", "link");
+        ProtocolError e = assertThrows(ProtocolError.class, () -> p.add(l));
+        assertTrue(e.getMessage().startsWith("An archive is always kept"), e.getMessage());
+        // a collection named wins
+        ObjectNode c = a.deepCopy(); c.put("collection", "mine");
+        assertEquals("mine", p.add(c).path("collection").asText());
+        // an archive that climbs past the cap is refused in one sentence, and nothing of it is on the shelves
+        Map<String, byte[]> many = new LinkedHashMap<>();
+        for (int i = 0; i <= Archives.MAX_ENTRIES; i++) many.put("many/" + i + ".txt", new byte[0]);
+        Path bomb = Files.write(home.resolve("bomb.zip"), ArchivesTest.zip(many));
+        ObjectNode bArgs = a.deepCopy(); bArgs.put("path", bomb.toString());
+        int were = ArchivesTest.raws(store).size();
+        ProtocolError e2 = assertThrows(ProtocolError.class, () -> p.add(bArgs));
+        assertTrue(e2.getMessage().startsWith("Not added: Unpacking stopped at 5,000 entries: the library takes at most that many from one archive. Split the archive"), e2.getMessage());
+        assertEquals(were, ArchivesTest.raws(store).size());
+        assertEquals(before, ArchivesTest.unpackFolders());
+        // a patron who is not the keeper may not name a path, an archive's included
+        ObjectNode w = a.deepCopy(); w.putObject("patron").put("did", "did:key:zSomeone").put("name", "someone").put("runtime", "mcp");
+        Patrons.set(store, "did:key:zSomeone", "someone", Patrons.Level.write);
+        ProtocolError e3 = assertThrows(ProtocolError.class, () -> p.add(w));
+        assertEquals("forbidden", e3.code);
     }
 }

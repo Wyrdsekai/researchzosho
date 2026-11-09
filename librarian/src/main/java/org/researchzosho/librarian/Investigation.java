@@ -2,6 +2,7 @@ package org.researchzosho.librarian;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -21,10 +22,33 @@ public record Investigation(
         String recordedAt,
         List<String> findings,    // ids of findings this run produced
         List<String> open,        // open questions left behind (frontier-bound)
-        String body) {
+        String body,
+        String language,          // the language it was written in, as a code (ja), when the library's setting or the question decided it; "" when nothing recorded it
+        ReportOptions options) {  // the length, citations and shape it was written with, when its ask or the library's settings named them (0.7.0)
+
+    public Investigation { language = language == null ? "" : language; options = options == null ? ReportOptions.NONE : options; }
+
+    /** A report with no options recorded. */
+    public Investigation(String id, String title, Finding.State state, String writer, String recordedAt, List<String> findings, List<String> open, String body, String language) {
+        this(id, title, state, writer, recordedAt, findings, open, body, language, ReportOptions.NONE);
+    }
+
+    /** A report with no language recorded: read off its letters when it is read. */
+    public Investigation(String id, String title, Finding.State state, String writer, String recordedAt, List<String> findings, List<String> open, String body) {
+        this(id, title, state, writer, recordedAt, findings, open, body, "", ReportOptions.NONE);
+    }
+
+    /** The same report with these claims; everything else it records carried, its language and its options among them. */
+    public Investigation withFindings(List<String> findings) { return new Investigation(id, title, state, writer, recordedAt, findings, open, body, language, options); }
+
+    /** The same report with these open questions. */
+    public Investigation withOpen(List<String> open) { return new Investigation(id, title, state, writer, recordedAt, findings, open, body, language, options); }
+
+    /** The same report in this state, with these claims and these open questions. */
+    public Investigation with(Finding.State state, List<String> findings, List<String> open) { return new Investigation(id, title, state, writer, recordedAt, findings, open, body, language, options); }
 
     private static final Set<String> KNOWN_SCALARS =
-            Set.of("schema", "id", "title", "state", "writer", "recorded_at");
+            Set.of("schema", "id", "title", "state", "writer", "recorded_at", "language", "length", "citations", "shape");
     private static final Set<String> KNOWN_LISTS = Set.of("findings", "open");
 
     public String format() {
@@ -35,6 +59,10 @@ public record Investigation(
         sb.append("state: ").append(state).append('\n');
         sb.append("writer: ").append(writer).append('\n');
         sb.append("recorded_at: ").append(recordedAt).append('\n');
+        if (!language.isEmpty()) sb.append("language: ").append(language).append('\n');
+        if (!options.length().isEmpty()) sb.append("length: ").append(options.length()).append('\n');
+        if (!options.citations().isEmpty()) sb.append("citations: ").append(options.citations()).append('\n');
+        if (!options.shape().isEmpty()) sb.append("shape: ").append(options.shape()).append('\n');
         sb.append("findings: [").append(String.join(", ", findings)).append("]\n");
         if (!open.isEmpty()) {   // block form: an open question with a comma in it must come back as one question
             sb.append("open:\n");
@@ -76,6 +104,12 @@ public record Investigation(
         return new Investigation(id, title, state, writer, at,
                 new ArrayList<>(h.lists().getOrDefault("findings", List.of())),
                 new ArrayList<>(h.lists().getOrDefault("open", List.of())),
-                h.body());
+                h.body(), h.scalars().getOrDefault("language", ""), recorded(h.scalars()));
+    }
+
+    /** The options a front matter records; a value none of its option's is left out. */
+    private static ReportOptions recorded(Map<String, String> s) {
+        String l = ReportOptions.length(s.getOrDefault("length", "")), c = ReportOptions.citations(s.getOrDefault("citations", "")), sh = ReportOptions.shape(s.getOrDefault("shape", ""));
+        return new ReportOptions(l == null ? "" : l, c == null ? "" : c, sh == null ? "" : sh);
     }
 }

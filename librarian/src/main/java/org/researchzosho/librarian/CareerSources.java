@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -122,6 +123,35 @@ public final class CareerSources {
         } catch (Exception e) { return null; }
     }
 
+    /** What a data service answered: the body, and its headers with lower-case names (a count of the whole, a page's bounds). */
+    public record Answer(String body, Map<String, String> headers) {
+        public String header(String name) { return headers == null ? "" : headers.getOrDefault(name.toLowerCase(Locale.ROOT), ""); }
+    }
+
+    /** A fetch that keeps the answer's headers; a test puts its own here. */
+    static volatile BiFunction<String, Map<String, String>, Answer> RAW_ANSWER = CareerSources::fetchAnswer;
+
+    static Answer fetchAnswer(String url, Map<String, String> headers) {
+        try {
+            URI u = URI.create(url);
+            if (Fetch.refusal(u) != null || Fetch.Policy.DEFAULT.leftOut(url) != null) return null;
+            HttpRequest.Builder b = HttpRequest.newBuilder(u).timeout(Duration.ofSeconds(30)).header("User-Agent", Fetch.USER_AGENT).header("Accept", "application/json");
+            headers.forEach(b::header);
+            HttpResponse<String> resp = HTTP.send(b.GET().build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() != 200) return null;
+            Map<String, String> hs = new HashMap<>();
+            resp.headers().map().forEach((k, v) -> { if (k != null && !v.isEmpty()) hs.put(k.toLowerCase(Locale.ROOT), v.get(0)); });
+            return new Answer(resp.body(), hs);
+        } catch (Exception e) { return null; }
+    }
+
+    /** A data service read with the caller's headers, the answer's headers kept, under the same rules and pace as {@link #get(String)}; null when it did not answer. */
+    static Answer getAnswer(String url, Map<String, String> headers) {
+        if (!allowed(url)) return null;
+        pace(url);
+        return RAW_ANSWER.apply(url, headers);
+    }
+
     /** A page read with the caller's headers, under the same rules and pace as {@link #get(String)}. */
     static String get(String url, Map<String, String> headers) {
         if (!allowed(url)) return null;
@@ -190,13 +220,27 @@ public final class CareerSources {
      * query service and API, the open mirror of YC's directory. Their robots files speak to page crawlers and say nothing of an API
      * call made at a polite pace; a board's data service whose robots file refuses every reader and that publishes no terms stays refused.
      */
-    static final Set<String> API_HOSTS = Set.of("efts.sec.gov", "www.sec.gov", "query.wikidata.org", "www.wikidata.org", "yc-oss.github.io", "hn.algolia.com", "data.usajobs.gov");
+    static final Set<String> API_HOSTS = Set.of("api.census.gov", "efts.sec.gov", "www.sec.gov", "query.wikidata.org", "www.wikidata.org", "yc-oss.github.io", "hn.algolia.com", "data.usajobs.gov",
+            // the records a home's card reads: documented data services for programs, whose robots rules are written for page crawlers (FEMA's map service disallows /arcgis to them; the
+            // Mobility Database's download host disallows everything; the Urban Institute's data API disallows /api). The library reads each once per card, paced as every host is.
+            "hazards.fema.gov", "files.mobilitydatabase.org", "educationdata.urban.org", "geocoding.geo.census.gov", "data.cityofnewyork.us", "data.boston.gov", "data.wprdc.org",
+            // RentCast's listings API, read with the person's own key; the catalogues of the platforms cities publish their records on
+            "api.rentcast.io", "api.us.socrata.com", "hub.arcgis.com", "phl.carto.com",
+            // Japan: the ministry's records API, read with the person's own key, and the Geospatial Information Authority's address search; neither publishes a robots file
+            "www.reinfolib.mlit.go.jp", "msearch.gsi.go.jp");
+
+    /** Whether an address is a documented data API by its shape: a Socrata resource, a CKAN action, an ArcGIS service. Their robots rules are written for page crawlers. */
+    static boolean dataApi(String url) {
+        String u = url == null ? "" : url.toLowerCase(Locale.ROOT);
+        String h = host(url);
+        return h.endsWith(".arcgis.com") || u.contains("/resource/") && u.contains(".json") || u.contains("/api/3/action/") || u.contains("/rest/services/");
+    }
 
     /** Whether the site's robots rules let the library read this address; a site with none, or none that answer, allows it. */
     static boolean allowed(String url) {
         String h = host(url);
         if (h.isEmpty()) return false;
-        if (API_HOSTS.contains(h)) return true;
+        if (API_HOSTS.contains(h) || dataApi(url)) return true;
         Long at = ROBOTS_AT.get(h);
         if (at != null && System.currentTimeMillis() - at > ROBOTS_DAY_MS) ROBOTS.remove(h);
         Robots r = ROBOTS.computeIfAbsent(h, k -> {
@@ -345,7 +389,24 @@ public final class CareerSources {
         if (!careers) return false;
         if (SourceClass.Own.of(List.of(company), "organization").owns(h.url())) return true;
         String k = key(company), hk = key(host(h.url()));
-        return k.length() >= 4 && hk.contains(k);
+        if (k.length() >= 4 && hk.contains(k)) return true;
+        return institutionNamed(h, company);
+    }
+
+    /**
+     * An institution's own careers page, whose host rarely carries its name (careers.umich.edu for the University of Michigan): a result
+     * whose title or address carries the name whole, or the phrase before its first generic word ("Johns Hopkins" of Johns Hopkins
+     * Hospital), on a host that is no aggregator. Only for a name of an institution's kind; "Michigan State University" does not carry
+     * "University of Michigan".
+     */
+    static boolean institutionNamed(Hit h, String company) {
+        if (company == null || company.isBlank() || CareerPortals.kindWords(company).isEmpty() || aggregator(h.url())) return false;
+        List<String> phrases = new ArrayList<>();
+        phrases.add(company.strip().replaceFirst("(?i)^the\\s+", ""));
+        phrases.addAll(CareerPortals.systems(company));
+        String t = (h.title() + " " + h.url().replace('-', ' ').replace('/', ' ').replace('.', ' ')).replace("'s", "").replace("'", "");
+        for (String p : phrases) if (p.length() >= 4 && CareerCut.has(t, p.replace("'s", "").replace("'", ""))) return true;
+        return false;
     }
 
     /** Job boards and aggregators: their pages list other companies' jobs, so the library never reads a company's openings from them. */

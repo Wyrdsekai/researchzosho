@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.function.BooleanSupplier;
 /** The three video tools against a stand-in for yt-dlp and the tunnel: what they ask for, and what a run reads back. */
 class VideoToolsTest {
 
@@ -23,7 +24,7 @@ class VideoToolsTest {
     private String realHome;
     private Video.Runner realRunner;
     private Video.Fetcher realFetcher;
-    private java.util.function.BooleanSupplier realProbe;
+    private BooleanSupplier realProbe;
     final List<List<String>> ran = new ArrayList<>();
     final List<String> fetched = new ArrayList<>();
 

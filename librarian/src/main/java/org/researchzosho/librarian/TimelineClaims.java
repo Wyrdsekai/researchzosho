@@ -46,13 +46,23 @@ public final class TimelineClaims {
     public record Event(String year, String text, List<String> locators) { }
 
     /** The sections a report's dated events live in: a person's Timeline, an organisation's Filings written as a timeline, a story's turning points, the Decisions of the people in power. */
-    static final String[] DATED_SECTIONS = {"Timeline", "Filings", "Turning points", "Decisions", "Statements", "Media"};
+    static final String[] DATED_SECTIONS = {"Milestones", "Timeline", "Filings", "Turning points", "Decisions", "Statements", "Media"};
     /** How a decision's claim opens, so the dossier can list the decisions apart: "X, 2023-09-11: Decision — the board accepted the grant, because …". */
     public static final String DECISION = "Decision — ";
     /** How a statement's claim opens: "X, 2019-06: Said — at the Science Fiction Book Club: \"Heinlein has stuck with me…\"". */
     public static final String SAID = "Said — ";
     /** How a media record's claim opens: "X, 2019: Media — a portrait at a conference, by C. Michel, Wikimedia Commons, CC BY-SA 4.0". */
     public static final String MEDIA = "Media — ";
+    /**
+     * How a milestone's claim opens: "X, 1636: Milestone — founded in Cambridge as New College by the General Court". The major things of a
+     * subject's life, founded or chartered, born or appointed, are read from the write-up's Milestones list, from a Timeline line that opens
+     * with such a verb, and from the prose of the Registry card, Origin, History, Identity or Life section, dated by the event's own year.
+     */
+    public static final String MILESTONE = "Milestone — ";
+    /** The verbs a milestone is told by: an organisation's founding, charter, renaming, merger, move or end; a person's birth, schooling, appointments and death. */
+    static final Pattern MILESTONE_VERB = Pattern.compile("(?i)\\b(founded|established|chartered|incorporated|renamed|merged|split|moved|relocated|opened|closed|dissolved|born|died|graduated|appointed|joined|left|formed)\\b");
+    /** The prose sections a milestone may sit in without a date at the head of its sentence: "Founded 1636 in Cambridge as New College [4]; chartered 1650 [5]." */
+    static final String[] PROSE_SECTIONS = {"Registry card", "Origin", "History", "Identity", "Life"};
 
     /** The events of a report's dated sections, each with the locators its citations name; a bulleted line is an event like any other. */
     public static List<Event> events(String body) {
@@ -65,8 +75,53 @@ public final class TimelineClaims {
         for (String name : DATED_SECTIONS) {
             String s = section(body, name);
             if (s.isEmpty()) continue;
-            String mark = name.equals("Decisions") ? DECISION : name.equals("Statements") ? SAID : name.equals("Media") ? MEDIA : "";
-            for (Event e : eventsOf(s.replaceAll("(?m)^\\s*[-*•]\\s+", ""), refs)) out.add(mark.isEmpty() ? e : new Event(e.year(), mark + e.text(), e.locators()));
+            String mark = name.equals("Decisions") ? DECISION : name.equals("Statements") ? SAID : name.equals("Media") ? MEDIA : name.equals("Milestones") ? MILESTONE : "";
+            for (Event e : eventsOf(s.replaceAll("(?m)^\\s*[-*•]\\s+", ""), refs)) {
+                String m = mark;
+                if (m.isEmpty() && name.equals("Timeline") && opensWithMilestone(e.text())) m = MILESTONE;   // "1973: Born in Fort Meade" is a milestone of the Timeline
+                out.add(m.isEmpty() ? e : new Event(e.year(), m + e.text(), e.locators()));
+            }
+        }
+        for (String name : PROSE_SECTIONS) {
+            String s = section(body, name);
+            if (!s.isEmpty()) out.addAll(milestonesInProse(s, refs));
+        }
+        return out;
+    }
+
+    /** Whether an event's words open with a milestone's verb, or with "was/were" and one ("was appointed", "was born"). */
+    static boolean opensWithMilestone(String text) {
+        String head = text.strip().replaceFirst("^(?i:(?:was|were|is|it was|she was|he was|they were)\\s+)", "");
+        Matcher m = MILESTONE_VERB.matcher(head);
+        return m.find() && m.start() == 0;
+    }
+
+    /**
+     * The milestones a prose section carries: each sentence that tells one by its verb and names a year, dated by the year nearest the verb
+     * ("Founded 1636 in Cambridge as New College [4]; chartered 1650 as the President and Fellows [5]" is two milestones, 1636 and 1650; "tax
+     * exemption Dec. 1967" is none). A sentence the dated sections already carry is filed once by the overlap rule, as any event is.
+     */
+    static List<Event> milestonesInProse(String sectionText, Map<String, String> refs) {
+        List<Event> out = new ArrayList<>();
+        String flat = sectionText.replace("\n", " ").replaceAll("(?m)^\\s*[-*•]\\s+", "");
+        for (String sentence : flat.split("(?<=[.;])\\s+(?=[A-Z\\p{Lu}]|[a-z])")) {
+            String s = sentence.strip();
+            if (s.length() < 8) continue;
+            Matcher v = MILESTONE_VERB.matcher(s);
+            if (!v.find()) continue;
+            Matcher y = Pattern.compile("\\b(1[5-9]\\d\\d|20\\d\\d)\\b").matcher(s);
+            String year = null; int best = Integer.MAX_VALUE;
+            while (y.find()) { int gap = Math.abs(y.start() - v.start()); if (gap < best) { best = gap; year = y.group(1); } }
+            if (year == null) continue;
+            String text = s.replaceAll("[.;]$", "");
+            List<String> locs = new ArrayList<>();
+            Matcher c = CITE.matcher(text);
+            while (c.find()) { String u = refs.get(c.group(1)); if (u != null && !locs.contains(u)) locs.add(u); }
+            Matcher cc = CLAIM_CITE.matcher(text);
+            while (cc.find()) { String u = "claim:" + cc.group(1); if (!locs.contains(u)) locs.add(u); }
+            String clean = CLAIM_CITE.matcher(CITE.matcher(text).replaceAll("")).replaceAll("").replaceAll("\\s+", " ").replaceAll("\\s+([.,;])", "$1").strip();
+            if (clean.length() < 3) continue;
+            out.add(new Event(year, MILESTONE + clean, locs));
         }
         return out;
     }
@@ -78,7 +133,11 @@ public final class TimelineClaims {
         Pattern dated = Pattern.compile("^" + WHEN + SEP);
         List<String> lines = new ArrayList<>(); int datedLines = 0;
         for (String l : sectionText.split("\n")) { String s = l.strip(); if (s.isEmpty()) continue; lines.add(s); if (dated.matcher(s).find()) datedLines++; }
-        List<String> pieces = datedLines >= 2 ? lines : List.of(tl.replace("\n", " ").split("(?<=[.\\]])\\s*(?=" + WHEN + SEP + ")"));
+        // a date that follows the end of a sentence begins the next event; the period of "c. 1981" or "Jul. 1973" ends no sentence
+        String boundary = "(?<=[.\\]])(?<!\\b(?:c|ca|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\\.)\\s*(?=" + WHEN + SEP + ")";
+        List<String> pieces = new ArrayList<>();
+        if (datedLines >= 2) for (String l : lines) pieces.addAll(List.of(l.split(boundary)));   // one a line, and a line that runs on is split too
+        else pieces.addAll(List.of(tl.replace("\n", " ").split(boundary)));
         List<Event> out = new ArrayList<>();
         for (String piece : pieces) {
             Matcher m = Pattern.compile("^(" + WHEN + ")" + SEP + "(.+)$", Pattern.DOTALL).matcher(piece.strip());
@@ -113,6 +172,18 @@ public final class TimelineClaims {
         List<String> filed = new ArrayList<>();
         List<String> faulted = faulted(inv.body());
         Map<String, String> titleOf = refTitles(inv.body());   // a media record names the file it cites, so the dossier can show it
+        // a recent event a writer lists both as a milestone and as a decision is the decision, kept in the Decisions section with its
+        // reasons, and the milestone that repeats it is not filed (a university's dossier, 2026-11-04, showed its 2023 court ruling and its
+        // president's resignation twice): the decisions of this report that will be filed, by year, and the words that tell events apart
+        Set<String> ownWords = words(subject); ownWords.addAll(Set.of("milestone", "decision"));   // every claim names its subject: only the event's own words count
+        Map<String, List<Set<String>>> decisionsHere = new HashMap<>();
+        for (Event x : events) {
+            if (!x.text().startsWith(DECISION)) continue;
+            Event rx = resolveClaimCites(store, x);
+            String xk = key(rx.text());
+            if (rx.locators().isEmpty() || FAULT_MARK.matcher(rx.text()).find() || faulted.stream().anyMatch(xk::contains)) continue;
+            decisionsHere.computeIfAbsent(yearKey(rx.year()), k -> new ArrayList<>()).add(words(rx.text()));
+        }
         for (Event raw : events) {
             Event e = resolveClaimCites(store, raw);
             if (e.text().startsWith(MEDIA)) {
@@ -128,6 +199,15 @@ public final class TimelineClaims {
             Set<String> w = words(e.text());
             boolean same = false;
             for (Set<String> other : byYear.getOrDefault(sameKind(yearKey(e.year()), e.text()), List.of())) if (overlap(w, other) >= 0.5 && !numbersDiffer(w, other)) { same = true; break; }
+            if (!same && e.text().startsWith(MILESTONE)) {   // a milestone that repeats a decision of its year is that decision, told by the event's own words
+                Set<String> wm = new HashSet<>(w); wm.removeAll(ownWords);
+                List<Set<String>> decided = new ArrayList<>(byYear.getOrDefault(sameKind(yearKey(e.year()), DECISION + "x"), List.of()));   // the bucket's key reads the mark's own words
+                decided.addAll(decisionsHere.getOrDefault(yearKey(e.year()), List.of()));
+                for (Set<String> other : decided) {
+                    Set<String> od = new HashSet<>(other); od.removeAll(ownWords);
+                    if (overlap(wm, od) >= 0.5 && !numbersDiffer(wm, od)) { same = true; break; }
+                }
+            }
             if (same) continue;   // "1992: Snow Crash", "1992: Published Snow Crash" and "July 7, 1992: Snow Crash published" are one event; "6,000 jobs cut" and "4,245 jobs cut" are two
             byYear.computeIfAbsent(sameKind(yearKey(e.year()), e.text()), k -> new ArrayList<>()).add(w);
             List<Finding.Source> sources = new ArrayList<>();
@@ -140,7 +220,7 @@ public final class TimelineClaims {
         }
         if (!filed.isEmpty()) {
             List<String> all = new ArrayList<>(inv.findings()); all.addAll(filed);
-            store.write(new Investigation(inv.id(), inv.title(), inv.state(), inv.writer(), inv.recordedAt(), all, inv.open(), inv.body()));
+            store.write(inv.withFindings(all));
             store.circulate("timeline", inv.id() + ": " + filed.size() + " dated events filed as claims on " + subject);
         }
         return filed;
@@ -212,7 +292,7 @@ public final class TimelineClaims {
     /** A year's events are compared among their own kind: a decision of 2012 is not the same event as what happened in 2012, however many words they share. */
     static String sameKind(String year, String text) {
         String t = text.strip().toLowerCase(Locale.ROOT);
-        return t.startsWith(DECISION.toLowerCase(Locale.ROOT)) ? year + " decision" : t.startsWith(SAID.toLowerCase(Locale.ROOT)) ? year + " said" : t.startsWith(MEDIA.toLowerCase(Locale.ROOT)) ? year + " media" : year;
+        return t.startsWith(DECISION.toLowerCase(Locale.ROOT)) ? year + " decision" : t.startsWith(SAID.toLowerCase(Locale.ROOT)) ? year + " said" : t.startsWith(MEDIA.toLowerCase(Locale.ROOT)) ? year + " media" : t.startsWith(MILESTONE.toLowerCase(Locale.ROOT)) ? year + " milestone" : year;
     }
 
     static final Pattern MONTH_NAME = Pattern.compile("(?i)\\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\\.?");
@@ -312,10 +392,30 @@ public final class TimelineClaims {
 
     static String section(String body, String name) {
         if (body == null || body.isEmpty()) return "";
-        body = "\n" + proper(body);   // a section may be the first line of the body; the appendix of worker notes is not read
-        int at = body.indexOf("\n## " + name + "\n");
-        if (at < 0) return "";
-        String rest = body.substring(at + name.length() + 5);
-        int end = rest.indexOf("\n## "); return (end < 0 ? rest : rest.substring(0, end)).strip();
+        return sectionIn(proper(body), name);   // the appendix of worker notes is not read
+    }
+
+    /**
+     * The heading of a section and of its continuations: a writer that runs out of room in one call goes on under "## Milestones (cont.)",
+     * "## Milestones (continued)" or "## Milestones (2)", and what it wrote there is the same section (a university's dossier, 2026-11-04,
+     * kept two of its fifteen milestones because the other thirteen sat under "Milestones (cont.)").
+     */
+    static Pattern heading(String name) {
+        return Pattern.compile("\n## " + Pattern.quote(name) + "(?: \\((?:cont\\.?|continued|part \\d+|\\d+)\\))?\n");
+    }
+
+    /** A section of {@code body} by its heading, its continuations joined to it in order; "" when it has none. */
+    static String sectionIn(String body, String name) {
+        if (body == null || body.isEmpty()) return "";
+        body = "\n" + body;   // a section may be the first line of the body
+        StringBuilder out = new StringBuilder();
+        Matcher h = heading(name).matcher(body);
+        while (h.find()) {
+            String rest = body.substring(h.end());
+            int end = rest.indexOf("\n## ");
+            String part = (end < 0 ? rest : rest.substring(0, end)).strip();
+            if (!part.isEmpty()) out.append(out.length() == 0 ? "" : "\n").append(part);
+        }
+        return out.toString();
     }
 }

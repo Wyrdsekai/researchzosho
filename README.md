@@ -46,6 +46,7 @@ This is The Research Harness For The Rest Of Us.
 → **[FAMILY_HISTORY.md](docs/FAMILY_HISTORY.md)**: researching your family, from a relative's notes to records and a family tree
 → **[YOUTUBE.md](docs/YOUTUBE.md)**: researching what is on YouTube — channels, what is said in a video and when, channels like one you know — without an API key
 
+→ **[CLOUD.md](docs/CLOUD.md)**: one server for many libraries: a router, a container and a volume per library, sign-in through your identity provider, keys for programs.
 → **[BEDROCK.md](docs/BEDROCK.md)**: using the models in your own AWS account (Amazon Bedrock) with your own AWS sign-in
 
 → **[MODELS.md](docs/MODELS.md)**: which model to run, from what we measured: the local models by your graphics card's VRAM first, then the hosted ones by what they got right, how long a run took and what it cost
@@ -216,6 +217,7 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_TROVE_KEY` / `RESEARCHZOSHO_DIGITALNZ_KEY` / `RESEARCHZOSHO_EUROPEANA_KEY` / `RESEARCHZOSHO_DPLA_KEY` | keys for the archives that want one: Trove (Australian newspapers), DigitalNZ (a higher rate for Papers Past), Europeana and DPLA (heritage items). The rest of the archives need none. |
 | `RESEARCHZOSHO_FETCH_PRIVATE` | `deny` to stop it fetching addresses on your own network |
 | `RESEARCHZOSHO_FETCH_MAX_BYTES` | the largest document it will download (default 25 MB) |
+| `RESEARCHZOSHO_WRITEUP_FETCHES` | how many pages nobody read the write-up of a research run may fetch to verify something doubtful; after that it writes from the evidence the readers gathered (default 6, 0 for none) |
 | `RESEARCHZOSHO_STALL_MINUTES` | after how many minutes without progress a research run is marked "no progress since" and the service writes where the run waits into its log (default 15) |
 | `RESEARCHZOSHO_FETCH_MIN_BYTES_PER_SECOND` | the slowest a page may come, on average, before the download is given up (default 4,096 bytes a second); a page that keeps coming faster is read to its end however long it takes |
 

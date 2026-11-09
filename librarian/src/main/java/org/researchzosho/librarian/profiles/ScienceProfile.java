@@ -4,16 +4,19 @@ import org.researchzosho.librarian.Profile;
 import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * The science profile: citation records (DOI, arXiv, PubMed), preprint versions, dataset records,
  * BibTeX. Its machinery lives in the core classes {@code Citations}, {@code Preprints} and
  * {@code Bibliography} because every field cites; what the profile adds is the vocabulary of relations
- * scientific findings assert, and the register. On by default.
+ * scientific findings assert, and the register. It joins a run whose question rests on the scientific record, by its words.
  */
 public final class ScienceProfile implements Profile {
 
     @Override public String name() { return "science"; }
+
+    @Override public String conventionName() { return "science"; }
 
     @Override public String description() { return "citations from the record, preprint versions, datasets as sources, BibTeX"; }
 
@@ -26,6 +29,25 @@ public final class ScienceProfile implements Profile {
                 new Vocabulary.Term("contradicts", "reports a result incompatible with", List.of("refutes", "disagrees with"), ""),
                 new Vocabulary.Term("uses-dataset", "draws its data from", List.of("dataset", "data from"), ""),
                 new Vocabulary.Term("patented", "holds a patent on", List.of("patent on", "inventor of", "invented"), ""));
+    }
+
+    /**
+     * Words that say a question rests on the scientific record, each unambiguous on its own: a bare "paper" is also a bag, "scientific" a
+     * calculator, "replication" a database's, and "estudio" a flat in a Spanish home search.
+     */
+    private static final List<String> WORDS = List.of(
+            "scientific evidence", "scientific consensus", "scientific study", "scientific studies", "scientific paper", "scientific literature",
+            "scientific research", "peer-reviewed", "peer reviewed", "preprint", "arxiv", "pubmed", "medline", "meta-analysis", "meta analysis",
+            "systematic review", "clinical trial", "randomized controlled", "randomised controlled", "placebo", "cohort study", "case-control study",
+            "journal article", "research paper", "academic paper", "the literature", "studies show", "a study found", "studies found",
+            "published research", "論文", "臨床試験", "メタ分析", "メタアナリシス", "査読", "学術", "先行研究");
+    /** A DOI, an arXiv identifier, a PubMed id. */
+    private static final Pattern SHAPES = Pattern.compile("\\b10\\.\\d{4,9}/\\S+|\\barxiv:\\s?\\d{4}\\.\\d{4,5}|\\bpmid:?\\s?\\d{5,9}", Pattern.CASE_INSENSITIVE);
+
+    @Override public boolean applies(String question) {
+        String q = Vocabulary.norm(question == null ? "" : question);
+        for (String w : WORDS) if (q.contains(w)) return true;
+        return SHAPES.matcher(question == null ? "" : question).find();
     }
 
     @Override public String register() {

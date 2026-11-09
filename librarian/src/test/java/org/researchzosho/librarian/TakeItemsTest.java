@@ -29,19 +29,23 @@ class TakeItemsTest {
     @Test
     void theWorkerRegisterNamesOnlyTheToolsTheAskOffers() throws Exception {
         Researcher r = new Researcher(null, new ResearcherTest.FakeTools(), null, 1);
-        var m = Researcher.class.getDeclaredMethod("workerRegister", Researcher.Ask.class, boolean.class);
+        var m = Researcher.class.getDeclaredMethod("workerRegister", Researcher.Ask.class, boolean.class, boolean.class);   // records offered, pictures offered
         m.setAccessible(true);
-        String shelvesOnly = (String) m.invoke(r, new Researcher.Ask("q", "broad", 10, List.of(), "shelves", List.of()), true);
+        String shelvesOnly = (String) m.invoke(r, new Researcher.Ask("q", "broad", 10, List.of(), "shelves", List.of()), true, false);
         assertFalse(shelvesOnly.contains("web_search"), "the web is closed: web_search must not be named\n" + shelvesOnly);
         assertFalse(shelvesOnly.contains("web_fetch"), "the web is closed: web_fetch must not be named\n" + shelvesOnly);
         assertFalse(shelvesOnly.contains("record_search"), "the web is closed: the record sources are on the web too\n" + shelvesOnly);
         assertFalse(shelvesOnly.contains("shelf_search"), "no store: shelf_search is not offered either");
         assertTrue(shelvesOnly.contains("read_pages") && shelvesOnly.contains("Finish with done"));
-        String both = (String) m.invoke(r, new Researcher.Ask("q", "depth", 10, List.of()), false);
+        assertFalse(shelvesOnly.contains("image_search"), "pictures not offered: the picture tools are not named either\n" + shelvesOnly);
+        String both = (String) m.invoke(r, new Researcher.Ask("q", "depth", 10, List.of()), false, false);
         assertTrue(both.contains("web_search") && both.contains("web_fetch") && both.contains("paywalled"));
         assertFalse(both.contains("record_search"), "not offered, not named");
-        String records = (String) m.invoke(r, new Researcher.Ask("q", "depth", 10, List.of()), true);
+        assertFalse(both.contains("image_search") || both.contains("PICTURES:"), "not offered, not named");
+        String records = (String) m.invoke(r, new Researcher.Ask("q", "depth", 10, List.of()), true, false);
         assertTrue(records.contains("web_search, scholar_search, record_search, web_fetch") && records.contains("A search there that finds nothing is a result"), records);
+        String pictures = (String) m.invoke(r, new Researcher.Ask("q", "depth", 10, List.of()), false, true);
+        assertTrue(pictures.contains("web_search, scholar_search, web_fetch, image_search, image_judge, read_pages, note and done") && pictures.contains("PICTURES: image_search finds pictures on the web"), pictures);
     }
 
     @Test

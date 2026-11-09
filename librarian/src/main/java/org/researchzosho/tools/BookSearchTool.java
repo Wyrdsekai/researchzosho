@@ -64,8 +64,9 @@ public final class BookSearchTool implements Tool {
                 + "next\" — the works of the authors the person rates well that the shelf lacks (the lever that reaches the catalogue's tail), then candidates "
                 + "under the subjects they rated highly for breadth; query narrows both to its words; what they own is left out and each book's fit is counted; "
                 + "the first call to make for such an ask. Every list marks a book already on the person's shelf. Subject headings are plain words as Open Library spells them (\"Space "
-                + "opera\", \"Military science fiction\", \"Moths\"). language narrows (eng, jpn); sort=new or sort=rating orders Open Library results. "
-                + "Ratings and edition counts are shown as cues, never ranked on.";
+                + "opera\", \"Military science fiction\", \"Moths\"). language narrows (eng, jpn); sort=new or sort=rating orders Open Library results; page=2, 3… reads on past the first rows "
+                + "of a heading, an author or a search (fifty a page), since the catalogue's own order weighs editions, which is popularity: a heading is read whole by paging, and "
+                + "the candidates are judged by fit. Ratings and edition counts are shown as cues, never ranked on.";
     }
 
     @Override public ObjectNode parametersSchema(ObjectMapper j) {
@@ -77,6 +78,7 @@ public final class BookSearchTool implements Tool {
         props.putObject("language").put("type", "string").put("description", "ISO 639-2: eng, jpn, fra… (search, subject, author)");
         props.putObject("sort").put("type", "string").put("description", "Open Library only: new | rating | editions; relevance when left out");
         props.putObject("limit").put("type", "integer").put("description", "how many rows, up to " + MOST + " (default 15)");
+        props.putObject("page").put("type", "integer").put("description", "Open Library only (search, subject, author): the page of rows to read, 1 first; page=2 reads on past the first " + MOST + ", so a heading is read whole");
         p.putArray("required").add("kind");
         return p;
     }
@@ -86,13 +88,15 @@ public final class BookSearchTool implements Tool {
         String kind = args.path("kind").asText("search").toLowerCase(Locale.ROOT), query = args.path("query").asText("").strip();
         String language = args.path("language").asText("").strip().toLowerCase(Locale.ROOT), sort = args.path("sort").asText("").strip().toLowerCase(Locale.ROOT);
         int limit = Math.max(1, Math.min(MOST, args.path("limit").asInt(15)));
+        int page = Math.max(1, args.path("page").asInt(1));
+        String paged = page > 1 ? " (page " + page + ")" : "";
         if (query.isEmpty() && !kind.equals("shelf")) return "ERROR: query is needed.";
         boolean ja = language.equals("jpn") || language.equals("ja") || (language.isEmpty() && Books.japanese(query));
         try {
             return switch (kind) {
-                case "search" -> ja ? japanese(query, null, null, limit, "words \"" + query + "\"") : list(Books.openLibrary(query, null, null, lang(language), limit, olSort(sort)), "Open Library, words \"" + query + "\"");
-                case "subject" -> ja ? japanese(null, query, null, limit, "件名 \"" + query + "\"") : list(Books.openLibrary(null, query, null, lang(language), limit, olSort(sort)), "Open Library, subject \"" + query + "\"");
-                case "author" -> ja ? japanese(null, null, query, limit, "author \"" + query + "\"") : list(Books.openLibrary(null, null, query, lang(language), limit, olSort(sort)), "Open Library, author \"" + query + "\"");
+                case "search" -> ja ? japanese(query, null, null, limit, "words \"" + query + "\"") : list(Books.openLibrary(query, null, null, lang(language), limit, olSort(sort), page), "Open Library, words \"" + query + "\"" + paged);
+                case "subject" -> ja ? japanese(null, query, null, limit, "件名 \"" + query + "\"") : list(Books.openLibrary(null, query, null, lang(language), limit, olSort(sort), page), "Open Library, subject \"" + query + "\"" + paged);
+                case "author" -> ja ? japanese(null, null, query, limit, "author \"" + query + "\"") : list(Books.openLibrary(null, null, query, lang(language), limit, olSort(sort), page), "Open Library, author \"" + query + "\"" + paged);
                 case "ndc" -> list(Books.ndl(null, null, query, null, limit), "NDL Search, NDC " + query);
                 case "work" -> work(query);
                 case "shelf" -> shelf(query, lang(language), limit);

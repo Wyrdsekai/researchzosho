@@ -28,9 +28,10 @@ import org.researchzosho.librarian.SourceRules;
  *
  * <p>Refused, at every hop: loopback, link-local (the cloud metadata address lives there), unspecified,
  * multicast, and the hosts of the library's own services — the drive, the embedder, the reranker, the
- * search backend — so a page cannot send the model to talk to them. Private (site-local) addresses are
- * allowed by default because a research library on a home network may shelve an internal wiki;
- * {@code RESEARCHZOSHO_FETCH_PRIVATE=deny} refuses those too.
+ * search backend — so a page cannot send the model to talk to them. Private addresses (10/8, 172.16/12, 192.168/16, the
+ * shared 100.64/10 range and IPv6's fc00::/7) are allowed by default at home, because a research library on a home network
+ * may shelve an internal wiki or read a NAS, and refused by default behind a trusted proxy, because a library served to
+ * others must not be a way into the network it runs on; {@code RESEARCHZOSHO_FETCH_PRIVATE=deny|allow} says it outright.
  *
  * <p>Left out, at every hop, by the fetch's {@link Policy}: a site on the person's refused-sources list, and a site on the
  * {@link SiteList} of pornography, shock and gore sites. Fetch is shared by every run at once, so each call names its policy; the
@@ -109,6 +110,29 @@ public final class Fetch {
      * configured service hosts, so a test can pin every rule without a network.
      */
     public static String refusal(URI uri) {
+        return refusal(uri, denyPrivate(Config.get("RESEARCHZOSHO_FETCH_PRIVATE", ""), Config.get("RESEARCHZOSHO_TRUSTED_PROXY", "")));
+    }
+
+    /**
+     * Whether private addresses are refused: as the setting says when it is set, else refused when the library is served
+     * behind a trusted proxy (a library others reach over the internet) and allowed when it is not (a library at home).
+     */
+    static boolean denyPrivate(String setting, String trustedProxy) {
+        String v = setting == null ? "" : setting.strip();
+        if (!v.isEmpty()) return v.equalsIgnoreCase("deny");
+        return trustedProxy != null && !trustedProxy.isBlank();
+    }
+
+    /** A private address: the site-local ranges, the shared 100.64/10 range carriers and tailnets use, and IPv6's unique local fc00::/7. */
+    static boolean privateAddress(InetAddress a) {
+        if (a.isSiteLocalAddress()) return true;
+        byte[] b = a.getAddress();
+        if (b.length == 4) return (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64;
+        return b.length == 16 && (b[0] & 0xfe) == 0xfc;
+    }
+
+    /** {@link #refusal(URI)} with the private-address rule given, so a test pins it without a configuration file. */
+    static String refusal(URI uri, boolean denyPrivate) {
         String host = uri.getHost();
         if (host == null || host.isBlank()) return "no host in " + uri;
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
@@ -122,12 +146,11 @@ public final class Fetch {
         } catch (Exception e) {
             return "cannot resolve " + host;
         }
-        boolean denyPrivate = "deny".equalsIgnoreCase(Config.get("RESEARCHZOSHO_FETCH_PRIVATE", "allow"));
         for (InetAddress a : addrs) {
             if (a.isLoopbackAddress() && !allowLoopback) return host + " resolves to a loopback address";
             if (a.isLinkLocalAddress()) return host + " resolves to a link-local address";
             if (a.isAnyLocalAddress() || a.isMulticastAddress()) return host + " resolves to an unusable address";
-            if (denyPrivate && a.isSiteLocalAddress()) return host + " resolves to a private address (RESEARCHZOSHO_FETCH_PRIVATE=deny)";
+            if (denyPrivate && privateAddress(a)) return host + " resolves to an address on a private network, which this library does not fetch (RESEARCHZOSHO_FETCH_PRIVATE)";
         }
         return null;
     }

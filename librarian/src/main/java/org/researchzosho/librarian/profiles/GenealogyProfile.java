@@ -30,6 +30,7 @@ import org.researchzosho.librarian.KanjiForms;
 import org.researchzosho.librarian.Looked;
 import org.researchzosho.librarian.SearchLog;
 import org.researchzosho.librarian.FamilyIdentity;
+import org.researchzosho.librarian.ProtocolError;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.net.URI;
@@ -122,6 +123,8 @@ public final class GenealogyProfile implements Profile {
     private static void noteAsked(String what) { Set<String> s = ASKED; if (s != null) s.add(what); }
 
     @Override public String name() { return "genealogy"; }
+
+    @Override public String goalName() { return "family"; }
 
     @Override public String description() { return "kinship relations, GEDCOM import and export"; }
 
@@ -505,6 +508,18 @@ public final class GenealogyProfile implements Profile {
     @Override public String chatCommandHelp() { return "/family (your family: tell, read, tree, check) · to research a question as family history, say \"in genealogy mode\" with it"; }
 
     @Override public List<String> chatCommandWords() { return List.of("/family"); }
+
+    /** The who-is-who question answered in the chat with a button or a word: the numbered person, none of them, or later. */
+    @Override public String answerChoice(LibraryStore store, String key, String choice) throws IOException {
+        if (!key.startsWith("who:")) return null;
+        String person = key.substring(4);
+        try {
+            if (choice == null || choice.equals("none of them")) { FamilyIdentity.answer(store, person, List.of(), "none"); return "Taken: none of them is " + person + "; the library says so of each."; }
+            if (choice.equals("later")) { FamilyIdentity.answer(store, person, List.of(), "unsure"); return "Left for later; the Who is who page keeps the question."; }
+            FamilyIdentity.answer(store, person, List.of(choice.split(" ", 2)[0]), "confirmed");
+            return "Taken: " + choice + " is " + person + ".";
+        } catch (ProtocolError | IllegalArgumentException e) { return "That question is no longer open: " + e.getMessage(); }
+    }
 
     /**
      * The family commands in a chat other than the terminal. The library's owner runs every one, as at the terminal. Anyone else runs

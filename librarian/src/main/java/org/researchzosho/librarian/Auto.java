@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import org.researchzosho.drive.DriveClient;
 /**
  * Best judgement (0.6.2): which named model a run or a chat should use when nobody named one. The rule is plain and every pick says
  * why. Among the named models that are usable (a key kept where one is needed, the monthly cap not reached), drop those below the
@@ -54,7 +55,7 @@ public final class Auto {
         String whyNot = null;
         boolean hosted = e.hosted();
         if (Config.isOn("RESEARCHZOSHO_AUTO_LOCAL_ONLY", false) && hosted) whyNot = "auto.local_only is on";
-        else if (hosted && org.researchzosho.drive.DriveClient.keyFor(e.drive()) == null) whyNot = "no key kept for " + e.host();
+        else if (hosted && DriveClient.keyFor(e.drive()) == null) whyNot = "no key kept for " + e.host();
         else if (e.cap() > 0 && store != null && Spend.monthTotal(store, e.name()) >= e.cap()) whyNot = "its monthly cap is reached";
         double[] h = store == null ? null : Spend.average(store, e.model(), job.kind());
         boolean free = e.prices() == null ? !hosted : (e.prices()[0] == 0 && e.prices()[1] == 0);

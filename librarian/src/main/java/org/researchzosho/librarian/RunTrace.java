@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -27,6 +28,13 @@ import org.researchzosho.drive.DeclineJudge;
  *
  * <p>It is the instrument. "The writer never saw lanes four and five" (0.1.6) was found by a reader of the
  * write-up; with this file it is one grep. {@code RESEARCHZOSHO_TRACE=off} turns it off.
+ *
+ * <p>Every call's {@code seat} is the STAGE of the run it was made in ({@link #stage}): plan, workers, critic, write-up, topic-check,
+ * analysis, cite-check, revise; a call made outside a named stage keeps the name of the drive it went to (workers, judge). {@code drive}
+ * says which of the two drives took it, whatever the stage. The first chat call of each stage (each worker's first, the writer's first,
+ * a second write-up's first) keeps the model's reasoning text, when the server returns it, and what it answered in words, each up to
+ * {@link #REASONING_CHARS} characters: a write-up whose first visible act was a fetch on another subject had spent 1,600 tokens on
+ * reasoning the trace did not hold, so its cause could not be read back (2026-11-05).
  */
 public final class RunTrace implements AutoCloseable, Declines.Notes {
     private static final ObjectMapper M = new ObjectMapper();
@@ -40,6 +48,40 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
     final AtomicInteger compactions = new AtomicInteger();
 
     private RunTrace(Path file, String runId) { this.file = file; this.runId = runId; }
+
+    /** The stages of a run, as the trace names them in {@code seat}. */
+    public static final String PLAN = "plan", WORKERS = "workers", CRITIC = "critic", WRITE_UP = "write-up", TOPIC_CHECK = "topic-check",
+            ANALYSIS = "analysis", CITE_CHECK = "cite-check", REVISE = "revise";
+
+    /** How much of the reasoning, and of the words, of a stage's first call the trace keeps; 0 keeps none (RESEARCHZOSHO_TRACE_REASONING). */
+    static final int REASONING_CHARS = 8_000;
+    static int reasoningChars() { return Math.max(0, Config.getInt("RESEARCHZOSHO_TRACE_REASONING", REASONING_CHARS)); }
+
+    /** One stage as it runs on one thread: its name, and whether its first chat call has been written. */
+    private static final class Stage {
+        final String name;
+        final AtomicBoolean first = new AtomicBoolean(true);
+        Stage(String name) { this.name = name; }
+    }
+
+    private static final ThreadLocal<Stage> STAGE = new ThreadLocal<>();
+
+    /** Closes a {@link #stage}: the stage named before it is the stage again. */
+    public interface Scope extends AutoCloseable { @Override void close(); }
+
+    /**
+     * Until the returned scope closes, the model calls on this thread belong to the stage {@code name}: the trace writes it as their
+     * seat, and keeps the reasoning of the first of them. Opening a stage again (a second write-up, another worker) starts a new one
+     * with a first call of its own. It costs nothing where no trace is open.
+     */
+    public static Scope stage(String name) {
+        Stage outer = STAGE.get();
+        STAGE.set(new Stage(name == null || name.isBlank() ? "" : name.strip()));
+        return () -> { if (outer == null) STAGE.remove(); else STAGE.set(outer); };
+    }
+
+    /** The stage named on this thread; "" when none is. */
+    static String stageNow() { Stage s = STAGE.get(); return s == null ? "" : s.name; }
 
     /** The trace for a run, or a silent one when tracing is off or the directory cannot be made. */
     public static RunTrace open(LibraryStore store, String runId) {
@@ -99,24 +141,32 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
         if (file == null) return delegate;
         RunTrace trace = this;
         return new Researcher.Drive() {
-            @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) {
+            @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { return traced(false, messages, tools, maxTokens, toolChoice); }
+            /** The decision turn goes to the drive's own (thinking off, sampling cold), not to its chat: seen through the trace it was a chat turn with the thinking on. */
+            @Override public ObjectNode decide(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { return traced(true, messages, tools, maxTokens, toolChoice); }
+            /** The model's name is the drive's: the brain reads its tier off it, and seen through the trace every model was nameless, so every one was taken for a large one. */
+            @Override public String model() { return delegate.model(); }
+            private ObjectNode traced(boolean decide, ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) {
                 long t0 = System.nanoTime();
                 ObjectNode line = M.createObjectNode();
-                line.put("capture", "llm_call"); line.put("seat", seat); line.put("kind", "chat");
+                Stage stage = STAGE.get();
+                line.put("capture", "llm_call"); seated(line, seat); line.put("kind", "chat");
+                if (decide) line.put("decide", true);
+                if (stage != null && !stage.name.isEmpty() && stage.first.compareAndSet(true, false)) line.put("first_of_stage", true);
                 line.put("max_tokens", maxTokens); line.put("tool_choice", toolChoice == null ? "" : toolChoice);
                 ArrayNode names = line.putArray("tools");
                 if (tools != null) for (JsonNode t : tools) names.add(t.path("function").path("name").asText(t.path("name").asText("")));
                 line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
                 ObjectNode reply = null; String error = null;
                 DriveClient.forgetUsage();
-                try { reply = delegate.chat(messages, tools, maxTokens, toolChoice); return reply; }
+                try { reply = decide ? delegate.decide(messages, tools, maxTokens, toolChoice) : delegate.chat(messages, tools, maxTokens, toolChoice); return reply; }
                 catch (RuntimeException e) { error = e.getMessage(); throw e; }
                 finally { finish(line, t0, reply, error); }
             }
             @Override public String classify(ArrayNode messages, int maxTokens) {
                 long t0 = System.nanoTime();
                 ObjectNode line = M.createObjectNode();
-                line.put("capture", "llm_call"); line.put("seat", seat); line.put("kind", "classify"); line.put("max_tokens", maxTokens);
+                line.put("capture", "llm_call"); seated(line, seat); line.put("kind", "classify"); line.put("max_tokens", maxTokens);
                 line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
                 String out = ""; String error = null;
                 DriveClient.forgetUsage();
@@ -127,7 +177,7 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
             @Override public String prose(ArrayNode messages, int maxTokens) {
                 long t0 = System.nanoTime();
                 ObjectNode line = M.createObjectNode();
-                line.put("capture", "llm_call"); line.put("seat", seat); line.put("kind", "prose"); line.put("max_tokens", maxTokens);
+                line.put("capture", "llm_call"); seated(line, seat); line.put("kind", "prose"); line.put("max_tokens", maxTokens);
                 line.set("messages", messages == null ? M.createArrayNode() : messages.deepCopy());
                 String out = ""; String error = null;
                 DriveClient.forgetUsage();
@@ -137,6 +187,11 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
             }
             @Override public int contextWindow() { return delegate.contextWindow(); }
             @Override public DeclineJudge declineJudge() { return delegate.declineJudge(); }
+            /** The seat is the stage the call was made in, else the drive's own name; the drive is named beside it either way. */
+            private void seated(ObjectNode line, String drive) {
+                String stage = stageNow();
+                line.put("seat", stage.isEmpty() ? drive : stage); line.put("drive", drive);
+            }
             /** The start of a decision's reply, so a plan read as one sub-question can be read back (MiniMax M3 through OpenRouter, 2026-10-16: 4,000 characters the planner could not read, and only their count in the trace). */
             private static String head(String s) { return s == null ? "" : s.length() > 400 ? s.substring(0, 400) : s; }
             private void finish(ObjectNode line, long t0, ObjectNode reply, String error) {
@@ -149,7 +204,13 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
                     ObjectNode r = line.putObject("reply");
                     if (reply.has("content_chars")) { r.put("content_chars", reply.get("content_chars").asInt()); if (reply.has("head")) r.put("head", reply.get("head").asText()); }
                     else {
-                        r.put("content_chars", reply.path("content").asText("").length());
+                        String content = reply.path("content").asText(""), reasoning = reply.path("reasoning_content").asText(reply.path("reasoning").asText(""));   // OpenRouter's name for it is reasoning
+                        r.put("content_chars", content.length());
+                        if (!reasoning.isEmpty()) r.put("reasoning_chars", reasoning.length());
+                        // the first call of a stage: what the model thought and what it said in words, so a stage that began on another subject can be read back
+                        int keep = line.path("first_of_stage").asBoolean(false) ? reasoningChars() : 0;
+                        if (keep > 0 && !reasoning.isEmpty()) r.put("reasoning", reasoning.length() > keep ? reasoning.substring(0, keep) : reasoning);
+                        if (keep > 0 && !content.isEmpty()) r.put("content", content.length() > keep ? content.substring(0, keep) : content);
                         ArrayNode calls = r.putArray("tool_calls");
                         for (JsonNode c : reply.path("tool_calls")) {
                             ObjectNode tc = calls.addObject();

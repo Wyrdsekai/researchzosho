@@ -17,6 +17,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import org.researchzosho.Config;
+
 /**
  * Accounts: how a person signs in (0.6.1). The person who keeps the library has one (the owner, did {@code person}); each reader
  * invited by name has one, with the did their line in {@code catalog/patrons.md} carries. An account is a name to sign in with, a
@@ -32,6 +34,17 @@ public final class Accounts {
     public static final String OWNER = "person";
     /** How many wrong tries at a name before the library makes the next one wait, and for how long. */
     static final int TRIES = 10, WAIT_MINUTES = 10;
+    /** How many days a browser stays signed in: the cookie's life and the session's, a year unless the setting says otherwise. */
+    public static final String SESSION_DAYS = "RESEARCHZOSHO_SESSION_DAYS";
+    static final int DEFAULT_SESSION_DAYS = 365;
+    /** Tests set this; null means read the setting. */
+    static volatile Integer SESSION_DAYS_OVERRIDE;
+
+    public static int sessionDays() {
+        Integer o = SESSION_DAYS_OVERRIDE;
+        int d = o != null ? o : Config.liveInt(SESSION_DAYS, DEFAULT_SESSION_DAYS);
+        return Math.max(1, Math.min(3650, d));
+    }
 
     public record Passkey(String id, String key, int alg, long count, String rp, String made, String label) { }
     public record Session(String hash, String made, String label) { }
@@ -82,12 +95,18 @@ public final class Accounts {
         return null;
     }
 
-    /** The account a browser's session secret belongs to, or null. */
+    /** The account a browser's session secret belongs to, or null; a session older than the days the setting says is no longer one. */
     public static Account bySession(LibraryStore store, String secret) throws IOException {
         if (secret == null || secret.isBlank()) return null;
         String h = Patrons.sha256(secret.strip());
-        for (Account a : list(store)) for (Session s : a.sessions()) if (s.hash().equals(h)) return a;
+        for (Account a : list(store)) for (Session s : a.sessions()) if (s.hash().equals(h)) return current(s) ? a : null;
         return null;
+    }
+
+    /** Whether a session is within its days: made on a day the setting still covers; a session with no readable date stays. */
+    static boolean current(Session s) {
+        try { return !LocalDate.parse(s.made()).plusDays(sessionDays()).isBefore(LocalDate.now()); }
+        catch (RuntimeException e) { return true; }
     }
 
     public static Account byPasskey(LibraryStore store, String id) throws IOException {

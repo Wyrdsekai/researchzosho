@@ -24,6 +24,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.file.StandardOpenOption;
 /** The recall watch (0.6.0): five feeds read into files, matched against the ledger by four tiers, kept as hits until put away, shown everywhere. */
 class RecallsTest {
 
@@ -69,7 +70,7 @@ class RecallsTest {
         Owned.importPath(store, f, "amazon", "");
         // a line with a barcode, as a reader that knows one would write it
         Owned.Line nb = new Owned.Line("O-barcode00001", "2026-03-12", "Brambleworks", "brambleworks.example", "BW-1042", "Hand-bound notebook, A6, grey linen", 2, "6.50", "USD", "15.99", Map.of("gtin", "0012345678905"), "purchase", "mail", "/x/Inbox", "<b1>", "2026-10-09T00:00:00Z", "exact");
-        Files.writeString(Owned.file(store), nb.json().toString() + "\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.APPEND);
+        Files.writeString(Owned.file(store), nb.json().toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.APPEND);
         return store;
     }
 

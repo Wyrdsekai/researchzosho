@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
+import java.util.TreeMap;
 /**
  * Settings, from a config file or the environment.
  *
@@ -149,7 +150,7 @@ public final class Config {
     public static Map<String, String> storedWithPrefix(String envPrefix) {
         String want = normalize(envPrefix);
         if (want.endsWith("_")) { } else want = want + "_";
-        Map<String, String> out = new java.util.TreeMap<>();
+        Map<String, String> out = new TreeMap<>();
         for (Map.Entry<String, String> e : loaded().file().entrySet()) if (e.getKey().startsWith(want) && e.getValue() != null && !e.getValue().isBlank()) out.put(e.getKey(), e.getValue());
         return out;
     }

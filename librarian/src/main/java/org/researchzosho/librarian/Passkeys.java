@@ -52,10 +52,10 @@ public final class Passkeys {
         return c > 0 ? host.substring(0, c) : host;
     }
 
-    /** The origin the browser will name: https through the shared door, http on the main port (where only localhost is a secure context). */
+    /** The origin the browser will name: https through the shared door and behind a trusted proxy that says so, http on the main port (where only localhost is a secure context). */
     static String origin(HttpExchange x) {
         String host = x.getRequestHeaders().getFirst("Host");
-        return (Pages.onDoor(x) ? "https://" : "http://") + (host == null ? "localhost" : host.strip());
+        return (Pages.secure(x) ? "https://" : "http://") + (host == null ? "localhost" : host.strip());
     }
 
     private static String challenge(String did) {

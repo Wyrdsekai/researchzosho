@@ -22,6 +22,8 @@ import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.PrintStream;
+import java.util.regex.Matcher;
 /** The ledger of what the person owns (0.6.0): three kinds of record read, duplicates told apart, and every surface that shows it. */
 class OwnedTest {
 
@@ -145,7 +147,7 @@ class OwnedTest {
             HttpResponse<String> page = c.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + d.port() + "/owned?q=hub")).build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, page.statusCode(), page.body()); assertTrue(page.body().contains("Kestrel 7-Port USB Hub"), page.body());
         } finally { d.stop(); }
-        ByteArrayOutputStream out = new ByteArrayOutputStream(); var old = System.out; System.setOut(new java.io.PrintStream(out, true, StandardCharsets.UTF_8));
+        ByteArrayOutputStream out = new ByteArrayOutputStream(); var old = System.out; System.setOut(new PrintStream(out, true, StandardCharsets.UTF_8));
         try { assertEquals(0, LibrarianCli.ownedCommand(store, new String[]{"librarian", "owned", "find", "moths"})); } finally { System.setOut(old); }
         assertTrue(out.toString(StandardCharsets.UTF_8).contains("Moths of Hokkaido"), out.toString(StandardCharsets.UTF_8));
     }
@@ -155,7 +157,7 @@ class OwnedTest {
         assertEquals("【楽天市場】注文内容", Mime.decodeHeader("=?UTF-8?B?44CQ5qW95aSp5biC5aC044CR5rOo5paH5YaF5a65?="));
         assertEquals("Your order has shipped", Mime.decodeHeader("=?utf-8?q?Your_order_has?= =?utf-8?q?_shipped?="));
         assertEquals("a\nb\nc=d", new String(Mime.quotedPrintable("a\nb=\n\nc=3Dd".getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8).replace("\n\n", "\n"), "line ends stay, soft breaks and =3D go");
-        java.util.regex.Matcher shop = Owned.SUBJECT_SHOP.matcher("Your order from Heron Street Bakery has been scheduled");
+        Matcher shop = Owned.SUBJECT_SHOP.matcher("Your order from Heron Street Bakery has been scheduled");
         assertTrue(shop.find()); assertEquals("Heron Street Bakery", shop.group(1), "the shop's name stops where the sentence goes on");
         assertEquals("Almond croissant $4.50\nTotal $9.75\n", Mime.htmlToText("<table><tr><td>Almond croissant</td><td>$4.50</td></tr><tr><td>Total</td><td>$9.75</td></tr></table>"));
     }

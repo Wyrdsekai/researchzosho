@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
  */
 public final class OrganizationProfile implements Profile {
     @Override public String name() { return "organization"; }
+    @Override public String goalName() { return "dossier"; }
     @Override public String description() { return "a dossier on a company, nonprofit, university or institution: its registers and filings, structure, people, money, marks, footprint and public record, each claim with the class of its source"; }
     @Override public List<Vocabulary.Term> predicates() {
         return List.of(
@@ -111,8 +112,11 @@ public final class OrganizationProfile implements Profile {
     @Override public String planRules() {
         return "This is a question about an organisation. The leaning of the question decides the Reading, never what is gathered: every facet is "
                 + "researched in full whatever the question asks, so that the dossier is the whole organisation and the story can be written from it, "
-                + "its founding and its people included. The first sub-question establishes the registry card: legal names over time, register "
-                + "numbers, incorporation, addresses. The second is the work: what the organisation makes or does and is known for, its principal "
+                + "its founding and its people included. The first sub-question establishes the origin and the milestones, the major things first: "
+                + "founded or established (the year, the place, by whom, under what name), chartered or incorporated (the year, by whom), renamed, merged, "
+                + "split, moved, closed, each with its year and a source that says so, from the register, the organisation's own history page or a "
+                + "history in the books. The second establishes the registry card: legal names over time, register "
+                + "numbers, incorporation, addresses. The third is the work: what the organisation makes or does and is known for, its principal "
                 + "products, projects or programmes, and each principal one, the flagship above all, gets a sub-question of its own: what it is and "
                 + "claims to do, since when, who built it, how it works (the method, the data, the people), who pays for it, how it was received "
                 + "and criticised, what it changed (an institute's index was a sentence in a dossier of registers, 2026-10-25). Then one "
@@ -128,14 +132,18 @@ public final class OrganizationProfile implements Profile {
                 + "and shibusawa-shashi the worker opens by hand; a book that is open is read in full and cited by page. " + Facets.ORGANIZATION_PLAN;
     }
     @Override public String criticRules() {
-        return "For an organisation's dossier the evidence is enough when the registry card rests on a register read directly, every facet has "
+        return "For an organisation's dossier the evidence is not enough while the founding is missing or rests on no source: the year, the place and "
+                + "the name it was founded under come first, with the charter or incorporation. Beyond that the evidence is enough when the registry card rests on a register read directly, every facet has "
                 + "claims or a search that found nothing in a named register, each claim carries its source class and date, and the current state "
                 + "carries a date; and the work the organisation is known for has an account of its own, not a sentence: what it is, how it works, "
                 + "how it was received. A gap worth another search names a register for the organisation's country not yet used, a parent or "
                 + "subsidiary not yet followed, an officer not yet resolved, a principal product or project with no account, or a facet with no search." + Facets.ORGANIZATION_CRITIC;
     }
     @Override public String writerRules() {
-        return "The Answer section, first, is the Reading: what the record shows for the leaning of the question, every sentence cited. Then: Registry card; "
+        return "The Answer section, first, is the Reading: what the record shows for the leaning of the question, every sentence cited, opening with the "
+                + "founding in one clause (founded YEAR in PLACE as NAME). Then: Milestones (one a line, YEAR: what happened — founded or established in PLACE as "
+                + "NAME by WHOM, chartered, incorporated, renamed, merged, split, moved, closed [n]); Registry card (opening with the founding and the charter, "
+                + "Founded YEAR in PLACE as NAME [n]; chartered YEAR [n]; then legal names over time, register numbers, addresses); "
                 + "The work (each principal product, project or programme with its own account: what, since when, who, how it works, how received, what it changed); "
                 + "Customers, peers and alternatives (who pays for or uses the work, by name where the record says; for each work item, who else does this and what the customer would use instead, as the organisation names them and as the press does, each with its source; none named is said so); "
                 + "Structure; Power and governance (who holds power over it: owners and their stakes, the board and its chair, the chief executive, funders, regulators or customers with leverage; how it decides); "

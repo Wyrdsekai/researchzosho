@@ -29,6 +29,12 @@ import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.file.StandardOpenOption;
+import java.time.ZonedDateTime;
 /**
  * What the person owns: their purchases, imported from the records they already have — the zip a shop's data request returns
  * (Amazon's order history), a mailbox of order confirmations, a bank or card statement. One line per thing bought, in
@@ -124,11 +130,11 @@ public final class Owned {
                 if (!l.date().isEmpty()) { if (first == null || l.date().compareTo(first) < 0) first = l.date(); if (last == null || l.date().compareTo(last) > 0) last = l.date(); }
             }
             Files.createDirectories(file(store).getParent());
-            Files.writeString(file(store), sb.toString(), StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            Files.writeString(file(store), sb.toString(), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             ObjectNode src = M.createObjectNode();
             src.put("file", path.toAbsolutePath().normalize().toString()); src.put("kind", k); src.put("lines", added);
             src.put("first_date", first == null ? "" : first); src.put("last_date", last == null ? "" : last); src.put("imported_at", now);
-            Files.writeString(sourcesFile(store), src.toString() + "\n", StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+            Files.writeString(sourcesFile(store), src.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
             return new Summary(path.toString(), k, c.messages, c.orders, added, already, c.shipments, c.own, first == null ? "" : first, last == null ? "" : last, c.notes);
         });
     }
@@ -186,9 +192,9 @@ public final class Owned {
 
     /** A file's text: UTF-8 when it is UTF-8, else Shift-JIS (amazon.co.jp's exports were, until 2026), else Latin-1. */
     static String text(byte[] bytes) {
-        try { return StandardCharsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString(); }
-        catch (java.nio.charset.CharacterCodingException e) {
-            try { return java.nio.charset.Charset.forName("windows-31j").newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString(); }
+        try { return StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString(); }
+        catch (CharacterCodingException e) {
+            try { return Charset.forName("windows-31j").newDecoder().decode(ByteBuffer.wrap(bytes)).toString(); }
             catch (Exception e2) { return new String(bytes, StandardCharsets.ISO_8859_1); }
         }
     }
@@ -269,7 +275,7 @@ public final class Owned {
             if (seen != null) {
                 Line was = c.lines.get(seen);
                 if (was.qty() != q) {   // another shipment of the same order line: the quantities add up
-                    String sum = was.total().isEmpty() || tot.isEmpty() ? (was.total().isEmpty() ? tot : was.total()) : new java.math.BigDecimal(was.total()).add(new java.math.BigDecimal(tot)).toPlainString();
+                    String sum = was.total().isEmpty() || tot.isEmpty() ? (was.total().isEmpty() ? tot : was.total()) : new BigDecimal(was.total()).add(new BigDecimal(tot)).toPlainString();
                     c.lines.set(seen, new Line(was.id(), was.date(), was.shop(), was.domain(), was.orderId(), was.title(), was.qty() + q, was.unitPrice(), was.currency(), sum, was.ids(), was.kind(), was.sourceKind(), was.sourceFile(), was.sourceRef(), was.importedAt(), was.confidence()));
                 }
                 merged++;
@@ -321,7 +327,7 @@ public final class Owned {
         m = Pattern.compile("(\\d{4})年(\\d{1,2})月(\\d{1,2})日").matcher(t);
         if (m.find()) return String.format("%s-%02d-%02d", m.group(1), Integer.parseInt(m.group(2)), Integer.parseInt(m.group(3)));
         try { return LocalDate.parse(t.length() > 10 ? t.substring(0, 10) : t).toString(); } catch (Exception e) { }
-        try { return java.time.ZonedDateTime.parse(t, DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate().toString(); } catch (Exception e) { }
+        try { return ZonedDateTime.parse(t, DateTimeFormatter.RFC_1123_DATE_TIME).toLocalDate().toString(); } catch (Exception e) { }
         try { return mailDate(t); } catch (Exception e) { return t; }
     }
 

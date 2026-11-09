@@ -283,7 +283,11 @@ class SelfHarmHelpTest {
         List<ArrayNode> seen = new ArrayList<>();
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + SURE + "\"}"), LibrarianChatTest.say("I have filed it.")), seen),
                 Librarian.person(), Librarian.Session.open(store));
-        lib.say("Look into this for me");
+        // the chat clears older look-ups to fit the model's window by the estimate a server may have corrected upward: the estimate before any
+        // correction, whatever ran before this test (ResearcherTest's rule), or a suite's fake servers that taught it 2.5 clear the result read below
+        double scaleWas = Researcher.tokenScale;
+        Researcher.tokenScale = 1.0;
+        try { lib.say("Look into this for me"); } finally { Researcher.tokenScale = scaleWas; }
         String toolResult = "";
         for (ArrayNode turn : seen) for (var m : turn) if ("tool".equals(m.path("role").asText())) toolResult = m.path("content").asText();
         assertTrue(toolResult.contains("the library researches this question only if they say yes to its question"), toolResult);

@@ -11,9 +11,10 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.function.UnaryOperator;
 class TranslateTest {
     /** A stand-in model: the glossary one line a term, numbered lines back by their numbers, a text as one piece; {@code f} marks each translation. */
-    static Researcher.Drive standIn(java.util.function.UnaryOperator<String> f) {
+    static Researcher.Drive standIn(UnaryOperator<String> f) {
         return new Researcher.Drive() {
             @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int x, String c) { return null; }
             @Override public String classify(ArrayNode m, int x) {
@@ -35,6 +36,11 @@ class TranslateTest {
         List<String> pieces = Translate.collect(store, "Ada Example");
         assertTrue(pieces.contains("Ada Example, 2009: joined Acme Corp") && pieces.stream().anyMatch(s -> s.contains("builds widgets")), "the claim titles and the sections are the pieces: " + pieces);
         assertTrue(Translate.terms(String.join("\n", pieces)).contains("Acme Corp"), "a name that recurs is a term of the glossary");
+        // a book in another language: names in its alphabet are terms; a word that opens sentences, a word that also stands in lowercase, and a heading's capitals are not (the Saragossa run of 2026-11-07 fixed "DZIE → DAY" and "Dalszy → Further")
+        String polish = "DZIEŃ DZIEWIĄTY\n\nDalszy ciąg historii Zota\n\nKiedy Alfons van Worden wrócił, Zoto czekał. Wreszcie powiedział mu Zoto, kiedy wszyscy spali, że Alfons van Worden ma rację.\n\nDZIEŃ DZIESIĄTY\n\nDalszy ciąg historii Zota\n\nWreszcie Żółkiewski przyszedł; Żółkiewski milczał.\n";
+        List<String> terms = Translate.terms(polish);
+        assertTrue(terms.contains("Alfons van Worden") && terms.contains("Zoto") && terms.contains("Żółkiewski"), terms.toString());
+        assertFalse(terms.stream().anyMatch(t -> t.startsWith("DZIE") || t.equals("Dalszy") || t.equals("Kiedy") || t.equals("Wreszcie") || t.equals("Dzie")), terms.toString());
         Translate.Translated t = Translate.dossierIn(store, "Ada Example", "ja", standIn(text -> "【訳】" + text));
         assertTrue(t.fresh() && t.pieces() >= 3 && t.kept() == 0 && t.glossary() >= 1 && t.words().size() == t.pieces(), t.summary() + " pieces=" + pieces + " words=" + t.words());
         assertTrue(t.summary().contains("pieces translated with a glossary of"), t.summary());

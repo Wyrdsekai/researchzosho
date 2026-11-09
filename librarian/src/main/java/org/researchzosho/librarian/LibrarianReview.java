@@ -75,6 +75,11 @@ public final class LibrarianReview {
         default String extract(String investigationBody, String rule) throws Exception { return extract(investigationBody); }
         /** Compare a candidate against BM25-nominated neighbors: duplicate|contradicts|independent. */
         String compare(String candidate, String neighbors) throws Exception;
+        /**
+         * Whether a report's answer is about its question ({@link TopicCheck}): asked before any claim is read out of a report nobody
+         * has checked against its question. Null from a seat that has no such check; the review then reads the report as it always did.
+         */
+        default TopicCheck.Verdict onTopic(String question, List<String> subQuestions, String answer) throws Exception { return null; }
     }
 
     private static final ObjectMapper M = new ObjectMapper();
@@ -116,6 +121,58 @@ public final class LibrarianReview {
         List<String> accepted = new ArrayList<>(), kept = new ArrayList<>(),
                 disputed = new ArrayList<>(), dupes = new ArrayList<>(), problems = new ArrayList<>();
         List<String> invUrls = Acquisitions.urls(inv.body());
+
+        // THE REPORT AGAINST ITS QUESTION, before any claim is read out of it. A report whose answer is on another subject yields no
+        // claims and waits for the keeper; one that turns from its question to another subject, or that its own run held back, has its claims read
+        // out and waits all the same. A run's own verdict stands; a report nobody checked (an older one, one a program submitted, a
+        // run whose check got no answer) is checked here. Eight claims about another subject were once filed under the question of a
+        // run whose write-up had drifted, because nothing read the answer against the question (2026-11-05).
+        ReportStanding.Row hold = ReportStanding.held(store, inv);
+        if (hold != null && ReportStanding.reviewedWhileHeld(store, inv)) {
+            problems.add(waits(inv, hold) + " Its claims were read out already, and it has not changed since.");
+            return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+        }
+        // a report the run filed from the workers' findings alone says so in its first words: it waits, whatever the ledger holds
+        boolean workersOnly = inv.body().contains("## " + Researcher.SET_ASIDE_HEADING + "\n\n" + Researcher.SET_ASIDE_SENTENCE);
+        if (hold == null && workersOnly) {
+            List<String> why = List.of(Researcher.SET_ASIDE_SENTENCE);
+            ReportStanding.record(store, inv.id(), ReportStanding.hashOf(inv), ReportStanding.REVIEW, ReportStanding.HELD, "no", why);
+            hold = ReportStanding.held(store, inv);
+        }
+        if (hold == null && !ReportStanding.acceptedByKeeper(store, inv) && ReportStanding.topic(store, inv).isEmpty()) {
+            String question = TopicCheck.questionIn(inv.body()), answer = TopicCheck.answerIn(inv.body());
+            TopicCheck.Verdict topic = null;
+            if (!question.isEmpty() && !answer.isEmpty()) {
+                try { topic = judge.onTopic(question, TopicCheck.subQuestionsIn(inv.body()), answer); }
+                catch (Declined d) {
+                    problems.add(d.statement("to check this report against its question") + " The report stays a draft.");
+                    Declines.rememberDeclined(store, "review", inv.id(), Conversations.hash8(inv.body()), d);
+                    logProblems(inv, problems);
+                    return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+                }
+            }
+            if (topic != null && !topic.checked()) {
+                // no verdict is not a yes: the report stays a draft with nothing read out of it, and the next review asks again
+                problems.add("the report could not be checked against its question (" + topic.line() + "); no claim was read out of it, it stays a draft, and the next review asks again");
+                logProblems(inv, problems);
+                return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+            }
+            if (topic != null && topic.yes()) ReportStanding.record(store, inv.id(), ReportStanding.hashOf(inv), ReportStanding.REVIEW, ReportStanding.CLEAR, "yes", List.of());
+            if (topic != null && (topic.no() || topic.partly())) {
+                String said = topic.line().isEmpty() ? "" : " The check said: \"" + topic.line() + "\"";
+                List<String> why = List.of(topic.no() ? "The report's answer is not about its question, so no claim was read out of it." + said : "The report's answer starts on its question and turns to another subject." + said);
+                ReportStanding.record(store, inv.id(), ReportStanding.hashOf(inv), ReportStanding.REVIEW, ReportStanding.HELD, topic.word(), why);
+                hold = ReportStanding.held(store, inv);
+                store.circulate("report-held", inv.id() + " :: " + Acquisitions.compress(String.join(" ", why), 200));
+            }
+        }
+        // the review's own "no" is on a report that still holds the answer on another subject: nothing is read out of it
+        if (hold != null && hold.topic().equals("no") && !workersOnly) {
+            ReportStanding.record(store, inv.id(), ReportStanding.hashOf(inv), ReportStanding.REVIEW, ReportStanding.REVIEWED, "", List.of());
+            problems.add(waits(inv, hold));
+            logProblems(inv, problems);
+            return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+        }
 
         String rawExtraction;
         try { rawExtraction = judge.extract(inv.body(), extractionRule(store, Fields.ofRun(store, inv.id()))); }
@@ -425,13 +482,22 @@ public final class LibrarianReview {
 
         // record what was left open, promote the run record, refresh the human index
         try { Frontier.fromReport(store, inv.id(), inv.open()); } catch (IOException ignored) { }   // a no-op when the run already filed them
-        store.write(new Investigation(inv.id(), inv.title(), Finding.State.accepted, inv.writer(),
-                inv.recordedAt(), findingIds, inv.open(), inv.body()));
+        // a report that waits for the keeper's eye keeps its claims and stays a draft: its state follows its checks
+        if (hold != null) {
+            store.write(inv.with(Finding.State.draft, findingIds, inv.open()));
+            ReportStanding.record(store, inv.id(), ReportStanding.hashOf(inv), ReportStanding.REVIEW, ReportStanding.REVIEWED, "", List.of());
+            problems.add(waits(inv, hold));
+        } else store.write(inv.with(Finding.State.accepted, findingIds, inv.open()));
         store.regenerateIndex();
         logProblems(inv, problems);
         store.circulate("review", inv.id() + " → " + accepted.size() + " accepted, "
                 + kept.size() + " draft, " + disputed.size() + " disputed");
         return new Outcome(inv.id(), accepted, kept, disputed, dupes, problems);
+    }
+
+    /** What the review says of a report that waits for the keeper's eye: that it is not accepted, why, and the command that accepts it as it stands. */
+    static String waits(Investigation inv, ReportStanding.Row hold) {
+        return "the report is not accepted and waits for your eye: " + hold.why() + " To accept it as it stands: researchzosho accept " + inv.id();
     }
 
     /** Whether two triples say the same claim: the same subject and relation, and the same object once written one way. */
@@ -665,6 +731,13 @@ public final class LibrarianReview {
                 String out = drive.classify(msgs, EXTRACT_TOKENS);
                 if (!Declines.hasJson(out)) declines.raise(drive.model(), "list the claims a research report makes, as JSON", out);
                 return out;
+            }
+            @Override public TopicCheck.Verdict onTopic(String question, List<String> subQuestions, String answer) {
+                return TopicCheck.ask((m, n) -> {
+                    String out = drive.classify(m, n);
+                    if (!Declines.hasJson(out)) declines.raise(drive.model(), TopicCheck.STEP, out);   // words where a verdict was asked are read for a decline
+                    return out;
+                }, question, subQuestions, answer);
             }
             @Override public String compare(String candidate, String neighbors) {
                 var msgs = M.createArrayNode();

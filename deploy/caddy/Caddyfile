@@ -1,0 +1,10 @@
+# The router in front of the libraries. Each library has one file under routes/, written by scripts/fleet.sh:
+# the name it answers at and the container (or the other server) that holds it. Caddy adds X-Forwarded-For
+# and X-Forwarded-Proto; each library trusts them from the router's network only (RESEARCHZOSHO_TRUSTED_PROXY).
+# the admin endpoint stays on localhost inside the container, which is how scripts/fleet.sh reloads the routes
+import routes/*.caddy
+
+# anything else: no library at that name
+http:// {
+    respond "No library answers at this name." 404
+}

@@ -11,12 +11,12 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Whether a form came from the library's own page (0.6.9). The pages act for whoever has them open: the person who keeps the library
+ * Whether a form came from the library's own page (0.7.0). The pages act for whoever has them open: the person who keeps the library
  * while the pages are open, or while a browser on this computer is the keeper, or the person signed in. A page on another site that such
- * a person opens could post a form here, and their browser would carry it in their name: change a setting, let someone in, open the library to
- * the internet, file a run. So every form posted to a page is checked before anything else is read or done:
+ * a person opens could post a form here, and their browser would carry it in their name: add an MCP server that starts a program on this
+ * computer, change a setting, make a key, file a run. So every form posted to a page is checked before anything else is read or done:
  * the browser says where it came from, in Sec-Fetch-Site when it sends that, else in Origin, else in Referer, and it must be the library's
- * own address as the browser sees it, which on the shared door is the host and scheme the relay forwards. A request that says none of
+ * own address as the browser sees it, which behind a trusted proxy is the host and scheme the proxy forwards. A request that says none of
  * them is no browser's form from another site, since a browser names the origin of every form it posts across sites, and goes on as
  * before; so does a program's call that carries a bearer key or token, which no browser adds on its own. A form from elsewhere is
  * answered 403 with one sentence, and nothing of it is done.
@@ -58,20 +58,20 @@ final class OwnPage {
         if (authority.isEmpty()) return false;
         String[] here = here(x);
         if (here[0].isEmpty()) return false;
-        if (!here[1].isEmpty() && !here[1].equals(scheme)) return false;   // the scheme counts where the door says it
+        if (!here[1].isEmpty() && !here[1].equals(scheme)) return false;   // the scheme counts where a trusted proxy or the door says it
         String s = here[1].isEmpty() ? scheme : here[1];
         return withoutDefaultPort(here[0], s).equals(withoutDefaultPort(authority, scheme));
     }
 
     /**
      * The library's own address as the browser sees it: {host[:port], scheme}, lower-cased, the scheme "" when nothing trustworthy says it.
-     * On the shared door, the forwarded host and scheme when the relay sends them;
+     * Behind a proxy that RESEARCHZOSHO_TRUSTED_PROXY names, and on the shared door, the forwarded host and scheme when they are sent;
      * else the Host the request came with.
      */
     static String[] here(HttpExchange x) {
         Headers h = x.getRequestHeaders();
         String host = h.getFirst("Host"), scheme = "";
-        if (Pages.onDoor(x)) {
+        if (Proxy.proxied(x) || Pages.onDoor(x)) {
             String fh = last(h.getFirst("X-Forwarded-Host")), fp = last(h.getFirst("X-Forwarded-Proto"));
             if (!fh.isEmpty()) host = fh;
             if (!fp.isEmpty()) scheme = fp.toLowerCase(Locale.ROOT);

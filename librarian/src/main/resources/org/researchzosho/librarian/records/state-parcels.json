@@ -1,0 +1,82 @@
+{
+  "_about": "The states that publish one parcel layer for the whole state with an address and the assessor's value or the last sale on each parcel, read by the home field when a home's city and county give nothing, or first when the layer carries sales. Each proved live on the day given: the layer answered a street query with these fields. A state not here publishes none the library found on ArcGIS Hub with addresses and values (New Jersey, Vermont, Connecticut, Tennessee, Indiana, Utah, Oregon, Minnesota, Virginia), or its layer answered no street query (Montana's addresses are mostly blank; Florida's statewide cadastral refuses attribute queries).",
+  "MD": {
+    "name": "Maryland Property Data - Parcel Points (SDAT via MD iMAP)",
+    "url": "https://mdgeodata.md.gov/imap/rest/services/PlanningCadastre/MD_PropertyData/MapServer/0",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "ADDRESS",
+      "city": "CITY",
+      "price": "CONSIDR1",
+      "date": "TRADATE",
+      "value": "NFMTTLVL",
+      "year": "YEARBLT",
+      "sqft": "SQFTSTRC",
+      "key": "ACCTID"
+    }
+  },
+  "NC": {
+    "name": "NC OneMap statewide parcels",
+    "url": "https://services.nconemap.gov/secure/rest/services/NC1Map_Parcels/MapServer/1",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "siteadd",
+      "city": "scity",
+      "value": "parval",
+      "date": "saledate",
+      "year": "structyear",
+      "key": "parno"
+    }
+  },
+  "WA": {
+    "name": "Washington statewide current parcels",
+    "url": "https://services.arcgis.com/jsIt88o09Q0r1j8h/arcgis/rest/services/Current_Parcels/FeatureServer/0",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "SITUS_ADDRESS",
+      "city": "SITUS_CITY_NM",
+      "value": "VALUE_LAND+VALUE_BLDG"
+    }
+  },
+  "MA": {
+    "name": "MassGIS property tax parcels (L3 with assessor data)",
+    "url": "https://services1.arcgis.com/hGdibHYSPO59RG1h/arcgis/rest/services/Massachusetts_Property_Tax_Parcels/FeatureServer/0",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "SITE_ADDR",
+      "city": "CITY",
+      "price": "LS_PRICE",
+      "date": "LS_DATE",
+      "value": "TOTAL_VAL",
+      "year": "YEAR_BUILT",
+      "sqft": "BLD_AREA",
+      "key": "PROP_ID"
+    }
+  },
+  "WI": {
+    "name": "Wisconsin statewide parcels (V10)",
+    "url": "https://services3.arcgis.com/n6uYoouQZW75n5WI/arcgis/rest/services/Wisconsin_Statewide_Parcels_DB/FeatureServer/0",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "SITEADRESS",
+      "city": "PLACENAME",
+      "value": "CNTASSDVALUE",
+      "key": "PARCELID"
+    }
+  },
+  "NE": {
+    "name": "Nebraska statewide parcels",
+    "url": "https://gis.ne.gov/Enterprise/rest/services/StatewideParcelsExternal/FeatureServer/0",
+    "proved": "2026-11-02",
+    "fields": {
+      "address": "Situs_Address",
+      "city": "Ph_City",
+      "price": "Sales_Value",
+      "date": "Sales_Date",
+      "value": "Total_Assessed_Value",
+      "year": "BuildingYear",
+      "sqft": "ImpSF",
+      "key": "Parcel_ID"
+    }
+  }
+}

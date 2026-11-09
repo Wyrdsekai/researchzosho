@@ -599,7 +599,8 @@ public final class CareerRegisters {
             Map.entry("public office", List.of("[\"office\"=\"government\"]", "[\"amenity\"~\"^(townhall|courthouse|police|fire_station|post_office)$\"]")),
             Map.entry("childcare", List.of("[\"amenity\"~\"^(childcare|kindergarten)$\"]")),
             Map.entry("craft workshop", List.of("[\"craft\"]")),
-            Map.entry("charity", List.of("[\"office\"~\"^(ngo|association|charity|foundation)$\"]")));
+            Map.entry("charity", List.of("[\"office\"~\"^(ngo|association|charity|foundation)$\"]")),
+            Map.entry("estate agent", List.of("[\"office\"=\"estate_agent\"]")));
 
     /** A map record's place: the town the mappers wrote, else the one asked for. */
     static final int MAP_PAGE = 300;

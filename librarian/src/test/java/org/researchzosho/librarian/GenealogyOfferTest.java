@@ -556,9 +556,9 @@ class GenealogyOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out who my great-grandfather's parents were");
         String page = Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id));
-        assertTrue(page.contains("name=\"say\" value=\"y\"><button>Yes</button>") && page.contains("name=\"say\" value=\"n\"><button class=\"quiet\">No</button>"), page);
+        assertTrue(page.contains("name=\"say\" value=\"y\"><button class=\"btn primary\">Yes</button>") && page.contains("name=\"say\" value=\"n\"><button class=\"btn quiet\">No</button>"), page);
         lib.say("n");
-        assertFalse(Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id)).contains("<button>Yes</button>"));
+        assertFalse(Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id)).contains("<button class=\"btn primary\">Yes</button>"));
     }
 
     /** The job a "Sent as J-…" page names, wherever the service has moved it since. */

@@ -12,8 +12,12 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 import java.nio.file.Files;
 import java.util.Locale;
 import java.util.concurrent.Executors;
@@ -29,6 +33,7 @@ import java.util.function.Consumer;
 import java.util.function.Function;
 import org.researchzosho.tools.ContentPolicy;
 import org.researchzosho.Config;
+import org.researchzosho.Version;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.researchzosho.Stopping;
@@ -36,18 +41,26 @@ import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
 import org.researchzosho.mcp.McpServer;
 import org.researchzosho.drive.Declined;
+import java.time.Duration;
 /**
  * The Librarian as a long-running process: the library protocol over HTTP (the transport the
  * SDKs speak), bearer tokens that PROVE a patron's did, overnight research jobs, and the crews.
  *
- * <p>Routes (JSON in, JSON out; see docs/LIBRARY_PROTOCOL.md §6):
+ * <p>Routes (JSON in, JSON out; see docs/LIBRARY_PROTOCOL.md §6, which a test pins to {@link #v1Routes}):
  * <pre>
- *   POST /v1/{ask|search|get|read|established|submit|frontier|subjects|status}   body = the tool's arguments
+ *   POST /v1/{name}      body = the tool's arguments, for every tool of §3 by its name without library_ ({@link #V1}: ask, search, get,
+ *                        read, established, submit, add, absorb, survey, repo, items, check, reading, questions, bookmarks, meeting,
+ *                        holdings, who, db, remove, bridges, seeks, frontier, inbox, serials, subjects, status, help, changes, map,
+ *                        perspectives, sharpen, explain, request_access, access, subscribe, unsubscribe, settings, models, mcp, share,
+ *                        sources, owned, my_shelf, prefs, dna, follow, react, dossier, export, suggest, tell, video, look, candidates,
+ *                        sift, patents, patent_abstracts, patent_claims, home, records, career, board, job, crews, spend)
  *   GET  /v1/status
  *   GET  /v1/resources?cursor=…   GET /v1/resources/templates   GET /v1/resource?uri=…
- *   POST /v1/research {question, mode?, max_turns?}  →  {job_id, state: queued}  (write; a research run)
- *   GET  /v1/jobs/{id}   GET /v1/jobs                                         (the ledger; one model worker)
- *   POST /v1/crews/run  →  {job_id}                                          (write)
+ *   POST /v1/research    the tool's arguments  →  {job_id, state: queued}  (write; a research run, the drive probed first)
+ *   GET  /v1/jobs/{id}   GET /v1/jobs                                      (the ledger)
+ *   POST /v1/jobs/{id}   {op: stop|pause|resume|choose|allow|decline, choice?}   (write; as library_job with that id)
+ *   POST /v1/crews/run  →  {job_id}                                       (write; as library_crews op=run)
+ *   GET  /healthz        no sign-in
  *   POST /rpc            MCP over Streamable HTTP (request/response subset): what `claude mcp add --transport http` speaks
  * </pre>
  * Errors: HTTP status by code (not_found 404, forbidden 403, no_sources 422, invalid_args 400,
@@ -197,7 +210,7 @@ public final class LibrarianDaemon {
                     double spent = Spend.monthTotal(store, entry.name());
                     if (spent >= entry.cap()) throw new IllegalStateException("The model " + entry.name() + " has spent " + Spend.dollars(spent) + " this month against its cap of " + Spend.dollars(entry.cap()) + ". The run is not started. Raise the cap (researchzosho models set " + entry.name() + " --cap <dollars>) or ask again with another model.");
                 }
-                boolean answers = entry != null && !entry.name().equals(ModelEntries.DEFAULT) ? Crews.driveState(d, entry.model(), java.time.Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : Crews.driveAnswers(d);
+                boolean answers = entry != null && !entry.name().equals(ModelEntries.DEFAULT) ? Crews.driveState(d, entry.model(), Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : Crews.driveAnswers(d);
                 if (!answers) throw new IllegalStateException("No model is answering at " + d + (entry != null && !entry.name().equals(ModelEntries.DEFAULT) ? " for " + entry.name() + " (" + entry.model() + ")" : "") + ". The question was saved but cannot run. Send it again when a model is up.");
                 try { contentCheckBeforeRun(job, a); }
                 catch (IOException e) { throw new IllegalStateException("The library could not be written: " + e.getMessage(), e); }
@@ -239,8 +252,25 @@ public final class LibrarianDaemon {
                 try { return CareerFind.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
-            case "translate" -> {   // the dossier read in another language, made by the library's model and kept until the dossier changes
-                try { return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), Translate.DRIVE.get()).summary(); }
+            case HomeFind.JOB_KIND -> {   // the home field's search: the listings from every source the library can read, the cut, the cards
+                String jid = job.path("job_id").asText("");
+                try { return HomeFind.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
+            }
+            case VideoRecall.JOB_KIND -> {   // the picture in your head: the frames of the videos held, described and judged by the model that reads pictures
+                String jid = job.path("job_id").asText("");
+                try { return VideoRecall.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
+                catch (IOException e) { throw new UncheckedIOException(e); }
+            }
+            case Translation.JOB_KIND -> {   // a document a person handed over, translated unit by unit and written out in a format, with its note; onto the shelves with the original
+                String jid = job.path("job_id").asText("");
+                return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid));
+            }
+            case "translate" -> {   // a dossier or a report read in another language, made by the library's model and kept until it changes
+                try {
+                    if (!a.path("report").asText("").isEmpty()) return Translate.reportIn(store, a.path("report").asText(), a.path("lang").asText("en"), Translate.DRIVE.get()).summary();
+                    return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), Translate.DRIVE.get()).summary();
+                }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             default -> throw new IllegalArgumentException("unknown job kind " + kind);
@@ -302,7 +332,7 @@ public final class LibrarianDaemon {
         for (JsonNode s : a.path("sub_questions")) if (s.isTextual() && !s.asText().isBlank()) subs.add(s.asText());
         List<String> colls = new ArrayList<>();
         for (JsonNode c : a.path("collections")) if (c.isTextual()) colls.add(c.asText());
-        var ask = new Researcher.Ask(question, a.path("mode").asText("broad"), a.path("max_turns").asInt(LibraryProtocol.DEFAULT_TURNS), subs, a.path("sources").asText("both"), colls, a.path("max_minutes").asInt(0), LibraryProtocol.fieldsOf(a), LibraryProtocol.allowOf(a));
+        var ask = new Researcher.Ask(question, a.path("mode").asText("broad"), a.path("max_turns").asInt(LibraryProtocol.DEFAULT_TURNS), subs, a.path("sources").asText("both"), colls, a.path("max_minutes").asInt(0), LibraryProtocol.fieldsOf(a), LibraryProtocol.allowOf(a), LibraryProtocol.goalsOf(a));
         // the question looked like a field's that joins only when asked, and nobody asked: the run is ordinary, and the log says what was suggested where it was filed
         if (a.path("suggested").isObject()) Crews.log(store, "research " + jobId, "suggestion: " + a.path("suggested").path("field").asText() + " — " + a.path("suggested").path("offer").asText() + " The run is ordinary research.", 0);
         long t0 = System.currentTimeMillis();
@@ -310,7 +340,9 @@ public final class LibrarianDaemon {
         Researcher researcher = researcher(drive, trace);
         researcher.entry(JOB_ENTRY.get() == null ? ModelEntries.defaultEntry() : JOB_ENTRY.get());   // the run's model, for its report and its cost
         researcher.why(JOB_WHY.get());
+        researcher.paid(a.path("paid").asBoolean(true));   // the paid search places left off for this run when the ask said so
         if (a.hasNonNull("title")) researcher.title(a.get("title").asText());
+        researcher.options(ReportOptions.forRun(a));   // the ask's length, citations and shape, and the library's defaults for the rest
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
         try {
             var later = UncheckedPages.recheck(store, ContentJudge.of(new DriveClient(drive, model())), UncheckedPages.PER_COMMAND);
@@ -318,6 +350,7 @@ public final class LibrarianDaemon {
         } catch (Exception ignored) { }
         String asker = job.path("patron").asText("");
         researcher.allowDatabases(asker.equals("person") || (asker.equals("web") && !WebAccess.signInRequired()));   // the owner's databases are for the owner's questions
+        researcher.mcpFor(McpSources.patronOf(asker));   // the keeper's MCP servers a run may use: a reader's only those the keeper marked for readers
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
         researcher.beginFiling(() -> { try { return jobs.beginFiling(jobId); } catch (IOException e) { return !jobs.stopRequested(jobId); } });
         researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
@@ -346,6 +379,10 @@ public final class LibrarianDaemon {
         try { jobs.recordTurns(job.path("patron").asText(""), filed.result().turnsUsed()); } catch (IOException ignored) { }
         ObjectNode declined = filed.result().declinedView();
         if (declined != null) { try { jobs.declined(jobId, declined); } catch (IOException ignored) { } }
+        // what the run's checks made of the report: on the job, and in the result's own words when the report waits for the keeper
+        ObjectNode checks = filed.admitted() ? filed.result().checksView() : null;
+        if (checks != null) { try { jobs.checks(jobId, checks); } catch (IOException ignored) { } }
+        String held = filed.admitted() ? filed.result().heldStatement() : "";
         // the ledger row: what this run cost and produced, beside every earlier run's
         ObjectNode row = RunLedger.row(jobId, ask, filed.result(), filed.admitted() ? "filed " + filed.investigationId() : filed.declined() ? "declined by the model" : "refused: " + filed.reason(),
                 System.currentTimeMillis() - t0, drive, model(), trace.totals());
@@ -353,12 +390,13 @@ public final class LibrarianDaemon {
         RunLedger.record(store, row);
         if (filed.admitted()) settle(shelves, filed.investigationId(), drive, jobId);   // a seek settles on its own shelves: its claims become findings there
         if (!seek.isEmpty()) Seeks.landed(store, seek, jobId, filed.admitted() ? filed.investigationId() : null, filed.result().summary());
-        Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() : filed.declined() ? " → declined by the model" : " → refused: " + filed.reason()),
+        Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() + (held.isEmpty() ? "" : " (a draft that waits for the keeper: " + held + ")") : filed.declined() ? " → declined by the model" : " → refused: " + filed.reason()),
                 System.currentTimeMillis() - t0);
         // the model declined the run: the statement is the result, not a refusal and not a failure of the machine
         if (filed.declined()) return filed.reason();
         return (seek.isEmpty() ? "" : "seek " + seek + ": ") + (filed.admitted() ? "investigation " + filed.investigationId()
                 : "(not accepted — " + filed.reason() + "; see the open questions)") + "\n\n" + filed.result().summary()
+                + (held.isEmpty() ? "" : "\n\n" + held + " To accept it as it stands: researchzosho accept " + filed.investigationId())
                 + (declined == null ? "" : "\n\n" + declined.path("statement").asText());
     }
 
@@ -483,6 +521,7 @@ public final class LibrarianDaemon {
         // The Librarian's endpoint serves THE LIBRARY: a patron must not reach `fix` or `secure` through it
         // (seen 2026-09-03 — a Claude Code session registered against /rpc listed every codezaiku tool).
         McpServer.setToolFilter(n -> n.startsWith("library_"));
+        McpServer.trustProven(true);   // over /rpc the patron is the one this daemon proved by a key or a session, the keeper included
         LibrarianDaemon d = new LibrarianDaemon(store, s, driveUrl, model);
         d.lease = lease;
         d.loopbackOnly = LocalName.loopbackOnly(s.getAddress());   // listening on the loopback only: it answers only to the loopback's names
@@ -546,7 +585,7 @@ public final class LibrarianDaemon {
     }
     public String url() { return "http://" + server.getAddress().getHostString() + ":" + port(); }
     private Lease lease;
-    public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); if (lease != null) lease.close(); }
+    public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
         return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
@@ -555,20 +594,68 @@ public final class LibrarianDaemon {
 
     // ---- dispatch ----
 
+    /** One POST /v1 route: the protocol's method for the tool of that name, on the request's body (the patron already set). */
+    private interface Route { ObjectNode apply(LibraryProtocol p, ObjectNode body) throws IOException; }
+
+    /** A tool that stands for a protocol operation: the route puts the op in, as the MCP tool does. */
+    private static Route op(String op, Route under) { return (p, b) -> { ObjectNode a = b.deepCopy(); a.put("op", op); return under.apply(p, a); }; }
+
+    /**
+     * The POST /v1/{name} routes: every tool of the protocol by its name without its library_ prefix, served by the protocol's method of
+     * the same name; a tool that stands for one operation of a wider call (look, candidates, sift; patents and its readings; records;
+     * board) is that call with its op put in. research is the daemon's own route (the drive is probed first), and so are jobs/{id} and
+     * crews/run; GET routes are theirs. A test pins this map, the tool list and the protocol document to each other.
+     */
+    private static final Map<String, Route> V1 = new LinkedHashMap<>();
+    /** The routes after which a job filed or released by the call is picked up at once. */
+    private static final Set<String> PICKS_UP = Set.of("seeks", "job", "crews");
+    static {
+        V1.put("ask", LibraryProtocol::ask); V1.put("search", LibraryProtocol::search); V1.put("get", LibraryProtocol::get); V1.put("read", LibraryProtocol::read);
+        V1.put("established", LibraryProtocol::established); V1.put("submit", LibraryProtocol::submit); V1.put("add", LibraryProtocol::add); V1.put("translate", LibraryProtocol::translate); V1.put("absorb", LibraryProtocol::absorb);
+        V1.put("survey", LibraryProtocol::survey); V1.put("repo", LibraryProtocol::repo); V1.put("items", LibraryProtocol::items); V1.put("check", LibraryProtocol::check);
+        V1.put("reading", LibraryProtocol::reading); V1.put("questions", LibraryProtocol::questions); V1.put("bookmarks", LibraryProtocol::bookmarks); V1.put("meeting", LibraryProtocol::meeting);
+        V1.put("holdings", LibraryProtocol::holdings); V1.put("who", LibraryProtocol::who); V1.put("db", LibraryProtocol::db); V1.put("remove", LibraryProtocol::remove);
+        V1.put("bridges", LibraryProtocol::bridges); V1.put("seeks", LibraryProtocol::seeks); V1.put("frontier", LibraryProtocol::frontier); V1.put("inbox", LibraryProtocol::inbox);
+        V1.put("serials", LibraryProtocol::serials); V1.put("subjects", LibraryProtocol::subjects); V1.put("status", LibraryProtocol::status); V1.put("help", LibraryProtocol::help);
+        V1.put("changes", LibraryProtocol::changes); V1.put("map", LibraryProtocol::map); V1.put("perspectives", LibraryProtocol::perspectives); V1.put("sharpen", LibraryProtocol::sharpen);
+        V1.put("explain", LibraryProtocol::explain); V1.put("request_access", LibraryProtocol::requestAccess); V1.put("access", LibraryProtocol::access);
+        V1.put("subscribe", LibraryProtocol::subscribe); V1.put("unsubscribe", LibraryProtocol::unsubscribe);
+        V1.put("settings", LibraryProtocol::settings); V1.put("models", LibraryProtocol::models); V1.put("mcp", LibraryProtocol::mcp); V1.put("share", LibraryProtocol::share);
+        V1.put("sources", LibraryProtocol::sources); V1.put("owned", LibraryProtocol::owned); V1.put("my_shelf", LibraryProtocol::myShelf); V1.put("prefs", LibraryProtocol::prefs);
+        V1.put("dna", LibraryProtocol::dna); V1.put("follow", LibraryProtocol::follow); V1.put("react", LibraryProtocol::react); V1.put("dossier", LibraryProtocol::dossier);
+        V1.put("export", LibraryProtocol::export); V1.put("suggest", LibraryProtocol::suggest); V1.put("tell", LibraryProtocol::tell);
+        V1.put("video", LibraryProtocol::video); V1.put("look", op("look", LibraryProtocol::video)); V1.put("candidates", op("candidates", LibraryProtocol::video)); V1.put("sift", op("sift", LibraryProtocol::video));
+        V1.put("patents", LibraryProtocol::patents); V1.put("patent_abstracts", op("abstracts", LibraryProtocol::patents)); V1.put("patent_claims", op("claims", LibraryProtocol::patents));
+        V1.put("home", LibraryProtocol::home); V1.put("records", op("records", LibraryProtocol::home));
+        V1.put("career", LibraryProtocol::career); V1.put("board", op("board", LibraryProtocol::career));
+        V1.put("job", LibraryProtocol::job); V1.put("crews", LibraryProtocol::crews); V1.put("spend", LibraryProtocol::spend);
+        V1.put("images", LibraryProtocol::images);
+    }
+
+    /** Every POST /v1 route this daemon serves, as the protocol document lists them: the map's names, then its own three. */
+    public static Set<String> v1Routes() {
+        Set<String> all = new LinkedHashSet<>(V1.keySet());
+        all.add("research"); all.add("jobs/{id}"); all.add("crews/run");
+        return Collections.unmodifiableSet(all);
+    }
+
     /** Whether the main port listens on the loopback only. */
     private volatile boolean loopbackOnly;
 
     private void handle(HttpExchange x) throws IOException {
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
+        if (Proxy.behindTrusted(x)) x.setAttribute(Proxy.PROXIED, Boolean.TRUE);   // from a proxy the setting names: its forwarded headers are believed
         // on the loopback only, a request under another name came from a page elsewhere that pointed its own name here (LocalName)
-        if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
+        if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !Proxy.proxied(x) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
+        if ("/healthz".equals(path)) { health(x, method); return; }   // a proxy's or a platform's check: no sign-in, no body
         try {
             byte[] bodyBytes = x.getRequestBody().readAllBytes();
             String contentType = x.getRequestHeaders().getFirst("Content-Type");
             boolean multipart = contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/form-data");
             String bodyText = multipart ? "" : new String(bodyBytes, StandardCharsets.UTF_8);
             if (A2a.CARD.equals(path) || A2a.PATH.equals(path)) { a2a(x, path, method, bodyText); return; }   // the library as an agent for other agents
+            if (path.startsWith("/static/") && "GET".equals(method)) { Pages.staticFile(x, path.substring("/static/".length())); return; }   // a file the program ships for its pages: no sign-in, as the icon
             if (Pages.isPage(path)) {
                 // a form posted from a page of another site is refused before it is read, whoever the browser is here (OwnPage)
                 if (!OwnPage.allowed(x)) { OwnPage.refuse(x); return; }
@@ -608,11 +695,11 @@ public final class LibrarianDaemon {
                 // a notification is accepted with 202 and no body; the server-push stream (GET) is not offered (405).
                 if (!"POST".equals(method)) { x.getResponseHeaders().set("Allow", "POST"); x.sendResponseHeaders(405, -1); x.close(); return; }
                 JsonNode req = M.readTree(bodyText);
-                if (req.path("params").path("arguments").isObject()) ((ObjectNode) req.path("params").path("arguments")).set("patron", patronNode(patron));
+                if (req.path("params").path("arguments").isObject()) ((ObjectNode) req.path("params").path("arguments")).set("patron", provenNode(patron));
                 // resources carry no arguments: the proven caller rides in the params, over whatever the request named there
                 if (req.isObject() && req.path("method").asText("").startsWith("resources/")) {
                     if (!req.path("params").isObject()) ((ObjectNode) req).putObject("params");
-                    ((ObjectNode) req.get("params")).set("patron", patronNode(patron));
+                    ((ObjectNode) req.get("params")).set("patron", provenNode(patron));
                 }
                 ObjectNode env = McpServer.envelopeFor(req, store);
                 if (env == null) { x.sendResponseHeaders(202, -1); x.close(); return; }
@@ -627,7 +714,15 @@ public final class LibrarianDaemon {
                 try (OutputStream os = x.getResponseBody()) { os.write(icon); }
                 return;
             }
-            if (path.startsWith("/v1/jobs/") && "GET".equals(method)) {
+            if (path.startsWith("/v1/jobs/") && "POST".equals(method)) {
+                // job control by route: the op and the id go to library_job; the daemon then picks up a run the answer queued
+                String id = path.substring("/v1/jobs/".length()).strip();
+                if (id.isEmpty()) { Patrons.check(store, patron, Patrons.Level.read); throw ProtocolError.notFound("A run is controlled by its id, such as POST /v1/jobs/J-0001 with op stop, pause, resume, choose, allow or decline."); }
+                if (body.path("op").asText("").isBlank()) throw ProtocolError.invalidArgs("Say what to do with the run: op is stop, pause, resume, choose, allow or decline.");
+                body.put("job_id", id);
+                out = p.job(body);
+                jobs.pickUp();
+            } else if (path.startsWith("/v1/jobs/") && "GET".equals(method)) {
                 // as library_job: read access
                 String id = path.substring("/v1/jobs/".length()).strip();
                 if (id.isEmpty()) {
@@ -665,49 +760,11 @@ public final class LibrarianDaemon {
             } else if ("/v1/status".equals(path) && "GET".equals(method)) {
                 out = p.status(body);
             } else if (path.startsWith("/v1/") && "POST".equals(method)) {
-                out = switch (path.substring(4)) {
-                    case "ask" -> p.ask(body);
-                    case "search" -> p.search(body);
-                    case "get" -> p.get(body);
-                    case "read" -> p.read(body);
-                    case "established" -> p.established(body);
-                    case "submit" -> p.submit(body);
-                    case "add" -> p.add(body);
-                    case "absorb" -> p.absorb(body);
-                    case "survey" -> p.survey(body);
-                    case "repo" -> p.repo(body);
-                    case "items" -> p.items(body);
-                    case "check" -> p.check(body);
-                    case "reading" -> p.reading(body);
-                    case "questions" -> p.questions(body);
-                    case "bookmarks" -> p.bookmarks(body);
-                    case "meeting" -> p.meeting(body);
-                    case "holdings" -> p.holdings(body);
-                    case "db" -> p.db(body);
-                    case "remove" -> p.remove(body);
-                    case "bridges" -> p.bridges(body);
-                    case "seeks" -> { ObjectNode o = p.seeks(body); if ("merge".equalsIgnoreCase(body.path("op").asText(""))) jobs.pickUp(); yield o; }
-                    case "frontier" -> p.frontier(body);
-                    case "subjects" -> p.subjects(body);
-                    case "status" -> p.status(body);
-                    case "help" -> p.help(body);
-                    case "changes" -> p.changes(body);
-                    case "request_access" -> p.requestAccess(body);
-                    case "access" -> p.access(body);
-                    case "subscribe" -> p.subscribe(body);
-                    case "unsubscribe" -> p.unsubscribe(body);
-                    case "map" -> p.map(body);
-                    case "perspectives" -> p.perspectives(body);
-                    case "sharpen" -> p.sharpen(body);
-                    case "explain" -> p.explain(body);
-                    case "serials" -> p.serials(body);
-                    case "career" -> p.career(body);
-                    case "inbox" -> p.inbox(body);
-                    case "settings" -> p.settings(body);
-                    case "sources" -> p.sources(body);
-                    case "owned" -> p.owned(body);
-                    default -> throw ProtocolError.notFound("route " + path);
-                };
+                String name = path.substring(4);
+                Route route = V1.get(name);
+                if (route == null) throw ProtocolError.notFound("route " + path);
+                out = route.apply(p, body);
+                if (PICKS_UP.contains(name)) jobs.pickUp();   // a job the call may have filed or released is taken up now, not at the next look
             } else {
                 throw ProtocolError.notFound("route " + method + " " + path);
             }
@@ -741,7 +798,7 @@ public final class LibrarianDaemon {
         if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
         if (!named.isEmpty() && !named.equalsIgnoreCase(ModelEntries.DEFAULT) && !named.equalsIgnoreCase(Auto.NAME) && entry == null) throw ProtocolError.invalidArgs("No model is named " + named + ". The names are: " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");
         if (entry != null) {
-            if (Crews.driveState(entry.drive(), entry.model(), java.time.Duration.ofSeconds(20)) != Crews.DriveState.ANSWERS) throw ProtocolError.unavailable("No model answers at " + entry.drive() + " for " + entry.name() + " (" + entry.model() + ")." + (entry.hosted() && DriveClient.hostKey(entry.host()) == null ? " No key is kept for " + entry.host() + ": researchzosho models key " + entry.host() + " <key>." : " Research needs one."));
+            if (Crews.driveState(entry.drive(), entry.model(), Duration.ofSeconds(20)) != Crews.DriveState.ANSWERS) throw ProtocolError.unavailable("No model answers at " + entry.drive() + " for " + entry.name() + " (" + entry.model() + ")." + (entry.hosted() && DriveClient.hostKey(entry.host()) == null ? " No key is kept for " + entry.host() + ": researchzosho models key " + entry.host() + " <key>." : " Research needs one."));
         } else {
             boolean any = false;
             for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveNow() : d)) { any = true; break; }
@@ -752,6 +809,24 @@ public final class LibrarianDaemon {
         r.put("queued_ahead", Math.max(0, jobs.queued() - 1) + jobs.running().size());
         r.put("workers", jobs.workers());
         return r;
+    }
+
+    /**
+     * GET /healthz: 200 with the version and the library's id and name when the library opens and this daemon holds its lease, 503 with
+     * the reason when the library cannot be read. No sign-in: a proxy or a platform asks it to know whether to send people here.
+     */
+    private void health(HttpExchange x, String method) throws IOException {
+        if (!"GET".equals(method)) { x.getResponseHeaders().set("Allow", "GET"); x.sendResponseHeaders(405, -1); x.close(); return; }
+        ObjectNode o = M.createObjectNode();
+        o.put("version", Version.string());
+        try {
+            LibraryStore.Identity id = store.identity();
+            o.put("ok", true); o.put("library_id", id.id()); o.put("library_name", id.name());
+            reply(x, 200, o);
+        } catch (IOException | RuntimeException e) {
+            o.put("ok", false); o.put("why", "The library could not be read: " + e.getMessage());
+            reply(x, 503, o);
+        }
     }
 
     // ---- identity ----
@@ -766,6 +841,19 @@ public final class LibrarianDaemon {
             claimed = body.path("params").path("arguments").path("patron");
         }
         String runtime = claimed != null && claimed.isObject() ? claimed.path("runtime").asText("") : "";
+        if (auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7) && auth.substring(7).strip().startsWith(ApiKeys.PREFIX)) {
+            // a key a signed-in person made for a program of theirs: it acts as that person, a read key reading only, whatever the client claims
+            ApiKeys.Key k = ApiKeys.resolve(store, auth.substring(7).strip());
+            if (k == null) throw ProtocolError.forbidden("That key does not match any the library made, or it was revoked. The person it belonged to makes a new one on the Keep page or with researchzosho keys new.");
+            String name;
+            if (Accounts.OWNER.equals(k.did())) { Accounts.Account a = Accounts.owner(store); name = a == null ? "the person" : a.name(); }
+            else {
+                Patrons.Entry listed = Patrons.byDid(store, k.did());
+                if (listed == null || listed.level() == Patrons.Level.deny) throw ProtocolError.forbidden("The person this key belongs to is no longer a reader of this library. Ask the person who keeps it.");
+                name = listed.name();
+            }
+            return new Patrons.Patron(k.did(), name, k.reads() ? Patrons.KEY_READ : Patrons.KEY);
+        }
         if (auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7)) {
             Patrons.Entry e = Patrons.resolve(store, auth.substring(7));
             if (e == null) {
@@ -776,7 +864,7 @@ public final class LibrarianDaemon {
                         Patrons.Entry listed = Patrons.byDid(store, a.did());
                         if (listed == null || listed.level() == Patrons.Level.deny) throw ProtocolError.forbidden("This account is no longer a reader of this library. Ask the person who keeps it.");
                     }
-                    return new Patrons.Patron(a.did(), a.name(), runtime.isEmpty() ? (Boolean.TRUE.equals(x.getAttribute(DOOR)) ? "door" : "web") : runtime);
+                    return new Patrons.Patron(a.did(), a.name(), runtime.isEmpty() ? (Boolean.TRUE.equals(x.getAttribute(DOOR)) ? "door" : Proxy.proxied(x) ? "proxy" : "web") : runtime);
                 }
                 throw ProtocolError.forbidden("That token does not match any user. The library owner makes tokens with `researchzosho reader token <did>`.");
             }
@@ -786,27 +874,32 @@ public final class LibrarianDaemon {
             }
             return new Patrons.Patron(e.did(), e.name(), runtime.isEmpty() ? "http" : runtime);
         }
-        if (Boolean.TRUE.equals(x.getAttribute(DOOR))) {
+        if (Boolean.TRUE.equals(x.getAttribute(DOOR)) || Proxy.proxied(x)) {
             // through the shared door a relay says who the caller is: tailscale serve adds the tailnet login and name, a cloudflared quick
             // tunnel with a mail list the address Cloudflare Access checked. A listed reader with that login is signed in; anyone else is a
-            // visitor, who may ask to be let in with their name filled in. On the main port these headers mean nothing.
+            // visitor, who may ask to be let in with their name filled in. On the main port these headers mean nothing, unless the request
+            // came from a proxy RESEARCHZOSHO_TRUSTED_PROXY names, which is the door's place in the cloud.
             String login = x.getRequestHeaders().getFirst("Tailscale-User-Login"), name = x.getRequestHeaders().getFirst("Tailscale-User-Name");
             if (login == null || login.isBlank()) { login = x.getRequestHeaders().getFirst("Cf-Access-Authenticated-User-Email"); name = null; }
             if (login != null && !login.isBlank()) {
                 x.setAttribute(IDENTITY_LOGIN, login.strip()); x.setAttribute(IDENTITY_NAME, name == null || name.isBlank() ? login.strip() : name.strip());
                 Patrons.Entry e = Patrons.byDid(store, Patrons.loginDid(login));
-                if (e != null && e.level() != Patrons.Level.deny) return new Patrons.Patron(e.did(), e.name().isEmpty() ? login.strip() : e.name(), runtime.isEmpty() ? "door" : runtime);
+                if (e != null && e.level() != Patrons.Level.deny) return new Patrons.Patron(e.did(), e.name().isEmpty() ? login.strip() : e.name(), runtime.isEmpty() ? (Boolean.TRUE.equals(x.getAttribute(DOOR)) ? "door" : "proxy") : runtime);
             }
         }
         if (claimed != null && claimed.isObject() && !claimed.path("did").asText("").isBlank()) {
             throw ProtocolError.forbidden("A did sent over http needs a bearer token (Authorization: Bearer …). Leave out the patron to call anonymously.");
         }
-        // a browser on the library's own computer, on the main port, is the person who keeps it (the setting web.local; never through the door)
-        if (!Boolean.TRUE.equals(x.getAttribute(DOOR)) && Pages.isPage(x.getRequestURI().getPath()) && WebAccess.signInRequired() && WebAccess.localOwner()
+        // a browser on the library's own computer, on the main port, by one of this computer's names, is the person who keeps it (the setting
+        // web.local; never through the door, and never through a proxy: a proxy on this machine connects from this machine for everyone it forwards)
+        if (!Boolean.TRUE.equals(x.getAttribute(DOOR)) && !Proxy.proxied(x) && Pages.isPage(x.getRequestURI().getPath()) && WebAccess.signInRequired() && WebAccess.localOwner()
                 && LocalName.thisComputer(x.getRequestHeaders().getFirst("Host"))   // asked by this computer's own name, never one a page elsewhere pointed here
                 && x.getRemoteAddress() != null && x.getRemoteAddress().getAddress() != null && x.getRemoteAddress().getAddress().isLoopbackAddress()) return Patrons.Patron.OWNER_WEB;
         return Boolean.TRUE.equals(x.getAttribute(DOOR)) ? Patrons.Patron.DOOR_ANONYMOUS : Patrons.Patron.ANONYMOUS;
     }
+
+    /** The same, marked as proved by this daemon (a key, a session, a reader's token), which lets the keeper's own did through the MCP route. */
+    static ObjectNode provenNode(Patrons.Patron p) { ObjectNode o = patronNode(p); if (!p.anonymous()) o.put(McpServer.PROVEN, true); return o; }
 
     static ObjectNode patronNode(Patrons.Patron p) {
         ObjectNode o = M.createObjectNode();

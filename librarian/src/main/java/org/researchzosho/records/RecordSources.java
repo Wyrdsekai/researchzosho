@@ -124,7 +124,7 @@ public final class RecordSources {
                 n.path("tier").asText(""), url, n.path("format").asText("json"), n.path("items").asText(""),
                 n.path("title").asText(""), n.path("date").asText(""), n.path("link").asText(""), n.path("snippet").asText(""),
                 n.path("where").asText(""), n.path("key").asText(""), n.path("key_from").asText(""), n.path("key_optional").asBoolean(false), n.path("key_header").asText(""), n.path("key_login").asText(""), n.path("app").asText(""), n.path("app_from").asText(""), strings(n.path("fields")), hostsOf(n), builtIn,
-                n.path("secret").asText(""), n.path("token_url").asText(""), n.path("accept").asText(""), n.path("empty_status").asInt(0), n.path("per_run").asInt(0));
+                n.path("secret").asText(""), n.path("token_url").asText(""), n.path("accept").asText(""), n.path("empty_status").asInt(0), n.path("per_run").asInt(0), n.path("max").asInt(0));
     }
 
     /** The hosts a record of this source is read on: the ones the entry names, the link's own when it is written out, and the search address's. */
@@ -311,14 +311,17 @@ public final class RecordSources {
 
     // ---- the search ----
 
-    public static List<Hit> search(RecordSource s, String query, int fromYear, int toYear, int limit, Reader reader) throws Exception {
+    public static List<Hit> search(RecordSource s, String query, int fromYear, int toYear, int limit, Reader reader) throws Exception { return search(s, query, fromYear, toYear, limit, 1, reader); }
+
+    /** The same search, one page of it: {@code page} counted from 1; a collection that does not page gives its one page whatever is asked. */
+    public static List<Hit> search(RecordSource s, String query, int fromYear, int toYear, int limit, int page, Reader reader) throws Exception {
         Map<String, String> headers = new LinkedHashMap<>();
         if (!s.accept().isBlank()) headers.put("Accept", s.accept());
         if (s.exchangesAToken()) headers.put("Authorization", "Bearer " + token(s, reader));
         String k = key(s);
         if (!k.isEmpty() && s.keyHeader().contains(":")) headers.put(s.keyHeader().substring(0, s.keyHeader().indexOf(':')).strip(), s.keyHeader().substring(s.keyHeader().indexOf(':') + 1).strip().replace("{key}", k));
         String body;
-        try { body = reader.read(address(s, query, fromYear, toYear, limit), headers); }
+        try { body = reader.read(address(s, query, fromYear, toYear, limit, page), headers); }
         catch (IllegalStateException e) {
             // some sources answer "nothing found" with an error status: that is a search that found nothing, not a source that failed
             if (s.emptyStatus() > 0 && ("HTTP " + s.emptyStatus()).equals(e.getMessage())) return new ArrayList<>();
@@ -326,7 +329,7 @@ public final class RecordSources {
             if (s.exchangesAToken() && e.getMessage() != null && (e.getMessage().startsWith("HTTP 400") || e.getMessage().startsWith("HTTP 401"))) {
                 TOKENS.remove(s.id());
                 headers.put("Authorization", "Bearer " + token(s, reader));
-                try { body = reader.read(address(s, query, fromYear, toYear, limit), headers); }
+                try { body = reader.read(address(s, query, fromYear, toYear, limit, page), headers); }
                 catch (IllegalStateException again) { if (s.emptyStatus() > 0 && ("HTTP " + s.emptyStatus()).equals(again.getMessage())) return new ArrayList<>(); throw again; }
             } else throw e;
         }
@@ -352,15 +355,27 @@ public final class RecordSources {
     }
 
     private static final Pattern OPTIONAL = Pattern.compile("\\[([^\\[\\]]*)]");
-    private static final Pattern SLOT = Pattern.compile("\\{(query|limit|from|to|key)(?::(bare|last|rest))?}");
+    private static final Pattern SLOT = Pattern.compile("\\{(query|limit|from|to|key|page|page0|first|last|offset0)(?::(bare|last|rest))?}");
 
-    static String address(RecordSource s, String query, int fromYear, int toYear, int limit) {
+    static String address(RecordSource s, String query, int fromYear, int toYear, int limit) { return address(s, query, fromYear, toYear, limit, 1); }
+
+    /**
+     * The address of one page of the search, {@code page} counted from 1. The page slots are empty on the first page, so a bracketed page part
+     * drops and the first page's address is what it always was; {@code {first}}-{@code {last}} count the page's records from 1.
+     */
+    static String address(RecordSource s, String query, int fromYear, int toYear, int limit, int page) {
+        int p = Math.max(1, page);
         Map<String, String> v = new LinkedHashMap<>();
         v.put("query", query == null ? "" : query.strip());
         v.put("limit", String.valueOf(limit));
         v.put("from", fromYear > 0 ? String.valueOf(fromYear) : "");
         v.put("to", toYear > 0 ? String.valueOf(toYear) : "");
         v.put("key", key(s));
+        v.put("page", p > 1 ? String.valueOf(p) : "");
+        v.put("page0", p > 1 ? String.valueOf(p - 1) : "");
+        v.put("offset0", p > 1 ? String.valueOf((p - 1) * limit) : "");
+        v.put("first", String.valueOf((p - 1) * limit + 1));
+        v.put("last", String.valueOf(p * limit));
         // an optional part goes when any value inside it is missing
         Matcher o = OPTIONAL.matcher(s.url());
         StringBuilder kept = new StringBuilder();

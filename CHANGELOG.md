@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.7.0
+
+What's new: the chat is the first page; a home search in the United States and Japan; prior-art search; the library discerns from your ask the best methods to get the answer, whether it is a job search, a purchase, a how-to, a book or a podcast to choose, a patent search, a legal question, a family history or a video you remember; a report checked against your question before it is filed; reports and pages in your language; document translation; pictures found, judged and placed in reports; a PDF, Word or Markdown download of any report.
+
+### Added
+
+- Looking for a home. Say where, buy or rent, your budget, rooms and how far. The library finds what fits, reads the public records, flood risk, schools and transit for the best few, and says where each fact came from. United States and Japan.
+- The library discerns from your ask the best methods to get the answer. For a job search it reads the employers' own boards; for a purchase it compares the candidates and their prices; for learning a craft it lays out a path and a reading list; for a book or a podcast it chooses from what you have liked; for a patent search it reads the claims; for a legal question it reads the law itself; for a family history it builds the lives and a timeline; for a video you remember it works from what you recall. The report takes the shape that answer needs. When a name could mean several things, the library asks which.
+- Prior art. Ask whether something has been patented. The library lists the applications and grants in the patent class for the years you name, reads their abstracts and the claims of the ones that fit, and names the closest claim for each feature of your idea. Claims the European office does not hold are read from Google Patents, and the report says which came from where.
+- A report is read against your question before it is filed. One that answers another question is set aside, with the workers' findings filed in its place; one whose checks did not all pass waits for you. `researchzosho inbox` lists what waits and `researchzosho accept` takes one.
+- Finding a moment in a video you have watched, by what was said, by words on screen, or by describing the picture. Looking for a video you cannot name, from what you remember of it.
+- Reports in your language. Set the language reports are written in, read any report in another language with one click, or say "read this in Japanese" in the chat. The pages and the chat follow your language too.
+- A dossier opens with the major things, and its timeline with the milestones.
+- Running on a server for several people: sign in with an account you already have, keys for programs, and several libraries on one server.
+- A page listing every outside service the library can use: what it adds, whether it is free, where to get a key, this month's use, and a monthly limit for each paid service.
+- More places to search: PubMed and PubMed Central, Semantic Scholar, and with your key Exa or Tavily, or a search service of your own.
+- Saving a report or a dossier as a PDF, a Word file or its Markdown from the links at the top of its page. The file has what the page has, with its sources as links.
+- Choosing a report's form: short or long, a reading list, an outline, or APA, MLA, Chicago or IEEE citations, in the chat or on the Research page.
+- Research can read through other programs that offer an MCP server, such as your notes app or code host, added with `researchzosho mcp add` or on the Keep page. It only reads through them unless you allow more, and each server can have a monthly cap.
+- Translating a document: a text, Markdown, PDF, Word or EPUB file into another language, in the same format or another, at four levels of care from quick to thorough, with the time each would take said first. A glossary of your terms is kept across documents. The two scorers the checked level uses, LaBSE and MetricX-24, set themselves up when they are missing; RESEARCHZOSHO_SCORERS=off leaves them out.
+- Adding many files at once: several files, a folder, or a zip or tar archive, on the Add page, in the chat, at the command line and over the protocol.
+- Saying a run's limits in the chat: "don't exceed 30 minutes", "in at most 20 turns", "from the shelves only", "use no paid services", "use the big model".
+- Pictures. "Find me some pictures of the Antikythera mechanism" in the chat, or `researchzosho images find`, finds candidates through Brave with your key and the library's own SearXNG; a model that sees pictures judges them against what you asked, and "keep them" puts them on the shelves with their page. A research run looks for pictures of what the question names and of what each section describes, a diagram for a mechanism, a map for a place, a portrait for a person, before the workers start, and places the ones judged right under their sections, cited among the references. A picture can be the ask: attach one and say "find more pictures of this person" or "find places like this", or run `researchzosho images like`. Pictures inside an EPUB, PDF or Word file you add are kept with the document, and the Pictures page lists everything kept. `researchzosho models test <name>` says whether a model sees pictures.
+- A likeness helper. `researchzosho images likeness install` sets up CLIP for pictures and OpenCV's SFace for faces, about 2 GB, on the CPU, under the MIT and Apache-2.0 licences. It measures each candidate against the reference before the model judges, and the verdict says the number. RESEARCHZOSHO_LIKENESS=off leaves it out.
+- A report's diagrams are drawn. A flowchart the report writes as Mermaid text is drawn on its page with "Show as text" under it, in the page's light or dark look; the PDF and Word files keep the text. The drawing uses a copy of Mermaid the library serves itself, so it needs no internet.
+- A picture placed in a report is shown at reading size with its title under it; a click opens the whole file.
+
+### Changed
+
+- The chat is the first page. Ask there and start research there; answers appear as they are written, with a stop button. Attach files with the button, by dragging them onto the page or by pasting a picture, up to ten in a message.
+- A conversation quiet for a day is not continued: the next message opens a new one and says so, and the earlier one stays on the list. A New conversation button sits beside the box. The model sees a conversation's last 12 turns and a short summary of what came before.
+- The library learns how long its write-up takes on your model and sizes the time it keeps for it from its own last twenty runs, so the research is not cut short by a guess made for a slower model.
+- Past lists every report with one line saying where it stands, with rows for your books, podcasts and videos. Updates shows what changed since your last visit.
+- Light colours by default, dark when your computer is.
+- A dossier's page shows how it was made, folded away at the bottom.
+- The career search reads hospitals' and universities' own job boards.
+- When two models are set, the heavy decisions go to the larger one, and each is spoken to in words meant for its size.
+- Everything can be reached every way: the command line, the chat, the pages, the protocol and MCP. The protocol document lists every tool and route, and a test keeps it true. The models tool's `key` field is now a word: kept, missing or not needed.
+
+### Fixed
+
+- A run no longer waits out its whole time limit on a model server that froze or restarted.
+- A small model was always spoken to in the words meant for a large one.
+- A picture sent to the model could wedge the server; it has a time limit now.
+- A page carrying a lot of data inside one tag no longer crashes the reader.
+- Every home in one building counted as one listing.
+- Two things the chat's model could be offered, telling the library about someone and reading a dossier, never ran.
+- The terminal chat refused /sources, /patents and /video, and the web chat had no /runs or /share.
+- A plain question the shelves could answer came back as a report waiting for you. The pages the writer named from memory are listed apart now, and the report is accepted.
+- Questions in the chat about the models, which one is the default and why a run used one, are answered by the library from its own list, and "make deepseek the default" changes it and says what it was before. A failed run's notice carries the error and the entry it ran on.
+- The runs section of the chat emptied itself after a new conversation was opened.
+
 ## 0.6.9
 
 What's new: Fixes: a research report could come out on the wrong subject, two safety problems on the library's pages, and the nightly update.

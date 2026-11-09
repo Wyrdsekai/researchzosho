@@ -13,6 +13,8 @@ import java.util.regex.Pattern;
  */
 public final class LawProfile implements Profile {
     @Override public String name() { return "law"; }
+    @Override public String goalName() { return "what-the-law-says"; }
+    @Override public String conventionName() { return "law"; }
     @Override public String description() { return "statutes, regulations, court decisions and ordinances: the primary texts first, each claim with its jurisdiction and the date the law stood"; }
     @Override public List<Vocabulary.Term> predicates() {
         return List.of(
@@ -35,13 +37,23 @@ public final class LawProfile implements Profile {
             "statute", "statutory", "case law", "caselaw", "court ruling", "court held", "the court", "supreme court", "court of appeals", "appeals court",
             "circuit court", "district court", "ordinance", "municipal code", "u.s.c.", "u.s. code", "cfr", "code of federal regulations", "federal register",
             "plaintiff", "defendant", "appellant", "statute of limitations", "precedent", "jurisdiction", "lawsuit", "litigation", "legislation", "legal",
-            "tort", "constitutional", "unconstitutional", "attorney", "judgment", "judgement", "legally", "zoning", "bylaw", "by-law",
-            "判例", "裁判例", "条例", "法律", "法令", "施行", "改正", "最高裁", "高裁", "地裁", "訴訟", "判決", "違憲", "条文", "法第", "弁護士", "民法", "刑法", "商法");
+            "tort", "constitutional", "unconstitutional", "attorney", "legally", "zoning", "bylaw", "by-law",
+            "判例", "裁判例", "条例", "法律", "法令", "施行", "法改正", "改正法", "改正後", "最高裁", "高裁", "地裁", "訴訟", "判決", "違憲", "条文", "法第", "弁護士", "民法", "刑法", "商法");
+    /**
+     * The words of the Latin script, each as a whole word: "precedent" is not in "unprecedented"; the words of a script without spaces are matched
+     * as they are. Not "judgment" alone (the judgment of Paris was a wine tasting) and not 改正 alone (a timetable is revised too): a judgment is
+     * reached through the court's words and the case's shape, an amendment through 法改正.
+     */
+    private static final List<Pattern> LATIN = WORDS.stream().filter(w -> w.codePoints().noneMatch(c -> c >= 0x2E80)).map(w -> Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(w) + "(?![\\p{L}\\p{N}])")).toList();
+    private static final List<String> OTHER_SCRIPTS = WORDS.stream().filter(w -> w.codePoints().anyMatch(c -> c >= 0x2E80)).toList();
+    /** Legal in spelling only: a pad of paper, a size of it, a degree of sight. */
+    private static final Pattern NOT_THESE = Pattern.compile("legally blind|legal[- ]pad|legal[- ]size");
     /** A case name (Roe v. Wade), a reporter citation (410 U.S. 113), a section sign, a Japanese case number (令和5年(受)第123号). */
     private static final Pattern SHAPES = Pattern.compile("\\b[A-Z][\\w.'-]* v\\. [A-Z]|\\b\\d{1,4} [A-Z][A-Za-z.]*\\.? ?\\d?[a-z]{0,2} \\d{1,5}\\b|§|[令平昭][和成]\\d+年\\(|令和\\d+年|平成\\d+年");
     @Override public boolean applies(String question) {
-        String q = Vocabulary.norm(question);
-        for (String w : WORDS) if (q.contains(w)) return true;
+        String q = NOT_THESE.matcher(Vocabulary.norm(question)).replaceAll(" ");
+        for (Pattern p : LATIN) if (p.matcher(q).find()) return true;
+        for (String w : OTHER_SCRIPTS) if (q.contains(w)) return true;
         return SHAPES.matcher(question).find();
     }
     @Override public boolean wantsRecords() { return true; }

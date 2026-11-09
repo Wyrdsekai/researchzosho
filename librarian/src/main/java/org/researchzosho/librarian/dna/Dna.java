@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import java.security.NoSuchAlgorithmException;
 /**
  * The DNA store (0.6.0): one document per work, under {@code ~/.researchzosho/dna/<kind>s/<key>.json}, holding the three layers — the
  * record (what the catalogues and the shelf say, each with its source), the measured (counted from the text by a program, with its
@@ -52,7 +53,7 @@ public final class Dna {
             try (InputStream in = Files.newInputStream(file)) { byte[] buf = new byte[1 << 16]; int n; while ((n = in.read(buf)) > 0) md.update(buf, 0, n); }
             StringBuilder sb = new StringBuilder(); for (byte b : md.digest()) sb.append(String.format("%02x", b));
             return sb.substring(0, 16);
-        } catch (java.security.NoSuchAlgorithmException e) { throw new IOException(e); }
+        } catch (NoSuchAlgorithmException e) { throw new IOException(e); }
     }
 
     /** The document, or null when the store has none. */

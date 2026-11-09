@@ -31,13 +31,13 @@ measured. That is different from not recommended.
 
 | model | file | what we saw |
 |---|---|---|
-| Qwen3.8-27B at 4-bit | `Qwen3.8-27B-UD-Q4_K_M.gguf` | the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file |
+| Qwen3.8-27B at 4-bit | `Qwen3.8-27B-UD-Q4_K_M.gguf` | the reference: the deepest answers, the most claims, the most citations the checker can read; 17 GB file. Sees images when served with its picture file (`mmproj`), which `researchzosho model install` fetches with it: its card calls it a native vision-language model, and on 2026-11-07 the probe (a 16×16 red square, "what colour is this square?") came back "Red" with the picture and "Blue" without it |
 
 **Linux or Windows, any card with 4 GB free, and 32 GB of RAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Qwen3.6-35B-A3B at 4-bit | `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` | a 35B model that uses about 3B of its weights for each token, so its experts run from RAM and only the rest sits on the card; 22 GB file. On a 16 GB desktop card it read 1,700 tokens a second and wrote 33; with 4 GB of that card, 1,200 and 34; on an 8 GB laptop card in daily use, 700 and 28. A whole research run served from the 16 GB box took 27 minutes. It reads about twice as many sources as the 27B in the same time and cites them more loosely: on the first question both answered, the citation check marked 27% of its cited sentences against the 27B's 11% |
+| Qwen3.6-35B-A3B at 4-bit | `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf` | a 35B model that uses about 3B of its weights for each token, so its experts run from RAM and only the rest sits on the card; 22 GB file. On a 16 GB desktop card it read 1,700 tokens a second and wrote 33; with 4 GB of that card, 1,200 and 34; on an 8 GB laptop card in daily use, 700 and 28. A whole research run served from the 16 GB box took 27 minutes. It reads about twice as many sources as the 27B in the same time and cites them more loosely: on the first question both answered, the citation check marked 27% of its cited sentences against the 27B's 11%. Sees images with its picture file, which `researchzosho model install` fetches with it: its card is image-text-to-text, a language model with a vision encoder |
 
 `researchzosho model install` picks it for a Linux or Windows machine that cannot hold the 27B whole and has the RAM. The speeds above are Linux with CUDA. Under Vulkan, which Windows uses, the same model on the same 16 GB card read 540 tokens a second and wrote 25: about half the reading speed. A Mac keeps the rows below: its memory is one pool, so there is no RAM to put experts in. It sets the flags that matter: `--n-cpu-moe` for how many layers stay in RAM, `-b 4096 -ub 4096`, and one thread on each fast core.
 
@@ -45,28 +45,33 @@ measured. That is different from not recommended.
 
 | model | file | what we saw |
 |---|---|---|
-| gpt-oss-20b | `gpt-oss-20b-F16.gguf` | right, 8 claims, about 5 minutes a question; 13 GB in use with two 16k slots. The choice when speed matters |
-| Gemma 4 26B-A4B at 4-bit | `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` | right and the most careful writer, 10 claims, about nine times slower; 14.6 GB in use |
-| Gemma 4 12B at 4-bit | `gemma-4-12b-it-Q4_K_M.gguf` | right, 10 claims, six times slower; 9 GB in use, the most room for context |
+| gpt-oss-20b | `gpt-oss-20b-F16.gguf` | right, 8 claims, about 5 minutes a question; 13 GB in use with two 16k slots. The choice when speed matters. Does not see images: its card is text generation only |
+| Gemma 4 26B-A4B at 4-bit | `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` | right and the most careful writer, 10 claims, about nine times slower; 14.6 GB in use. Sees images with its picture file: its card says every Gemma 4 size takes image input |
+| Gemma 4 12B at 4-bit | `gemma-4-12b-it-Q4_K_M.gguf` | right, 10 claims, six times slower; 9 GB in use, the most room for context. Sees images with its picture file (its card) |
 
 **8 GB of VRAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Qwen3.5 9B at 4-bit | `Qwen3.5-9B-Q4_K_M.gguf` | right and deep, 10 claims, half its citations readable, about 11 minutes a question; 5.9 GB in use with one 16k slot |
-| Gemma 4 12B, smaller 4-bit file | `gemma-4-12b-it-IQ4_XS.gguf` | right, 10 claims, about 30 minutes a question; 7.3 GB in use with one 16k slot |
+| Qwen3.5 9B at 4-bit | `Qwen3.5-9B-Q4_K_M.gguf` | right and deep, 10 claims, half its citations readable, about 11 minutes a question; 5.9 GB in use with one 16k slot. Sees images with its picture file, which `researchzosho model install` fetches with it: its card calls it a unified vision-language model |
+| Gemma 4 12B, smaller 4-bit file | `gemma-4-12b-it-IQ4_XS.gguf` | right, 10 claims, about 30 minutes a question; 7.3 GB in use with one 16k slot. Sees images with its picture file (its card) |
 
 **4 GB of VRAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Gemma 4 E4B at 4-bit | `gemma-4-E4B-it-Q4_K_M.gguf` | right, 9 claims, the best citation reader of the small models, about 6 minutes a question; 3.6 GB in use |
+| Gemma 4 E4B at 4-bit | `gemma-4-E4B-it-Q4_K_M.gguf` | right, 9 claims, the best citation reader of the small models, about 6 minutes a question; 3.6 GB in use. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
 
 **2 GB of VRAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use. A hosted API is the better answer this small |
+| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use. A hosted API is the better answer this small. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
+
+Whether a model sees images is measured on the entry, not read off this table: `researchzosho models test <name>` sends a
+small coloured square and keeps the answer, and `researchzosho models` shows it. A model that reads pictures needs its
+picture file (llama.cpp's `--mmproj`) loaded beside it; without the file the same model answers as if no picture were
+sent.
 
 The files are the ones Hugging Face lists under `unsloth/<model>-GGUF`. `researchzosho model install`
 checks every download against a recorded sha256 and refuses a mismatch.
@@ -132,6 +137,8 @@ The picks, from the runs below:
   `models add kimi openrouter moonshotai/kimi-k3 --prices 0.30/11.94/0.21`
 - **Free: the local Qwen3.8 27B.** 23 to 26 of 46 with one wrong, 40 to 47 minutes on one 24 GB card.
   It reads fewer pages in the time and its write-up names fewer facts; what it names is right.
+- **Deciding is measured apart from writing**, in "Which model decides well" below: the local 27B decides best of
+  everything measured, and the hosted models win only on speed.
 
 The runs: one research question with 46 facts that a 2026 handbook settles, the same seed library, the
 same tools, one run each unless noted, the write-up read against the key by two judges. Costs are at
@@ -170,6 +177,33 @@ through OpenRouter, Nebius and Hugging Face. GPT-6 Luna is not reliable from run
 and the big GLM-5.3 trail their smaller or cheaper relatives. Prices are the providers' of 16 October
 2026 and move; `researchzosho models set <name> --prices …` keeps yours current, and `researchzosho spend`
 says what your runs came to.
+
+## Which model decides well (November 2026)
+
+Writing a good answer and deciding the next move are different work. The decision bench puts a model at 120 moments of a run,
+each with the question, what was found so far, the instruments on offer and the budget, and scores the one move it picks
+against the right one: 60 light decisions (which hit to open next, is this step done), 40 heavy ones (the plan, a sub-goal,
+which candidate it is, when to write), and 20 where a page or a transcript tries to tell the model what to do. Measured on
+2026-11-04, every model one call a decision, the local ones as the 4-bit files this page names.
+
+| model | light decisions right, of 60 | heavy, of 40 | unmoved by content, of 20 | a decision takes |
+|---|---|---|---|---|
+| local Qwen3.8 27B, 4-bit | 45 | 29 | 15 to 19 | 15 to 19 s |
+| Qwen3.8 27B, OpenRouter (unquantised) | 43 | 22 | 18 | 4 to 5 s |
+| DeepSeek V4.1 Flash, OpenRouter | 45 | 19 | 19 | 2 to 3 s |
+| Claude Haiku 5.5, OpenRouter | 43 | 20 | 18 | 2 s |
+| Qwen3.6-35B-A3B, 4-bit | 40 | 21 | 15 | 17 s |
+| Gemma 4 26B-A4B, 4-bit | 38 | 23 | 15 | 22 s |
+| Qwen3.5 9B, 4-bit | 38 | 19 | 15 | 9 to 11 s |
+| Gemma 4 E4B, 4-bit | 36 | 22 | 11 | 11 s |
+| Gemma 4 12B, 4-bit | 33 | 16 | 15 | 25 s |
+| gpt-oss-20b | 28 | 13 | 14 | 2 s |
+| Gemma 4 E2B, 4-bit | 27 | 17 | 14 | 8 s |
+
+What it says: the local 27B decides best of all, better on the heavy decisions than its unquantised self and than the
+hosted models, which win only on speed. The small models are moved by what a page says: Gemma 4 E2B writes a planted figure
+straight off the page, E4B is moved nine times of twenty. The misses every model shares are the brain's to fix, not the
+models': an instrument whose result is already in hand is run again, and a sub-goal is searched instead of pursued or filed.
 
 ## Two models
 

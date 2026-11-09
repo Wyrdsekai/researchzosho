@@ -11,6 +11,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import java.util.Comparator;
 /** The GPU reader against stand-in kernel trees: what the kernel says, never a tool's exit code. */
 class GpuTest {
 
@@ -40,7 +42,7 @@ class GpuTest {
         assertNull(Gpu.nvidia(NO_NVIDIA));
         assertEquals(Gpu.Kind.none, Gpu.detect(NO_NVIDIA).kind());
         assertNull(Gpu.nvidia(cmd -> new ModelServer.Result(0, "16380\n")), "a bare number has no name: not a measured card");
-        assertNull(Gpu.nvidia(cmd -> { throw new java.io.IOException("nvidia-smi: not found"); }));
+        assertNull(Gpu.nvidia(cmd -> { throw new IOException("nvidia-smi: not found"); }));
     }
 
     @Test
@@ -122,7 +124,7 @@ class GpuTest {
         card("card0", "0x8086", "0x7d55", -1);
         card("card1", "0x1002", "0x1586", 32L << 30);
         assertEquals(Gpu.Kind.amd, Gpu.detect(NO_NVIDIA).kind());
-        Files.walk(sys.resolve("drm")).sorted(java.util.Comparator.reverseOrder()).filter(p -> !p.equals(sys.resolve("drm"))).forEach(p -> p.toFile().delete());
+        Files.walk(sys.resolve("drm")).sorted(Comparator.reverseOrder()).filter(p -> !p.equals(sys.resolve("drm"))).forEach(p -> p.toFile().delete());
         card("card0", "0x10de", "0x26b1", -1);   // an NVIDIA card the kernel lists but nvidia-smi cannot measure (no driver): not a GPU to serve on
         assertEquals(Gpu.Kind.none, Gpu.detect(NO_NVIDIA).kind());
         assertEquals("no GPU", Gpu.NONE.describe());

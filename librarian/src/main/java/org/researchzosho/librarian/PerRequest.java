@@ -15,9 +15,10 @@ import java.util.Map;
 
 /**
  * An exchange whose attributes are its own. The JDK's HttpServer keeps an exchange's attributes in its context's map, which every request
- * the context serves shares, so a mark the daemon set for one request stayed set for the next one from anywhere else: a relay's login
- * named the next visitor through the door who asked to be let in, and the body of one passkey call could be read by another. The daemon
- * wraps each request in this, and its marks (through the door, the body, the relay's login) live and die with it.
+ * the context serves shares, so a mark the daemon set for one request stayed set for the next one from anywhere else: after one request
+ * from a trusted proxy, every later request had its forwarded and relay identity headers believed, whoever sent them; a relay's login
+ * named the next visitor who asked to be let in; and the body of one passkey call could be read by another. The daemon wraps each request
+ * in this, and its marks (from a trusted proxy, through the door, the body, the relay's login) live and die with it.
  */
 final class PerRequest extends HttpExchange {
     private final HttpExchange x;

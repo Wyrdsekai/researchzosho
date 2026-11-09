@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.HashMap;
 /** The client's own behaviour: the headers and the address, the waits the limits ask for, a spent account that is not waited for, a failed reply, the output cap learnt. */
 class OpenAITest {
 
@@ -21,7 +22,7 @@ class OpenAITest {
     /** A transport that answers from a script and keeps what was sent. */
     static final class Script implements OpenAI.Transport {
         final List<OpenAI.Answer> answers = new ArrayList<>(); final List<Sent> sent = new ArrayList<>();
-        Script then(int status, String body, String... headers) { Map<String, String> h = new java.util.HashMap<>(); for (int i = 0; i + 1 < headers.length; i += 2) h.put(headers[i], headers[i + 1]); answers.add(new OpenAI.Answer(status, body, h)); return this; }
+        Script then(int status, String body, String... headers) { Map<String, String> h = new HashMap<>(); for (int i = 0; i + 1 < headers.length; i += 2) h.put(headers[i], headers[i + 1]); answers.add(new OpenAI.Answer(status, body, h)); return this; }
         @Override public OpenAI.Answer send(String method, URI uri, Map<String, String> headers, String body, Duration timeout) {
             sent.add(new Sent(method, uri, headers, body));
             if (answers.isEmpty()) throw new IllegalStateException("no answer scripted for " + uri);

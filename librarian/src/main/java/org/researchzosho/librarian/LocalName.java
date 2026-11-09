@@ -22,7 +22,7 @@ final class LocalName {
 
     /** What a request under another name is answered with. */
     static final String REFUSED = "This library was asked for under a name that is not this computer's, so it was not served. Open it at "
-            + "http://127.0.0.1 or http://localhost, or share it with researchzosho share.";
+            + "http://127.0.0.1 or http://localhost. A proxy on this computer that forwards to the library is named in RESEARCHZOSHO_TRUSTED_PROXY.";
 
     private static final Pattern LOOPBACK_V4 = Pattern.compile("127(?:\\.(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}");
 

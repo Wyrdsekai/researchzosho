@@ -23,7 +23,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -104,6 +106,36 @@ class ShoppingTest {
                 && keyed.contains("Kestrel KH-7 hub new sealed [New] — 34.00 USD at eBay (wrenstore)") && keyed.contains("Hand-stitched leather sleeve for a 7-port hub — 42.50 USD at Etsy (shop 99)") && keyed.contains("an auction's price is the bid at the time shown")
                 && !keyed.contains("- eBay —") && !keyed.contains("- Etsy —") && !keyed.contains("Mercari"), keyed);
         assertEquals("EBAY_GB", Shops.ebayMarket("GB")); assertEquals("EBAY_US", Shops.ebayMarket("JP"));
+    }
+
+    /**
+     * A budget is the shop's own filter and the rows come cheapest first within it, and a page reads on: the pool is what the shops list for
+     * the words and the money, never their first page in their own order, which is their score of popularity and advertising (2026-11-05).
+     */
+    @Test
+    void aBudgetIsTheShopsOwnFilterAndAPageReadsOn() throws Exception {
+        List<String> asked = new ArrayList<>();
+        for (String shop : List.of("yahoo", "rakuten")) server.createContext("/window/" + shop, x -> {
+            asked.add(shop + "?" + x.getRequestURI().getRawQuery());
+            byte[] b = (shop.equals("yahoo") ? "{\"totalResultsAvailable\":1,\"hits\":[{\"name\":\"Heron 4ポートUSBハブ\",\"price\":2480,\"url\":\"https://store.shopping.yahoo.co.jp/heron/h4.html\",\"seller\":{\"name\":\"Heron\"},\"inStock\":true}]}"
+                    : "{\"count\":1,\"Items\":[{\"Item\":{\"itemName\":\"Wren USBハブ 4ポート\",\"itemPrice\":1980,\"itemUrl\":\"https://item.rakuten.co.jp/wren/u4/\",\"shopName\":\"Wren\",\"itemCode\":\"wren:u4\",\"availability\":1}}]}").getBytes(StandardCharsets.UTF_8);
+            x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(200, b.length); try (OutputStream o = x.getResponseBody()) { o.write(b); }
+        });
+        String base = "http://127.0.0.1:" + server.getAddress().getPort() + "/window/";
+        Shops.BASE.put("yahoo", base + "yahoo"); Shops.BASE.put("rakuten", base + "rakuten");
+        Config.set(Settings.MARKET, "JP"); Config.set(Shops.YAHOO_KEY, "yahoo-test"); Config.set(Shops.RAKUTEN_APP, "rk-app"); Config.set(Shops.RAKUTEN_KEY, "rk-key");
+        ProductSearchTool t = new ProductSearchTool();
+        String plain = t.execute(args("{\"kind\":\"shops\",\"query\":\"USB hub\"}"));
+        String window = t.execute(args("{\"kind\":\"shops\",\"query\":\"USB hub\",\"price_min\":1000,\"price_max\":5000,\"page\":2}"));
+        assertEquals(4, asked.size(), asked.toString());
+        assertTrue(asked.get(0).startsWith("yahoo?") && !asked.get(0).contains("price_") && !asked.get(0).contains("sort=") && !asked.get(0).contains("start="), "no window, no sort, the first page, as before: " + asked.get(0));
+        assertTrue(asked.get(1).startsWith("rakuten?") && !asked.get(1).contains("Price=") && !asked.get(1).contains("sort=") && !asked.get(1).contains("page="), asked.get(1));
+        assertTrue(asked.get(2).contains("&price_from=1000&price_to=5000&sort=%2Bprice&start=11"), "Yahoo!: the window, cheapest first, the second page of ten: " + asked.get(2));
+        assertTrue(asked.get(3).contains("&minPrice=1000&maxPrice=5000&sort=%2BitemPrice&page=2"), "楽天: the window, cheapest first, the second page: " + asked.get(3));
+        assertTrue(plain.contains("2 listing(s) for \"USB hub\", each for sale now"), plain);
+        assertTrue(window.contains("2 listing(s) for \"USB hub\" within 1000 to 5000, cheapest first, page 2, each for sale now") && window.contains("2480 JPY at Yahoo!ショッピング") && window.contains("1980 JPY at 楽天市場"), window);
+        var props = t.parametersSchema(M).path("properties");
+        assertTrue(props.has("price_min") && props.has("price_max") && props.has("page") && props.path("price_max").path("description").asText().contains("never in the shop's own order"), "the tool takes the window and the page and says why");
     }
 
     @Test

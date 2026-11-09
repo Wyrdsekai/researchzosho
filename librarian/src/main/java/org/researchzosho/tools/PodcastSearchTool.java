@@ -175,7 +175,7 @@ public final class PodcastSearchTool implements Tool {
                 List<Podcasts.Show> shows = PodcastIndexLocal.browse(language, category, active, limit);
                 if (shows == null) return "Browsing by category and language needs the Podcast Index's file on this machine: researchzosho podcast index download fetches it (1.8 GB, refreshed weekly).";
                 if (shows.isEmpty()) return "no shows" + (language.isEmpty() ? "" : " in " + language) + (category.isEmpty() ? "" : " under " + category) + (active ? " active this year" : "") + " in the Podcast Index's file. Categories are the directory's own words: history, technology, education, society, arts, business, comedy, news, sports, science, health…";
-                sb.append("the directory").append(language.isEmpty() ? "" : " in " + language).append(category.isEmpty() ? "" : " under " + category).append(active ? ", active this year" : "").append(", the most popular and recent first (Podcast Index file of ").append(PodcastIndexLocal.fetchedAt() == null ? "?" : PodcastIndexLocal.fetchedAt().toString().replaceAll("T.*", "")).append("):\n");
+                sb.append("the directory").append(language.isEmpty() ? "" : " in " + language).append(category.isEmpty() ? "" : " under " + category).append(active ? ", active this year" : "").append(", the most recently updated first, never by popularity (Podcast Index file of ").append(PodcastIndexLocal.fetchedAt() == null ? "?" : PodcastIndexLocal.fetchedAt().toString().replaceAll("T.*", "")).append("):\n");
                 int n = 0;
                 for (Podcasts.Show s : shows) show(sb, ++n, s);
             }

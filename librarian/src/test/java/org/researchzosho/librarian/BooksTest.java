@@ -18,6 +18,7 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,27 @@ class BooksTest {
     }
 
     static ObjectNode args(String json) throws Exception { return (ObjectNode) M.readTree(json); }
+
+    /** A heading is read whole by paging: page=2 asks the catalogue for its second page and says so; the first page asks for none, as before (2026-11-05). */
+    @Test
+    void aSubjectHeadingIsReadOnPastItsFirstPage() throws Exception {
+        List<String> asked = new ArrayList<>();
+        server.createContext("/paged/search.json", x -> {
+            asked.add(x.getRequestURI().getRawQuery());
+            byte[] b = "{\"numFound\":60,\"docs\":[{\"key\":\"/works/OL9W\",\"title\":\"Moths of the Hebrides\",\"author_name\":[\"Wren Calloway\"],\"first_publish_year\":1987,\"edition_count\":1,\"subject\":[\"Moths\"],\"language\":[\"eng\"]}]}".getBytes(StandardCharsets.UTF_8);
+            x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(200, b.length); try (OutputStream o = x.getResponseBody()) { o.write(b); }
+        });
+        Books.BASE.put("openlibrary", "http://127.0.0.1:" + server.getAddress().getPort() + "/paged");
+        BookSearchTool t = new BookSearchTool().policy(ContentPolicy.defaults());
+        String first = t.execute(args("{\"kind\":\"subject\",\"query\":\"Moths\"}"));
+        String second = t.execute(args("{\"kind\":\"subject\",\"query\":\"Moths\",\"page\":2}"));
+        assertEquals(2, asked.size());
+        assertTrue(asked.get(0).contains("subject=Moths") && !asked.get(0).contains("page="), "the first page asks for none: " + asked.get(0));
+        assertTrue(asked.get(1).contains("subject=Moths") && asked.get(1).contains("&page=2"), "the second page is asked for by number: " + asked.get(1));
+        assertTrue(first.contains("Open Library, subject \"Moths\"") && !first.contains("(page"), first);
+        assertTrue(second.contains("Open Library, subject \"Moths\" (page 2)") && second.contains("Moths of the Hebrides"), second);
+        assertTrue(t.description().contains("a heading is read whole by paging") && t.parametersSchema(M).path("properties").has("page"), "the tool says so and takes page");
+    }
 
     @Test
     void theCataloguesAnswerAndAWorkIsReadAndTheFieldJoinsOnTheQuestion() throws Exception {

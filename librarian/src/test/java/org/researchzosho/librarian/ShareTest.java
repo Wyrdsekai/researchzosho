@@ -29,6 +29,8 @@ import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.io.IOException;
+import org.junit.jupiter.api.Assumptions;
 /**
  * `share` (AFTER_0_6 §5): the relay chosen by what the machine has, the settings written, sign-in turned on, each known refusal answered
  * with its next step; the service's watcher opening the door and running the tunnel while the setting says so and nothing otherwise;
@@ -262,7 +264,7 @@ class ShareTest {
         return HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build().send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
 
-    static boolean stateSays(String text) { try { return Files.readString(Share.stateFile()).contains(text); } catch (java.io.IOException e) { return false; } }
+    static boolean stateSays(String text) { try { return Files.readString(Share.stateFile()).contains(text); } catch (IOException e) { return false; } }
 
     static void until(BooleanSupplier ok, String what) throws InterruptedException {
         for (int i = 0; i < 100 && !ok.getAsBoolean(); i++) Thread.sleep(50);
@@ -271,7 +273,7 @@ class ShareTest {
 
     @Test
     void theServicesWatcherOpensTheDoorRunsTheTunnelAndStopsBothWhenShareIsOff(@TempDir Path tmp) throws Exception {
-        org.junit.jupiter.api.Assumptions.assumeFalse(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"), "the stand-in tunnel is a shell command");
+        Assumptions.assumeFalse(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win"), "the stand-in tunnel is a shell command");
         LibraryStore store = lib(tmp);
         Patrons.set(store, "did:key:owner", "Owner", Patrons.Level.write);
         Share.pollMs = 50;

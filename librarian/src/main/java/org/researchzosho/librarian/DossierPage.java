@@ -6,6 +6,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.TreeSet;
+import java.util.HashMap;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Locale;
@@ -103,6 +106,34 @@ final class DossierPage {
 
     static String render(LibraryStore store, String subject) throws IOException { return render(store, subject, Translate.AS_IS, null); }
 
+    /** The page with its forms for a writer: tell, write the story, score a forecast (the page showed and could not take them until 2026-11-07). */
+    static String render(LibraryStore store, String subject, boolean writer) throws IOException {
+        WRITER.set(writer);
+        try { return render(store, subject, Translate.AS_IS, null); } finally { WRITER.remove(); }
+    }
+
+    /** Whether the page being rendered carries a writer's forms. */
+    private static final ThreadLocal<Boolean> WRITER = new ThreadLocal<>();
+    private static boolean writer() { return Boolean.TRUE.equals(WRITER.get()); }
+
+    /**
+     * What the timeline holds and where it came from: the runs behind it by their questions, the kinds of claim on it, and whether the founding
+     * and the basics are there yet. "From 1 run: Corporate history of … who holds power. Milestones, decisions, statements and media; the
+     * founding and the basics come with the full research." A timeline that starts in 2001 on a university founded in 1636 says so.
+     */
+    static String timelineLine(Dossier.Gathered d) {
+        List<String> asks = new ArrayList<>();
+        String storyTitle = "The story of " + d.label();
+        for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) asks.add(Acquisitions.compress(inv.title(), 70).replaceAll("[.?!]+$", ""));
+        StringBuilder b = new StringBuilder();
+        if (asks.isEmpty()) b.append("From no run yet: the claims the shelves hold on the subject.");
+        else b.append("From ").append(asks.size()).append(asks.size() == 1 ? " run: " : " runs: ").append(String.join("; ", asks)).append(".");
+        boolean milestones = !Dossier.milestones(d.claims()).isEmpty();
+        b.append(" Milestones, decisions, statements and media");
+        b.append(milestones ? ", the milestones first within a year." : "; the founding and the basics come with the full research.");
+        return b.toString();
+    }
+
     /**
      * The page, built with {@code w}: every piece of prose the reports and the claims give passes through it, the page's own labels,
      * the names, the ids, the dates and the badges do not. {@code inLang} names the language the page is read in, or is null for the original.
@@ -144,6 +175,8 @@ final class DossierPage {
         // the ask for more: a research run with the whole brief, never automatic; a card made for the career search grows into the full dossier here
         String fullQ = d.kind().equalsIgnoreCase("person") ? "Who is " + d.label() + "? A full dossier." : "Who is " + d.label() + "? A full dossier: its history, power and governance, customers and rivals, money, people, decisions and what to expect.";
         b.append("<p class=\"note\">").append(d.claims().size()).append(d.claims().size() == 1 ? " claim" : " claims").append(" on the shelves. <a href=\"/research?q=").append(enc(fullQ)).append("\">Research in full</a>: a run with the whole brief, hours on a local model, only when you ask.</p>");
+        b.append(Pages.saveLinks("/download?subject=" + enc(d.label()), inLang));
+        b.append(madeFold(store, d, storyTitle));
         // identity
         b.append("<h2 id=\"identity\">Identity</h2><div class=\"sec id\"><div><div class=\"facts\">");
         b.append("<b>").append(esc(d.label())).append("</b>");
@@ -181,8 +214,9 @@ final class DossierPage {
         Map<String, List<Finding>> byYear = new TreeMap<>();
         for (Finding f : d.claims()) { String y = Dossier.yearOf(f); if (y != null) byYear.computeIfAbsent(y, k -> new ArrayList<>()).add(f); }
         b.append("<h2 id=\"timeline\">Timeline</h2><div class=\"sec\">");
+        b.append("<p class=\"k\">").append(esc(timelineLine(d))).append("</p>");
         if (byYear.isEmpty()) b.append("<p class=\"note\">No claim names a year yet.</p>");
-        else { b.append("<ul class=\"tl\">"); for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("<li><span class=\"y\">").append(esc(e.getKey())).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
+        else { b.append("<ul class=\"tl\">"); for (var e : byYear.entrySet()) for (Finding f : Dossier.milestonesFirst(e.getValue())) b.append("<li><span class=\"y\">").append(esc(e.getKey())).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // decisions: what the people in power decided, dated, with the reason they gave
         b.append("<h2 id=\"decisions\">Decisions</h2><div class=\"sec\">");
@@ -246,6 +280,7 @@ final class DossierPage {
         b.append("<h2 id=\"told\">Told</h2><div class=\"sec\">");
         if (told.isEmpty()) b.append("<p class=\"note\">Nothing told yet. Tell the librarian what you know of ").append(esc(d.label())).append(" in the chat, or: researchzosho tell \"").append(esc(d.label())).append("\" \"…\"</p>");
         for (Finding f : told) b.append("<div class=\"told\">").append(esc(w.tr(f.body().strip()))).append(" <span class=\"date\">").append(esc(f.validAsOf())).append(", ").append(esc(f.writer().replaceFirst("^patron:", ""))).append("</span> <a href=\"/entry/").append(enc(f.id())).append("\">").append(esc(f.id())).append("</a></div>");
+        if (writer()) b.append("<form method=\"post\" action=\"/dossier\" class=\"stack\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><label>Tell the library what you know of ").append(esc(d.label())).append(", in your own words<br><textarea name=\"text\" rows=\"3\" required></textarea></label><button name=\"tell\" value=\"1\">File it as told</button> <span class=\"note\">dated, with you as the source; the names, dates and events it raises become questions for the next run</span></form>");
         b.append("</div>");
         // claims by class
         b.append("<h2 id=\"claims\">Claims by the class of their source</h2><div class=\"sec\">");
@@ -279,7 +314,13 @@ final class DossierPage {
                 b.append("</table>");
                 Double brier = Forecasts.brier(ledger);
                 if (brier != null) b.append("<p class=\"note\">Brier score over the scored forecasts: ").append(String.format(Locale.ROOT, "%.3f", brier)).append(" (0 is perfect, 0.25 is coin-tossing).</p>");
-                b.append("<p class=\"note\">Score one once its date has passed: researchzosho forecast &lt;id&gt; happened|did-not|void.</p>");
+                if (writer()) {
+                    for (Forecasts.Entry f : ledger) {
+                        if (f.outcome() != null && !f.outcome().isEmpty()) continue;
+                        b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><input type=\"hidden\" name=\"score\" value=\"").append(esc(f.id())).append("\">").append(esc(f.id())).append(": <select name=\"outcome\"><option value=\"happened\">happened</option><option value=\"did-not\">did not</option><option value=\"void\">void</option></select> <input name=\"note\" size=\"18\" placeholder=\"what settled it\"> <button>Score</button></form> ");
+                    }
+                }
+                b.append("<p class=\"note\">Score one once its date has passed, here or at the terminal: researchzosho forecast &lt;id&gt; happened|did-not|void.</p>");
             }
             if (!implications.isEmpty()) b.append("<h3>Implications and options</h3><p>").append(linkCites(esc(w.tr(implications)), latest)).append("</p>");
             if (!summary.isEmpty()) b.append("<h3>Source summary</h3><p>").append(esc(w.tr(summary))).append(libraryWroteSummary ? " <span class=\"note\">(written by the library from the references and the checks)</span>" : "").append("</p>");
@@ -293,6 +334,7 @@ final class DossierPage {
              .append(grown == 0 ? "current with the shelves." : "the shelves hold " + grown + " more claims now; the next run on this subject writes it again, or: researchzosho story \"" + esc(d.label()) + "\"").append("</p>");
         }
         else b.append("<p class=\"note\">Not written yet: researchzosho story \"").append(esc(d.label())).append("\" writes it from the claims, a decade a chapter.</p>");
+        if (writer() && !d.claims().isEmpty()) b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><button name=\"story\" value=\"1\">").append(story == null ? "Write the story" : "Write the story again").append("</button> <span class=\"note\">the library's model writes it, a minute or more</span></form>");
         b.append("</div>");
         b.append("<h2 id=\"reports\">Reports to dive into</h2><div class=\"sec\">");
         if (d.reports().isEmpty()) b.append("<p class=\"note\">None yet.</p>");
@@ -364,19 +406,52 @@ final class DossierPage {
     static String claim(Finding f, Translate.Words w, SourceClass.Own own) {
         SourceClass c = SourceClass.of(f.sources(), own);
         String cls = switch (c) { case publicRecord -> "c-public"; case ownPublication -> "c-own"; case supplied -> "c-supplied"; case told -> "c-told"; case canon -> "c-canon"; default -> "c-third"; };
-        return esc(w.tr(f.title())) + " <span class=\"cls " + cls + "\">" + esc(c.label()) + "</span>" + (f.validAsOf() == null || f.validAsOf().isEmpty() ? "" : "<span class=\"date\">" + esc(f.validAsOf()) + "</span>")
+        return esc(w.tr(f.title())) + " <span class=\"cls " + cls + "\">" + esc(c.label()) + "</span>" + (Dossier.dateShown(f).isEmpty() ? "" : "<span class=\"date\">" + esc(Dossier.dateShown(f)) + "</span>")
                 + " <a class=\"k\" href=\"/entry/" + enc(f.id()) + "\">" + esc(f.id()) + "</a>";
     }
 
     /** A report's section by its exact heading, "" when it has none. */
-    static String section(String body, String name) {
-        if (body == null || body.isEmpty()) return "";
-        body = "\n" + body;   // a section may be the first line of the body
-        int at = body.indexOf("\n## " + name + "\n");
-        if (at < 0) return "";
-        String rest = body.substring(at + name.length() + 5);
-        int end = rest.indexOf("\n## "); return (end < 0 ? rest : rest.substring(0, end)).strip();
+    /**
+     * How the dossier was made, behind a fold closed by default, as a report's page has: the runs that fed it with their dates, models and
+     * times, the claims by the class of their source and by site, what was told, and the span of the claims' dates.
+     */
+    static String madeFold(LibraryStore store, Dossier.Gathered d, String storyTitle) {
+        List<Investigation> runs = new ArrayList<>();
+        for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) runs.add(inv);
+        Map<String, ObjectNode> jobByReport = new HashMap<>();
+        try { for (ObjectNode raw : new Jobs(store, j -> "").recent(200, null)) { String inv = Jobs.view(raw).path("investigation").asText(""); if (!inv.isEmpty()) jobByReport.putIfAbsent(inv, raw); } } catch (IOException | RuntimeException ignored) { }
+        StringBuilder in = new StringBuilder("<dl class=\"made\"><dt>Runs</dt><dd>");
+        String lastRun = "";
+        if (runs.isEmpty()) in.append("None yet: the claims came from the shelves, or were told.");
+        else {
+            in.append("<ul class=\"plain\">");
+            for (Investigation inv : runs) {
+                ObjectNode job = jobByReport.get(inv.id());
+                String model = job == null ? "" : job.path("args").path("model_entry").asText(job.path("drive").asText(""));
+                if (day(inv.recordedAt()).compareTo(lastRun) > 0) lastRun = day(inv.recordedAt());
+                in.append("<li><a href=\"/entry/").append(enc(inv.id())).append("\">").append(esc(inv.title())).append("</a> <span class=\"date\">").append(esc(day(inv.recordedAt()))).append("</span>")
+                  .append(model.isEmpty() ? "" : ", " + esc(model)).append(job == null ? "" : ", " + esc(RunProgress.elapsed(RunProgress.of(Jobs.view(job)).elapsedSeconds()))).append("</li>");
+            }
+            in.append("</ul>");
+        }
+        in.append("</dd>");
+        Set<String> hosts = new TreeSet<>(); int told = 0; String first = "", last = "";
+        for (Finding f : d.claims()) {
+            for (Finding.Source s : f.sources()) { String u = s.locator() == null ? "" : s.locator(); if (u.startsWith("told://")) told++; else { String h = CareerSources.host(u); if (!h.isEmpty()) hosts.add(h); } }
+            String on = day(f.recordedAt()); if (!on.isEmpty() && (first.isEmpty() || on.compareTo(first) < 0)) first = on; if (on.compareTo(last) > 0) last = on;
+        }
+        List<String> classes = new ArrayList<>();
+        for (Map.Entry<SourceClass, List<Finding>> e : d.byClass().entrySet()) if (!e.getValue().isEmpty()) classes.add(e.getValue().size() + " " + e.getKey().label());
+        in.append("<dt>Sources</dt><dd>").append(d.claims().size()).append(d.claims().size() == 1 ? " claim" : " claims").append(classes.isEmpty() ? "" : " by the class of their source: " + esc(String.join(", ", classes)))
+          .append("; from ").append(hosts.size()).append(hosts.size() == 1 ? " site" : " sites").append(hosts.isEmpty() ? "" : " (" + esc(String.join(", ", hosts.size() > 12 ? new ArrayList<>(hosts).subList(0, 12) : new ArrayList<>(hosts))) + (hosts.size() > 12 ? ", …" : "") + ")")
+          .append(told > 0 ? "; " + told + " told" : "").append(".</dd>");
+        in.append("<dt>Dates</dt><dd>").append(first.isEmpty() ? "No claim dated yet." : first.equals(last) ? "The claims were recorded on " + esc(first) + "." : "The claims were recorded from " + esc(first) + " to " + esc(last) + ".").append("</dd>");
+        in.append("<dt>Record</dt><dd>The dossier is built from the shelves each time it is opened; <a href=\"/dossier?subject=").append(enc(d.label())).append("&amp;format=md\">the markdown</a> is the same page as text.</dd></dl>");
+        String gist = runs.size() + (runs.size() == 1 ? " run, " : " runs, ") + d.claims().size() + (d.claims().size() == 1 ? " claim, " : " claims, ") + hosts.size() + (hosts.size() == 1 ? " site" : " sites") + (told > 0 ? ", " + told + " told" : "") + (lastRun.isEmpty() ? "" : ", last run " + lastRun);
+        return "<details class=\"sec made\"><summary><h2>How this was made</h2> <span class=\"gist\">" + esc(gist) + "</span></summary><div class=\"in\">" + in + "</div></details>";
     }
+
+    static String section(String body, String name) { return TimelineClaims.sectionIn(body, name); }   // with its continuations
     static String sectionStarting(String body, String prefix) {
         if (body == null) return "";
         int at = body.indexOf("\n## " + prefix); if (at < 0) return "";

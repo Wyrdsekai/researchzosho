@@ -185,7 +185,8 @@ class ReaderAccessTest {
         assertFalse(Pages.chat(s.store(), cousin, Map.of()).contains("Mari"), "a reader does not land in the owner's conversation");
         assertFalse(Pages.chat(s.store(), cousin, Map.of("session", mine.id)).contains("Mari"), "nor open it by its id");
         assertNull(Librarian.Session.resume(s.store(), mine.id, cousin));
-        assertEquals("", Pages.chatRuns(s.store(), new LibraryProtocol(s.store()), cousin, mine.id));
+        String strip = Pages.chatRuns(s.store(), new LibraryProtocol(s.store()), cousin, mine.id);
+        assertTrue(strip.startsWith("<div class=\"striphead\"") && !strip.contains("Mari") && !strip.contains("class=\"rline"), "the strip's head and nothing of the owner's runs: " + strip);
         assertTrue(Pages.chat(s.store(), Patrons.Patron.PERSON, Map.of()).contains("Where does Mari Endo teach now?"), "the owner's page opens it");
 
         // the reader's own conversation is kept apart and found again, by them only

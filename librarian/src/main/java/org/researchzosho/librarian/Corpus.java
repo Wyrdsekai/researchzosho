@@ -193,9 +193,11 @@ public final class Corpus {
                     p = RawCapture.link(store, f, doc.text(), title, "corpus:" + collection, collection);
                     if (p != null && wasChanged) { markChanged(store, locator, RawCapture.linkedHash(p)); continue; }
                 } else {
+                    // the document's pictures, kept once (a picture already on the shelves is not described again); the text with their lines is what is compared and kept
+                    String text = DocPictures.withPictures(store, bytes, f.getFileName().toString(), locator, title, doc.text(), collection).text();
                     // a linked capture is not "unchanged" for keep: the person now wants the text on the shelves
-                    if (have != null && RawCapture.linkedFile(have) == null && RawCapture.read(have)[2].strip().equals(doc.text().strip())) { unchanged++; continue; }
-                    p = RawCapture.capture(store, locator, doc.text(), title, "corpus:" + collection, collection);
+                    if (have != null && RawCapture.linkedFile(have) == null && RawCapture.read(have)[2].strip().equals(text.strip())) { unchanged++; continue; }
+                    p = RawCapture.capture(store, locator, text, title, "corpus:" + collection, collection);
                 }
                 if (p == null) { skipped++; problems.add(f.getFileName() + ": not captured"); continue; }
                 added++;
@@ -241,14 +243,23 @@ public final class Corpus {
     /** One file, kept or linked, into a collection ("" for none). Returns the raw/ path, or null when it has no text. */
     public static Path addFile(LibraryStore store, Path file, String collection, boolean link) throws IOException {
         Path f = file.toAbsolutePath().normalize();
-        DocText.Doc doc = DocText.convert(Files.readAllBytes(f), f.getFileName().toString());
+        byte[] bytes = Files.readAllBytes(f);
+        DocText.Doc doc = DocText.convert(bytes, f.getFileName().toString());
         WHY_NO_TEXT.set(doc.text().isBlank() && doc.kind().contains(": ") ? doc.kind().substring(doc.kind().indexOf(": ") + 2) : "");
         if (doc.text().isBlank()) return null;
         String title = doc.title().isBlank() ? f.getFileName().toString().replaceAll("\\.[A-Za-z0-9]+$", "").replace('_', ' ') : doc.title();
         String by = collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection;
+        // the document's pictures (0.7.0): kept with entries of their own, and the text's picture lines pointed at the library's copies; a
+        // linked file's text is read from the file each time, so its pictures are kept and not placed in it
+        DocPictures.Outcome pictures = DocPictures.withPictures(store, bytes, f.getFileName().toString(), "file://" + f, title, doc.text(), collection);
+        LAST_PICTURES.set(pictures.said());
         return link ? RawCapture.link(store, f, doc.text(), title, by, collection)
-                : RawCapture.capture(store, "file://" + f, doc.text(), title, by, collection);
+                : RawCapture.capture(store, "file://" + f, pictures.text(), title, by, collection);
     }
+
+    /** What came of the last added file's pictures on this thread, one sentence; "" when it had none worth keeping. */
+    public static String lastPictures() { String s = LAST_PICTURES.get(); return s == null ? "" : s; }
+    private static final ThreadLocal<String> LAST_PICTURES = new ThreadLocal<>();
 
     /**
      * A page or document at a URL the person gave, fetched and kept (a URL cannot be linked: the web rots). Returns [raw path, title,

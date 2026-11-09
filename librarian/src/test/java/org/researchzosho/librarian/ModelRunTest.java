@@ -14,6 +14,12 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 /**
  * A research run on a named model: the ask names it, the job carries it, the run is on its drive and model, its report says who researched
  * it and what it cost, the ledger has the line, and a run past the entry's monthly cap is refused before it starts.
@@ -32,8 +38,8 @@ class ModelRunTest {
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         Patrons.setDefault(store, Patrons.Level.write);
         // the library's own drive is a closed port; the named entry's drive is a server that answers the probe
-        com.sun.net.httpserver.HttpServer answering = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
-        answering.createContext("/", ex -> { byte[] out = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8); ex.sendResponseHeaders(200, out.length); ex.getResponseBody().write(out); ex.close(); });
+        HttpServer answering = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        answering.createContext("/", ex -> { byte[] out = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}".getBytes(StandardCharsets.UTF_8); ex.sendResponseHeaders(200, out.length); ex.getResponseBody().write(out); ex.close(); });
         answering.start();
         String entryDrive = "http://127.0.0.1:" + answering.getAddress().getPort();
         Config.set("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:2"); Config.set("RESEARCHZOSHO_MODEL", "placeholder-model");
@@ -49,10 +55,10 @@ class ModelRunTest {
             assertEquals("cheap", daemon.jobs().get(id).path("args").path("model_entry").asText(), "the job carries the name");
             JsonNode j = daemon.jobs().get(id);
             long t0 = System.currentTimeMillis();
-            while (!java.util.Set.of("done", "failed", "stopped").contains(j.path("state").asText()) && System.currentTimeMillis() - t0 < 60_000) { Thread.sleep(100); j = daemon.jobs().get(id); }
+            while (!Set.of("done", "failed", "stopped").contains(j.path("state").asText()) && System.currentTimeMillis() - t0 < 60_000) { Thread.sleep(100); j = daemon.jobs().get(id); }
             assertEquals(entryDrive, driveSeen[0], "the run was made for the entry's drive, not the library's: " + j);
             assertEquals("done", j.path("state").asText(), j.toString());
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("investigation (I-\\d{4}-[a-z0-9-]+)").matcher(j.path("result").asText());
+            Matcher m = Pattern.compile("investigation (I-\\d{4}-[a-z0-9-]+)").matcher(j.path("result").asText());
             assertTrue(m.find(), "a report was filed: " + j);
             String inv = m.group(1);
             String body = Files.readString(store.root().resolve("investigations").resolve(inv + ".md"));
@@ -66,9 +72,9 @@ class ModelRunTest {
             String id3 = daemon.research(none, Patrons.Patron.PERSON).path("job_id").asText();
             assertEquals("auto", daemon.jobs().get(id3).path("args").path("model_entry").asText(), "auto is the default once a second model is named");
             JsonNode j3 = daemon.jobs().get(id3); t0 = System.currentTimeMillis();
-            while (!java.util.Set.of("done", "failed", "stopped").contains(j3.path("state").asText()) && System.currentTimeMillis() - t0 < 60_000) { Thread.sleep(100); j3 = daemon.jobs().get(id3); }
+            while (!Set.of("done", "failed", "stopped").contains(j3.path("state").asText()) && System.currentTimeMillis() - t0 < 60_000) { Thread.sleep(100); j3 = daemon.jobs().get(id3); }
             assertEquals("done", j3.path("state").asText(), j3.toString());
-            java.util.regex.Matcher m3 = java.util.regex.Pattern.compile("investigation (I-\\d{4}-[a-z0-9-]+)").matcher(j3.path("result").asText());
+            Matcher m3 = Pattern.compile("investigation (I-\\d{4}-[a-z0-9-]+)").matcher(j3.path("result").asText());
             assertTrue(m3.find(), j3.toString());
             String body3 = Files.readString(store.root().resolve("investigations").resolve(m3.group(1) + ".md"));
             assertTrue(body3.contains("Researched by cheap (cheap-model via 127.0.0.1)") && body3.contains("Chosen by best judgement: auto chose cheap: tier A for a tier-A research job"), body3.substring(0, Math.min(900, body3.length())));
@@ -77,13 +83,13 @@ class ModelRunTest {
             Spend.record(store, "J-manual", "", ModelEntries.get("cheap"), new long[]{1, 0, 0}, 5.0);
             String id2 = daemon.research(ask, Patrons.Patron.PERSON).path("job_id").asText();
             JsonNode j2 = daemon.jobs().get(id2); t0 = System.currentTimeMillis();
-            while (!java.util.Set.of("done", "failed", "stopped").contains(j2.path("state").asText()) && System.currentTimeMillis() - t0 < 30_000) { Thread.sleep(100); j2 = daemon.jobs().get(id2); }
+            while (!Set.of("done", "failed", "stopped").contains(j2.path("state").asText()) && System.currentTimeMillis() - t0 < 30_000) { Thread.sleep(100); j2 = daemon.jobs().get(id2); }
             assertEquals("failed", j2.path("state").asText(), j2.toString());
             assertTrue(j2.path("result").asText().contains("cap of $5.00") && j2.path("result").asText().contains("not started"), j2.path("result").asText());
             // a name nobody kept is refused at the ask
             ObjectNode bad = ask.deepCopy(); bad.put("model", "nobody");
             ProtocolError e = assertThrows(ProtocolError.class, () -> new LibraryProtocol(store).research(bad));
-            assertTrue(e.getMessage().contains("No model is named nobody"), e.getMessage());
+            assertTrue(e.getMessage().contains("No model entry matches \"nobody\". Models that can run now:"), e.getMessage());
         } finally { daemon.stop(); answering.stop(0); }
     }
 }

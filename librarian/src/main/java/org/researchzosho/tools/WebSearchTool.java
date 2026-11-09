@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.HashMap;
@@ -21,6 +22,7 @@ import java.util.Map;
 import org.researchzosho.Config;
 import org.researchzosho.Stopping;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -69,6 +71,24 @@ public final class WebSearchTool implements Tool {
     /** The run's lists: a run whose person let in what the site list leaves out sees those results. */
     public WebSearchTool policy(Fetch.Policy p) { this.policy = p == null ? Fetch.Policy.DEFAULT : p; return this; }
 
+    /** Whether this search asks only what costs nobody anything: SearXNG and the built-in fallback, never a paid place. */
+    private volatile boolean keyless;
+
+    /**
+     * This search without the paid places, whatever keys the library holds: no Exa or Tavily first, no Serper, SerpApi or Brave; SearXNG
+     * and then the built-in fallback answer. A bench searches this way, so that a measurement spends nobody's allowance.
+     */
+    public WebSearchTool keyless() { this.keyless = true; return this; }
+
+    /** The most results one search of this tool gives: twenty, as a model reads them, unless a caller that reads them by machine raises it. */
+    private volatile int most = 20;
+
+    /**
+     * This search with up to {@code rows} results where the place gives that many: SearXNG gathers forty or fifty from its engines and
+     * the first twenty are the ones most engines agree on. A program that enumerates takes them all; the paid places give twenty at most.
+     */
+    public WebSearchTool upTo(int rows) { this.most = Math.max(1, Math.min(rows, 100)); return this; }
+
     /**
      * The lines that say how many results were left out and why: the person's refused-sources list, and the site list. Nothing of what
      * was left out is shown.
@@ -107,6 +127,57 @@ public final class WebSearchTool implements Tool {
     public static final Map<String, String> GOOGLE = new HashMap<>();
     static { GOOGLE.put("serper", "https://google.serper.dev/search"); GOOGLE.put("serper_resolve", "https://google.serper.dev/resolve"); GOOGLE.put("serpapi", "https://serpapi.com/search.json"); }
     public static final String SERPER_KEY = "RESEARCHZOSHO_SERPER_KEY", SERPAPI_KEY = "RESEARCHZOSHO_SERPAPI_KEY";
+    /** The names the tally and the monthly limits count the paid rungs under. */
+    public static final String SERPER = "Serper", SERPAPI = "SerpApi", BRAVE = "Brave";
+    /** The settings that hold their monthly limits; there is none unless one is set. */
+    public static final String SERPER_LIMIT = "RESEARCHZOSHO_SERPER_MONTHLY_LIMIT", SERPAPI_LIMIT = "RESEARCHZOSHO_SERPAPI_MONTHLY_LIMIT", BRAVE_LIMIT = "RESEARCHZOSHO_BRAVE_MONTHLY_LIMIT";
+    /** Brave's address; a test points it at its own server. */
+    public static final Map<String, String> BRAVE_API = new HashMap<>();
+    static { BRAVE_API.put("search", "https://api.search.brave.com/res/v1/web/search"); BRAVE_API.put("images", "https://api.search.brave.com/res/v1/images/search"); }
+    /** The paid rungs this tool has said are at their month's limit: each is said once, at the end of the first answer that went past it. */
+    private final Set<String> limitSaid = ConcurrentHashMap.newKeySet();
+
+    /**
+     * A paid rung's call may go: true, reserved until it is settled; false when the month's limit is reached, and then the sentence that
+     * says so joins {@code said} the first time this tool goes past it, and the ladder carries on.
+     */
+    private boolean reserve(String service, List<String> said) {
+        if (SearchTally.reserve(service)) return true;
+        if (limitSaid.add(service)) said.add(SearchTally.usedUp(service, service));
+        return false;
+    }
+    /** Exa or Tavily first in every web search, when the keeper sets it (exa, tavily); unset or off, they answer only as places of their own. */
+    public static final String WEB_FIRST = "RESEARCHZOSHO_WEB_FIRST";
+    /** Searches the first rung answered, session-wide: the report counts them with the other keyed rungs. */
+    public static final AtomicInteger FIRST_USED = new AtomicInteger();
+
+    /** The paid place the keeper put first in the web search, "exa" or "tavily", when its key is set; "" otherwise. */
+    public static String firstPlace() {
+        String v = Config.get(WEB_FIRST);
+        String w = v == null ? "" : v.strip().toLowerCase(Locale.ROOT);
+        if (w.equals("exa") && ExaSearchTool.keySet()) return "exa";
+        if (w.equals("tavily") && TavilySearchTool.keySet()) return "tavily";
+        return "";
+    }
+
+    /**
+     * The first rung: Exa or Tavily, when the keeper chose one and its month's limit allows; null to carry on down the ladder, which is
+     * also what any failure of it does, so a search never dies with a paid service's billing.
+     */
+    private String firstRung(String query, int limit) {
+        String which = firstPlace();
+        if (which.isEmpty()) return null;
+        if (which.equals("exa")) {
+            ExaSearchTool.Answer a = ExaSearchTool.search(query, limit, safeSearch());
+            if (!a.answered() || a.hits().isEmpty()) return null;
+            FIRST_USED.incrementAndGet();
+            return PlaceRows.render(query, " (Exa, the web by meaning, first in this library's web search)", a.hits(), limit, policy);
+        }
+        TavilySearchTool.Answer a = TavilySearchTool.search(query, limit, safeSearch());
+        if (!a.answered() || a.hits().isEmpty()) return null;
+        FIRST_USED.incrementAndGet();
+        return PlaceRows.render(query, " (Tavily, first in this library's web search)", a.hits(), limit, policy);
+    }
     /** Whether a Google rung is set: a Serper key or a SerpApi key. */
     public static boolean googleConfigured() { return !blank(Config.get(SERPER_KEY)) || !blank(Config.get(SERPAPI_KEY)); }
     static boolean blank(String s) { return s == null || s.isBlank(); }
@@ -218,9 +289,11 @@ public final class WebSearchTool implements Tool {
      * failure — a search tool that dies with its billing dies at the worst moment.
      * Returns null when Brave is unconfigured or unusable, and the caller falls through.
      */
-    private String braveSearch(String query, int limit) {
+    private String braveSearch(String query, int limit, List<String> said) {
         String key = Config.get("RESEARCHZOSHO_BRAVE_KEY");
         if (key == null || key.isBlank()) return null;
+        if (!reserve(BRAVE, said)) return null;   // the month's limit is reached: SearXNG carries on
+        boolean made = false;
         try {
             HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(braveUrl(query, limit, safeSearch())))
                     .timeout(Duration.ofSeconds(20))
@@ -228,10 +301,10 @@ public final class WebSearchTool implements Tool {
                     .header("X-Subscription-Token", key.strip())
                     .GET().build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "Brave's search");
             if (resp.statusCode() != 200) return null;   // 401/429/5xx → SearXNG carries on
+            made = true;   // Brave answered: the call counts against the plan, results or none
             JsonNode rs = M.readTree(resp.body()).path("web").path("results");
             if (!rs.isArray() || rs.isEmpty()) return null;
             BRAVE_USED.incrementAndGet();
-            SearchTally.count("Brave", 0);
             StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + Fence.open("SEARCH RESULTS") + "\n");
             int shown = 0, refused = 0, listed = 0;
             var rules = SourceRules.live();
@@ -255,6 +328,8 @@ public final class WebSearchTool implements Tool {
             throw stop;
         } catch (Exception e) {
             return null;
+        } finally {
+            SearchTally.settle(BRAVE, made, 0, 0);
         }
     }
 
@@ -264,9 +339,12 @@ public final class WebSearchTool implements Tool {
      * as google.com/goto redirects, which Serper's free resolve call turns into the real addresses, sometimes after a short wait. A
      * link still unresolved is shown as the redirect with the site's readable name. Returns null when unset or unusable, and the caller falls through.
      */
-    private String serperSearch(String query, int limit) {
+    private String serperSearch(String query, int limit, List<String> said) {
         String key = Config.get(SERPER_KEY);
         if (blank(key)) return null;
+        if (!reserve(SERPER, said)) return null;   // the month's limit is reached: the next rung carries on
+        boolean made = false;
+        int credits = 0;
         try {
             var body = M.createObjectNode().put("q", query).put("num", Math.min(Math.max(limit, 1), 20));
             String lang = languageOf(query);
@@ -276,6 +354,7 @@ public final class WebSearchTool implements Tool {
                     .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body))).build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "Serper's search");
             if (resp.statusCode() != 200) return null;   // 401/403/429/5xx: the next rung carries on
             JsonNode answer = M.readTree(resp.body());
+            made = true; credits = answer.path("credits").asInt(1);   // Serper answered and charged, results or none
             JsonNode rs = answer.path("organic");
             if (!rs.isArray() || rs.isEmpty()) return null;
             List<String> urls = new ArrayList<>();
@@ -284,7 +363,6 @@ public final class WebSearchTool implements Tool {
             for (String u : urls) if (isGoogleRedirect(u)) gotos.add(u);
             Map<String, String> resolved = gotos.isEmpty() ? Map.of() : serperResolve(key.strip(), gotos);
             SERPER_USED.incrementAndGet();
-            SearchTally.count("Serper", answer.path("credits").asInt(1));
             StringBuilder sb = new StringBuilder("results for \"" + query + "\" (Google, through Serper):\n" + Fence.open("SEARCH RESULTS") + "\n");
             int shown = 0, refused = 0, listed = 0, unresolved = 0;
             var rules = SourceRules.live();
@@ -309,6 +387,7 @@ public final class WebSearchTool implements Tool {
             return sb.toString();
         } catch (Stopping.Requested stop) { throw stop; }
         catch (Exception e) { return null; }
+        finally { SearchTally.settle(SERPER, made, credits, 0); }
     }
 
     static boolean isGoogleRedirect(String url) { return url != null && url.matches("(?i)https?://(www\\.)?google\\.[a-z.]+/(goto|url)\\?.*"); }
@@ -365,9 +444,11 @@ public final class WebSearchTool implements Tool {
      * unreleased redirects for most results, as a relative "/goto?url=…" with the readable site name in displayed_link, so such a result
      * is shown as a redirect with that name, like Serper's unresolved ones. Returns null when unset or unusable, and the caller falls through.
      */
-    private String serpApiSearch(String query, int limit) {
+    private String serpApiSearch(String query, int limit, List<String> said) {
         String key = Config.get(SERPAPI_KEY);
         if (blank(key)) return null;
+        if (!reserve(SERPAPI, said)) return null;   // the month's limit is reached: the next rung carries on
+        boolean made = false;
         try {
             String lang = languageOf(query);
             String url = GOOGLE.get("serpapi") + "?engine=google&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&num=" + Math.min(Math.max(limit, 1), 20) + (lang == null ? "" : "&hl=" + lang)
@@ -377,10 +458,10 @@ public final class WebSearchTool implements Tool {
             if (resp.statusCode() != 200) return null;
             JsonNode j = M.readTree(resp.body());
             if (j.has("error")) return null;
+            made = true;   // a search SerpApi made and counts, results or none
             JsonNode rs = j.path("organic_results");
             if (!rs.isArray() || rs.isEmpty()) return null;
             SERPAPI_USED.incrementAndGet();
-            SearchTally.count("SerpApi", 1);
             StringBuilder sb = new StringBuilder("results for \"" + query + "\" (Google, through SerpApi):\n" + Fence.open("SEARCH RESULTS") + "\n");
             int shown = 0, refused = 0, listed = 0, unresolved = 0;
             var rules = SourceRules.live();
@@ -405,6 +486,7 @@ public final class WebSearchTool implements Tool {
             return sb.toString();
         } catch (Stopping.Requested stop) { throw stop; }
         catch (Exception e) { return null; }
+        finally { SearchTally.settle(SERPAPI, made, made ? 1 : 0, 0); }
     }
 
     /**
@@ -418,7 +500,7 @@ public final class WebSearchTool implements Tool {
      * sent {@code ja} or {@code zh} it answers 422, so every Japanese query went past Brave to SearXNG or the fallback on a box with a key
      * (measured 2026-10-07: an English query answered by Brave, a Japanese one by SearXNG).
      */
-    static String braveLang(String lang) {
+    public static String braveLang(String lang) {
         if (lang == null) return "";
         String code = switch (lang) { case "ja" -> "jp"; case "zh" -> "zh-hans"; default -> lang; };
         return "&search_lang=" + code;
@@ -426,7 +508,7 @@ public final class WebSearchTool implements Tool {
 
     /** {@code safe} false: a run whose person let in pornography and gore for that question, for which safe search is off ({@code off}). */
     static String braveUrl(String query, int limit, boolean safe) {
-        return "https://api.search.brave.com/res/v1/web/search?count=" + Math.min(limit, 20) + "&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+        return BRAVE_API.get("search") + "?count=" + Math.min(limit, 20) + "&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + braveLang(languageOf(query)) + "&safesearch=" + (safe ? "moderate" : "off");
     }
 
@@ -476,7 +558,7 @@ public final class WebSearchTool implements Tool {
     }
 
     /** The language a query's script gives away: ja, zh, ko, ru, ar, el, he, hi, th — or null for Latin script, which tells nothing. */
-    static String languageOf(String q) {
+    public static String languageOf(String q) {
         if (q == null) return null;
         boolean kana = q.codePoints().anyMatch(c -> c >= 0x3040 && c <= 0x30ff);
         if (kana) return "ja";
@@ -492,16 +574,25 @@ public final class WebSearchTool implements Tool {
     }
 
     @Override public String execute(JsonNode args) throws Exception {
+        List<String> said = new ArrayList<>();
+        String out = ladder(args, said);
+        return said.isEmpty() ? out : out + (out.endsWith("\n") ? "" : "\n") + "(" + String.join(" ", said) + ")\n";
+    }
+
+    /** One search down the ladder; a paid rung passed over at its month's limit says so in {@code said}. */
+    private String ladder(JsonNode args, List<String> said) throws Exception {
         String query = args.path("query").asText("");
         if (query.isBlank()) return "ERROR: empty query";
-        int limit = Math.min(Math.max(args.path("limit").asInt(8), 1), 20);
+        int limit = Math.min(Math.max(args.path("limit").asInt(8), 1), most);
         if (!queried.add(query.strip().toLowerCase()))
             return SearchLog.ALREADY + ": you already ran this exact query; its results are above in your history. "
                     + "Use a DIFFERENT query, web_fetch one of the results you have not read yet, or write your "
                     + "answer and call task_done.";
-        String brave = endpointOverride == null ? serperSearch(query, limit) : null;   // Google first, through the key the person set: Serper, else SerpApi; a test's local server, never the paid rungs
-        if (brave == null && endpointOverride == null) brave = serpApiSearch(query, limit);
-        if (brave == null && endpointOverride == null) brave = braveSearch(query, limit);
+        boolean paid = endpointOverride == null && !keyless;   // a test's local server and a keyless search never reach the paid rungs
+        String brave = paid ? firstRung(query, limit) : null;   // the paid place the keeper put first (web_first), else Google
+        if (brave == null && paid) brave = serperSearch(query, limit, said);   // Google first, through the key the person set: Serper, else SerpApi
+        if (brave == null && paid) brave = serpApiSearch(query, limit, said);
+        if (brave == null && paid) brave = braveSearch(query, limit, said);
         if (brave != null) {
             if (!sweepNoted && looksBatched(query)) {
                 sweepNoted = true;

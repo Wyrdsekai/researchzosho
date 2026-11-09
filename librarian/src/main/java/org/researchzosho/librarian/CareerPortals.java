@@ -27,6 +27,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.function.Function;
 /**
  * The hiring portals institutions use, read where they give a list: a health system's own careers site on Phenom (jobs.ascension.org,
  * jobs.bswhealth.com), Oracle's candidate experience (Texas Children's), iCIMS, Taleo's job board (Tenet), PeopleAdmin (universities),
@@ -44,7 +45,7 @@ public final class CareerPortals {
     public interface Poster { String post(String pageUrl, String postUrl, String json, Map<String, String> headers); }
     static volatile Poster POST_WITH_SESSION = CareerPortals::postWithSession;
     /** Wikidata's entity search and entity data, for a hospital's parent; a test puts its own here. */
-    static volatile java.util.function.Function<String, String> WIKIDATA = CareerSources::get;
+    static volatile Function<String, String> WIKIDATA = CareerSources::get;
 
     static final Pattern ORACLE = Pattern.compile("(?i)https?://([a-z0-9-]+\\.fa\\.[a-z0-9]+\\.oraclecloud\\.com)/hcmUI/CandidateExperience/[a-z]{2}(?:-[A-Z]{2})?/sites/([A-Za-z0-9_]+)");
     static final Pattern ICIMS = Pattern.compile("(?i)https?://([a-z0-9-]+)\\.icims\\.com/");
@@ -301,6 +302,28 @@ public final class CareerPortals {
      * leads to; a portal's openings are cut to the towns, which is the anchor for a board found through another name. The note says
      * whose board the openings came from and how many are in the towns.
      */
+    /** A board's openings cut to the towns named, however the board writes them; remote ones stay; no towns, no cut. */
+    public static Found inTowns(Found f, List<String> towns) {
+        if (f == null || towns == null || towns.isEmpty()) return f;
+        List<CareerSources.Opening> kept = new ArrayList<>();
+        for (CareerSources.Opening o : f.openings()) if (o.remote() || towns.stream().anyMatch(t -> townIn(o.location() == null ? "" : o.location(), t))) kept.add(o);
+        return new Found(f.company(), f.feed(), kept, f.note());
+    }
+
+    /** An employer's board and its openings in sentences, for the board op, the command, the page's form and the MCP tool. */
+    public static String boardText(String employer, Found f, List<String> towns) {
+        if (f == null || f.feed() == null) return "No careers board of " + employer + "'s could be found" + (f == null || f.note() == null || f.note().isBlank() ? "." : ": " + f.note());
+        StringBuilder b = new StringBuilder(employer).append("'s openings come from ").append(f.feed().how() == null || f.feed().how().isBlank() ? "its board" : f.feed().how()).append(" (").append(f.feed().kind()).append("): ")
+                .append(f.openings().size()).append(f.openings().size() == 1 ? " opening" : " openings").append(towns == null || towns.isEmpty() ? "" : " in " + String.join(", ", towns)).append('.');
+        int shown = 0;
+        for (CareerSources.Opening o : f.openings()) {
+            if (shown++ >= 12) { b.append("\nAnd ").append(f.openings().size() - 12).append(" more."); break; }
+            b.append("\n- ").append(o.title()).append(o.location() == null || o.location().isBlank() ? "" : " (" + o.location() + ")").append(o.remote() ? ", remote" : "").append(o.url() == null || o.url().isBlank() ? "" : " — " + o.url());
+        }
+        if (f.note() != null && !f.note().isBlank()) b.append("\n").append(f.note());
+        return b.toString();
+    }
+
     public static Found find(String company, List<String> towns, List<String> words, List<String> anchors) {
         Found own = CareerSources.openings(company, words, anchors);
         if (own != null && own.feed() != null && (!own.openings().isEmpty() || !own.note().isEmpty())) return own;
@@ -331,13 +354,16 @@ public final class CareerPortals {
             }
             List<Opening> near = new ArrayList<>();
             for (Opening o : f.openings()) if (t.isEmpty() || inTowns(o, t)) near.add(o);
+            String campuses = "";
             if (near.isEmpty() && !f.openings().isEmpty() && !t.isEmpty()) {
-                return new Found(company, null, List.of(), org + "'s board (" + f.feed().system() + ", " + f.openings().size() + " openings) lists none in " + String.join(", ", t) + ", so the search does not take it as this employer's");
+                if (anyTownNamed(f.openings())) return new Found(company, null, List.of(), org + "'s board (" + f.feed().system() + ", " + f.openings().size() + " openings) lists none in " + String.join(", ", t) + ", so the search does not take it as this employer's");
+                near.addAll(f.openings());   // the board names its campuses and buildings, never a town: nothing to cut by, so the openings stand with the note
+                campuses = " Its board names campuses, not towns, so the openings are not cut to " + String.join(", ", t) + ".";
             }
-            String where = t.isEmpty() ? "" : " in " + String.join(", ", t);
+            String where = t.isEmpty() || !campuses.isEmpty() ? "" : " in " + String.join(", ", t);
             Feed via = new Feed(f.feed().kind(), f.feed().token(), f.feed().how() + "; found through " + org + ", the organisation it belongs to");
             boolean ownPage = f.feed().kind().equals("jobposting") || f.feed().kind().equals("links");
-            return new Found(company, via, near, "Its openings come from " + org + "'s " + (ownPage ? "careers page" : f.feed().system() + " board") + ", " + near.size() + where + "." + (f.note().isEmpty() ? "" : " " + f.note()));
+            return new Found(company, via, near, "Its openings come from " + org + "'s " + (ownPage ? "careers page" : f.feed().system() + " board") + ", " + near.size() + where + "." + campuses + (f.note().isEmpty() ? "" : " " + f.note()));
         }
         String note = "no hiring page turned up for it or for the organisation it belongs to" + (namesakes.isEmpty() ? "" : "; " + String.join(" and ", namesakes) + (namesakes.size() == 1 ? " says" : " say") + " nothing of a place of its kind, so it is not taken as this employer's");
         return new Found(company, null, List.of(), note);
@@ -347,9 +373,73 @@ public final class CareerPortals {
     static boolean inTowns(Opening o, List<String> towns) {
         String loc = o.location() == null ? "" : o.location().strip();
         if (loc.isEmpty()) loc = o.text() == null ? "" : o.text().substring(0, Math.min(400, o.text().length()));
-        for (String t : towns) if (!t.isBlank() && CareerCut.has(loc, t)) return true;
+        for (String t : towns) if (!t.isBlank() && townIn(loc, t)) return true;
         return false;
     }
+
+    /** The US states by code, for a town written one way and a board's location another: "Boston, MA" is "Boston-MA" and "Boston, Massachusetts". */
+    static final Map<String, String> US_STATES = Map.ofEntries(Map.entry("AL", "Alabama"), Map.entry("AK", "Alaska"), Map.entry("AZ", "Arizona"), Map.entry("AR", "Arkansas"), Map.entry("CA", "California"),
+            Map.entry("CO", "Colorado"), Map.entry("CT", "Connecticut"), Map.entry("DE", "Delaware"), Map.entry("DC", "District of Columbia"), Map.entry("FL", "Florida"), Map.entry("GA", "Georgia"),
+            Map.entry("HI", "Hawaii"), Map.entry("ID", "Idaho"), Map.entry("IL", "Illinois"), Map.entry("IN", "Indiana"), Map.entry("IA", "Iowa"), Map.entry("KS", "Kansas"), Map.entry("KY", "Kentucky"),
+            Map.entry("LA", "Louisiana"), Map.entry("ME", "Maine"), Map.entry("MD", "Maryland"), Map.entry("MA", "Massachusetts"), Map.entry("MI", "Michigan"), Map.entry("MN", "Minnesota"),
+            Map.entry("MS", "Mississippi"), Map.entry("MO", "Missouri"), Map.entry("MT", "Montana"), Map.entry("NE", "Nebraska"), Map.entry("NV", "Nevada"), Map.entry("NH", "New Hampshire"),
+            Map.entry("NJ", "New Jersey"), Map.entry("NM", "New Mexico"), Map.entry("NY", "New York"), Map.entry("NC", "North Carolina"), Map.entry("ND", "North Dakota"), Map.entry("OH", "Ohio"),
+            Map.entry("OK", "Oklahoma"), Map.entry("OR", "Oregon"), Map.entry("PA", "Pennsylvania"), Map.entry("RI", "Rhode Island"), Map.entry("SC", "South Carolina"), Map.entry("SD", "South Dakota"),
+            Map.entry("TN", "Tennessee"), Map.entry("TX", "Texas"), Map.entry("UT", "Utah"), Map.entry("VT", "Vermont"), Map.entry("VA", "Virginia"), Map.entry("WA", "Washington"),
+            Map.entry("WV", "West Virginia"), Map.entry("WI", "Wisconsin"), Map.entry("WY", "Wyoming"));
+
+    /**
+     * Whether a board's location line names the town: the town's city as a word, and when both name a state, the same one by its code or
+     * its name. A board writes "Boston, MA", "Boston-MA", "Boston, Massachusetts" or "Massachusetts - Boston"; the town is written as the
+     * person did. A location that names the state alone, or the city alone, counts when that is all it says.
+     */
+    static boolean townIn(String location, String town) {
+        if (location == null || location.isBlank() || town == null || town.isBlank()) return false;
+        String loc = location.replaceAll("[-–—/|()]+", ", ");
+        if (CareerCut.has(loc, town)) return true;
+        String[] parts = town.split("\\s*,\\s*");
+        String city = parts[0].strip(), state = parts.length > 1 ? parts[parts.length - 1].strip() : "";
+        String code = "", name = "";
+        if (!state.isEmpty()) {
+            String up = state.toUpperCase(Locale.ROOT);
+            if (US_STATES.containsKey(up)) { code = up; name = US_STATES.get(up); }
+            else for (Map.Entry<String, String> e : US_STATES.entrySet()) if (e.getValue().equalsIgnoreCase(state)) { code = e.getKey(); name = e.getValue(); }
+        }
+        boolean cityThere = !city.isEmpty() && CareerCut.has(loc, city);
+        if (code.isEmpty()) return cityThere;   // a town with no state the library knows: the city as a word is the match
+        boolean stateThere = CareerCut.has(loc, name) || hasCode(loc, code);
+        String otherState = otherStateIn(loc, code);
+        if (cityThere) return otherState.isEmpty();   // the city, and no other state named beside it
+        return stateThere && city.isEmpty();
+    }
+
+    static boolean hasCode(String loc, String code) { return Pattern.compile("(?<![\\p{L}])" + code + "(?![\\p{L}])").matcher(loc).find(); }
+
+    /** A state the location names that is not the town's: "" when none. */
+    static String otherStateIn(String loc, String code) {
+        for (Map.Entry<String, String> e : US_STATES.entrySet()) {
+            if (e.getKey().equals(code)) continue;
+            if (CareerCut.has(loc, e.getValue()) || hasCode(loc, e.getKey())) return e.getKey();
+        }
+        return "";
+    }
+
+    /** Whether any of a board's openings names a town at all: a board whose lines are campuses and buildings names none, and cannot be cut by town. */
+    static boolean anyTownNamed(List<Opening> os) {
+        for (Opening o : os) {
+            String loc = o.location() == null ? "" : o.location();
+            if (loc.isBlank()) continue;
+            for (String part : loc.replaceAll("[-–—/|()]+", ", ").split("\\s*,\\s*")) {   // a part that is a state or a country on its own: "Boston, MA", "Boston-MA", "Manchester, England"; "Texas Medical Center" is a building
+                String p = part.strip();
+                if (p.isEmpty()) continue;
+                if (US_STATES.containsKey(p.toUpperCase(Locale.ROOT)) || US_STATES.containsValue(p) || COUNTRIES.contains(p.toLowerCase(Locale.ROOT))) return true;
+                for (Map.Entry<String, String> e : US_STATES.entrySet()) if (e.getValue().equalsIgnoreCase(p)) return true;
+            }
+        }
+        return false;
+    }
+
+    static final Set<String> COUNTRIES = Set.of("united states", "usa", "us", "united kingdom", "uk", "england", "scotland", "wales", "canada", "france", "germany", "japan", "australia", "ireland", "netherlands", "spain", "italy", "switzerland", "sweden", "india", "singapore", "remote");
 
     // ---------------------------------------------------------------- a POST that needs a session
 

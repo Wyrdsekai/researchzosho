@@ -37,6 +37,7 @@ import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Set;
+import java.util.function.BooleanSupplier;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +47,8 @@ import org.researchzosho.drive.aws.AwsCredentials;
 import org.researchzosho.drive.anthropic.Anthropic;
 import org.researchzosho.drive.openai.OpenAI;
 import org.researchzosho.drive.aws.Bedrock;
+import java.util.HashMap;
+import java.util.HashSet;
 /**
  * Thin client over the llama.cpp drive at :8200 (OpenAI-compatible).
  *
@@ -77,10 +80,15 @@ public final class DriveClient {
         if (service) log.info(format, args); else log.debug(format, args);
     }
 
-    /** A check ({@link #classify}) that got no answer: the service logs each one; a person is told once per server, in words. */
+    /** Set while a caller reports an unanswered check itself, line by line (the pictures: one line a candidate), so the sentence below is not printed beside it. */
+    private static final ThreadLocal<Boolean> CALLER_SAYS = new ThreadLocal<>();
+    public static void callerSays(boolean on) { if (on) CALLER_SAYS.set(true); else CALLER_SAYS.remove(); }
+
+    /** A check ({@link #classify}) that got no answer: the service logs each one; a person is told once per server, in words — unless the caller says it ({@link #callerSays}). */
     private void unanswered(String logLine, String inWords) {
         if (service) { log.warn(logLine); return; }
         log.debug(logLine);
+        if (Boolean.TRUE.equals(CALLER_SAYS.get())) return;
         if (SAID_UNREACHED.add(baseUrl)) System.err.println(inWords + ", so this went on without the model's answer. researchzosho status "
                 + "shows which model server the library uses, and researchzosho model use <address> sets another.");
     }
@@ -484,7 +492,12 @@ public final class DriveClient {
         onThink = sink == null ? null : thinking;
     }
 
+    /** A sink for this thread's calls alone, the browser chat's turn: the answer's pieces go to it whatever the config says, the thinking to nobody; null takes it off. */
+    private static final ThreadLocal<Consumer<String>> HERE = new ThreadLocal<>();
+    public static void streamHere(Consumer<String> sink) { if (sink == null) HERE.remove(); else HERE.set(sink); }
+
     private static boolean streamingOn() {
+        if (HERE.get() != null) return true;
         String v = Config.get("RESEARCHZOSHO_STREAM", "");
         return onDelta != null && !v.isBlank() && !v.equalsIgnoreCase("off")
                 && !v.equalsIgnoreCase("false") && !v.equals("0");
@@ -573,25 +586,28 @@ public final class DriveClient {
                     : body.putObject("chat_template_kwargs");
             kw.put("enable_thinking", false);
         }
+        // a hosted API refuses a tool named server.tool (another MCP server's): those names travel in a form it takes, and come back as they were
+        ToolNames.Wire wire = ToolNames.of(bedrock != null || openai != null || anthropic != null || hostedApi() ? tools : null);
+        ToolNames.apply(body, wire);
         if (bedrock != null) {
             Duration limit = limitFor(body.toString().length(), maxTokens);
             log.info("drive → bedrock {} in {}: {} msgs, max_tokens={}, tools={}, tool_choice={}, time limit {} s", model, bedrock.settings().region(), messages.size(), maxTokens, tools == null ? 0 : tools.size(), toolChoice, limit.toSeconds());
             long t0 = System.nanoTime();
-            try { ObjectNode msg = accept(bedrock.chat(model, body, limit), "bedrock"); learnPace(t0); return msg; }
+            try { ObjectNode msg = accept(bedrock.chat(model, body, limit), "bedrock"); learnPace(t0); return wire.restore(msg); }
             catch (Bedrock.Refused | AwsCredentials.Unavailable e) { throw new IllegalStateException(e.getMessage(), e); }
         }
         if (openai != null) {
             Duration limit = limitFor(body.toString().length(), maxTokens);
             log.info("drive → openai {}: {} msgs, {} req-chars, max_tokens={}, tools={}, tool_choice={}, time limit {} s", model, messages.size(), body.toString().length(), maxTokens, tools == null ? 0 : tools.size(), body.path("tool_choice").isTextual() ? body.path("tool_choice").asText() : "auto", limit.toSeconds());
             long t0 = System.nanoTime();
-            try { ObjectNode msg = accept(openai.chat(model, body, limit), "openai"); learnPace(t0); return msg; }
+            try { ObjectNode msg = accept(openai.chat(model, body, limit), "openai"); learnPace(t0); return wire.restore(msg); }
             catch (OpenAI.Refused e) { throw new IllegalStateException(e.getMessage(), e); }
         }
         if (anthropic != null) {
             Duration limit = limitFor(body.toString().length(), maxTokens);
             log.info("drive → anthropic {}: {} msgs, {} req-chars, max_tokens={}, tools={}, tool_choice=auto, time limit {} s", model, messages.size(), body.toString().length(), maxTokens, tools == null ? 0 : tools.size(), limit.toSeconds());
             long t0 = System.nanoTime();
-            try { ObjectNode msg = accept(anthropic.chat(model, body, limit), "anthropic"); learnPace(t0); return msg; }
+            try { ObjectNode msg = accept(anthropic.chat(model, body, limit), "anthropic"); learnPace(t0); return wire.restore(msg); }
             catch (Anthropic.Refused e) { throw new IllegalStateException(e.getMessage(), e); }
         }
         body.put("stream", streamingOn());
@@ -599,7 +615,7 @@ public final class DriveClient {
             String payload = json.writeValueAsString(body);
             if (streamingOn()) {
                 ObjectNode streamed = chatStreaming(payload, limitFor(payload.length(), maxTokens));
-                if (streamed != null) return streamed;
+                if (streamed != null) return wire.restore(streamed);
                 // A failed stream falls through to the plain request rather than failing the turn:
                 // streaming is presentation, and presentation must never cost an answer.
                 body.put("stream", false);
@@ -650,7 +666,7 @@ public final class DriveClient {
                 // from the prose. parseArgs downstream is already lenient; we only need name + args here.
                 if (looksLikeToolCallParseError(resp.body())) {
                     ObjectNode recovered = recoverMalformedToolCall(messages, tools, maxTokens);
-                    if (recovered != null) return recovered;
+                    if (recovered != null) return wire.restore(recovered);
                 }
                 throw new IllegalStateException("drive HTTP " + resp.statusCode() + ": " + resp.body());
             }
@@ -659,7 +675,7 @@ public final class DriveClient {
             if (parsed.path("error").isObject() && !parsed.has("choices")) throw new IllegalStateException("drive answered an error: " + serverSaid(resp.body()));
             ObjectNode msg = accept(parsed, resp.body());
             learnPace(t0);
-            return msg;
+            return wire.restore(msg);
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
@@ -699,7 +715,7 @@ public final class DriveClient {
         if (quick && h.endsWith("api.deepseek.com")) body.putObject("thinking").put("type", "disabled");   // DeepSeek's own API has its own field
         // the current reasoning models refuse a temperature or top_p of ours: OpenRouter routes a request that names one to no endpoint
         if (h.endsWith("openrouter.ai")) {
-            java.util.Set<String> ok = OpenRouterModels.supportedParameters(body.path("model").asText(""));
+            Set<String> ok = OpenRouterModels.supportedParameters(body.path("model").asText(""));
             if (ok != null) for (String f : new String[]{"temperature", "top_p", "stop", "parallel_tool_calls", "seed", "frequency_penalty", "presence_penalty", "logit_bias", "logprobs", "response_format"})
                 if (body.has(f) && !ok.contains(f)) body.remove(f);
         }
@@ -725,19 +741,19 @@ public final class DriveClient {
 
     /** OpenRouter's models list, read once (no key needed): whether a model's reasoning can be turned off, and which request fields it takes. */
     static final class OpenRouterModels {
-        record Entry(boolean reasoningMandatory, java.util.Set<String> parameters) { }
+        record Entry(boolean reasoningMandatory, Set<String> parameters) { }
         private static volatile Map<String, Entry> entries;
         /** Tests set this; null reads the list. */
         static volatile Map<String, Entry> OVERRIDE;
         private static Map<String, Entry> list() {
             Map<String, Entry> m = OVERRIDE != null ? OVERRIDE : entries;
             if (m != null) return m;
-            m = new java.util.HashMap<>();
+            m = new HashMap<>();
             try {
                 HttpRequest req = HttpRequest.newBuilder(URI.create("https://openrouter.ai/api/v1/models")).timeout(Duration.ofSeconds(20)).GET().build();
                 HttpResponse<String> r = SHARED_HTTP.send(req, HttpResponse.BodyHandlers.ofString());
                 if (r.statusCode() == 200) for (JsonNode x : SETTINGS_JSON.readTree(r.body()).path("data")) {
-                    java.util.Set<String> p = new java.util.HashSet<>();
+                    Set<String> p = new HashSet<>();
                     for (JsonNode q : x.path("supported_parameters")) p.add(q.asText());
                     m.put(x.path("id").asText(""), new Entry(x.path("reasoning").path("mandatory").asBoolean(false), p));
                 }
@@ -748,7 +764,7 @@ public final class DriveClient {
         /** Unknown: ask for little, which every model takes. */
         static boolean reasoningMandatory(String model) { Entry e = list().get(model); return e == null || e.reasoningMandatory(); }
         /** The request fields the model's endpoints take, or null for a model the list does not know. */
-        static java.util.Set<String> supportedParameters(String model) { Entry e = list().get(model); return e == null ? null : e.parameters(); }
+        static Set<String> supportedParameters(String model) { Entry e = list().get(model); return e == null ? null : e.parameters(); }
     }
 
     /** A 429: the server's rate limit, to be waited out. */
@@ -809,7 +825,7 @@ public final class DriveClient {
 
     /** A chat completion taken in: its message handed back, and what it cost counted. */
     /** Input tokens read from a server's cache this session, counted beside the prompt tokens (which include them). */
-    public static final java.util.concurrent.atomic.AtomicLong SESSION_CACHED_TOKENS = new java.util.concurrent.atomic.AtomicLong();
+    public static final AtomicLong SESSION_CACHED_TOKENS = new AtomicLong();
 
     /** The run this thread works for counts its tokens here: {prompt, cached, completion}; a research run sets it on each of its threads. */
     private static final ThreadLocal<long[]> COUNT = new ThreadLocal<>();
@@ -927,11 +943,76 @@ public final class DriveClient {
      * ends it within a second, and a server that took it and never answers is given up at the limit. Each is logged.
      */
     private <T> HttpResponse<T> send(HttpRequest req, HttpResponse.BodyHandler<T> body, Duration limit) throws IOException, InterruptedException {
-        Semaphore slot = req.uri().getPath().endsWith("/chat/completions") ? takeSlot() : null;
-        try { return Stopping.send(http, req, body, limit, who()); }
+        boolean chat = req.uri().getPath().endsWith("/chat/completions");
+        Semaphore slot = chat ? takeSlot() : null;
+        try { return Stopping.send(http, req, body, limit, who(), chat ? lost() : null); }
+        catch (Stopping.LostRequest l) { log.warn("drive ← {}", l.getMessage()); throw l; }
         catch (HttpTimeoutException t) { log.warn("drive ← {}", t.getMessage()); throw t; }
         catch (Stopping.Requested stop) { log.info("drive ← the request to {} was given up and its connection closed, because the run was stopped", baseUrl); throw stop; }
         finally { if (slot != null) slot.release(); }
+    }
+
+    /** What a look at the server says while a request waits on it. */
+    enum Working { WORKING, IDLE, SILENT, UNKNOWN }
+
+    /** Looks that find the server answering and working on nothing before a waiting request is taken for lost, and looks that find it silent. */
+    public static final int IDLE_LOOKS = 2, SILENT_LOOKS = 6;
+
+    /**
+     * Whether a waiting request is lost, asked by {@link Stopping#send} while it waits: twice running the server answered and was
+     * working on nothing (it restarted and never heard of the request), or six times running it answered nothing at all (it froze: three
+     * minutes of silence). A server that says it is working, or that is no llama.cpp or llama-swap and so cannot say, never loses a
+     * request this way. Null for a hosted service.
+     */
+    private BooleanSupplier lost() {
+        if (bedrock != null || anthropic != null || openai != null) return null;
+        int[] idle = {0}, silent = {0};
+        return () -> {
+            Working w = working();
+            if (w == Working.IDLE) { silent[0] = 0; return ++idle[0] >= IDLE_LOOKS; }
+            if (w == Working.SILENT) { idle[0] = 0; return ++silent[0] >= SILENT_LOOKS; }
+            idle[0] = 0; silent[0] = 0;
+            return false;
+        };
+    }
+
+    /**
+     * One look at whether the server is working on anything. llama-swap says what it runs at /running: nothing running is idle, a model
+     * still starting is working, and a ready model's own slots are asked by the name llama-swap gives it, so no look ever makes it load
+     * another model. A llama.cpp server alone says it at /slots. Neither page there: another kind of server, which cannot say.
+     */
+    Working working() {
+        try {
+            HttpResponse<String> r = look(baseUrl + "/running");
+            if (r.statusCode() == 200) {
+                JsonNode running = json.readTree(r.body()).path("running");
+                if (!running.isArray()) return Working.UNKNOWN;
+                if (running.isEmpty()) return Working.IDLE;
+                boolean asked = false;
+                for (JsonNode m : running) {
+                    if (!"ready".equals(m.path("state").asText("ready"))) return Working.WORKING;   // loading: the request is waiting for it
+                    String name = m.path("model").asText("");
+                    if (name.isEmpty()) continue;
+                    HttpResponse<String> s = look(baseUrl + "/upstream/" + URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20") + "/slots");
+                    if (s.statusCode() != 200) continue;
+                    asked = true;
+                    if (processing(json.readTree(s.body()))) return Working.WORKING;
+                }
+                return asked ? Working.IDLE : Working.UNKNOWN;
+            }
+            HttpResponse<String> s = look(baseUrl + "/slots");
+            if (s.statusCode() != 200) return Working.UNKNOWN;
+            return processing(json.readTree(s.body())) ? Working.WORKING : Working.IDLE;
+        } catch (Stopping.Requested stop) { throw stop; }
+        catch (IOException e) { return Working.SILENT; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return Working.UNKNOWN; }
+        catch (RuntimeException e) { return Working.UNKNOWN; }
+    }
+
+    private static boolean processing(JsonNode slots) {
+        if (!slots.isArray()) return true;   // a page that is not the slots: say working, never lose a request on a guess
+        for (JsonNode s : slots) if (s.path("is_processing").asBoolean(false)) return true;
+        return false;
     }
 
     /** What a llama.cpp server says of itself that changes how the library sends to it: how many requests it serves at once ({@code /props} total_slots, 0 when it does not say). */
@@ -947,15 +1028,14 @@ public final class DriveClient {
     private static final ThreadLocal<int[]> HELD = ThreadLocal.withInitial(() -> new int[1]);
 
     /**
-     * NO REQUEST NAMES A SLOT (0.6.9). From 0.6.3 a research worker's requests carried id_slot (worker n to slot n, its quick decisions to a
+     * NO REQUEST NAMES A SLOT. From 2026-10-15 a research worker's requests carried id_slot (worker n to slot n, its quick decisions to a
      * spare one), to keep each worker's prompt cache. Two conversations that begin alike and are sent to one named slot make llama.cpp
      * (b10711) answer one with the other's reply, and in time loop for good erasing one context checkpoint: measured 2026-11-05 on the 27B,
-     * two clients with the same 3,500-token opening on slot 1, 4 of 40 replies were the other client's and a second run wedged the slot;
-     * with no slot named, 0 of 40, and 0 of 72 with six conversations on four slots. A run on one computer wrote its whole report on the
-     * subject another computer's run was researching on the same model server (2026-11-06). Left to itself the server sends a
-     * conversation to the slot that holds its own earlier turns.
+     * two clients with the same 3,500-token opening on slot 1, 4 of 40 replies were the other client's and the second run wedged the slot;
+     * with no slot named, 0 of 40, and 0 of 72 with six conversations on four slots, and faster. It reached real runs three ways: two
+     * daemons on one server (each got the other's replies), one run with more workers than slots, and every quick check of every worker
+     * on the one spare slot. Left to itself the server sends a conversation to the slot that holds its own earlier turns.
      */
-
     /** What this client's server says of itself, asked once in this process (again later when it could not be reached). */
     Served served() {
         if (bedrock != null || anthropic != null || openai != null) return Served.UNKNOWN;
@@ -1064,10 +1144,13 @@ public final class DriveClient {
         body.set("messages", messages);
         body.put("max_tokens", maxTokens);
         decisionSettings(body);
+        // a picture on llama.cpp never reuses a slot's cached prompt: a cached picture was looked for and not found ("Chunk not found"),
+        // and the slot then spun for good erasing one checkpoint (2026-11-04, the 27B on homebox); the picture is read fresh
+        if (carriesPicture(messages) && llamaCpp()) body.put("cache_prompt", false);
         body.put("stream", false);
         CLASSIFY_PROBLEM.set("");
         CLASSIFY_UNANSWERED.remove();
-        Duration limit = decisionLimitFor(body.toString().length(), maxTokens);
+        Duration limit = decisionLimitFor(promptChars(body), maxTokens);
         if (bedrock != null || anthropic != null || openai != null) {
             String where = bedrock != null ? "bedrock" : anthropic != null ? "anthropic" : "openai";
             try {
@@ -1222,6 +1305,36 @@ public final class DriveClient {
     /** What went wrong with the last {@link #classify} on this thread, in words a person reads; "" when it answered. */
     private static final ThreadLocal<String> CLASSIFY_PROBLEM = ThreadLocal.withInitial(() -> "");
     public static String lastClassifyProblem() { return CLASSIFY_PROBLEM.get(); }
+    /** Forget this thread's last classify problem and unanswered call, before a call whose outcome is read next. */
+    public static void forgetClassify() { CLASSIFY_PROBLEM.set(""); CLASSIFY_UNANSWERED.remove(); }
+
+    /** A picture as a call's time limit counts it: about 1,500 tokens of three characters, never the length of its base64. */
+    static final int PICTURE_CHARS = 4_500;
+
+    /** Whether a request's messages carry a picture. */
+    static boolean carriesPicture(JsonNode messages) {
+        if (messages == null) return false;
+        for (JsonNode m : messages) for (JsonNode part : m.path("content")) if ("image_url".equals(part.path("type").asText(""))) return true;
+        return false;
+    }
+
+    /**
+     * A request's prompt as its time limit counts it: the request's text, each picture as {@link #PICTURE_CHARS}. Counted by its base64,
+     * one storyboard sheet gave a call fifteen to twenty-five minutes, and a look waited that long on a server that had stopped (2026-11-04).
+     */
+    static int promptChars(ObjectNode body) {
+        long chars = body.toString().length();
+        for (JsonNode m : body.path("messages")) for (JsonNode part : m.path("content"))
+            if ("image_url".equals(part.path("type").asText(""))) chars += PICTURE_CHARS - part.path("image_url").path("url").asText("").length();
+        return (int) Math.max(0, Math.min(Integer.MAX_VALUE, chars));
+    }
+
+    /** Whether this client's server is llama.cpp, asked once; a hosted service never is. */
+    boolean llamaCpp() {
+        if (bedrock != null || anthropic != null || openai != null) return false;
+        vllmStyle();
+        return "llama.cpp".equals(serverStyle);
+    }
 
     /**
      * Why the last {@link #classify} on this thread got no answer at all: the server could not be reached, it took the request and did
@@ -1232,7 +1345,7 @@ public final class DriveClient {
     public static IOException lastClassifyUnanswered() { return CLASSIFY_UNANSWERED.get(); }
     /** Forget why an earlier call on this thread got no answer, before a call whose own outcome is to be read. */
     public static void forgetUnanswered() { CLASSIFY_UNANSWERED.remove(); }
-    static void clearClassifyProblem() { CLASSIFY_PROBLEM.set(""); }
+    public static void clearClassifyProblem() { CLASSIFY_PROBLEM.set(""); }
 
     private static final ObjectMapper SETTINGS_JSON = new ObjectMapper();
 
@@ -1405,7 +1518,7 @@ public final class DriveClient {
      * arrive; tool-call deltas do not, because half a JSON argument is noise on a screen.
      */
     private ObjectNode chatStreaming(String payload, Duration limit) {
-        var sink = onDelta;
+        var sink = HERE.get() != null ? HERE.get() : onDelta;
         if (sink == null) return null;
         Semaphore slot;
         try { slot = takeSlot(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
@@ -1472,7 +1585,7 @@ public final class DriveClient {
             // downstream must see exactly the non-streamed shape, which drops reasoning.
             String think = delta.path("reasoning_content").asText(null);
             if (think != null && !think.isEmpty()) {
-                var t = onThink;
+                var t = HERE.get() != null ? (Consumer<String>) s -> { } : onThink;   // the chat's page shows the answer, never the thinking
                 (t != null ? t : sink).accept(think);
             }
             for (JsonNode tc : delta.path("tool_calls")) {

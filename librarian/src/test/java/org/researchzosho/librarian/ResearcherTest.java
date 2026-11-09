@@ -149,8 +149,8 @@ class ResearcherTest {
         assertTrue(r.evidence().contains("SUB-QUESTION: what tools survive?"), "the critic's gap was researched");
         assertTrue(r.evidence().contains("- the gears were cut by hand with files — source: https://example.org/gears — quote: \"cut by hand with files\""));
         assertEquals(3, tools.fetches.get(), "one fetch per worker");
-        // 3 workers × 4 turns + critic 1 + synthesis 3 = 16 turns, all counted
-        assertEquals(16, r.turnsUsed());
+        // 3 workers × 4 turns + critic 1 + synthesis 3 + the topic check 1 = 17 turns, all counted
+        assertEquals(17, r.turnsUsed(), "the check of the write-up against the question is a turn of the ask's, like the critic's");
     }
 
     @Test
@@ -280,7 +280,7 @@ class ResearcherTest {
         assertEquals(List.of(), r.openQuestions(), "no ceiling: nothing is dropped for budget");
         assertTrue(r.evidence().contains("SUB-QUESTION: what tools survive?"));
         assertTrue(r.done());
-        assertEquals(3 * 4 + 1 + 3, r.turnsUsed(), "the turns are still counted: 3 workers × 4, the critic, 3 synthesis");
+        assertEquals(3 * 4 + 1 + 3 + 1, r.turnsUsed(), "the turns are still counted: 3 workers × 4, the critic, 3 synthesis, the check of the write-up against the question");
         assertEquals(0, drive.offered.stream().filter("done"::equals).count(), "no deadline turn was ever forced");
     }
 
@@ -361,8 +361,10 @@ class ResearcherTest {
             String s = h.toString();
             if (s.contains("only one") && s.length() > last.length()) last = s;
         }
-        assertTrue(last.contains("You already ran exactly this call"), last);
-        assertTrue(last.contains("Act by calling a tool."), last);
+        // the brain asks once more inside the decision (the repeat, then the words), and the loop's own guards stand behind it
+        String all = drive.histories.toString();
+        assertTrue(all.contains("That result is already in hand: web_search") || all.contains("You already ran exactly this call"), all.substring(Math.max(0, all.length() - 1500)));
+        assertTrue(all.contains(Brain.REASK_CALL) || all.contains("Act by calling a tool."), all.substring(Math.max(0, all.length() - 1500)));
     }
 
     @Test

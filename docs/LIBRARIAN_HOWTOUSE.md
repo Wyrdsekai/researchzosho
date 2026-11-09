@@ -17,6 +17,8 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 6. Reviewing the claims
 7. Asking what the library already has
 8. Adding your own documents
+8b. Translating a document
+8c. Pictures
 9. Languages
 10. Checks against bad sources
 10b. Archives, old newspapers, Japanese books, code, and other video sites
@@ -245,7 +247,10 @@ finds, so this choice matters as much as the model. ResearchZosho tries them in 
 **What a month of searching cost.** The library counts every search and every page read through a service,
 by month and by service, with the credits the paid ones charge. `researchzosho search status` says, for
 instance, "This month: 123 searches through Serper, 123 credits; 40 through Brave; 12 pages through
-Firecrawl, 12 credits." The tally is `search-tally.json` in the library's home.
+Firecrawl, 12 credits." The tally is `search-tally.json` in the library's home. Each of the paid keys can have a
+monthly limit, none unless you set one: `serper_monthly_limit`, `serpapi_monthly_limit`, `brave_monthly_limit` for a
+paid plan and `firecrawl_monthly_limit`. At the limit the library passes that service over until the month turns and
+says so, and the Keep page shows the month's use beside the limit.
 
 **Pages a plain fetch cannot read.** Some pages are drawn by scripts in the browser and come to a program
 as an empty shell; some sit behind a bot wall or answer 403 to anything but a browser. With a Firecrawl key
@@ -270,10 +275,30 @@ the Internet Archive's texts and television news, digitised historical newspaper
 Diet Library's digitised Japanese books, the archives of source code, and the video sites beside
 YouTube. Section 10b says what each does.
 
+A run can also look in a few more places when the question calls for them. PubMed finds medical and
+life-science articles with their abstracts; when PubMed Central has an article's full text, the run reads
+all of it, section by section, and when the publisher keeps the text from programs, the run gets the
+abstract and the address where you can read the article yourself. Semantic Scholar finds papers in every
+field and says how often each is cited and where a free PDF is. Both are free; a free key from NCBI or
+Semantic Scholar makes them faster (`ncbi_key`, `s2_key`). Exa searches the web by meaning, and Tavily
+gives the passages of each page that answer the query. Both need your own key (`exa_key`, `tavily_key`),
+and the library stops at a number of searches a month for each, so it never spends more than you meant:
+714 for Exa, which keeps it under $5 at its price on 2026-11-04, and 1,000 for Tavily, its free allowance
+(`exa_monthly_limit`, `tavily_monthly_limit`). At that number the place is left off until the month turns;
+the Keep page shows the month's searches beside it, and the dollars for Exa. A run uses Exa or Tavily only
+when it picks them, unless you put one first in every web search with `web_first`. You can also point the
+library at a search service of your own, at home or anywhere: its address with `{q}` where the words go
+(`custom_search_url`), a name for it (`custom_search_name`), and a key if it wants one (`custom_search_key`,
+sent as a bearer token or in the header named in `custom_search_header`). The library reads the answer when
+it is a list of hits, each with an address, a title and some text, or an object whose `results` or `items`
+hold them, and says so plainly when it is not. The pages the hits name are checked like any other page.
+
 ```
 researchzosho search                 # which backend answers, and the container's state
 researchzosho search test <query>    # one search, and which backend answered it
 researchzosho search papers <query>  # the literature by DOI
+researchzosho search in <place> <query>  # one search in one place, as a run makes it: pubmed, semantic-scholar, exa…
+researchzosho search open <address>  # an address read as a run reads it: a PubMed Central article as its full text
 researchzosho search stop            # stop the container
 ```
 
@@ -358,12 +383,24 @@ researchzosho research ask "…" --title "Statins after sixty"   # the report's 
 researchzosho research ask "…" --shelves        # read only your own documents
 researchzosho research ask "…" --max-turns 200  # limit the run to 200 model steps
 researchzosho research ask "…" --max-minutes 120
+researchzosho research ask "…" --no-paid        # the free search places only: nothing through Exa, Tavily, Serper, SerpApi, Brave or Firecrawl
 researchzosho research ask "…" --genealogy      # research it in genealogy mode: records, your family tree, your relatives
 researchzosho research ask "…" --youtube        # the YouTube field: channels, videos, what is said and when (needs `researchzosho video install`)
 ```
 
 From Claude Code or a program, the same thing is `library_research`. From the web pages, use the
-Research page.
+Research page; its "What it is for" names the goal, as `--goal` does on the command line, and left blank the
+library reads the goal off the question.
+
+**How long, how the sources are written, and what shape.** A report can be short (about 400 words), medium
+(about 1,200), long (about 3,000) or a number of words. Its sources can be numbered, the default, or written in
+APA, MLA, Chicago or IEEE style. It can also be a reading list, each source with what it is, why it matters for
+your question, how strong it is and its link, or an outline, headings with one line each. Say it in the chat
+("a short report", "give me a reading list on …", "just an outline", "use APA citations"), choose it on the
+Research page, or add it to the command: `--length short --citations apa --shape reading-list`. The settings
+`report_length` and `citation_style` are the library's defaults. A question that asks for a format in its own
+words gets that format. Whatever you choose, the report keeps its checks and its sources, and the numbers in the
+text stay, so every cited sentence is still checked against its source.
 
 **Genealogy mode is used only when you ask for it.** A question such as "who were my great-grandfather's
 parents" looks like family history. The library then says so once, in the place where you asked:
@@ -383,12 +420,40 @@ The same question is told once. `--field <name>` asks for any field by its name.
 
 A question about YouTube — which channels make a kind of video, whether one still posts, what is said in
 a video — gets the `youtube` field by itself from its words, once the video helper is installed
-(`researchzosho video install`). [YOUTUBE.md](YOUTUBE.md) has the setup, the five commands for looking
-things up yourself, and the rules a run keeps in that field.
+(`researchzosho video install`). A video you watched somewhere and cannot name is found by saying what you remember in
+the chat. The run does not search YouTube for it, and has no ranked search on its table to do so: YouTube's own search ranks
+by popularity, and a video you remember is seldom popular. The model names the thing the video makes or shows, in each language it may be in, and passes on what
+you remember of the video itself, what happens in it, what is seen or heard, in short phrases of your own words. The library names
+the thing plainly in the other languages YouTube is large in, and gathers the candidates itself: deep searches of its
+own plain phrasings of every name, a hundred results each; every upload of the
+channels those surface; YouTube's Data API in date order when you set a key; the other search indexes; and your own
+watch history first, when you have added it. A title seldom says what happens in a video, and other people's pages often
+do, so when a web search index is set up the library also makes its own web searches from the thing's name and what you
+remember, takes the videos among the results, and reads the pages for the videos they link or embed; a video found this
+way says which site led to it. It drops what the dates, the length and the language of the title rule out
+and the videos you have already said no to, and lists the rest best fit first: the videos that hold more of what you
+remember, in their own title or description or beside their link on a page, before those that hold less, with no
+popularity in it: no views, no subscribers, no place in an engine's results, and no count of how many sources found a
+video, since what every engine finds is what is popular everywhere.
+A pool holds thousands and a look costs minutes a video, so the run sifts the pool next: it fetches each candidate's
+thumbnail, YouTube's cover picture, and has the model that reads pictures say yes, maybe or no for what one picture can
+show, the thing itself, its colours, a tag; then, for those that pass, the first storyboard sheet, the first
+minutes of the video as small frames, for what you remember about the start. A thumbnail takes a second or two and a
+sheet about ten on a local model, so the run has ninety minutes by default when you set none (`--max-minutes` sets
+another), the sift stops cleanly when its time is up and says how many it did not reach, and nothing is judged twice.
+Then the run looks at the first five survivors together, sparse, each for everything you remember, then the next five,
+down the survivors while the time lasts, and answers with the one where the most was found, the second each remembered
+thing was seen at, and how each was checked; a thing not found or not looked at is said first. When the model that reads pictures stops answering, a look stops after two frames go
+unanswered, says so, and keeps nothing half read, so the video is looked at again later. Something you saw in a video a
+while ago is found again on the Video page, by what was said or by what is on screen. [YOUTUBE.md](YOUTUBE.md) has the
+setup, the commands for looking things up yourself, the candidate search, the watch history, and the rules a run keeps
+in that field.
 
 The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, queued and running
 ones first. `researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is
-waiting for, and where its write-up went. A run that has shown no progress for a quarter of an hour
+waiting for, and where its write-up went. A run that waits for one of its named choices is answered with
+`researchzosho jobs <J-id> --choose <number or name>`; one held for the question whether to research it at all, with
+`--yes` or `--no`. A run that has shown no progress for a quarter of an hour
 (`RESEARCHZOSHO_STALL_MINUTES`) is marked "no progress since" with the time, and the service writes
 where each of the run's threads waits into its log, once, so that whoever looks into it sees what the
 run waits for.
@@ -423,12 +488,26 @@ fills the form in with the result.
    Readers prefer the first three.
 3. A critic checks for gaps. It can send readers back for a second round.
 4. The write-up is written: the answer, then where the sources disagree, then what could not be
-   settled.
-5. Checks. The library adds a table of every fact with its source and quote. It adds a numbered list
-   of sources, in which copies of one text count as one. Each sentence that cites a source is then
-   compared with that source. Sentences the source does not support are marked.
+   settled. The writer works from the readers' notes. It may fetch up to six pages nobody read, to
+   verify something doubtful (`RESEARCHZOSHO_WRITEUP_FETCHES`), and a page it fetches counts as read.
+5. Checks. The write-up's answer is first compared with your question: is it about what you asked?
+   When it is not, the write-up is set aside, and written once more if the run's limits leave room.
+   If that one does not answer the question either, the report is the readers' findings alone, and
+   its first sentence says so: "The write-up did not answer the question, so this report is the
+   workers' findings as they stand." Then the library adds a table of every fact with its source and
+   quote. It adds a numbered list of sources, in which copies of one text count as one. Each sentence
+   that cites a source is then compared with that source. Sentences the source does not support are
+   marked.
 
-The write-up is saved as a draft, with the readers' notes attached.
+The write-up is saved as a draft, with the readers' notes attached. The review that follows reads
+its claims out and accepts the report. A report waits for you instead, still a draft, in two cases:
+its write-up did not answer your question, or started on it and turned to another subject; its checks
+marked sentences that were never sent back to the writer. A page the write-up names that no worker
+read and the library holds no copy of is not a reason to wait: it is listed apart from the references,
+under "Named by the write-up, not read", and a sentence that rests on it is marked. A page the library
+read in an earlier run counts as read; the check reads the library's copy. Its
+Checks section says why, one sentence for each reason. `researchzosho inbox` and the Updates page
+list the reports that wait, and `researchzosho accept <the report's id>` accepts one as it stands.
 
 ### Limits
 
@@ -436,9 +515,17 @@ With no limit, a run continues until the work is done. You can limit it:
 
 - `--max-turns N`: at most N model steps for the whole run.
 - `--max-minutes N`: at most N minutes. The readers stop early enough for the write-up to be
-  finished. The write-up itself is never cut short, so the run may go a few minutes over.
+  finished. The write-up itself is never cut short, so the run may go a few minutes over. The library
+  learns how long its write-up takes on your model: every run records what the write-up took against
+  its estimate, and the next run scales its estimate by the median of the last twenty, between a half
+  and one and a half, so the readers' time is not cut short by an estimate made for a slower model.
+- `--no-paid`: the paid search places and the paid page reader (Exa, Tavily, your own search service,
+  Serper, SerpApi, Brave, Firecrawl) are left off for this run, as they are at their month's limit; the
+  free places answer. `paid: false` on `library_research` does the same.
 
-With a limit in steps, the library plans only what fits. The rest goes on the open-questions list.
+With a limit in steps, the library plans only what fits. The rest goes on the open-questions list. The
+report's first lines say which limits the run had and whether it finished within them. In the chat you
+say them in words; see "A run's own settings, in words" under Talking to the Librarian.
 
 ### Pages it could not read
 
@@ -729,6 +816,12 @@ contains:
 - the languages the sources were in;
 - the pages it could not read, if any.
 
+A diagram the report writes as Mermaid text (a code block marked `mermaid`) is drawn on the report's page, in the
+page's light or dark look. The drawing is made in your browser with a copy of Mermaid the library serves itself, so it
+works without the internet. "Show as text" under the drawing opens the text it was drawn from. A diagram Mermaid cannot
+read stays as its text, with the error under it. A picture the report places is shown at reading size, with its title
+under it; a click opens the whole file in a new tab.
+
 ### Simpler versions
 
 ```
@@ -752,14 +845,29 @@ become claims. When the entry changes, the explanation is written again.
 
 ### Downloading
 
-On the web pages, every entry has a Download line: Markdown, or a PDF with page numbers and the
-sources at the end. From the command line:
+A report's page and a dossier's page have two links near the top: Download PDF and Download Word. The file
+has what the page has: the answer, how each point was checked, the open questions, the claims with their marks
+and the sources, each source a link you can click. If you read the page in another language, the file is in that
+language too. A diagram the report draws on its page is kept as its text in the file. From the command line:
 
 ```
-researchzosho export I-0009 --pdf
+researchzosho report export I-0009 --pdf
+researchzosho report export I-0009 --docx --in ja       # the Japanese translation the library keeps of it
+researchzosho dossier "Ada Example" --docx --out ~/Desktop/ada.docx
+```
+
+The PDF uses the fonts on your computer. A report in Japanese, Chinese or Korean needs a font for that language
+(on Linux, the fonts-ipafont or fonts-noto-cjk package); when no font has some characters, the first page of the
+file says which ones could not be shown. A program saves the same files with `library_export`, which keeps them
+under `catalog/exports/` in the library.
+
+Every other entry, a claim or a summary, has a Download line on its page: Markdown or a PDF. From the command line:
+
+```
+researchzosho export F-0012 --pdf
 researchzosho export I-0009 --md --beginner
 researchzosho export I-0009 --brief             # the answer alone: no checks, evidence or worker findings, no claims list
-researchzosho export I-0009 --pdf --out ~/Desktop/statins.pdf
+researchzosho export I-0009 --docx --out ~/Desktop/statins.docx
 ```
 
 ## 6. Reviewing the claims
@@ -856,6 +964,13 @@ it like any other line.
 
 ## 7. Asking what the library already has
 
+The command line reads the shelves without a model, on the library here as on one connected to elsewhere:
+`researchzosho search <words>` lists the hits with their ids, `get <id>` opens one entry, `read <address or id>` shows
+a saved page as text (`read <I-…> --in ja` reads a report in Japanese, translated by the model and kept),
+`established <claim>` says whether the shelves establish a claim, `changes` lists what changed with a cursor to
+continue from, `submit "<claim>" --source <url>` files a claim of your own as a draft, and `help <words>` looks the
+words up in this documentation.
+
 ```
 researchzosho ask "what do I have on keigo in subtitles?"
 ```
@@ -900,6 +1015,7 @@ access. It shows the same plan and asks for one more click.
 researchzosho add thesis.pdf
 researchzosho add https://example.org/paper
 researchzosho add ~/papers --collection thesis --register
+researchzosho add papers.zip
 ```
 
 Supported formats: PDF, Word, PowerPoint, OpenDocument, EPUB, HTML and plain text. The library stores
@@ -917,6 +1033,12 @@ re-check against it.
 
 Adding a folder makes a collection. With `--register`, the housekeeping checks the folder for new or
 changed files.
+
+An archive (zip, tar, tar.gz or tgz) is unpacked into a folder of the library's own and shelved as a folder
+is, under a collection named for the archive unless `--collection` names one. The folder is removed after.
+An entry whose path would land outside that folder (`..`, an absolute path), a link, and an archive inside
+the archive are skipped, and the command lists them. Unpacking stops at 5,000 entries or 512 MB unpacked,
+and then nothing is added; a bigger archive you unpack yourself and add as a folder.
 
 ### Keep or link
 
@@ -949,15 +1071,26 @@ free space on the library's disk. It shelves nothing.
 
 ### From the web pages
 
-The Add page, "Add" in the Library group of the menu, takes a file from your own computer: a PDF, a Word file,
-a presentation, an EPUB, a web page saved as HTML or a plain text file; and a page or a document on the web by
-its address; each with a collection to shelve it under if you like. The library reads the text onto the
-shelves; the file itself stays yours. A whole folder, or a file to be read where it lies, goes in at the command
-line on the machine that runs the library.
+The Add page, "Add" under "all pages" in the header and linked from the chat's composer, takes files from your
+own computer: a PDF, a Word file, a presentation, an EPUB, a web page saved as HTML or a plain text file, one
+or several at once, up to 500 files and 64 MB in one go; a whole folder, with the folders inside it, which
+becomes a collection named for the folder unless you name one; an archive (zip, tar, tar.gz, tgz), unpacked
+and shelved as a folder is; and a page or a document on the web by its address; each with a collection to
+shelve it under if you like. The page says what went onto the shelves and what was not kept, and why. The
+library reads the text onto the shelves; the files themselves stay yours. Files the library does not read are
+left out. An archive's entries that would land outside its folder, its links and the archives inside it are
+skipped, and past 5,000 entries or 512 MB unpacked it is not added at all. A folder too big for the page, or a
+file to be read where it lies, goes in at the command line on the machine that runs the library.
 
 ### From the chat
 
-You can do the same in the chat with the Librarian:
+The composer's Attach takes one file or several at once, or an archive; they go onto the shelves with the turn,
+and the turn says what came of each. In the browser you can also drag files onto the chat and drop them: while
+they are over the page it says "Drop to attach", and each file lands in the box as a chip with its name, its
+size and a × that takes it off before you send. A picture copied to the clipboard and pasted into the box is
+attached the same way. One message carries up to 10 files and 64 MB all together; past ten, the page says so
+and keeps the first ten. The Attach button takes several files at once too, so nothing needs the dragging. You
+can do the same in the chat with the Librarian in words:
 
 ```
 > read in /mnt/archive/papers
@@ -1192,6 +1325,311 @@ researchzosho survey --from I-0042 --top 10 --do "how does it read a GEDCOM file
 Each is cloned into the library and read the same way as one given by hand, in the order the report's
 table puts them, and `--do` files that research question about each one.
 
+## 8b. Translating a document
+
+A document of your own, translated into another language and written out as a file: `researchzosho translate
+<file> --to Japanese`. The formats read are txt, md, pdf, docx and epub; the file is written beside the original in the
+same format (`--as md|txt|pdf|docx|epub` chooses another), and a note beside it, `<name>.<lang>.translation.md`, says
+what was done. Both the original and the translation go onto the shelves, the translation under the original's
+collection with a link to it. From the chat: "translate this file into Japanese" with a file attached, or naming a
+document on the shelves by its title ("translate saros notes into German as a PDF, reviewed"). "I would like this epub translated
+into English using DeepSeek V4.1 Flash and have Kimi K3 do a thorough check" names the translator and the reader by an
+entry's name or its model (`researchzosho models` lists them) and the tier by the check asked for; "checked by the
+strongest other model" lets the library choose; without a word, the model the chat talks to (`/model`) translates and
+the judge seat reads. The checked tier scores every unit with LaBSE and MetricX-24; where they are missing, `researchzosho
+setup` asks first with the sizes (about 1.9 GB and 5.7 GB), the daemon sets them up in the background when it starts, so an
+update brings them too and refreshes MetricX's script when a release changes it, the Translate fold has a button, and
+`researchzosho translate scorers install` does it by hand;
+`RESEARCHZOSHO_SCORERS=off` leaves them out on a small machine. A name no entry matches, or an
+entry whose host has no key yet, is answered before anything runs: the models that can run now, the line that adds the
+entry named (DeepSeek, Kimi, Claude, GPT, Gemini, GLM and MiniMax are known) and the line that keeps the host's key, with
+where the key comes from; the Settings page does both under Models. A paid call refused during a run ends it with what
+the status means (the key, the credit, the rate limit, the model id) and the models the run can be sent again with. On the Keep page, the
+Translate fold takes a file, the language, the format and the tier and files the work as a run; the run's page has the
+file, the note and the download links. A program uses the tool `library_translate`.
+
+The document is cut into its units in order (headings, paragraphs, list items, table cells, captions; an EPUB chapter
+by chapter) and each unit is translated with the glossary and the kept words, then the document is rebuilt from the
+translated units in the same structure. The structure is kept; the layout is not: the fonts, the styles and the pages
+of the original are never read.
+
+| in → out | what is kept |
+| --- | --- |
+| epub → epub | the chapters, the navigation, the pictures, the package's title, creator and language; the original title stays in the metadata |
+| docx → docx | headings, lists and tables, through the library's own writer with its styles, not the original's; pictures are not carried |
+| pdf → pdf | a new PDF laid out from the text; the pages, columns and pictures of the original are not carried; a short line on its own is read as a heading |
+| md → md | every block, with code blocks and front matter as they were |
+| any → txt | the words alone |
+
+Kept as they stand: names (with the original in parentheses where they first appear), numbers, dates, addresses,
+citations in brackets, code blocks and front matter.
+
+Four tiers (`--quality`, the same words in the chat, on the form and on the tool):
+
+| tier | what runs | when to choose it |
+| --- | --- | --- |
+| `quick` | one pass with the glossary and the kept words | you want it as soon as possible |
+| `checked`, the default | one pass; then the checks a program makes with no model (every unit present on both sides, every number, address and citation of a unit in its translation, every glossary term rendered as the glossary says, the length within a band); then a program's score for every unit, LaBSE's closeness of meaning between source and translation and, when it is installed, MetricX-24's quality estimate; a flagged unit is translated again in a fresh call and the revision kept only when its score improves; with one model only, a sample of units is translated back and compared | the honest middle: no second model, nothing spent |
+| `reviewed` | checked, then a second seat reads source and translation side by side, the units the checks flagged and a sample of the rest (a fifth, spread through the document, more where the scores are lowest; a document under 150 units is read whole, and the note says so), and annotates each error with a fixed typology, accuracy (mistranslation, omission, addition, untranslated), terminology (against the glossary), fluency (grammar, wording), style (register), a severity (minor, major, critical) and the words concerned; a unit with a major or critical error is translated again against its flags and read again | the extra reading, for a document that matters, at its possible cost |
+| `thorough` | reviewed, with every unit read | the extra reading over the whole document |
+
+A unit still flagged after everything is marked in the output with a bracketed note in the document's new language
+and listed in the translation note; a minor error is listed and the unit left as it is. What counts as a bad score is
+never a fixed number: the thresholds are measured per language pair from the scores of the units accepted so far
+(the lowest tenth of LaBSE, the highest tenth of MetricX-24, once twenty are on record), and a flag always shows the
+score. A unit under 40 characters, a heading, a table cell or a caption, is scored and shown but never flagged by its
+score: on a short unit the scores reward the literal word over the right one (a cell "Cells on the rim" scored 0.47 as
+縁の区画数 and 0.81 as 細胞, the biological cell), so the program's checks and the reader are what judge those. The first units of a pair come from a translation read by hand: `researchzosho translate scores accept
+<translation note> --units 1,3-5` puts the units you found right onto the record. The note names the tier, the
+scorers that ran and their models, the thresholds, every unit's scores, the flags with their scores, what changed
+(each revision's scores before and after, kept or not), the reader if any and what it read, the glossary and the
+shelves.
+
+The scorers. LaBSE (sentence-transformers/LaBSE, Apache 2.0, 0.5B, 109 languages) is served by the same embeddings
+image as search by meaning: on the first checked run the library says the download's size (about 1.9 GB) and starts
+it through Docker, or, when Docker is not there or the start fails, runs the program's checks and the back-translation
+sample alone and the note says the scores were not available; `RESEARCHZOSHO_LABSE` names a server elsewhere, or
+`off`. MetricX-24 (google/metricx-24-hybrid-large-v2p6, Apache 2.0) is optional and off until installed:
+`researchzosho translate scorers install` says the sizes first (about 4.7 GB for the model, up to twice that when both of
+its weight files are fetched, about 1 GB for its Python packages) and sets it up in a Python environment of its own; until then the tier runs on LaBSE alone and the note
+says so. `researchzosho translate scorers status` says what is there.
+
+Who reads, for `reviewed` and `thorough`, depends on what is set up (`researchzosho models`, section 12):
+
+| what is set | the reader | and |
+| --- | --- | --- |
+| one local model only | the same model, in fresh calls | the note says so, and that it is the weaker check; a sample of units is translated back into the source language by it and compared with the source, mechanically and by a reading of the pair (`--back-translate off` turns that off) |
+| two local models (a judge seat, `RESEARCHZOSHO_JUDGE_DRIVE`, or a second entry) | the judge seat, or the entry named with `--judge <entry>` | the note names it; no back-translation unless asked |
+| hosted entries | the judge seat, or `--judge <entry>`; the translator too with `--model <entry>` | a paid call: the cost is said first, about two reads of the document at the entry's prices for the reader, one read and one write for the translator; the run stays inside the entry's monthly cap and goes on the tally; nothing hosted is spent unless you chose that entry |
+| `--judge auto` | the strongest configured entry that is not the translator, local before hosted | the note says which it chose and why |
+| no model at all | — | a translation is not offered: one sentence says to connect a model |
+
+The glossary. `researchzosho glossary add "Acme Corp" ja "アクメ社"` fixes how a term is rendered in every
+translation into that language; `glossary list` and `glossary remove` manage it; in the chat, "render Acme Corp as
+アクメ社 in Japanese" or "用語集：Acme Corp → アクメ社（日本語）" does the same, and the Translate fold on the Keep page
+has a line for it. The translation note says which entries applied, and which recurring terms the model fixed for
+the one document.
+
+The time is said first, from the number of units and the speed measured on the model in earlier translations: the
+checked tier's time, then quick's, reviewed's and thorough's beside it in one line ("about 3 minutes checked, the
+default; quick about 2 minutes, reviewed about 5 minutes, thorough about 7 minutes"); the first translation on a
+model says it is a first guess. The chat asks which tier, or whether to go ahead when the tier was named and the run
+is long; the command line prints the estimate and proceeds; with the library's service running, the command files
+the run and waits on it (`--no-wait` returns the run's id), and with no service it runs in the terminal. A long
+document runs as a job with its progress in units, on the Runs page and in `researchzosho jobs`.
+
+## 8c. Pictures
+
+Pictures are a capability of the library, used three ways: finding a picture or a set of them for words; using pictures
+as evidence, judged against what you are looking for; and starting from a picture you have. This release builds the
+first two by words. The third has its place in the code and nothing behind it yet: it will rank the candidates of a word
+search by their likeness to a picture you give, by an image embedding, since no open reverse-image search is there to
+call.
+
+**Finding.** In the chat: "find me some pictures of the Antikythera mechanism", "show me 5 photos of a red fox in snow",
+"Xの画像を探して". At the command line: `researchzosho images find red fox in snow --count 8`. The candidates come from
+Brave's image search when your Brave key is kept (the Settings page, under Sources and keys; it counts against the same
+monthly limit as web search) and from the library's own SearXNG with images as the category (`researchzosho setup`
+starts one). The two lists are merged rank by rank, a picture that both found is shown once, and your refused sources are
+left out. Each candidate is said with the page it stands on, its size when the engine said, the engine that found it
+and when; the chat shows a small copy of each. Nothing is written to disk by a search.
+
+**Keeping.** "Keep them", or "keep 1, 3", or `--keep` at the command line (`--collection <name>` shelves them under a
+collection). Each picture is fetched once, 8 MB at most, a picture format only (JPEG, PNG, GIF, WebP, BMP, TIFF). Before
+it is written, the model that sees pictures is asked the one question every picture from the web is asked (section 4,
+Pictures in web pages); a yes is not kept, and the answer says so. When no model sees, that check cannot run and the
+picture is kept as you chose it, from a search with safe search on. The bytes go under `catalog/images/<name>` and an
+entry goes onto the shelves with the page, the engine, the time it was found, its size and, when it was judged, the
+verdict and the reason, so the picture can be cited as evidence; `researchzosho search` finds it by its words, the
+pages show it at `/images/<name>`, and the chat shows it small.
+
+**Judging.** "Which of these show a bronze gear?" after a find, or `researchzosho images find "Antikythera mechanism"
+--judge "a bronze gear with teeth"`, or `researchzosho images judge "a red fox" ~/Pictures/fox.jpg
+https://example.org/animal.jpg`. Each picture goes to the seeing model with one question, "Does this picture show …?
+Answer: yes, no or unsure, then one sentence why", and comes back yes, no or unsure with the sentence; a picture that
+could not be fetched or answered is marked not judged, with the reason. This is how a picture becomes evidence for or
+against what you asked.
+
+**Describing.** "Describe this picture" with a picture attached to the message, or `researchzosho images describe
+<picture> [a question]`, where the picture is a web address, a path on this machine, a kept picture's file name or its
+entry on the shelves. The seeing model says what it shows, the people in it when it knows them, the place, the time it
+appears to show and any writing in it, in the names a later search by words can use; a question after the picture is
+answered too.
+
+**The model that sees.** The library's own model is used when it reads pictures: the default entry when its server was
+started with the model's picture file (`researchzosho model install` sets qwen3.8-27b, gemma-4-e4b and gemma-4-e2b up
+with theirs), else a local entry that sees (the best tier first), else a hosted entry that sees and has its key; a server
+you set for pictures (RESEARCHZOSHO_VISION_DRIVE and RESEARCHZOSHO_VISION_MODEL) is taken at its word. Whether an entry
+sees is measured, not assumed: `researchzosho models test <name>` sends a small red square and asks its colour, and a
+local entry a blue one after it, so a blind guess cannot pass; the answer is kept on the entry and `researchzosho models`
+shows "sees images", "does not see images" or "not probed for pictures". A local entry added with `researchzosho models
+add` is probed at once when its server answers; a hosted one is not, since the call is paid — `models test` asks it, one
+small call. `--sees yes|no` on `models add` or `models set` says it outright. MODELS.md says which of the measured models
+read pictures. When no model sees and you ask for a judgement or a description, the answer says what the library has,
+which entries were not probed and the lines that add one, local first: `researchzosho models add vision openrouter
+deepseek/deepseek-v4-flash-vision-exp` then `researchzosho models key openrouter <key>` is the hosted way.
+
+**In a research run.** Every worker of a run that goes to the web has two more tools. `image_search` takes the words
+the worker builds from what the run already knows, an event's name, a person's name, a place, and answers with the
+candidates, each with the page it stands on, its size and the engine that found it; the pictures the library already
+keeps come first. `image_judge` takes the worker's criteria ("Valerios Stais", "the Antikythera wreck being salvaged")
+and the candidates' addresses, and the seeing model answers for each: yes, no or unsure, with one sentence why. A
+picture judged yes is kept on the shelves with the verdict in its head and becomes evidence of the run: the worker
+notes it as it notes a page, with the picture's address as the source and the verdict's sentence as the quote, and the
+report's references number it like a page, the line saying it is a picture, where it was kept, the page it stands on
+and the verdict. A worker makes at most three picture searches on its sub-question and judges at most eight candidates
+a call; the turns are its own. The writer is handed the one line that shows a kept picture, `![title](/images/<file>)`,
+and may put it under the paragraph that cites it, at most five in a report, the ones it asked for itself (below) first;
+a line for a picture the library does not keep is taken off. On the page a placed picture is shown at reading size, and a
+click opens the whole file in a new tab. The run's trace carries each search (`picture_search`) and each judgement (`picture`), the research
+log counts the searches under `images`, and a hosted seeing model's tokens go on the tally as the translator's do. When
+no model sees, `image_judge` says so and how one is added, and the run goes on without pictures.
+`RESEARCHZOSHO_PICTURES=off` leaves the tools and the step below out of every run.
+
+**The chain.** In two parts. Right after the plan, before any worker takes a turn, the run looks for pictures of what the
+question itself names, a person, an organisation, a place, or the event it says by a year and an event word ("the
+eruption of 79 AD"), at most three: the name, with the question's own subject beside it, to the engines; the
+candidates judged; the yeses kept as evidence, two a subject at most, one turn each. Those turns are kept back from
+the workers at the start of the run, one a subject and never more than a sixth of the workers' share, and the log says
+how many ("pictures: 2 turns kept back from the workers for pictures of …") and then what was searched and why
+("pictures: "Valerios Stais" searched because the question names Valerios Stais: 6 found …, 6 judged …, 2 kept"). After
+the workers, the second part: the full names the findings raised, a person the sources name, an organisation, an
+artefact, an event (a single word the question does not name, a passing place such as the museum's city, is not a
+picture subject; a people's adjective, "Greek", is not a name; nor is a phrase of titles, periods and peoples alone,
+"Ephor General", "Hellenistic Greek"), on the turns and the time left, so that an event leads
+to the people in it and they to their pictures; when it cannot run the log says the numbers, "no time left for
+pictures of …: 17.0 min left, the write-up's estimate is 17.7 min", or the turns used against the ceiling. The judge is
+asked for the entity in the question's own connection ("Antikythera, in connection with Valerios Stais"), told that a
+yes means the picture shows the thing itself, the person's likeness, the object, the scene, and not something of the
+same culture or period, and asked to say what it relied on, the page's title, a caption in the picture, or what it
+sees. A picture that comes twice, under two addresses or the same address with a tracking string, is judged and kept
+once. The trace carries each step (`picture_chain`, with when it ran) and each judgement (`picture`). A name a worker
+already searched is not searched again. The next step, finding other pictures of a person from a picture judged to
+show them, is the next increment: a kept picture of a person is its seed, and the likeness search (an image embedding
+over the candidates of a word search) is the seam behind it.
+
+**Exports.** A report's PDF and Word file embed a kept picture where the report shows it, scaled to the column, with
+its caption under it: the picture's words and the page it came from. A picture the library does not hold, or one the
+writer cannot read (WebP), is left as that caption in its place. The Markdown export keeps the picture lines as they
+are.
+
+**Pictures in the documents you read in.** When you add an EPUB, a PDF or a Word file (the Add page, the chat, the
+command line, `library_add`, a registered folder), its pictures are kept too: each under `catalog/images/` with an
+entry of its own, kind image, the document's locator as its page, the caption or alt text as its title, `document` as
+the engine; the document's text keeps a picture line pointing at the library's copy, so the document's page shows its
+pictures, and a research run finds them on the shelves before it asks the web. An EPUB's pictures stand where its
+chapters put them; a PDF's and a Word file's, whose places in the text the readers do not know, are listed at the end
+of the text under their own heading with the page each was on. Small pictures, furniture under 64 pixels a side or a
+kilobyte, are left out; at most sixty a document. The seeing model describes a kept picture once, the first twenty of a
+document, so a later search by words can find it; a picture already on the shelves is not described again, so a
+rescan costs no call. `RESEARCHZOSHO_DESCRIBE_PICTURES=off` keeps them with their alt text alone. A linked folder's
+files are read in place each time, so their pictures are kept but not placed in the text.
+
+**The pictures page.** `/images` (Pictures in the page list) shows everything kept as small tiles, newest first, each
+with its page, its verdict and where it came from: the engine, or the document it was read out of; a box finds
+pictures for words, the shelves first, and the keeper or a writer keeps one from the results. The Settings page's
+Models table says of each entry whether it sees images, does not, or was not probed, and which entry pictures go to.
+
+**A picture as the ask.** Attach a picture to a chat message and say what you want of it: "find more pictures of this
+person" (or this building, this object, this coin), "find 5 more photos of this man in Athens", "find more like this",
+"この人の写真をもっと探して"; "find places like this", "show me rooms like this one", "use this as the reference for pictures
+of Kyoto", "この写真と似た場所を探して"; "what is this?", "who is this?", "これは何？". The picture is kept on the shelves as
+yours (source "the person"; the Pictures page says "given by you"), so a later ask can cite it by its entry. The seeing
+model first describes it, what or who it shows and the words to search by; for a person it gives the visible traits and
+never a guessed name, a name only when the picture itself carries one. The search runs on those words and yours, and
+each candidate is judged beside your picture, both in one look, for the same person (by face and build, not dress or
+setting), the same object (by its shape and marks) or the same place; "places like this" and "use this as the reference"
+are the other mode, like yours in the aspect the words name (the kind of place, look and style), not the same one. The
+reply says which mode it used and why, how the judging was done, and lists the candidates with their verdicts; "keep
+them" keeps the ones you choose. Whether a model takes two pictures in one call is measured once, with two coloured
+squares; one that takes one at a time has your picture described in words and the candidates judged against those words,
+and the reply says so. When the ask carries a person's name (your words, or the reference's own title), the library reads
+each candidate's page title, address and caption for it, tells the judge where the candidate names the person and asks
+whether writing in the picture does; the verdict is then ranked, the writing above the model's face reading: a face
+match is a yes, writing that names the person is a yes, a candidate named by its page title or its address whose faces
+the model reads as different is "unsure", listed with its reason ("named by its address; faces: no → unsure: the page
+names Valerios Stais; the faces look different to the model") and not kept, and a candidate named by nothing is a plain
+no. A caption names everyone connected with a picture (a coin's description named the man who dug it up), so a caption
+naming is told to the judge and said in the reason but does not outrank its reading; and only the picture's own text
+counts, never the library's description, search words or criteria. The 27B cannot match one face across decades; the
+name written on the picture or in its address can. At the command line: `researchzosho images like <path | url | kept entry> [words…] [--what
+person|place|object] [--concept "<aspect>"] [--count N] [--keep]`, and `researchzosho images judge "<criteria>" --like
+<reference> <pictures…>`. Over the protocol: `library_images` with `op`=like (`reference`, or `bytes` with
+`content_type`; `mode` same or concept; `what`; `words`), and `reference` on `op`=judge.
+
+**Likeness in a run.** When a research run keeps a picture judged to show a person, and the judge says it relied on a
+likeness or on a label naming them, that picture becomes the reference for the rest of the search and for the run's
+later searches for the same person: the candidates after it are judged beside it, for the same person, and the log says
+so ("6 judged against "Valerios Stais" (4 of them beside the picture kept as …)"); the reference line of such a picture
+reads judged "the same person (…) as the picture kept as <id>". A picture already on the shelves whose own entry says
+it shows a thing or a place (the mechanism's fragments, kept for "Antikythera") is left out of such a pass without a
+call, and the trace says so (`skipped`). A worker's `image_judge` takes an optional `reference`, a kept picture's
+entry, for the same. A likeness helper of its own (an image embedding ranking the candidates of a word
+search) can come later behind the same seam; the judging is the seeing model's own for now.
+
+**Pictures the report asks for.** The library decides them at the plan. Each sub-question whose words name a thing a
+picture can show gets one ask, read from the words alone: a place ("Where exactly was the Antikythera wreck found?")
+gets a map of it, "a map of the Antikythera wreck site"; a mechanism, a device or a process ("How does the gear train
+of the Antikythera Mechanism model the Moon's varying speed?") a diagram of it, "a diagram of the gear train of the
+Antikythera Mechanism"; a person a portrait; an object or another named thing a photograph of it. A sub-question that
+asks why or weighs significance, interpretation, dating or influence gets none, a section of argument stands on its
+words; a phrase of titles, periods and peoples names nothing; and the question's own subject, which the chain looks
+for already, is not asked for twice. The log says what will be asked for which sub-question, and the trace says of
+every sub-question what it got or why not (`picture_for`, by the library). The asks run after the workers and before
+the write-up, on turns kept back at the plan (one an ask, never more than a sixth of the workers' share, beside the
+chain's), each with the question's subject beside the words and judged in the question's connection under the same
+rule as the chain, a diagram must show this mechanism's gearing and not any gears; the first yes is kept and no further
+candidate is judged; one picture a sub-question, five a report. When the write-up's time is up the step stops and the
+log says the numbers ("no time left for pictures for the sections on …: 1.0 min left, the write-up's estimate is 10.0
+min"). The writer is handed the kept lines in its SOURCES list with the section each belongs to ("it belongs to the
+section on "…": to show it, put this line on a line of its own under the paragraph of that section"), numbered as
+every kept picture is, and the references carry them with their pages and verdicts. The writer may ask for more with
+a tool of its own, `picture_for` (the section's heading, what the picture should show, a kind), which runs the same
+ask on a turn of the write-up's reserve and answers the line and the number; one a section, and five a report counting
+the library's. The report shows at most five pictures, the sections' own first. The chat's replies do not ask for
+pictures this way yet.
+
+**Likeness, measured.** A likeness helper measures first, when it is set up: `researchzosho images likeness install`
+puts, in a Python environment of the library's own and on the CPU, open_clip's ViT-B-32 with the LAION-2B weights for
+pictures (the code and the weights MIT, 605 MB) and OpenCV's YuNet detector (MIT) and SFace recogniser (Apache-2.0, 39
+MB together) for faces, about 1.3 GB of packages beside them; `researchzosho images likeness status` says where it
+stands, the daemon sets it up in the background when it starts and the disk has the room (about 4 GB), and
+`RESEARCHZOSHO_LIKENESS=off` leaves it out. An update refreshes an installed helper on its own: when a release changes
+the helper's script or its packages, the daemon copies the new script over at start, restarts the helper and says so
+in one line. With it, every judgement beside a reference — "find more pictures of this
+person" in the chat, `images like`, the protocol's `like` and `judge` with a reference, a research run's passes
+beside a confirmed portrait — measures each candidate against the reference before the seeing model looks: the faces
+when both pictures hold one, else the pictures; the model then judges the best-measured first, and the number joins
+the verdict as machine evidence. The face thresholds come from twenty-six public-domain portraits of thirteen people,
+two sittings each (their sources are in the test resources): the same person measured 0.50 to 0.92, two different
+people 0.09 to 0.34; so a face score at or above 0.45 turns the model's no into unsure ("the faces measure the same
+(0.62) while the model says no → unsure: …") and one below 0.30 turns its yes into unsure ("the faces measure
+different (0.21) …"), and between them the model decides with the number said ("…; faces measure 0.36"). The picture
+embedding does not separate people (the same person's sittings scored 0.59 to 0.95, different people up to 0.67), so
+it ranks and is said, and never overrides. The measure was calibrated on studio portraits of the same era, and it
+cannot bridge decades or tiny faces: the first live likeness measured 0.22 between a man's bust portrait in old age and
+two photographs of him decades younger, one a full-length photograph with a small face. So writing in the picture, the
+page's title, its address or a caption naming the person keep precedence over the measure, a yes that rests on them
+stands and the why says "faces measure 0.22, but the picture's own words name …", and only a yes that rests on the
+faces alone is demoted; and a face under 80 pixels on its longer side, or found with less confidence than 0.7, is not
+measured at all, the why saying "the face in the candidate is too small to measure (41 px)" and the picture score
+standing in. Without the helper everything works as before and the reply says "no likeness helper is set up; the
+model's reading alone". facenet-pytorch was not taken: its code is MIT but its weights
+were trained on VGGFace2, a dataset licensed for non-commercial research.
+
+**In the chat.** When your words ask about a thing a picture can show — a mechanism, a place, an object, a person by
+name, a process with a known diagram, read by the same rules as a report's sub-questions — the library, once the
+model's reply is written, asks for one picture of that thing: the shelves first, then the web, judged under the
+shows-rule in your words' connection, and places it under the reply with its line and a sentence that says why it is
+there ("Picture: Antikythera mechanism gear train, judged "a diagram of the gear train": yes — … (kept as …)"). At
+most one a reply; none when the reply carries a picture already, when your words asked for pictures (that is the
+pictures turn above), when the turn started or offered a research run, or when a question is about the models or a
+translation. The reply's own words are untouched; one search and at most six judge calls. Japanese questions are read
+too ("ピンとスロット機構の仕組みは？" asks for ピンとスロット機構の図).
+
+**What comes next.** Pictures inside a report's own question (a picture sent with a research ask), and the helper's
+measure calibrated for things that are not faces.
+
 ## 9. Languages
 
 A model left alone searches in English. When a question names a place or a culture whose language
@@ -1204,6 +1642,31 @@ language say. The reader on that sub-question:
 
 The write-up ends with a line that lists the languages of its sources. There are at most two extra
 languages per question. The language of the question itself is never added.
+
+A library can have every report written in one language: the setting `language` (`researchzosho settings set
+language Japanese`, or on the Keep page). Unset, a report is written in the language its question was asked in. A
+question that asks for a language itself is answered in that one either way. The language that was decided is
+recorded on the report; a report's line says "Written in …" when that is not English, the default, or when you read in
+another language, and "Written in …, read in …" when you read it translated. A report filed before 0.7.0 has no record,
+and its language is read off its letters: Japanese, Chinese, Korean or else English.
+
+Each person can read reports in their own language. In the chat, "read this in Japanese" or "この報告書を英語で" about the
+report just shown, or one named by its id, or "the dossier on Ada Example", answers with the link to it in that language,
+and starts the translation when none is kept yet. A report's page offers Read in: as written, English, 日本語;
+"Always read in …" keeps the choice (`researchzosho settings read-in ja` does the same), and from then on every
+report written in another language opens translated by the model, the first time after a few minutes, kept until the
+report changes. The cites, the claim ids, the dates and the sources stand as they are, the report's line says what it
+was written in and what you read it in, and Past says the same of each. A program reads a report in a language with
+`library_get` and `in`.
+
+The pages, the chat's own sentences and the command line's fixed sentences follow your language too: the labels, the
+titles, the buttons, the notes and the questions the library asks under a reply. The web pages pick it in this order: the
+switch in the header (日本語 / English, kept by your browser), the language you read reports in when you are signed in,
+your browser's language, the library's `language` setting, else English. The command line follows `RESEARCHZOSHO_LANGUAGE`,
+else the terminal's `LANG` when it is Japanese. English and Japanese exist; the descriptions of the settings on the Keep
+page stay in English for now, and the model's own words come in the language the report was written in. Another
+language is one file, `librarian/src/main/resources/org/researchzosho/librarian/chrome/<code>.json`, English text to
+the sentence in that language; a sentence the file lacks is shown in English.
 
 ## 10. Checks against bad sources
 
@@ -1292,7 +1755,9 @@ service above.
 
 Every run has `podcast_search`: shows by words, a show's episodes from its feed, what is said in an
 episode with the time, the episodes a person appeared on, and shows like one. The feed is the source;
-Apple's directory answers with no key.
+Apple's directory answers with no key. Shows found in the Podcast Index's file come in the order of their words and
+their latest episode, never the directory's popularity score, and a browse by category lists the most recently
+updated first.
 
 A question that names a podcast, an episode, a host or a co-host gets the `podcasts` field by itself,
 the way a question about YouTube gets the `youtube` field: the workers read the person's own words in
@@ -1365,6 +1830,23 @@ write access; the chat asks before it writes. A change takes effect at once, exc
 workers, which takes effect at the service's next restart. The settings live in the library's config
 file, which you may also edit by hand.
 
+## 10d-2. Sources and keys
+
+Some of what the library reads wants a key from an outside service: a Google search through Serper or SerpApi,
+Firecrawl for pages built by scripts, RentCast for homes, the Census Bureau for a tract's figures, the YouTube Data
+API for videos in date order when a video you remember is looked for, the European Patent Office for a class of
+patents enumerated whole, Trove for Australian newspapers, and the rest. One list says, for each, what it adds, whether it is free or paid and what
+the free allowance is, where a key comes from, the setting that holds it, this month's use from the tally, and
+what the last check of the key said. The prices and allowances are read off the services' own pages, and each
+line says the day it was read; a page the library could not read says so instead of a figure.
+
+The list is in three places: the Keep page under Sources and keys; `researchzosho services` in a terminal, and
+`researchzosho settings` which says the same under each key; and the chat, which answers "how do I get a RentCast
+key" or "what does Serper cost" from it. `researchzosho services check`, the Check button on the Keep page and
+`library_settings op=check` ask every service whose key is set whether the key is accepted and, where the service
+says, what is left this month; the answer is kept and shown in the table until the next check, and the weekly
+housekeeping asks again. A key the check refused is said at the top of the Keep page.
+
 ## 10e. What you own
 
 The library can hold your own purchase records, and the research and the chat can then tell what you
@@ -1413,7 +1895,10 @@ what shops list right now in your market, each with its price, shop and the time
 for its datasheet, its recall notices, its repairability and what owners say; the table judges fit against the need you
 stated, never popularity, and keeps to six rows; star counts and badges are mentioned as cues, never counted. Sites
 whose terms forbid machine reading (Amazon, Consumer Reports, Wirecutter, Which?, Stiftung Warentest, RTINGS, 価格.com
-and a few more) are pointed at by their address, never read, in every run.
+and a few more) are pointed at by their address, never read, in every run. A budget you name is the shop's own filter
+(`price_max` and `price_min`, in the market's money), the rows within it come cheapest first rather than in the shop's
+own order, and `page` reads on past the first rows, so the candidates are everything the shop lists for the words and
+the money, never its best sellers; the report says of each candidate which checks were made and which were not.
 
 The market is the country you buy in (the setting `market`, asked at setup): one market per run unless you name more.
 For something used, vintage, handmade, out of print or at auction the run asks eBay with your keys and, for the
@@ -1451,7 +1936,8 @@ come from the catalogues, not from the run's memory: Open Library (by words, sub
 Japanese books (by words, 件名 and NDC class), and a work's own record or openBD's description and table of contents. A
 title the catalogue did not return in the run is not named. The workers look past the bestsellers: subject headings,
 reading lists, syllabi, society and library lists, the "further reading" sections of long reviews, each title then looked
-up in the catalogue before it counts. The table has eight rows at most and says what each book covers in your terms, who
+up in the catalogue before it counts. A subject heading is read whole, page by page (`page=2`, `3`…), since the
+catalogue's own order weighs editions, which is popularity. The table has eight rows at most and says what each book covers in your terms, who
 it is for, the year and edition, the length, where it was found and the one reason it fits or falls short; ratings and
 edition counts are a column of cues. No keys are needed; with a CiNii appid (the setting `cinii_appid`, from NII's free
 developer registration) Japanese books are also found by 件名 and author across the university libraries, each with how
@@ -1771,7 +2257,10 @@ The model does not have to be up all the time. The library works with a server t
 - A research run waits and asks again every 30 seconds until the model answers. While it waits, its
   record and the Runs page say "waiting for the model".
 - A run whose model server goes away in the middle, while it restarts or loads its model, waits for it
-  and goes on when it answers, within the run's time limit. Its log says how long it waited.
+  and goes on when it answers, within the run's time limit. Its log says how long it waited. A server
+  that freezes or restarts while a request is open is noticed within a few minutes: while a request
+  waits, the library asks the server whether it is working on anything, and gives the request up and
+  asks again when it is not.
 - A run sends the server no more requests at a time than the server takes at once (llama.cpp reports
   it), so on a server shared with other programs their requests are answered between the library's.
 - The nightly housekeeping skips the steps that need the model.
@@ -1862,7 +2351,8 @@ these.
   that would support it. If the quote is in the source, the sentence is not marked.
 - **Checks.** This section appears only when there is something to report. It lists numbers, licence names
   and CVE ids in the answer that no note or source backs, quotations that appear in no source, and any
-  cited paper that Crossref lists as retracted.
+  cited paper that Crossref lists as retracted. When the report waits for you and is not accepted, the
+  section opens with the reason, one sentence each.
 
 Read the Checks section before the prose. When something looks wrong, the Evidence table shows what
 the readers saw.
@@ -1882,9 +2372,11 @@ their totals. When you change a setting, this is where you see whether it change
 
 Every run also writes a trace to `catalog/traces/<job>.jsonl`. It has one line for every call to the
 model: the exact request, the tools offered, the shape of the reply, the server's token counts and
-how long it took. It has one line for every time evidence was cut to fit the model's window. The
-newest fifty traces are kept. Open this file when a write-up says something its evidence does not.
-`RESEARCHZOSHO_TRACE=off` turns tracing off.
+how long it took. It has one line for every time evidence was cut to fit the model's window. Each
+call's `seat` names the stage of the run it belongs to (plan, workers, critic, write-up, topic-check,
+analysis, cite-check, revise), and the first call of each stage keeps what the model thought before
+it answered, when the model server returns it. The newest fifty traces are kept. Open this file when
+a write-up says something its evidence does not. `RESEARCHZOSHO_TRACE=off` turns tracing off.
 
 ## 12b. Talking to the Librarian
 
@@ -1912,14 +2404,59 @@ open them. Things you can say:
 - "how did that go?": the answer section and the checks from the finished run.
 - "what's waiting?": the inbox. "accept the first" accepts it.
 
+**A run's own settings, in words.** When you ask for a run in the chat, you can set it in the same
+sentence, the way the command's flags do: a time limit ("don't exceed 30 minutes", "within half an hour",
+"take up to 2 hours"; 30分以内, 2時間まで), a limit in model steps ("in at most 20 turns"; 20ターン以内),
+where it reads ("from the shelves only", "without the web", "search the web too"; 棚だけから, ウェブなし,
+ウェブも), no paid search service for this run ("use no paid services for this run"; 有料サービスは使わない),
+and the model it runs on ("with deepseek", "use the big model for this"; deepseekで). The Librarian says
+back what it read, under its reply: "Research run J-0012, as you asked: up to 30 minutes, from the shelves
+only." The run's record carries it, and the report's first lines say whether the run finished within its
+limits. A phrase that is not clearly a setting stays part of the question: "why does an eclipse take 30
+minutes" sets no limit. "In Japanese", "a short report" and "APA citations" work as before.
+
+**The models, in words.** A question about the models the library runs on is answered by the library itself, from its
+own list and settings, with no model asked, so the answer is the state as it stands: "which model is the default?",
+"which models do we have?", "is kimi set up?", "does deepseek have a key?", "why did J-0309 use openrouter?" (the
+run's own record: the entry and address it ran on, and when it failed, the error). The reply names the default entry
+with its model, host and address, then the other entries one a line, each saying whether a key is kept or none is
+needed. "Make deepseek the default", "use kimi as the default", "switch the default to deepseek" and "the default
+should be deepseek" change the default for every run and chat that names no model, the same change as
+`researchzosho model use` and the Settings page, and the reply says what it was before; a reader is told it is the
+keeper's to change. A name that matches no entry, or two of them, changes nothing: the library lists the entries that
+could be meant, with their addresses, and asks which. `/model <name>` switches this chat alone. In Japanese:
+既定のモデルはどれ？, どのモデルを使っていますか, deepseekを既定にして. The notice for a run that failed carries the
+entry it ran on and the error's first line, so nothing has to be guessed.
+
 If the library has nothing, it says "I don't know" and offers to find out.
 
 It follows two rules. It uses only the library's own tools: no commands, no reading your files, no web
 outside a research run. And it does not make things up. A figure or a source that none of its look-ups
 returned is marked under the reply as its guess.
 
-Inside a conversation: `/new`, `/sessions`, `/resume <id>`, `/help`, `/quit`. Conversations are saved in
-`catalog/chat/` and continue where they left off.
+Inside a conversation, at the terminal and on the Chat page alike: `/new`, `/sessions`, `/resume <id>`, `/runs`,
+`/model`, `/share`, `/sources`, `/interview <name>`, `/suggest`, `/help`, and each field's own command (`/family`,
+`/career`, `/home`, `/patents`, `/video`); `/quit` leaves the terminal. On the page, `/new` and `/resume` open the
+conversation they name. Conversations are saved in `catalog/chat/` and continue where they left off.
+
+**Conversations.** The chat is mostly short: a question or two, a research run set up and read. A conversation that has
+been quiet for a day is not continued: your next message opens a new one, and the reply begins with a line that says
+so and names the earlier conversation, which stays on the list under Conversations. The New conversation button
+beside the box (or `/new` at the terminal) starts one whenever you like, and when a run this conversation filed has
+its report on the shelves, the notice suggests it. The library never splits a conversation on a change of subject;
+that is yours to decide. The model sees a conversation's last 12 turns, a short summary of what came before (the
+earlier asks' first words, the runs this conversation filed and the reports they left, the files attached) and the
+shelves as they are today; the conversation file keeps every turn, and `/resume` opens an old one whole.
+
+The library answers these itself too, without the model, in both chats: `/explain <id or a term>`,
+`/perspectives <question>`, `/established <claim>`, `/read <id or address> [--in ja]`, `/subjects` (with `proposed`,
+`accept` and `drop`), `/serials` (the saved searches: `add`, `remove`, `park`, `unpark`, `every`),
+`/export <id or subject> [--pdf|--docx|--md]`, `/remove <id>` (shown first, then `--yes`), `/story <subject>`,
+`/forecasts`, `/forecast <P-…> happened|did-not|void`, `/dna`, `/prefs`, `/react like|dislike|seen|own <title>`; and
+for the person who keeps the library, `/mcp`, `/readers`, `/invite <name>`, `/keys`, `/crews tonight|now`,
+`/tonight`, `/spend` and `/update`, which says what an update would do and the command that does it. Saying the same
+thing in words works where the model has the tool: explain, perspectives, established, the saved searches and an
+export are on its table.
 
 The same conversation is on the pages at `http://127.0.0.1:4649/chat`. A reply takes as long as the
 model takes. The page returns when the reply is ready. Someone who signs in there and may only read has
@@ -2226,6 +2763,21 @@ The core library has no built-in subject knowledge. A field adds some.
 
 Every field is on. `researchzosho profile disable <name>` turns one off for this library.
 
+### Goals, sources and conventions
+
+The fields are sorted three ways. A goal is what you want done: find a home, find work, a dossier on a person or an
+organisation, buy a thing, prior art, what the law says, the family, learn a craft, choose something to read, watch or
+listen to, or simply answer the question. A source is a place to look: the web, the scholarly indexes, the public
+records, the archives, old newspapers, forums, videos, podcasts, shops, book catalogues, software archives, your own
+shelves. A convention is how a claim must be stated in a subject, whatever the goal: a claim of law carries its
+jurisdiction and the date it stood, a scientific claim cites the record, a patent claim carries its number and its
+claims. A question can carry several at once. A research run that asks for homes or for jobs now follows the home or
+the work goal's rules, listing the homes or the openings that fit with a link on each line, even when you did not
+start it from the Home or the Career page. A run that asks what to buy, how to make or do something, or which book or
+podcast to pick follows the buy, learn-a-craft or choose goal's rules the same way: its candidates are enumerated and
+judged by fit, never taken from a chart, a best-seller list or an engine's first page, and the report says what was
+checked and what was not. Each field below is one of the three kinds and works as it did.
+
 - `science` looks up citations from the record, tracks preprint versions, and
   writes BibTeX with `researchzosho bib <id>`.
 - `podcasts` is for questions about a podcast, an episode, a host or a co-host. It joins a run by the
@@ -2248,10 +2800,12 @@ Every field is on. `researchzosho profile disable <name>` turns one off for this
   mode (`research ask … --genealogy`, the box on the Research page, `field: "genealogy"`, or a yes to the
   chat's question). Such a run follows genealogy's rules: it works from records, ties a record to a
   person by more than a name, notes searches that found nothing, and lists the records only the family
-  can request. Everything else in the library works as if genealogy were off: a question that only
+  can request. Asked with `--goal family` it is the same run: each person is identified by the family's own
+  account first, each name is searched under the form the person carried in those years, and every question is
+  answered as a record, as not found with where it was looked for, or as records that disagree. Everything else in the library works as if genealogy were off: a question that only
   looks like family history is told that genealogy mode is there, and runs as ordinary research; the
   map reads family relations only in the family's own claims and in the claims of genealogy-mode runs;
-  the Family tree, Who is who and Decisions pages are in the menu once the library holds family work.
+  the Family tree, Who is who and Decisions pages are under "all pages" once the library holds family work.
   `researchzosho profile runs list` shows which runs were genealogy runs, and `profile runs forget` or
   `profile runs add` corrects that list.
   The whole way through, step by step, is in [FAMILY_HISTORY.md](FAMILY_HISTORY.md).
@@ -2328,6 +2882,23 @@ researchzosho service uninstall
 The service listens on `127.0.0.1:4649`. It runs the housekeeping at three each morning;
 `--crew-hour` changes the hour. It writes its log to `~/.researchzosho/logs/librarian-serve.log`.
 On Linux, `loginctl enable-linger <you>` keeps it running while you are logged out.
+
+Run by hand, `researchzosho serve` writes its log to the terminal; where no terminal is attached, in a container or
+under a cloud runner, it writes to stdout, and `RESEARCHZOSHO_LOG=stdout` or `stderr` says so outright. At start it
+names each setting that is missing, in one sentence each: no model answering, no account for the person who keeps
+the library, pages open on a network address, no embeddings server, no web search. `GET /healthz` answers with the
+version and the library's id, with no sign-in, for a proxy or a platform that checks before sending people here.
+
+**Behind a proxy.** In the cloud the service sits behind a reverse proxy or a load balancer that ends the
+encryption and adds the forwarded headers. `RESEARCHZOSHO_TRUSTED_PROXY` names it, as addresses or networks
+(`10.0.0.0/8`, `127.0.0.1`): only a request from one of them has its `X-Forwarded-For` and
+`X-Forwarded-Proto` believed, and the relay identity headers (`Tailscale-User-Login`,
+`Cf-Access-Authenticated-User-Email`) are read from it as they are on the shared door. The sign-in cookie
+is marked Secure when the proxy says the person came over https, and a proxy on the same machine never
+passes for the person who keeps the library. `RESEARCHZOSHO_SESSION_DAYS` is how long a browser stays
+signed in, a year unless set. [CLOUD.md](CLOUD.md) is the page for a server that holds many libraries: one
+router, one container and one volume per library, sign-in through your identity provider, keys for programs,
+backups and moving, and one VM on AWS.
 
 By default only the computer it runs on can reach it. To reach it from other machines on your network:
 
@@ -2409,29 +2980,43 @@ them on the library's computer.
 
 ## 16. The web pages
 
-Open `http://127.0.0.1:4649/` in a browser. The menu is on the left, grouped: the library (Home, Ask, Search, Subjects,
-Map), the work (Inbox, Open questions, Runs, Research, Changes), what is yours (Chat, Owned, Settings) and each field's
-own pages. On a wide window it stays open beside the page; its button in the header shrinks it to a rail of symbols and
-back, and the browser remembers which. On a narrow window the same menu opens over the page from that button. The
-chat panel on the right has a drag edge: pull it to make the panel wider or narrower, and that is remembered too. The
-pages are dark; the switch at the bottom of the menu makes them light, and that is remembered as well. The pages are:
+Open `http://127.0.0.1:4649/` in a browser. The header carries the rail, Chat, Past and Updates, and Keep for the
+person who keeps the library; "all pages" beside it opens every page, grouped: the library (Home, Add, Ask, Search,
+Subjects, Map, Dossiers, Pictures), the work (Inbox, Open questions, Runs, Research, Sources, Suggested, Changes), what is yours
+(Chat, Help, Owned, Settings, Account) and each field's own pages. The pages are light, and dark when the computer is
+set to dark; the switch in the header, system, light or dark, is remembered by the browser, and so is the language
+beside it, 日本語 or English (section 9). The pages are:
 
 | Page | What it shows |
 |---|---|
-| Home | A question box, the library's counts, recent changes, open questions, and what is running. |
+| Chat, the home | The conversation with the Librarian. Each answer carries a mark saying where it came from: the shelves, a research run it started, the library itself, or the model's own words; under it, what was looked up on the way and the claims it cites, each with its standing (● established, ○ not yet) and its sources. The answer appears as the model writes it, with a caret and a stop beside it; the stop ends the turn within seconds and keeps the words that came. A model that cannot stream shows its answer whole, after a line that says it is being written. The runs the conversation follows stand beside it, a bar each, with a stop; the earlier conversations open from a button. Enter sends, Shift+Enter breaks a line. Files chosen with "@ Attach", dropped onto the page, or pasted as a picture, one or several or an archive, go onto the shelves with the turn, by the Add page's own path, and the turn says what came of each, so the Librarian can read them; before sending, each shows as a chip with its name and size and a × that takes it off, and one message carries up to ten. A question the library asks with named choices, which of these is meant, shows as a button for each; the number or the name typed answers it too, and as with yes or no, no answer within ten minutes counts as none. |
+| Books | Your shelf as the library reads it from Calibre, the subjects you go for, the books you loved, liked and chose, and the books reports; for the owner, a reaction to a book, the preferences file shown and changed, and the DNA's records read now. |
+| Podcasts | The shows followed, each with its feed and cadence, and the podcasts reports; a form follows a feed or stops following one, and the owner reads the transcripts held for their DNA. |
+| Video | The videos the library has read with their three tracks, what was said, the words shown and what is seen, the pictures looked for, and the videos reports; Past has a row for the videos read. |
+| Connect | The first screen, in the chat until a model has answered once, and a page of its own: a model you own on this machine, found on the usual ports or given by its address; one you rent, by host, key and model; a test that says what answered; and a way to add things while you choose. |
+| Past | Every report as a row with one line of state, newest first: research reports being made, filed, declined or failed, dossiers, and the fields' own reports, a person's job search, a home search, a picture looked for in the videos, your shelf of books and the podcasts you follow, and a field's own reports under the field's name (books, podcasts, videos…). Chips narrow the rows by kind and by state; a box searches the titles. Above them each field's own section and the library's counts; below, the open questions. |
 | Ask | The same answer as `researchzosho ask`. |
 | Search | Search of the library. |
-| Entry | A claim, write-up, summary or saved document in full, with its sources, notes, review and connections. A report's page has "Go deeper": the questions it left open, each sent as an in-depth run with one button, and a box for your own follow-up; the run is given the report first. |
-| Subjects | The subject list. |
+| Entry | A claim, write-up, summary or saved document in full, with its sources, notes, review and connections. A report's page opens with one line of state (when it was filed, what the cite-check found, its claims and open questions, what waits for your review), the claims that came out of it each with one mark, ● established or ○ not yet, and "How this was made" behind a fold: who asked, the model, the time, the run's record and the cite-check. A diagram the report wrote as Mermaid text is drawn on the page, with its text one click away; a picture it placed is shown at reading size and opens whole on a click. Opened from Past, a report stands beside the chat. A report's page has "Go deeper": the questions it left open, each sent as an in-depth run with one button, and a box for your own follow-up; the run is given the report first. |
+| Subjects | The subject list, and the subjects the cataloger proposes, accepted or dropped by tick boxes. |
+| Updates | What changed on your reports since you last looked, newest first, with the count in the rail: a run that landed with the claims it left for review, a run that started, a question the library waits on, a claim that came back, was accepted, disputed or retired, who asks to be let in. "Mark all as seen" makes now the last look. |
 | Inbox | Claims waiting for a decision, grouped by the report they came from and filtered nine ways. Tick any number, then accept, retire, or dispute them with a reason. |
 | Open | The searches kept up to date, and the open questions, grouped by the report that left them and filtered eight ways: tick any number, then send them as runs, reorder, park, or drop them. |
 | Changes | What changed, newest first. |
 | Runs | What the housekeeping will do tonight; research runs, running and finished. "Pause the runner" holds every run at its next turn until "Resume"; "Stop" beside a run ends that one. |
 | Research | Send a question, or sharpen it first. |
+| Seeks | The same question researched several times apart, each seek with its run and report; a button merges the ones that landed into one report, another drops the group. |
+| Perspectives | Who studies a question and what each would ask; a link sends any sub-question as a run. |
+| Submit a claim | A claim of your own with the sources that back it, filed as a draft that waits in the inbox. |
+| Forecasts | The dated forecasts the reports made, with their likelihood and outcome; a form scores one once its date has passed, and the Brier score follows. |
+| Bridges | The open proposals, each with a button that files the run testing it or drops it; a form looks for new pairs from an area, shown first and filed on a second click. |
+| Read in | Your bookmarks, pasted or by the export's address, onto the shelves as a collection; a repository, paper, website or issue tracker surveyed by its address, its directions ticked and run. |
+| Databases | Your databases, their schema, and one SELECT at a time with its rows saved under a locator; the owner's alone. |
+| Keep | The keeper's things behind one link, each behind a fold with its gist: the connection and the models, the sources and their yield, people and access (invite, what anyone not listed may do, an id listed by hand, a token for a reader's program), the other MCP servers (each tool let on or kept off, the monthly cap), the tally, the settings, and the rest. A reader sees that the keeper looks after these. |
 | Settings | Every setting the library has, with what it is for and its value; change one from the form. A key is shown only as set or not. |
 | Owned | What you own, from your own purchase records: a search over it, and where each imported file's records begin. |
-| Chat | The conversation with the Librarian in full. On every other page the same conversation is a panel: beside the page when the window is wide, behind a Chat button at the bottom right when it is narrow. What you say in the panel and what it answers is the one conversation, the same as `researchzosho chat` in a terminal. The panel remembers whether you left it open. A reply arrives in place, on the page and in the panel, and what you have typed in the box stays. |
 | Map | The map. |
+| Pictures | The pictures the library keeps, as tiles with their pages, verdicts and where they came from, and a search for pictures by words, the shelves first (section 8c). |
 
 A page is never cached by the browser, so what you see is the library as it is now. If a browser was signed in with a
 token the library refuses now, the page that refuses it also clears that sign-in; load the page again and you are an
@@ -2439,11 +3024,12 @@ ordinary visitor, or sign in with another token.
 | Who is who | Family history: for each person in your family, the people the web shows under their name, with links. You tick the one who is your relative, or say none of them is, or leave it for later, and you can write something about the person. One person at a time; leave whenever you like, and the Inbox says how many still wait. At `/who`, for people who may write. |
 | Decisions | Family history: what only the family can settle, in one place. Names that may be one person, then two sources that disagree about one person, then who is who. Each answer says what it will do before you give it. At `/decide`, for people who may write. |
 
-Every entry has "Read it: beginner · familiar · as written" and a Download line.
+Every entry has "Read it: beginner · familiar · as written" and a Download line. A dossier's page takes what you
+tell of its subject, in your own words, filed as told; writes the story on a button; and scores a forecast in its row.
 
 ### Sign-in
 
-As shipped, anyone can use the pages, and the home page says so. To require a sign-in before a
+As shipped, anyone can use the pages, and Keep says so. To require a sign-in before a
 question can be sent:
 
 ```
@@ -2452,18 +3038,31 @@ researchzosho account set                        # make or change your account a
 researchzosho reader invite "Ann Example" read   # one link: she opens it within seven days and chooses her password
 researchzosho reader link "Ann Example"          # a new link, for a forgotten password
 researchzosho reader password "Ann Example"      # a password you type for her
-researchzosho reader token <did>                 # a token, for a program
+researchzosho reader token <did>                 # a token, for a program the keeper names
+researchzosho keys new "the notes script" --write # a key of your own, for a program: shown once, kept hashed
+researchzosho keys list · keys revoke <id>        # the Keep page and your account page do the same
 researchzosho web signin off
 ```
+
+**Sign in through your identity provider.** A company or a school signs its people in through Google
+Workspace, Entra, Okta or any provider that speaks OpenID Connect. Register the library there as a
+web client with the callback address `https://<your address>/login/oidc/callback`, then set
+`RESEARCHZOSHO_OIDC_ISSUER` (the provider's issuer address), `RESEARCHZOSHO_OIDC_CLIENT_ID` and, when
+the provider gave one, `RESEARCHZOSHO_OIDC_CLIENT_SECRET`. The sign-in page then offers "Sign in
+with <provider>"; `RESEARCHZOSHO_OIDC_NAME` names it. Someone already listed here by their mail
+address is signed in as that reader. Someone new is let in as a reader when their verified mail
+address is at a domain in `RESEARCHZOSHO_OIDC_ALLOWED_DOMAIN`, and the person who keeps the library
+raises them to write; anyone else is told to ask. The library checks every identity token against
+the provider's published keys, its issuer, its audience, its time and the nonce it sent.
 
 A person signs in with their name and password, from any phone or computer. On the library's own
 computer your browser is you, with no sign-in, when it opens the library by this computer's own name: localhost,
 127.0.0.1 or the computer's name (`web.local = signin` in the settings turns that off, for a computer other
 people use). A library that listens on this computer only answers to localhost and 127.0.0.1, so a page on
-another site cannot reach it by pointing a name of its own at your computer. `share` asks for your account
-before it opens the library, so you can get in from outside yourself. Every form on the pages is carried out
-only when your browser says it was sent from the library's own page, so a page on another site that you happen
-to open cannot send one in your name; a program's call with a key is no form and is not asked.
+another site cannot reach it by pointing a name of its own at your computer. `share` asks for your account before it opens the library, so you
+can get in from outside yourself. Every form on the pages is carried out only when your browser says it
+was sent from the library's own page, so a page on another site that you happen to open cannot send one
+in your name; a program's call with a key is no form and is not asked.
 
 `reader invite` prints a link. Send it to the person; when they open it, they choose a password, and
 from then on they sign in with their name and it. They stay signed in for a year in that browser. The
@@ -2516,6 +3115,13 @@ Some requests take time, for example sharpening a question or writing a simpler 
 returns at once, shows what it is doing, and updates itself until the result is ready. A second
 click on Send, a refresh, or the back button does not send a question twice. The page shows what was
 already sent.
+
+Three instruments have a form of their own on the pages, with no search or run started first: on the Video page,
+"Look at a video" takes a video's address and what to look for in it; on the Home page, "Records of an address" reads
+the public records of any US address; on the Career page, "An employer's board" reads an employer's or institution's
+own careers board and its openings. Each answers on a page of its own. In a research run the board takes the title
+words wanted and lists only the openings whose title holds one of them, counting the rest, so a board of hundreds is
+cut by the program rather than read by its first page.
 
 ## 17. Obsidian and SoloMD
 
@@ -2610,7 +3216,54 @@ gemini mcp add -s user -t http librarian http://127.0.0.1:4649/rpc -H "Authoriza
 
 The tools are: ask, search, get, read, established, submit, research, sharpen, explain, job,
 map, perspectives, frontier, subjects, status and changes. [LIBRARY_PROTOCOL.md](LIBRARY_PROTOCOL.md)
-describes each one.
+describes each one. Since 0.7.0 a program also has `library_look` (a video's frames and transcript read for what you
+ask of it), `library_records` (the public records of an address), `library_board` (an employer's own careers board) and
+`library_export` (a report or a dossier saved as a PDF or a Word file),
+and `library_research` takes `goal`, the goal the run serves, which chooses the report's shape and the instruments it
+brings.
+
+### Other MCP servers as sources
+
+The library can use other programs' MCP servers while it researches. A server's tools sit beside the
+library's own searches, and a research run or the chat calls one when the question needs what that
+server holds: your notes, a code host, a search engine.
+
+Add a server that runs on this computer by the command that starts it, or one on the internet by its
+address:
+
+```
+researchzosho mcp add notes -- npx -y @example/notes-mcp
+researchzosho mcp add docs https://docs.example.org/mcp --header-key mcp_docs_key
+```
+
+The second asks for the key the server wants and keeps it in the setting `mcp_docs_key`. The library
+never prints a key. Two search engines need no address: `researchzosho mcp add exa` and
+`researchzosho mcp add tavily`. Both work without a key, slower and with a limit, and use yours once
+you set `exa_key` or `tavily_key` with `researchzosho settings set`.
+
+`researchzosho mcp list` shows each server, whether it answers, and which of its tools research may
+call. `researchzosho mcp tools <name>` goes through a server's tools one by one. The Keep page has the
+same list, a button to test each server and a form to add one. A server that runs on this computer is
+started when research first needs it and stopped after five idle minutes; what it prints is kept in
+`catalog/mcp/<name>.log` in the library.
+
+Research reads; it does not act. A tool whose name or description says it creates, writes, sends,
+deletes, buys or runs something is left out, and `researchzosho mcp tools <name>` says why for each.
+`researchzosho mcp allow <name> <tool>` lets one in anyway, and `researchzosho mcp forbid <name> <tool>`
+keeps one out. Another ResearchZosho library added this way (`-- researchzosho mcp`, with its folder in
+`--env RESEARCHZOSHO_LIBRARY=…`) is known by name, and research calls only its tools that read.
+
+What a server answers is read like a page from the web: as evidence, never as instructions. It is
+cited as `mcp://<name>/<tool>` with the arguments it was called with, and the addresses in the answer
+are sources of their own.
+
+Every call is counted in the month's tally. `researchzosho mcp cap <name> <calls>` sets the most
+calls a month. Exa starts at 714 a month and Tavily at 1,000, the same limits as their search places.
+A tool that runs the search engine's own research costs more and takes minutes, so a small model is
+not offered it.
+
+Only you add and change servers. You and the people who may write use them in their research and
+chats. Readers use a server only after `researchzosho mcp readers <name> on`.
 
 ## 19. Change notifications
 
@@ -2744,17 +3397,75 @@ the jurisdiction it holds in and the date the law stood, since law changes. Stat
 ordinances and Japanese judgments have no search a program can make; the run finds them through a
 web search and reads them page by page, and the Japanese courts' 裁判例検索 is listed as a site to
 open. The report keeps what a text says apart from how courts have read it, and says what was not
-found at a level. It is research, not advice.
+found at a level. It is research, not advice. A run asked for with `--goal what-the-law-says`, or a question that asks whether
+something is legal or what a law requires, reads the governing text itself through these collections or by its citation, opens its
+report with that citation and the date it stood, and says which levels and courts were not searched.
 
-**Patents** searches the offices' own collections, Google Patents without a key and the EPO's Open
-Patent Services or Google Patents through SerpApi with one, in English and the office's language,
-and reads a patent from its own publication by number: claims, dates, assignee, family, status. A
-provisional application is never published; it shows as the priority claim of a later one, and its
+**Patents** reads the offices' own records: the European Patent Office's Open Patent Services with its free
+key, which hold the publications of most of the world's offices, and for other runs Google Patents without a key
+or through SerpApi. A patent is read from its own publication by number: claims, dates, assignee, family,
+status. A provisional application is never published; it shows as the priority claim of a later one, and its
 text sits in that application's file wrapper. An application filed with a non-publication request
 is unseen until grant, but its assignment record is public and any foreign family publishes at
 eighteen months. Japan publishes every application at eighteen months. A collection whose monthly
 allowance is small (SerpApi's 250 searches) is searched at most eight times in one run, by all the
-run's workers together; the report's list of collections says when a run reached that.
+run's workers together; the report's list of collections says when a run reached that, and says of a
+collection that was asked and did not answer that it refused, not that it was not searched.
+
+A prior-art run (`--goal prior-art`, or a question that asks whether something was patented or invented
+before) does not search for patents. It enumerates them. The model finds the classification the invention
+sits in, a CPC group such as A47G19/22, from the office's classification search, which answers with the
+groups and everything that stands under them, or from a known patent's record, and gives the program three things: the classes, the years, and the invention's features, each as
+the words that would name it in a title or an abstract, in every language it can. The program does the rest:
+
+- **The pool.** Every publication of each class in those years, taken from the office page by page to the
+  end. The office gives a hundred records a request and the first two thousand of a query, so a class and a
+  span over that is split by year, then by month, then by day. The program says the office's own count, keeps
+  one line a patent family, counts which features each family's titles and abstracts name, and orders the
+  pool by more features named, then the rarer feature, then the older. Nothing popular is in the order: no
+  citation count, no family size, no engine's rank. A class of a thousand publications takes two to five
+  minutes and about ten megabytes of the office's free four gigabytes a week. Every page is kept in the
+  library, so a second call fetches nothing.
+- **The abstracts.** The model reads the abstract of every family in the pool, twenty to a call, and says
+  yes, maybe or no for each feature. About ten seconds for twenty on a local model. Every reading is kept,
+  so nothing is read twice, and a call the time cut goes on where it stopped.
+- **The claims.** The claims of the families that pass, best first, from the office's own full text. The
+  office holds claims for EP, WO and some thirty national offices, and none for the United States, China,
+  Japan or Korea. For those the program reads the member of the same family whose text the office does
+  hold, and says which. Where no member has one, it reads the claims from Google Patents' copy of the
+  office's record, at the one address the publication has there, in the language the office published in.
+  A page whose claims are Google's translation is not taken: the page in the language it was translated
+  from is read in its place, or the original's words that the translated page keeps beside each claim.
+  Google Patents is never searched and never asked to rank: the pool is the office's enumeration, and a
+  page is read only by a number the program already holds, one page every three seconds at most, each page
+  kept in the library. A publication with no claims at either is read by its abstract, and the report says
+  so. For each feature the model names the closest claim, says whether it describes the feature itself or
+  only partly, and quotes it; the program keeps the quotation only when its words stand in the claim as read.
+  Each line gives the applicant the office's record names.
+  A status that Google's page words, such as Pending or Granted, is given as Google's own reading and never
+  as a fact of the report.
+
+The report says the office's count, how many families were enumerated, how many abstracts were read, how
+many families' claims were read from the office and how many from Google Patents' copy, for each feature the
+closest publication with its claim quoted, where it was read and its link, or that none that was read meets
+it, and what was not read. The library writes the same account under the
+report from its own records of the run, and gives it to the model that writes the report, so the counts do
+not depend on what a step noted before a later step read on, and checks the report's numbers against that
+account as well as against the notes. Such a run is planned as one chain, has no patent
+search that ranks on its table, and so cannot fall back to an engine's first page. When the model
+that plans splits the chain into parts all the same, the program hands the parts to one worker in the
+planner's order, so there is one pool and the abstracts are read once.
+
+The same three steps are commands, a page (`/patents`), `/patents` in the chat, and MCP tools
+(`library_patents`, `library_patent_abstracts`, `library_patent_claims`):
+
+```
+researchzosho records key epo-query <key> <secret>         # the EPO's free registration, at developers.epo.org
+researchzosho patents pool A47G19/22 --from 2005 --to 2015 --feature "lid, cover, cap" --feature "straw, drinking tube"
+researchzosho patents abstracts <the key the pool answered with>
+researchzosho patents claims <the same key>
+researchzosho patents claims EP1000000A1                   # what one patent claims, and its classes
+```
 
 ```
 researchzosho research ask "What does 37 CFR 1.53 require for a provisional filing?"
@@ -2849,7 +3560,9 @@ Name` makes the library ask what it does not know about the subject, its open qu
 filed as told, in your words. A watch's arrivals are suggested when they come, and a task that reaches the
 library through a coding chat is not filed as a question. Japanese names and places are read like Latin ones:
 高市早苗 links two dossiers, 千代田区 is a place and 高市 is not; the review files its claims in the record's language. The dossier page shows
-the facets the reports carry under Facets, and under Refresh and watch a link that researches the latest question
+the facets the reports carry under Facets, how it was made under a fold closed by default (the runs that fed it with their
+dates, models and times, the claims by the class of their source and by site, what was told, the span of the claims' dates),
+and under Refresh and watch a link that researches the latest question
 again and a Watch button; `researchzosho dossier "Name" --watch` does the same, keeping a search for the subject every
 seven days whose arrivals land in the inbox. `researchzosho vault` writes one note per dossier under Dossiers/, its
 claim and report ids as links.
@@ -2875,6 +3588,13 @@ researchzosho tell "Cisco Systems" "We came in through the WebLine acquisition i
 
 The page is at `/dossier?subject=…` on the library's pages; a program asks `library_dossier`. Each
 report listed is a page to dive into.
+
+**The major things first.** A dossier opens with the milestones: for an organisation when and where it was founded,
+under what name and by whom, when it was chartered or incorporated, renamed, merged or moved; for a person born when
+and where, educated where, the roles in order. The run asks for them before any other facet, and the timeline lists
+them first within a year. A line under the Timeline heading says which runs the timeline came from and whether the
+founding and the basics are there yet; a run asked a narrow question, who holds power and how it decides, fills the
+timeline with that run's decisions, and the full research adds the rest.
 
 **A report's Timeline becomes claims.** A run notes a handful of claims; its report's Timeline carries
 every dated event the workers found. When a dossier report lands, each event of that Timeline is filed
@@ -2927,7 +3647,7 @@ forecast whose date has passed and wants scoring, a story the shelves have grown
 that a claim now answers, a question asked again and again, a report that landed, a dossier not researched
 for months. Each suggestion is classed now, next or hold, with the probability you take it up: the nightly
 housekeeping asks the model's typed judge, one bounded answer per candidate; the page and the chat use
-plain rules. The ones for now appear as a line at the top of the home page and the chat on your next visit.
+plain rules. The ones for now appear as a line at the top of Past and in the chat on your next visit.
 
 ```
 researchzosho suggest                         # the open suggestions, now first, each with why, what to do and what it costs
@@ -3015,6 +3735,9 @@ so the page reads as its contents and the search box. An opening at an employer 
 the library's research or read as worth approaching, comes before the rest of the openings that fit.
 Where you work now, read from the role that runs to now, is left out of the search and its openings are set aside,
 whatever source names it, unless you name it yourself.
+An institution the search names, a hospital or a university, has its openings read from its own careers page or the
+board of the organisation it belongs to; its town is matched however the board writes it, and a board that names
+campuses rather than towns keeps its openings with a note saying so.
 
 The reading says what you keep choosing, what seems to drive you, the places you work best in and where you
 are now; each line points to the facts it rests on. It ends with questions, and the interview asks them one at
@@ -3207,6 +3930,10 @@ The map is as good as its mappers made it: a town's restaurants are mostly there
 website is there for one place in ten. Every such employer's reason on your list says it came from OpenStreetMap, whose
 data is the mappers' (© OpenStreetMap contributors).
 
+Any employer's or institution's own board, with no person on the shelves: `researchzosho career board "<name>"` finds
+its careers page, the hiring system behind it or the organisation it belongs to, and prints the openings; `/career` on
+the Career page has the same form, and a program asks `library_board`.
+
 ## 26c. Reading Reddit and the Stack Exchange sites
 
 A research run can read discussion threads in full, and so can you from the terminal: the threads of a subreddit, or of
@@ -3267,6 +3994,186 @@ them. `career shape` alone shows what stands.
 
 The library also reads your reactions back: the openings you liked and passed on, with why, go to the model as
 examples when it reads the next opening, the liked ones first.
+
+## 26d. Looking for a home
+
+The library can look for a home for you, in the United States first: a house or an apartment to buy or to rent. It is
+the same shape as looking for work: a record of what you decided, a search that reads every source the library can
+read, a page of what fits, and a card per home from the records.
+
+Or say it in the chat in your own words, "find me a house to buy in Somerville, three bedrooms, under $900,000": the
+Librarian makes the cut from your words, files the search as a run you can follow beside the chat, and when it lands
+the Home page shows the fits in tiers with a link on each, and a report of the fits, every home linked on its line,
+sits on Past.
+
+Start on the Home search page (under "all pages" in the header), or in any chat:
+
+```
+/home start Our move
+/home tell We want to buy a 3-bedroom house in Somerville, MA or the next towns over, up to $900,000, with a yard; nothing on a main road.
+/home search
+/home listings
+```
+
+`tell` is your own words; the library reads them for the topics they settle (where, how far from there, buy or rent,
+the budget, bedrooms, bathrooms, the size, the lot, when it was built, the kind of home, the commute, when, must-haves)
+and sets each as decided or as a guess. A decision you made is never undone by a hedge. `want` sets one topic
+yourself: `/home want place decided Somerville, MA`. `keep-out` keeps a street, a kind of home or a condition out of
+the search. Only what is decided keeps a listing or drops it; a guess puts them in order. The page shows every topic
+with a form, and your words in a box.
+
+The budget, the rooms, the size, the lot and the year built are each a range, with one end or both: "$400,000 to
+$550,000", "under $500,000", "around $450,000" (fifteen per cent either way), "3 to 4 bedrooms" or "three or four", "2 or more baths",
+"1,200 to 1,800 sq ft", "a quarter acre", "built after 1950". A bare sum is the most you would pay; a bare count is
+the fewest you want. A home outside the range at either end is set aside, with the reason. The listings that fit are
+ordered by closeness to your budget: the middle of a range, or the ceiling from below. The budget can also be a price
+per square foot or per square metre ("under $850 a square foot", "$600 to $800 per square foot"), never read as a
+total: a listing is judged by its price over its size when it gives both, and with a size decided too, RentCast is
+asked for no more than the most per square foot times the largest size.
+
+How far from the town still counts is 10 km unless you say ("within 5 miles", "15 km"). The library finds where the
+town is on the map, and a listing within that distance of it counts as the place, whatever its town is called. So does
+a listing in a town whose centre is within that distance, whatever the town's size: Boston counts for Cambridge,
+Massachusetts, and the county or the metropolitan area around Cambridge does not. A place
+is a town with its state, province or country, "Cambridge, Massachusetts" or "Cambridge, MA", so a listing in a town of
+that name elsewhere is set aside with the reason ("it is in Cambridge, Maryland, not Cambridge, Massachusetts"); a
+state alone counts the whole state when you say so ("anywhere in Massachusetts"). A state written once after a list of
+towns goes with each town that has a namesake in that state, as in "Somerville, Medford or Cambridge, MA"; a town with
+none keeps its own state, so "Boston or Providence, RI" means Boston, Massachusetts, and the log says so.
+
+The search reads the listings from every source the library can read and says, on the Sources page, what each gave:
+
+- RentCast, when you set a key (`RESEARCHZOSHO_RENTCAST_KEY` on the Settings page): the active listings for sale or for
+  rent that fit what you decided. The budget, the rooms, the size, the lot, the year, the kind and the radius go to
+  RentCast as its own filters, so one call brings the homes that fit rather than the first five hundred in the town.
+  The first fifty calls a month are free, then each is paid; the search makes one call per kind of listing, and
+  `researchzosho search status` shows the month's count. A call brings five hundred at most; when more fit, the page
+  and the log say the search is wide and how many RentCast holds, and you choose: narrow the radius, the budget or the
+  kind and search again, or fetch the next five hundred with `/home search --more` or the button on the page, one
+  call each. A search never pages on its own.
+- The search engines' own snippets of the portals' pages, as leads: an address, a price, the beds, and a link for you
+  to open. The library reads the snippet and never the portal's page; no portal (Zillow, Redfin, Realtor.com, Trulia,
+  Apartments.com) lets a program read it, with or without a key. A lead from a home's own page links that page; a lead
+  from a page of listings links a web search for its full address, with "seen on" and the page of listings beside it.
+- The estate agents' and builders' own sites in the town, found through the map: every address with a price on their
+  front page. A site drawn by scripts cannot be read, and the page says so. An agent the map names with no website of
+  its own is not read, and the log says how many there were.
+- What you save yourself: a line as the portal shows it, pasted into the box on the page, or `/home add` and the line.
+- HUD's list of the homes the government sells, and each portal's search page for your town, as links to open yourself.
+
+What fits is shown in tiers: the ones in the place that show everything you decided and fit it, then the near misses,
+each saying what it does not show ("price per square foot not known: the price is not given"), never a fit and never set
+aside for it; the ones set aside say why. The near misses that show the most of what you decided come first, then the
+ones nearest your budget, and the cards go to them in that order after the fits. Like or pass on each, with why. A short name in brackets stands for each listing in
+the chat: `/home like [a1b2c3] the yard`.
+
+For the three listings that fit best the search files a card, only for a listing that shows it is in your place, and
+`/home card [a1b2c3]` files one on demand: the
+library reads the records first, each with its source and the day, and says what it could not read rather than
+guessing: where the home is (the Census geocoder), the flood zone (FEMA), the schools and the transit stops around it
+(the federal school directory, the GTFS feeds), and what was paid for homes on the street and the permits there, from
+the city's or the county's own records. With a Census key (`RESEARCHZOSHO_CENSUS_KEY`, free from
+api.census.gov/data/key_signup.html) the card also gives the tract's figures from the American Community Survey, the
+median household income and age, the owners' and renters' shares, the median home value and rent; without one it says so. New York, Boston and Pittsburgh have readers written for them; any other city
+is read by the platform it publishes on. Most cities and counties put their assessor's rolls, their sales and their
+permits on one of three, Socrata, ArcGIS or CKAN, each with one API: the library finds the city's, the county's and
+the state's own portals first (their addresses follow a few patterns, and a web search names the rest), asks each
+for its datasets, reads which columns hold the address and the figures off the column names and the first rows, asks
+each candidate for the home's street, and keeps the one that answers, for a month. A permits dataset must be building
+permits, by its name and by the work its rows describe, and a sales dataset the assessor's values or market sales, not
+a tax sale; a dataset whose rows stop two or more years back loses to a current one, and when it is all there is the
+card says "last updated" with the year. Seven states publish one parcel layer for the whole state with values or
+sales on it (Maryland, Massachusetts, Nebraska, North Carolina, Washington, Wisconsin, and the sales ones first), read
+when the city and the county give nothing. New York, Boston, Pittsburgh and Philadelphia keep readers written for them,
+by county. Every card's records line says in one sentence which source answered, with its platform and how new its rows are, or
+that no source is known for the place and what the library looked at.
+
+A county the platforms and the state's layer give nothing for, no sales or no permits, is researched once a month, on the
+library's model: a research run of the library's own asks where the county publishes its records, its report lands on the
+shelves like any other, and every web address the answer names is tried by its shape, a dataset on one of the platforms, or a
+file, a CSV, a TSV, a JSON or GeoJSON file, a zipped one, fetched once into the library and read for the street, with the
+columns settled from its header and first rows as for any dataset. A county that publishes its records only through a lookup
+page, one address at a time, is not read, and the card names the page for you to open. With no model configured nothing is
+researched, and the card says what the library looked at.
+Then a research run on the
+library's model, about eight minutes, for the street, the neighbourhood and the press, with the records handed to it
+as given. The run's report lands on the Dossiers page; the records read stand on the Home page under Cards.
+
+The field is for the United States and for Japan in this version; the sources, the records and the portal links are those two
+countries'.
+
+In Japan, say the place as a municipality with its prefecture, "東京都杉並区", "杉並区, 東京都" or "Suginami, Tokyo", and the rest
+as a Japanese ask writes it: "杉並区で2LDK以上、家賃15万円以下、駅徒歩10分以内の賃貸", "三鷹市で中古マンションを購入、5000万円まで、60㎡以上、
+築20年以内、2階以上". The program reads Japanese words itself, with no model: 賃貸 or 購入, the budget in 万円 and 億円 ("15万円以下",
+"4000万〜6000万円", "15万円前後"), the 間取り as rooms ("2LDK以上" is two rooms or more beside the living, dining and kitchen; "1LDK以下"),
+the size in ㎡ or 坪, the age as 築N年以内, the walk to the station as 駅徒歩N分以内, the floor as N階以上, the kind (マンション, アパート,
+一戸建て, 土地), and a station named with the place ("荻窪駅"). A price per ㎡ or per 坪 ("㎡単価80万円以下", "坪単価300万円以下") is its
+own range, never a budget. An English ask about a place in Japan ("buying a flat in Suginami, Tokyo under 60 million yen, 2 or more
+bedrooms") is read by the model as elsewhere, and the cut, the verdicts and the report come back in the language asked, the prices in
+万円 for a Japanese ask and in yen for an English one, with the price per ㎡ beside a home for sale. The municipality is looked up in
+Wikidata by its name, in the prefecture when one is said: its five-digit code, which the portals and the ministry key a town by, its
+centre, and the municipalities within the radius (ten kilometres unless you say), which count as the place too; a ward of a designated city
+is written with its city, "横浜市中区". The listings come from SUUMO, whose terms (read 2026-11-05) keep its content to a person's own
+private use and forbid commercial use, and name no rule against a program, and whose robots file allows its rent list and its area
+pages of homes for sale (the sale search list it keeps from programs, so the library goes by the area page of the municipality, which
+takes the same filters): the library asks SUUMO's own list for the municipality with your conditions as its own filters, the rent or
+price, the 間取り, the walk, the age, the size and the kind, and reads every page of the result, fifty rentals or a hundred homes a page,
+one page a second, never a recommended or ranked slice; each room or home links its own page on SUUMO, with the list page it was seen on beside it. AtHome answers a program with a
+verification page after one request and LIFULL HOME'S refuses programs at the door, so both are links for you to open, built for the
+municipality. A card in Japan reads the ministry's 不動産情報ライブラリ (MLIT) with a key of your own (`RESEARCHZOSHO_REINFOLIB_KEY`, free
+by application on reinfolib.mlit.go.jp, about five working days; its terms, read 2026-11-05, set no numeric limit, ask that calls be
+spaced out and the key kept secret, and that a service using the API show the sentence「このサービスは、国土交通省の不動産情報ライブラリのAPI機能
+を使用していますが、提供情報の最新性、正確性、完全性等が保証されたものではありません」, which every card carries): the prices paid for homes of
+the kind in the same district over the latest four quarters with records (不動産取引価格情報, fetched once per municipality and quarter and
+kept with the library), with the middle price per ㎡ and the home's own asking price per ㎡ against it; the nearest 地価公示 point with its
+price per ㎡, its change on the year and its station; and whether the home's point lies in a flood inundation area and how deep, a sediment
+disaster warning area or a disaster danger zone. Where the home is comes from the Geospatial Information Authority's address search, which
+needs no key. Without the key the search reads the listings alone and says so in one sentence. `researchzosho search status` counts the
+ministry's calls as "reinfolib".
+
+The records of any address, with no search started: `researchzosho home records "108 Example St, Cambridge, MA"` prints the
+line that says which source answered, the sales or values and the permits on the street, and the tract's figures when a
+Census key is set; the Home page has the same form, and a program asks `library_records`.
+
+## 26e. How the Librarian decides
+
+Every turn of the chat and every step of a research run is a decision the model makes over one table of instruments:
+search in a place, open an address, look at a video's frames, the candidates for a video and their sift, the pool of a
+class of patents with its abstracts and claims, a home's records, the home search, an employer's board,
+the library's dossier, who is who in the family, the shelf, a note, the write-up, and a question for you. Each
+instrument's words say what it answers, when it pays over the others and what it costs, so the model can weigh a
+look at three videos against a look at thirty. The old tool names still work beside the grouped ones.
+
+A decision has a weight. Light ones, which hit to open next, whether a step is done, go to the model that does the
+reading. Heavy ones, the plan, the critic's gaps, the write-up, and whether a side matter a step met is pursued now or
+filed for later, go to the judge when a second model is set (`RESEARCHZOSHO_JUDGE_DRIVE` and `RESEARCHZOSHO_JUDGE_MODEL`),
+so a hosted model can take the heavy decisions while a model on your own computer does the reading. Each seat's words
+follow its own model's size: a small model gets a short table and complete calls to copy; a large one gets the full
+table with the reasons.
+
+A run may grow a sub-goal: when it meets a legal matter, a patent, a person or a home that bears on the ask, a worker
+may pursue it as a sub-question of the next round under that goal's rules, or file it as an open question for later,
+and the report's open questions say which. A claim about a law, a patent or the scientific record is written by that
+subject's convention whatever the goal: a law with its jurisdiction and the date it stood, a patent with its number and
+office, a paper with its DOI; a side matter pursued mid-run brings its convention with it. A question only you can answer is filed with the report too; a run does
+not stop to ask. Every decision is in the run's trace with the model's reasons.
+
+A question of prior art goes the same way as a video you remember: the model does not search, the program
+enumerates. The model gives the classification, the years and the invention's features; `patents` takes every
+publication of the class from the patent office's own records and orders the families by the features their
+titles and abstracts name; `patent_abstracts` reads the abstracts; `patent_claims` reads the claims from the
+office's full text, or from Google Patents' copy of the record where the office holds none, and quotes each
+feature's closest claim with where it was read. These three are on the table of a run about patents
+and of the chat, and the patent searches that rank are off the table of such a run.
+
+The words every table carries say four more things, learned from a bench of a hundred decisions: a result already in hand
+is used, not fetched again; what the library has read is searched on the shelves, and YouTube is the videos place; a choice
+is a call, never a sentence about what to do next; and a video you remember but cannot name begins with the candidate
+search, which the model gives the thing's name in each language and what you remember in your own words, never a search, goes on with the sift, which
+judges every candidate's thumbnail and first sheet and hands back the survivors, and then with a look, sparse, at the
+first five survivors and then the next five, so the answer says which second each remembered thing was seen at.
+A model that answers in words where a call was asked for, or asks a question without words, is asked once more and then
+taken at its word.
 
 ## 27. Not yet available
 

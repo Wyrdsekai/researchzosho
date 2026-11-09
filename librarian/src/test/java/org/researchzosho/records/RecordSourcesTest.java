@@ -191,6 +191,10 @@ class RecordSourcesTest {
         assertEquals("\"Artur Elis\"", heard.get(1).query(), "what is recorded as not found is the name, not the name with two more words");
         assertTrue(heard.get(1).hits().isEmpty());
         assertEquals("inventor:\"Jokichi Takamine\"", RecordSearchTool.firstTerm("inventor:\"Jokichi Takamine\""));
+        assertEquals("ti=faltbar and ti=Hundenapf and pd within \"2012 2022\"", RecordSearchTool.firstTerm("ti=faltbar and ti=Hundenapf and pd within \"2012 2022\""), "an office's own query is left whole: its quoted phrase is a date range");
+        assertEquals("cpc=A01K5/01", RecordSearchTool.firstTerm(" cpc=A01K5/01 "));
+        assertEquals("pd>=2012", RecordSearchTool.firstTerm("pd>=2012"));
+        assertEquals("\"Jokichi Takamine\"", RecordSearchTool.firstTerm("\"Jokichi Takamine\" adrenaline"), "an ordinary query still falls back to its first quoted phrase");
     }
 
     @Test

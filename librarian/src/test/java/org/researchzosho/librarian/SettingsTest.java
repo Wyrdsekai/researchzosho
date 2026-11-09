@@ -19,6 +19,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Locale;
 /** The settings surface (0.5.5): one list, read and written through the protocol by the command, the page, the chat and a program. */
 class SettingsTest {
 
@@ -66,7 +67,7 @@ class SettingsTest {
 
     @Test
     void theMarketIsTheCountryThePersonBuysInUpperCaseOrTheMachinesOwn() throws Exception {
-        String own = java.util.Locale.getDefault().getCountry();
+        String own = Locale.getDefault().getCountry();
         assertEquals(own != null && own.matches("^[A-Z]{2}$") ? own : "US", Settings.market(), "unset: this machine's country");
         Settings.set(Settings.named("market"), "jp");
         assertEquals("JP", Config.get("RESEARCHZOSHO_MARKET")); assertEquals("JP", Settings.market());

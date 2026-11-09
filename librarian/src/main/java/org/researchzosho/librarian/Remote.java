@@ -4,6 +4,7 @@ import org.researchzosho.Config;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.BufferedReader;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.net.URI;
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -21,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -39,13 +42,55 @@ public final class Remote {
     static final ObjectMapper M = new ObjectMapper();
     public static final String TOKEN = "RESEARCHZOSHO_TOKEN";
     static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).followRedirects(HttpClient.Redirect.NORMAL).build();
-    public static final String VERBS = "ask, search, get, read, established, research, jobs, status, changes, subjects, questions, map, perspectives, inbox and mcp";
+    public static final String VERBS = "ask, search, get, read, established, submit, help, research, jobs, status, changes, subjects, questions, map, perspectives, inbox and mcp";
 
     public static boolean connected() { String l = Config.get("RESEARCHZOSHO_LIBRARY"); return l != null && (l.strip().startsWith("http://") || l.strip().startsWith("https://")); }
     public static String address() { String l = Config.get("RESEARCHZOSHO_LIBRARY"); return l == null ? "" : l.strip().replaceAll("/+$", ""); }
 
     /** What a library answered with when it would not: its code and its sentence. */
     public static final class Refused extends IOException { public final String code; Refused(String code, String message) { super(message); this.code = code; } }
+
+    /** Where a verb's protocol call goes: over the wire to the library connected to, or into the library on this computer. */
+    interface Caller {
+        JsonNode post(String route, ObjectNode body) throws IOException;
+        JsonNode get(String routeAndQuery) throws IOException;
+    }
+
+    /** The wire: the library connected to, as the token's reader. */
+    static final Caller WIRE = new Caller() {
+        @Override public JsonNode post(String route, ObjectNode body) throws IOException { return Remote.post(route, body); }
+        @Override public JsonNode get(String routeAndQuery) throws IOException { return Remote.get(routeAndQuery); }
+    };
+
+    /**
+     * The library on this computer, through the same protocol the wire speaks, as the person at the keyboard: the verbs search, get, read,
+     * established, changes, submit and help answer in the same lines whether the library is here or elsewhere (until 2026-11-07 they
+     * answered only when connected to a library elsewhere).
+     */
+    static Caller local(LibraryStore store) {
+        LibraryProtocol p = new LibraryProtocol(store);
+        return new Caller() {
+            ObjectNode as(ObjectNode body) { ObjectNode b = body.deepCopy(); b.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli"); return b; }
+            @Override public JsonNode post(String route, ObjectNode body) throws IOException {
+                try {
+                    return switch (route) {
+                        case "ask" -> p.ask(as(body)); case "search" -> p.search(as(body)); case "get" -> p.get(as(body)); case "read" -> p.read(as(body));
+                        case "established" -> p.established(as(body)); case "changes" -> p.changes(as(body)); case "submit" -> p.submit(as(body)); case "help" -> p.help(as(body));
+                        case "research" -> p.research(as(body)); case "subjects" -> p.subjects(as(body)); case "frontier" -> p.frontier(as(body)); case "map" -> p.map(as(body));
+                        case "perspectives" -> p.perspectives(as(body)); case "inbox" -> p.inbox(as(body)); case "mcp" -> p.mcp(as(body));
+                        default -> throw new Refused("not_found", "This command has no call named " + route + ".");
+                    };
+                } catch (ProtocolError e) { throw new Refused(e.code, e.getMessage()); }
+            }
+            @Override public JsonNode get(String routeAndQuery) throws IOException {
+                try {
+                    if (routeAndQuery.equals("status")) return p.status(as(M.createObjectNode()));
+                    if (routeAndQuery.startsWith("jobs/")) return p.job(as(M.createObjectNode().put("job_id", URLDecoder.decode(routeAndQuery.substring(5), StandardCharsets.UTF_8)))).path("job");
+                    throw new Refused("not_found", "This command has no call named " + routeAndQuery + ".");
+                } catch (ProtocolError e) { throw new Refused(e.code, e.getMessage()); }
+            }
+        };
+    }
 
     static JsonNode post(String route, ObjectNode body) throws IOException {
         body.putObject("patron").put("runtime", "cli");   // the did comes from the token, never asserted here
@@ -97,12 +142,15 @@ public final class Remote {
     static String rest(String[] args, int from) { return args.length > from ? String.join(" ", Arrays.asList(args).subList(from, args.length)).strip() : ""; }
 
     /** The connected verbs; everything else is refused with what to run on the library's computer. */
-    public static int run(String[] args, PrintStream out, PrintStream err) {
+    public static int run(String[] args, PrintStream out, PrintStream err) { return run(args, out, err, WIRE); }
+
+    /** The verbs, each a protocol call through {@code c} and its answer in plain lines. */
+    public static int run(String[] args, PrintStream out, PrintStream err, Caller c) {
         String verb = args.length > 1 ? args[1] : "";
         try {
             switch (verb) {
                 case "status" -> {
-                    JsonNode s = get("status");
+                    JsonNode s = c.get("status");
                     out.println("library " + s.path("library_name").asText("") + " at " + address() + (s.path("version").asText("").isEmpty() ? "" : "  (ResearchZosho " + s.path("version").asText() + ")"));
                     out.println("  " + counts(s) + ", " + s.path("counts").path("subject").asInt() + " subjects" + (s.path("last_updated").asText("").isEmpty() ? "" : "; last updated " + s.path("last_updated").asText()));
                     return 0;
@@ -110,7 +158,7 @@ public final class Remote {
                 case "ask" -> {
                     String q = rest(args, 2);
                     if (q.isEmpty()) { err.println("usage: researchzosho ask <question…>"); return 2; }
-                    JsonNode r = post("ask", M.createObjectNode().put("question", q).put("k", 6));
+                    JsonNode r = c.post("ask", M.createObjectNode().put("question", q).put("k", 6));
                     if (r.path("holds_nothing").asBoolean(false) || r.path("entries").isEmpty()) {
                         out.println("The library holds nothing on this yet." + (r.path("filed_as_demand").asBoolean(false) ? " The question is filed as an open question; researchzosho research ask \"" + q + "\" sends a run after it." : ""));
                         return 0;
@@ -121,7 +169,7 @@ public final class Remote {
                 case "search" -> {
                     String q = rest(args, 2);
                     if (q.isEmpty()) { err.println("usage: researchzosho search <words…>"); return 2; }
-                    JsonNode r = post("search", M.createObjectNode().put("query", q).put("k", 10));
+                    JsonNode r = c.post("search", M.createObjectNode().put("query", q).put("k", 10));
                     if (r.path("hits").isEmpty()) { out.println("Nothing in the library matches \"" + q + "\"."); return 0; }
                     for (JsonNode h : r.path("hits")) out.println("- [" + h.path("id").asText() + "] " + h.path("title").asText() + " (" + h.path("kind").asText() + ", " + h.path("state").asText() + ")" + (h.path("snippet").asText("").isEmpty() ? "" : ": " + h.path("snippet").asText().replace('\n', ' ')));
                     return 0;
@@ -129,7 +177,7 @@ public final class Remote {
                 case "get" -> {
                     String id = rest(args, 2);
                     if (id.isEmpty()) { err.println("usage: researchzosho get <id>"); return 2; }
-                    JsonNode r = post("get", M.createObjectNode().put("id", id));
+                    JsonNode r = c.post("get", M.createObjectNode().put("id", id));
                     JsonNode e = r.path("entry").isObject() ? r.path("entry") : r;
                     out.println(e.path("title").asText("") + "  [" + e.path("id").asText(id) + "]" + (e.path("state").asText("").isEmpty() ? "" : "  " + e.path("state").asText() + (e.path("confidence").asText("").isEmpty() ? "" : ", " + e.path("confidence").asText())));
                     String text = e.path("text").asText(e.path("body").asText(""));
@@ -138,17 +186,47 @@ public final class Remote {
                     return 0;
                 }
                 case "read" -> {
-                    String locator = rest(args, 2);
-                    if (locator.isEmpty()) { err.println("usage: researchzosho read <address or id>"); return 2; }
-                    JsonNode r = post("read", M.createObjectNode().put("locator", locator).put("max_chars", 20_000));
+                    List<String> words = new ArrayList<>(); String in = "";
+                    for (int i = 2; i < args.length; i++) { if (args[i].equals("--in") && i + 1 < args.length) in = args[++i]; else words.add(args[i]); }
+                    String locator = String.join(" ", words).strip();
+                    if (locator.isEmpty()) { err.println("usage: researchzosho read <address or id> [--in <language>]   (--in: a report read in that language, translated by the model and kept)"); return 2; }
+                    if (!in.isEmpty()) {   // a report in another language: the translation the library keeps when current, else made now by its model
+                        JsonNode r = c.post("get", M.createObjectNode().put("id", locator).put("in", in));
+                        JsonNode e = r.path("entry").isObject() ? r.path("entry") : r;
+                        out.println(e.path("title").asText("") + "  [" + e.path("id").asText(locator) + "]" + (e.path("read_in").asText("").isEmpty() ? "" : "  read in " + ReadIn.name(e.path("read_in").asText()) + (e.path("written_in").asText("").isEmpty() || e.path("written_in").asText().equals(e.path("read_in").asText()) ? "" : ", written in " + ReadIn.name(e.path("written_in").asText()))));
+                        out.println(e.path("body").asText(e.path("text").asText("")));
+                        return 0;
+                    }
+                    JsonNode r = c.post("read", M.createObjectNode().put("locator", locator).put("max_chars", 20_000));
                     out.println(r.path("title").asText("") + "  (" + r.path("locator").asText(locator) + (r.path("truncated").asBoolean(false) ? ", the first " + r.path("chars").asInt() + " characters" : "") + ")");
                     out.println(r.path("text").asText(""));
+                    return 0;
+                }
+                case "submit" -> {
+                    // a claim of the person's own, filed as a draft with its sources: it waits in the inbox like a run's claims
+                    List<String> words = new ArrayList<>(), sources = new ArrayList<>(); String why = "";
+                    for (int i = 2; i < args.length; i++) { if (args[i].equals("--source") && i + 1 < args.length) sources.add(args[++i]); else if (args[i].equals("--why") && i + 1 < args.length) why = args[++i]; else words.add(args[i]); }
+                    String claim = String.join(" ", words).strip();
+                    if (claim.isEmpty() || sources.isEmpty()) { err.println("usage: researchzosho submit \"<the claim, one to three sentences>\" --source <url or locator> [--source …] [--why <why the sources back it>]"); return 2; }
+                    ObjectNode a = M.createObjectNode().put("claim", claim); ArrayNode ss = a.putArray("sources");
+                    for (String src : sources) { if (why.isEmpty()) ss.add(src); else ss.addObject().put("locator", src).put("why", why); }
+                    JsonNode r = c.post("submit", a);
+                    out.println("Filed as a draft: [" + r.path("id").asText() + "]. It waits in the inbox for a decision; researchzosho inbox lists it.");
+                    return 0;
+                }
+                case "help" -> {
+                    // the program's own documentation and its live state, as the chat's library_help answers them
+                    String q = rest(args, 2);
+                    if (q.isEmpty()) { err.println("usage: researchzosho help <words…>   (looks them up in the program's own documentation)"); return 2; }
+                    JsonNode r = c.post("help", M.createObjectNode().put("question", q));
+                    out.println(r.path("summary").asText(""));
+                    for (JsonNode s : r.path("sections")) { out.println(); out.println("From " + s.path("doc").asText() + ", " + s.path("heading").asText() + ":"); out.println(s.path("text").asText("")); }
                     return 0;
                 }
                 case "established" -> {
                     String claim = rest(args, 2);
                     if (claim.isEmpty()) { err.println("usage: researchzosho established <claim…>"); return 2; }
-                    JsonNode r = post("established", M.createObjectNode().put("claim", claim).put("k", 6));
+                    JsonNode r = c.post("established", M.createObjectNode().put("claim", claim).put("k", 6));
                     out.println("verdict: " + r.path("verdict").asText("") + "  (accepted " + r.path("accepted").size() + ", disputed " + r.path("disputes").size() + ", unreviewed " + r.path("unreviewed").size() + ")");
                     for (JsonNode e : r.path("accepted")) out.println("  " + entryLine(e));
                     return 0;
@@ -171,21 +249,21 @@ public final class Remote {
                     String q = String.join(" ", words).strip();
                     if (q.isEmpty()) { err.println("usage: researchzosho research ask \"<question…>\""); return 2; }
                     a.put("question", q); a.put("mode", mode);
-                    JsonNode r = post("research", a);
+                    JsonNode r = c.post("research", a);
                     out.println("Research run " + r.path("job_id").asText() + " is " + r.path("state").asText("queued") + (r.path("queued_ahead").asInt(0) > 0 ? ", behind " + r.path("queued_ahead").asInt() : "") + " at " + address() + ". researchzosho jobs " + r.path("job_id").asText() + " follows it; the report lands there.");
                     return 0;
                 }
                 case "jobs" -> {
                     String id = rest(args, 2);
                     if (!id.isEmpty()) {
-                        JsonNode j = get("jobs/" + URLEncoder.encode(id, StandardCharsets.UTF_8));
+                        JsonNode j = c.get("jobs/" + URLEncoder.encode(id, StandardCharsets.UTF_8));
                         out.println(j.path("job_id").asText(id) + "  " + j.path("state").asText() + "  " + j.path("kind").asText());
                         if (j.hasNonNull("question")) out.println("  question: " + j.path("question").asText());
                         if (j.hasNonNull("investigation")) out.println("  report: " + j.path("investigation").asText());
                         if (j.hasNonNull("result") && !j.path("result").asText().isBlank()) out.println("  " + (j.path("is_error").asBoolean(false) ? "error: " : "result: ") + j.path("result").asText());
                         return 0;
                     }
-                    JsonNode r = get("jobs?limit=10");
+                    JsonNode r = c.get("jobs?limit=10");
                     out.println("research runs at " + address() + ": " + r.path("running_ids").size() + " running, " + r.path("queued").asInt(0) + " queued");
                     for (JsonNode j : r.path("active")) out.println("  " + jobRow(j));
                     if (r.path("finished").size() > 0) { out.println("finished (newest first):"); for (JsonNode j : r.path("finished")) out.println("  " + jobRow(j)); }
@@ -194,25 +272,25 @@ public final class Remote {
                 case "changes" -> {
                     String since = "0"; int limit = 30;
                     for (int i = 2; i + 1 < args.length; i++) { if (args[i].equals("--since")) since = args[++i]; else if (args[i].equals("--limit")) limit = Integer.parseInt(args[++i]); }
-                    JsonNode r = post("changes", M.createObjectNode().put("since", since).put("limit", limit));
+                    JsonNode r = c.post("changes", M.createObjectNode().put("since", since).put("limit", limit));
                     if (r.path("changes").isEmpty()) { out.println("No changes" + (since.equals("0") ? " yet." : " since " + since + ".")); return 0; }
-                    for (JsonNode c : r.path("changes")) out.println(c.path("seq").asText() + "  " + c.path("at").asText() + "  " + c.path("kind").asText() + " " + c.path("id").asText() + "  " + c.path("event").asText() + (c.path("detail").asText("").isEmpty() ? "" : " — " + c.path("detail").asText()));
+                    for (JsonNode ch : r.path("changes")) out.println(ch.path("seq").asText() + "  " + ch.path("at").asText() + "  " + ch.path("kind").asText() + " " + ch.path("id").asText() + "  " + ch.path("event").asText() + (ch.path("detail").asText("").isEmpty() ? "" : " — " + ch.path("detail").asText()));
                     if (r.path("more").asBoolean(false)) out.println("more: researchzosho changes --since " + r.path("next_cursor").asText());
                     return 0;
                 }
                 case "subjects" -> {
-                    JsonNode r = post("subjects", M.createObjectNode());
+                    JsonNode r = c.post("subjects", M.createObjectNode());
                     if (r.path("subjects").isEmpty()) { out.println("No subjects yet."); return 0; }
                     for (JsonNode s : r.path("subjects")) out.println("- " + s.path("label").asText(s.path("id").asText()) + (s.path("count").asInt(0) > 0 ? " (" + s.path("count").asInt() + ")" : ""));
                     return 0;
                 }
                 case "questions" -> {
                     if (args.length > 3 && args[2].equals("add")) {
-                        JsonNode r = post("frontier", M.createObjectNode().put("op", "add").put("question", rest(args, 3)));
+                        JsonNode r = c.post("frontier", M.createObjectNode().put("op", "add").put("question", rest(args, 3)));
                         out.println(r.path("already").asBoolean(false) ? "That question is already open there." : "Filed as an open question at " + address() + ".");
                         return 0;
                     }
-                    JsonNode r = post("frontier", M.createObjectNode().put("op", "list"));
+                    JsonNode r = c.post("frontier", M.createObjectNode().put("op", "list"));
                     if (r.path("questions").isEmpty()) { out.println("No open questions."); return 0; }
                     int n = 0; for (JsonNode q : r.path("questions")) out.println((++n) + ". " + (q.isTextual() ? q.asText() : q.path("question").asText(q.path("text").asText())));
                     return 0;
@@ -220,7 +298,7 @@ public final class Remote {
                 case "map" -> {
                     String focus = rest(args, 2);
                     if (focus.isEmpty()) { err.println("usage: researchzosho map <name|id>"); return 2; }
-                    JsonNode r = post("map", M.createObjectNode().put("focus", focus).put("depth", 1).put("k", 25));
+                    JsonNode r = c.post("map", M.createObjectNode().put("focus", focus).put("depth", 1).put("k", 25));
                     if (r.path("holds_nothing").asBoolean(false)) { out.println("The map has nothing around \"" + focus + "\"."); for (JsonNode s : r.path("suggestions")) out.println("  perhaps: " + (s.isTextual() ? s.asText() : s.path("label").asText())); return 0; }
                     out.println("around " + r.path("focus").asText(focus) + ":");
                     for (JsonNode e : r.path("edges")) out.println("  " + e.path("from").asText() + " — " + e.path("predicate").asText() + " — " + e.path("to").asText() + (e.path("disputed").asBoolean(false) ? "  (disputed)" : ""));
@@ -230,18 +308,21 @@ public final class Remote {
                 case "perspectives" -> {
                     String q = rest(args, 2);
                     if (q.isEmpty()) { err.println("usage: researchzosho perspectives <question…>"); return 2; }
-                    JsonNode r = post("perspectives", M.createObjectNode().put("question", q));
+                    JsonNode r = c.post("perspectives", M.createObjectNode().put("question", q));
                     printAny(r, out);
                     return 0;
                 }
                 case "inbox" -> {
-                    JsonNode r = post("inbox", M.createObjectNode().put("op", "list"));
+                    JsonNode r = c.post("inbox", M.createObjectNode().put("op", "list"));
                     if (r.path("items").isEmpty()) { out.println("No claims are waiting at " + address() + "."); return 0; }
                     for (JsonNode it : r.path("items")) out.println("- [" + it.path("id").asText() + "] " + it.path("title").asText() + "  (" + it.path("state").asText() + ")");
                     out.println("Decide them on the library's Inbox page, or on its computer.");
                     return 0;
                 }
-                case "mcp" -> { proxyStdio(); return 0; }
+                case "mcp" -> {
+                    if (args.length > 2 && McpSetup.VERBS.contains(args[2].toLowerCase(Locale.ROOT))) return McpSetup.cli(args, a -> (ObjectNode) c.post("mcp", a), out, err);   // the keeper's MCP servers of the library connected to, as its key allows
+                    proxyStdio(); return 0;
+                }
                 default -> {
                     err.println((verb.isEmpty() ? "Which command?" : "`researchzosho " + verb + "` works on the computer where the library lives (" + address() + "), not from here: run it there.")
                             + " From here: " + VERBS + ". researchzosho connect off returns to this computer's own library.");

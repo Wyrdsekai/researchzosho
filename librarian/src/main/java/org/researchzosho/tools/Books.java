@@ -66,8 +66,12 @@ public final class Books {
     static final String FIELDS = "key,title,author_name,first_publish_year,edition_count,ratings_count,ratings_average,subject,place,time,language,isbn,publisher,number_of_pages_median";
 
     /** Open Library by words ({@code q}), by subject heading, by author, or any of them together; {@code language} as ISO 639-2 (eng, jpn). */
-    public static List<Book> openLibrary(String q, String subject, String author, String language, int limit, String sort) throws IOException {
+    public static List<Book> openLibrary(String q, String subject, String author, String language, int limit, String sort) throws IOException { return openLibrary(q, subject, author, language, limit, sort, 1); }
+
+    /** The same, {@code page} pages on through what the catalogue holds (its first page is 1): a subject heading is read whole by paging, never by its first fifty. */
+    public static List<Book> openLibrary(String q, String subject, String author, String language, int limit, String sort, int page) throws IOException {
         StringBuilder u = new StringBuilder(BASE.get("openlibrary") + "/search.json?fields=" + FIELDS + "&limit=" + Math.max(1, Math.min(limit, 50)));
+        if (page > 1) u.append("&page=").append(page);
         if (q != null && !q.isBlank()) u.append("&q=").append(enc(q));
         if (subject != null && !subject.isBlank()) u.append("&subject=").append(enc(subject));
         if (author != null && !author.isBlank()) u.append("&author=").append(enc(author));

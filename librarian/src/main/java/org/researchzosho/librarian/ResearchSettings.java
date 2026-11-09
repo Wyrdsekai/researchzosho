@@ -90,6 +90,7 @@ public final class ResearchSettings {
         private final Consumer<String> log;
         private final List<Long> first = new ArrayList<>();     // per-token costs (µs per weighted token) of the first turns
         private final ArrayDeque<Long> wall = new ArrayDeque<>();   // the last turns' wall times, for the wrap-up estimate
+        private final ArrayDeque<Long> shortWall = new ArrayDeque<>();   // the last short calls' wall times (a decision, a check: one classify call), for the write-up's checks
         private final double[] recent = new double[3];
         private int seen = 0;
         private double baseline = 0;
@@ -120,6 +121,15 @@ public final class ResearchSettings {
         }
         /** Wall-time form, for a caller that knows no token count: cost per a nominal 1000 tokens. */
         public void observe(long ms) { observe(ms, 1000); }
+
+        /** One SHORT call took {@code ms}: a decision or a check answered in a few dozen tokens with the thinking off (the plan's, the critic's, the topic check's). Not a turn: it does not move the lanes or the slow judgement. */
+        public synchronized void observeShort(long ms) { shortWall.addLast(Math.max(0, ms)); if (shortWall.size() > 40) shortWall.removeFirst(); }
+
+        /** A short call now, ms: the median of the last forty observed; 0 when none was. */
+        public synchronized long shortCallMs() {
+            if (shortWall.isEmpty()) return 0;
+            return (long) median(new ArrayList<>(shortWall));
+        }
 
         public synchronized boolean slow() { return slow; }
         /** The run's typical turn now, ms: the median of its last forty turns (the first five are the cheapest — measured, J-0010). */

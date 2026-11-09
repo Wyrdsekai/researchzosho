@@ -162,8 +162,35 @@ public final class Fields {
         List<Profile> out = new ArrayList<>();
         for (Profile p : enabled(store)) {
             boolean asked = ask.fields().stream().anyMatch(f -> f.equalsIgnoreCase(p.name()));
-            if (asked || (!p.joinsOnlyWhenAsked() && p.applies(ask.question()))) out.add(p);
+            if (asked || (!p.joinsOnlyWhenAsked() && p.applies(ask.question())) || byGoal(p, ask.question())) out.add(p);
         }
+        return out;
+    }
+
+    /**
+     * Whether the goal a field backs says the question is its own ({@link Goal#appliesTo}), so the field's answer rules join the run: a
+     * field that acts only on its own work, the home and the career searches, still has rules for a run that touches homes or jobs. A
+     * module's goal never joins by words ({@link Goal#joinsByWords}).
+     */
+    static boolean byGoal(Profile p, String question) {
+        Goal g = Goals.of(p);
+        return g != null && g.joinsByWords() && p.joinsOnlyWhenAsked() && g.appliesTo(question).yes();
+    }
+
+    /** The goals and the conventions a run carries, by the ask's fields and the question's words: for the brain, the log and the report. */
+    public static List<Goal> goalsForRun(LibraryStore store, Researcher.Ask ask) {
+        List<Goal> out = new ArrayList<>();
+        for (String n : ask.goals()) { Goal g = Goals.named(n); if (g != null && !g.name().equals("generic") && !out.contains(g)) out.add(g); }   // the goals the asker named come first
+        if (store != null) for (Profile p : forRun(store, ask)) { Goal g = Goals.of(p); if (g != null && !out.contains(g)) out.add(g); }   // a run built without a library has no fields
+        for (Goal g : Goals.forQuestion(ask.question())) if (!g.name().equals("generic") && g.joinsByWords() && !out.contains(g)) out.add(g);
+        if (out.isEmpty()) out.add(Goals.generic());
+        return out;
+    }
+
+    public static List<Convention> conventionsForRun(LibraryStore store, Researcher.Ask ask) {
+        List<Convention> out = new ArrayList<>();
+        for (Profile p : forRun(store, ask)) for (Convention c : Conventions.known()) if (c.profiles().contains(p) && !out.contains(c)) out.add(c);
+        for (Convention c : Conventions.forQuestion(ask.question())) if (!out.contains(c)) out.add(c);
         return out;
     }
 

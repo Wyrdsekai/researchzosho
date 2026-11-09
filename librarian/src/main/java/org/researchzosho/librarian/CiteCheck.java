@@ -25,6 +25,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.TreeSet;
+import java.util.Set;
 import org.researchzosho.Config;
 import org.researchzosho.tools.VideoText;
 import org.researchzosho.drive.Declined;
@@ -55,7 +56,7 @@ public final class CiteCheck {
         return DriveClient.hostedApi(d) || Anthropic.is(d) || OpenAI.is(d) || Bedrock.is(d) ? 24_000 : 6_000;
     }
     /** Abbreviations whose period ends no sentence. */
-    private static final java.util.Set<String> ABBREV = java.util.Set.of("al", "e.g", "i.e", "cf", "vs", "etc", "no", "pp", "fig", "vol", "ca", "approx");
+    private static final Set<String> ABBREV = Set.of("al", "e.g", "i.e", "cf", "vs", "etc", "no", "pp", "fig", "vol", "ca", "approx");
 
     /**
      * The sentences of a text, each with its citation parentheticals — split on . ! ? at paren depth zero followed by
@@ -219,10 +220,10 @@ public final class CiteCheck {
             }
             if (hits == 1) return only;   // several references on one host: the words below must decide
         }
-        java.util.Set<String> words = new HashSet<>();
+        Set<String> words = new HashSet<>();
         Matcher w = Pattern.compile("[\\p{L}]{4,}|\\b(1[5-9]\\d\\d|20\\d\\d)\\b").matcher(cite.toLowerCase(Locale.ROOT));
         while (w.find()) words.add(w.group());
-        words.removeAll(java.util.Set.of("et al", "and", "the", "with"));
+        words.removeAll(Set.of("et al", "and", "the", "with"));
         // a token that most references share ("radiocarbon" across a radiocarbon question) identifies nothing
         Map<String, Integer> df = new HashMap<>();
         for (Ref r : refs) for (String t : r.tokens().words()) df.merge(t, 1, Integer::sum);
@@ -258,10 +259,10 @@ public final class CiteCheck {
      * unsupported for claims it never attributed to it (a test box, I-0002, 2026-09-11). A clause found unsupported is
      * marked right after its citation.
      */
-    public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget) { return run(store, text, refs, judge, budget, java.util.Set.of()); }
+    public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget) { return run(store, text, refs, judge, budget, Set.of()); }
 
     /** {@code unread}: the reference numbers no worker noted or read this run (the writer's own URLs); only those are marked "not read". */
-    public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget, java.util.Set<Integer> unread) {
+    public static Outcome run(LibraryStore store, String text, List<Ref> refs, Researcher.Drive judge, Researcher.Budget budget, Set<Integer> unread) {
         List<String> problems = new ArrayList<>();
         int checked = 0, supported = 0, unsupported = 0, unmapped = 0, mechanical = 0, overruled = 0, unretrieved = 0;
         Map<String, String> marked = new LinkedHashMap<>();   // sentence → the sentence with its markers
@@ -442,7 +443,7 @@ public final class CiteCheck {
         while (w.find()) words.add(w.group());
         String lower = source.toLowerCase(Locale.ROOT);
         StringBuilder sb = new StringBuilder(source.substring(0, 800)).append("\n…\n");
-        java.util.Set<Integer> starts = new TreeSet<>();
+        Set<Integer> starts = new TreeSet<>();
         for (String word : words) {
             int i = lower.indexOf(word);
             int hits = 0;

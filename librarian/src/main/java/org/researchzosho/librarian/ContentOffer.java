@@ -158,7 +158,7 @@ public final class ContentOffer {
 
     /** The question a person who can answer is asked, with no as the answer Enter gives. {@code runs}: how many runs it is for. */
     public static String question(Collection<String> needs, int runs) {
-        return offer(needs) + (runs > 1 ? " Let it in for these " + runs + " questions? (y/N)" : " Let it in for this question? (y/N)");
+        return offer(needs) + " " + (runs > 1 ? Chrome.now().t("Let it in for these {0} questions? (y/N)", runs) : Chrome.now().t("Let it in for this question? (y/N)"));
     }
 
     /** For the command line when nobody can answer: the run goes with the material left out, and the command that lets it in. */

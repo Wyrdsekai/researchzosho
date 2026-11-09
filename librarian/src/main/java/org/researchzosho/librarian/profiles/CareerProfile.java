@@ -1,6 +1,11 @@
 package org.researchzosho.librarian.profiles;
 
+import org.researchzosho.librarian.Chrome;
 import org.researchzosho.librarian.Career;
+import java.util.ArrayList;
+import org.researchzosho.librarian.VideoRecallPage;
+import org.researchzosho.librarian.CareerSources;
+import org.researchzosho.librarian.CareerPortals;
 import org.researchzosho.librarian.CareerInterview;
 import org.researchzosho.librarian.CareerPage;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -30,11 +35,14 @@ import java.util.Map;
  * The career field (docs/DESIGN_CAREER.md): the side of a person looking for work. Built: their record from what they hand over, the
  * library's reading of their working life, what they want with each topic decided, a guess or open, and the interview, one question at a
  * time in either chat and all at once on the Career page. Not yet: the companies' pages, the new postings, the fit reading. The field
- * joins no research run and names no relations of its own, so an ordinary library is the same with it on or off.
+ * names no relations of its own and acts only on its own work; its answer rules join a research run that asks for jobs, by the work goal's
+ * words, so such a run lists openings from the employers' own boards with their links. An ordinary library is the same with it on or off.
  */
 public final class CareerProfile implements Profile {
 
     @Override public String name() { return "career"; }
+
+    @Override public String goalName() { return "work"; }
 
     @Override public String description() { return "a person looking for work: their working life read from a resume or a LinkedIn file, and what they want next, before any search"; }
 
@@ -83,6 +91,13 @@ public final class CareerProfile implements Profile {
                     case "keep-out" -> { if (s != null) CareerSearch.addKeepOut(store, s, form.getOrDefault("words", ""), ""); }
                     case "remove" -> { if (s != null) CareerSearch.remove(store, s, form.getOrDefault("list", ""), form.getOrDefault("words", "")); }
                     case "resettle" -> { if (s != null) CareerInterview.resettle(store, s); }
+                    case "board" -> {   // an employer's board and its openings, on their own page
+                        String employer = form.getOrDefault("employer", "").strip();
+                        if (employer.isEmpty()) throw new IllegalArgumentException("Give the employer's or institution's name.");
+                        List<String> towns = new ArrayList<>(); for (String t : form.getOrDefault("towns", "").split(",")) if (!t.isBlank()) towns.add(t.strip());
+                        CareerSources.Found f = CareerPortals.inTowns(CareerPortals.find(employer, towns, List.of(), towns), towns);
+                        return new Page(Chrome.now().t("The board of {0}", employer), "<p>" + VideoRecallPage.esc(CareerPortals.boardText(employer, f, towns)).replace("\n", "<br>") + "</p><p><a href=\"/career\">" + Chrome.now().t("Back to the Career page") + "</a></p>", false, null);
+                    }
                     case "answers" -> {
                         if (s != null) {
                             Map<String, String> byN = new LinkedHashMap<>();
@@ -92,12 +107,12 @@ public final class CareerProfile implements Profile {
                     }
                     default -> { }
                 }
-            } catch (IllegalArgumentException e) { return new Page("Career", "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career\">Back</a></p>", false, null); }
-            return new Page("Career", "", false, "/career" + (s == null ? "" : "?seeker=" + s.slug()) + (op.equals("answers") ? "#questions" : ""));
+            } catch (IllegalArgumentException e) { return new Page(Chrome.now().t("Career"), "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career\">" + Chrome.now().t("Back") + "</a></p>", false, null); }
+            return new Page(Chrome.now().t("Career"), "", false, "/career" + (s == null ? "" : "?seeker=" + s.slug()) + (op.equals("answers") ? "#questions" : ""));
         }
         String who = query.getOrDefault("seeker", "").strip();
         Career.Seeker s = who.isEmpty() ? null : Career.seeker(store, who);   // no name: the front door, the people on the shelves, even when there is only one
-        return new Page(s == null ? "Career" : s.name() + " · Career", CareerPage.body(store, s, writer), false, null);
+        return new Page(s == null ? Chrome.now().t("Career") : s.name() + " · " + Chrome.now().t("Career"), CareerPage.body(store, s, writer), false, null);
     }
 
     /** The openings list: what the last search found, and the forms that react, keep or drop a company, change the cut, and search. */
@@ -132,7 +147,7 @@ public final class CareerProfile implements Profile {
                     default -> { }
                 }
             } catch (IllegalArgumentException | IllegalStateException e) {
-                return new Page("Openings", "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career/openings?seeker=" + s.slug() + "\">Back</a></p>", false, null);
+                return new Page(Chrome.now().t("Openings"), "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career/openings?seeker=" + s.slug() + "\">" + Chrome.now().t("Back") + "</a></p>", false, null);
             }
             return new Page("Openings", "", false, "/career/openings?seeker=" + s.slug() + anchor);
         }
@@ -140,7 +155,7 @@ public final class CareerProfile implements Profile {
         if (s == null) return new Page("Openings", "", false, "/career");
         String body = CareerOpeningsPage.body(store, s, writer, query.getOrDefault("run", ""));   // a past search by its record, else the openings as they stand
         if (writer) CareerWatch.looked(store, s);   // what arrived is shown once more now, and is no longer new after
-        return new Page(s.name() + " · Openings", body, false, null);
+        return new Page(s.name() + " · " + Chrome.now().t("Openings"), body, false, null);
     }
 
     /** The companies of the place: what the public records give, the model's reading of each against the wants, and the person's reactions. */
@@ -158,13 +173,13 @@ public final class CareerProfile implements Profile {
                     default -> { }
                 }
             } catch (IllegalArgumentException | IllegalStateException e) {
-                return new Page("Companies", "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career/companies?seeker=" + s.slug() + "\">Back</a></p>", false, null);
+                return new Page(Chrome.now().t("Companies"), "<p>" + e.getMessage().replace("&", "&amp;").replace("<", "&lt;") + "</p><p><a href=\"/career/companies?seeker=" + s.slug() + "\">" + Chrome.now().t("Back") + "</a></p>", false, null);
             }
             return new Page("Companies", "", false, "/career/companies?seeker=" + s.slug());
         }
         Career.Seeker s = Career.seeker(store, query.getOrDefault("seeker", ""));
         if (s == null) return new Page("Companies", "", false, "/career");
-        return new Page(s.name() + " · Companies", CareerCompaniesPage.body(store, s, writer), false, null);
+        return new Page(s.name() + " · " + Chrome.now().t("Companies"), CareerCompaniesPage.body(store, s, writer), false, null);
     }
 
     /** At the terminal: the reply printed, after a word that the slow ones take a while. */
@@ -306,6 +321,29 @@ public final class CareerProfile implements Profile {
     }
 
     private static void say(String s) { System.out.println("  " + s); }
+
+    /** The answer rules for a run that asks for jobs (DESIGN_BRAIN §5): openings read from the employers' own boards, each with its link. */
+    @Override public String planRules() {
+        return "This is a question about work: openings, employers or boards. First restate what the person asked for as the cut: the titles or the "
+                + "kind of work, the place and whether remote counts, the field, the level, the pay when given, and the employers to keep out. Then one "
+                + "sub-question finds the employers whose own boards post such openings, their careers pages, the boards of their field, the public job "
+                + "feeds; and one sub-question per employer, eight at most, reads its board for the openings that fit: the title, the place, remote or "
+                + "not, the date posted and the posting's own address. A page about a company is never an opening.";
+    }
+
+    @Override public String criticRules() {
+        return "For a question about work the evidence is enough when every opening named came from the employer's own board or posting read in this "
+                + "run, with its title, its place, the date it was posted and the posting's address; an opening known only from an aggregator's snippet is "
+                + "dropped, not kept with a guess. A gap worth another search names a part of the cut no opening was checked against, a place or a field "
+                + "the person named that was not searched, or an employer the person named whose board was not read.";
+    }
+
+    @Override public String writerRules() {
+        return "Open with \"as of\" and today's date, the place and the cut as restated. Then the openings that fit, best first, each on its own line: "
+                + "the title linked to the posting, the employer, the place, remote or not, the date posted, where it was seen. Then the employers worth "
+                + "watching, each with a link to its board and why. Then what was set aside and why, and the boards the run could not read. Every opening "
+                + "and every employer named carries its link on its line, not only in the sources.";
+    }
 
     @Override public String chatCommandHelp() { return "/career (your working life and what you want next: provide, reading, read, interview, answers, company, keep-out, search, companies, openings, like, pass, keep, drop, card, dossier, cut, more, watch, wants, want, evidence)"; }
 

@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.sun.net.httpserver.HttpExchange;
+import java.io.IOException;
 /** The forums reader against a stand-in archive and a stand-in Stack Exchange API: nothing here touches the web or the box's settings. */
 class ForumsTest {
     static final ObjectMapper M = new ObjectMapper();
@@ -65,7 +67,7 @@ class ForumsTest {
 
     @AfterEach void restore() { server.stop(0); Forums.BASE.putAll(savedBase); ProductSearchTool.REDDIT_SEARCH = savedSearch; System.setProperty("user.home", realHome); Config.invalidate(); }
 
-    static void send(com.sun.net.httpserver.HttpExchange x, int status, String body, boolean gzip) throws java.io.IOException {
+    static void send(HttpExchange x, int status, String body, boolean gzip) throws IOException {
         byte[] b = body.getBytes(StandardCharsets.UTF_8);
         if (gzip) { ByteArrayOutputStream o = new ByteArrayOutputStream(); try (GZIPOutputStream g = new GZIPOutputStream(o)) { g.write(b); } b = o.toByteArray(); x.getResponseHeaders().add("Content-Encoding", "gzip"); }
         x.getResponseHeaders().add("Content-Type", "application/json");

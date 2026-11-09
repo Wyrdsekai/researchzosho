@@ -10,6 +10,9 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.time.LocalDate;
 /** Suggestions (0.6.6): the shelves' events as candidates, classed now/next/hold, filed once, marked by the person, scored. */
 class SuggestionsTest {
     @Test
@@ -38,8 +41,8 @@ class SuggestionsTest {
         assertFalse(Frontier.looksLikeATask("高市早苗の生年月日は？") || Frontier.looksLikeATask("Who owns Acme?") || Frontier.looksLikeATask("zebra crossings on the moon in 1740") || Frontier.looksLikeATask("高市早苗について教えてください"), "a question, a bare topic and an ask to be told are wants");
         // a watch's arrivals this week
         Serials.add(store, "dossier-acme-corp", "Acme Corp", 7);
-        java.nio.file.Files.createDirectories(Serials.arrivalsFile(store).getParent());
-        java.nio.file.Files.writeString(Serials.arrivalsFile(store), "# Arrival table\n\n- " + java.time.LocalDate.now() + " [dossier-acme-corp] https://news.example/acme-round — Acme raises a round\n- 2020-01-01 [dossier-acme-corp] https://old.example/x — old\n", java.nio.charset.StandardCharsets.UTF_8);
+        Files.createDirectories(Serials.arrivalsFile(store).getParent());
+        Files.writeString(Serials.arrivalsFile(store), "# Arrival table\n\n- " + LocalDate.now() + " [dossier-acme-corp] https://news.example/acme-round — Acme raises a round\n- 2020-01-01 [dossier-acme-corp] https://old.example/x — old\n", StandardCharsets.UTF_8);
         assertTrue(Frontier.demand(store, "Who owns the widget patents of Acme Corp today?", "patron:test"));
         assertFalse(Frontier.demand(store, "Who owns the widget patents of Acme Corp today?", "patron:test"), "the same question again bumps the demand");
         List<Suggestions.Entry> open = Suggestions.refresh(store, null);

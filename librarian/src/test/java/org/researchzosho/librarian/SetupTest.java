@@ -34,6 +34,9 @@ class SetupTest {
     }
 
     static final class FakeActs implements Setup.Acts {
+        boolean scorers = false; int scorersInstalled = 0; String scorersResult = "ready";   // the scorers' step is offered only when a test turns it on
+        @Override public boolean offerScorers() { return scorers; }
+        @Override public String installScorers(PrintStream out) { scorersInstalled++; out.println("  (the scorers' install, stood in)"); return scorersResult; }
         boolean claude = true; int installed = 0; List<String> mcpArgs;
         Set<String> hosts = null;                       // null: only claude, as before
         Map<String, List<String>> registered = new LinkedHashMap<>();
@@ -54,10 +57,16 @@ class SetupTest {
     }
 
     private static String run(Path home, String script, Setup.Probe probe, FakeActs acts, boolean yes, boolean service, boolean claude) throws Exception {
+        return run(home, script, probe, acts, yes, service, claude, Map.of());
+    }
+
+    /** As above, with settings made before setup runs, as a person's config file would hold them. */
+    private static String run(Path home, String script, Setup.Probe probe, FakeActs acts, boolean yes, boolean service, boolean claude, Map<String, String> settings) throws Exception {
         String real = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
         Config.invalidate();
         try {
+            for (var e : settings.entrySet()) Config.set(e.getKey(), e.getValue());
             var out = new ByteArrayOutputStream();
             int rc = new Setup(new BufferedReader(new StringReader(script)), new PrintStream(out, true), probe, acts, yes).run(4649, service, claude);
             assertEquals(0, rc);
@@ -66,6 +75,31 @@ class SetupTest {
             System.setProperty("user.home", real);
             Config.invalidate();
         }
+    }
+
+    /** The translation's scorers are offered where they are missing, with the sizes said first, and set up on a yes; a small disk is said instead. */
+    @Test
+    void theScorersAreOfferedWithTheirSizesAndSetUpOnAYes(@TempDir Path home) throws Exception {
+        var acts = new FakeActs(); acts.scorers = true;
+        var free = TranslationScores.FREE; var metricx = TranslationScores.METRICX_INSTALL;
+        try {
+            TranslationScores.FREE = () -> 200L << 30;
+            String out = run(home, "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts, true, true, true);
+            assertTrue(out.contains("A checked translation scores every line with LaBSE and MetricX-24. Set up ") && out.contains("MetricX-24 (about 4.7 GB") && out.contains("now?"), out);
+            assertTrue(out.contains("Setting them up; this takes minutes.") && out.contains("(the scorers' install, stood in)") && out.contains("Both scorers are ready."), out);
+            assertEquals(1, acts.scorersInstalled);
+            // a disk without the room: said, not done
+            var acts2 = new FakeActs(); acts2.scorers = true;
+            TranslationScores.FREE = () -> 3L << 30;
+            String small = run(home.resolve("two"), "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts2, true, true, true);
+            assertTrue(small.contains("not set up: the disk has 3 GB free and they take about 16 GB.") && small.contains("researchzosho translate scorers install sets them up later"), small);
+            assertEquals(0, acts2.scorersInstalled);
+            // the setting off: not offered
+            var acts3 = new FakeActs(); acts3.scorers = true;
+            TranslationScores.FREE = () -> 200L << 30;
+            String off = run(home.resolve("three"), "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts3, true, true, true, Map.of("RESEARCHZOSHO_SCORERS", "off"));
+            assertFalse(off.contains("MetricX-24"), off);
+        } finally { TranslationScores.FREE = free; TranslationScores.METRICX_INSTALL = metricx; }
     }
 
     @Test

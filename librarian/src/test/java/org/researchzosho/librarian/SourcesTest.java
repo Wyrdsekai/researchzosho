@@ -13,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.nio.charset.StandardCharsets;
 /** The sources the library mines: kept once by address, read with what they yield, dry when nothing comes, off when the person says so; the same over the protocol, the page and the chat. */
 class SourcesTest {
     static final ObjectMapper M = new ObjectMapper();
@@ -73,7 +74,7 @@ class SourcesTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Serials.add(store, "keigo", "敬語 字幕 翻訳 研究", 14);
         Serials.add(store, "wine", Serials.PODCAST + "https://feeds.example.org/wine.rss", 7);
-        Files.writeString(tmp.resolve("lib/catalog/arrivals.md"), "# Arrival table\n\n- 2026-09-02 [keigo] https://a.example/1 — one\n- 2026-09-02 [keigo] https://a.example/2 — two\n- 2026-09-16 [keigo] https://a.example/3 — three\n- 2026-09-16 [wine] https://feeds.example.org/ep1.mp3 — ep\n", java.nio.charset.StandardCharsets.UTF_8);
+        Files.writeString(tmp.resolve("lib/catalog/arrivals.md"), "# Arrival table\n\n- 2026-09-02 [keigo] https://a.example/1 — one\n- 2026-09-02 [keigo] https://a.example/2 — two\n- 2026-09-16 [keigo] https://a.example/3 — three\n- 2026-09-16 [wine] https://feeds.example.org/ep1.mp3 — ep\n", StandardCharsets.UTF_8);
         List<Sources.Source> all = Sources.all(store);
         assertEquals(List.of("shelf-keigo", "shelf-wine"), all.stream().map(Sources.Source::id).toList());
         Sources.Source k = Sources.get(store, "shelf-keigo");

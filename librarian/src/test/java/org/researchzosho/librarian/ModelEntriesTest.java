@@ -12,6 +12,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.List;
 /** Named models: kept in the settings, the default one the drive and model as they stand, keys once per host, a cost from prices. */
 class ModelEntriesTest {
 
@@ -19,6 +20,28 @@ class ModelEntriesTest {
 
     @BeforeEach void isolate(@TempDir Path tmp) { home = System.getProperty("user.home"); System.setProperty("user.home", tmp.toString()); Config.invalidate(); }
     @AfterEach void restore() { System.setProperty("user.home", home); Config.invalidate(); }
+
+    /** A person's words for a model resolve to an entry by its name or its model id, letters and digits only. */
+    @Test
+    void wordsResolveToAnEntryByNameOrModel() throws Exception {
+        Config.set("RESEARCHZOSHO_DRIVE", "http://localhost:8080"); Config.set("RESEARCHZOSHO_MODEL", "qwen3.8-27b");
+        ModelEntries.put("kimi", "openrouter", "moonshotai/kimi-k3", "0.192/16/0.182", null, null, null);
+        ModelEntries.put("deepseek", "openrouter", "deepseek/deepseek-v4.1-flash", null, null, null, null);
+        ModelEntries.put("gemma26", "http://homebox:8213", "gemma-4-26b-a4b", null, null, null, null);
+        assertEquals("kimi", ModelEntries.resolve("Kimi K3").name()); assertEquals("kimi", ModelEntries.resolve("kimi").name());
+        assertEquals("deepseek", ModelEntries.resolve("DeepSeek V4.1 Flash").name()); assertEquals("deepseek", ModelEntries.resolve("deepseek/deepseek-v4.1-flash").name());
+        assertEquals("gemma26", ModelEntries.resolve("Gemma 4 26B A4B").name()); assertEquals("default", ModelEntries.resolve("default").name());
+        assertNull(ModelEntries.resolve("nobody")); assertNull(ModelEntries.resolve("")); assertNull(ModelEntries.resolve("the strongest other model"));
+        // what can run now, and the lines for a hosted model named that no entry holds
+        assertFalse(ModelEntries.keyKept(ModelEntries.get("kimi")), "a hosted entry without its host's key"); assertTrue(ModelEntries.keyKept(ModelEntries.get("gemma26")), "a local one always");
+        assertEquals("Models that can run now: default (qwen3.8-27b), gemma26 (gemma-4-26b-a4b); hosted, no key yet: deepseek (deepseek/deepseek-v4.1-flash; no key kept for openrouter.ai), kimi (moonshotai/kimi-k3; no key kept for openrouter.ai).", ModelEntries.canRunNow());
+        Config.set(DriveClient.hostKeySetting("openrouter.ai"), "sk-or-test");
+        assertTrue(ModelEntries.keyKept(ModelEntries.get("kimi"))); assertTrue(ModelEntries.canRunNow().contains("hosted, key kept: deepseek (deepseek/deepseek-v4.1-flash), kimi (moonshotai/kimi-k3)"), ModelEntries.canRunNow());
+        assertEquals(List.of("researchzosho models add fable anthropic claude-fable-5-1", "researchzosho models add fable openrouter anthropic/claude-fable-5.1"), ModelEntries.knownAddLines("Claude Sonnet"));
+        assertEquals("researchzosho models add glm openrouter z-ai/glm-5.3-flash", ModelEntries.knownAddLines("GLM 5.3 flash").get(0)); assertTrue(ModelEntries.knownAddLines("some model").isEmpty());
+        assertEquals("openrouter", ModelEntries.hostWord("openrouter.ai")); assertEquals("gemini", ModelEntries.hostWord("generativelanguage.googleapis.com")); assertEquals("anthropic", ModelEntries.hostWord("api.anthropic.com"));
+        assertTrue(ModelEntries.noKey(ModelEntries.get("gemma26")).startsWith("gemma26 runs on homebox"));
+    }
 
     @Test
     void entriesAreKeptByNameWithTheDefaultFirst() throws Exception {
@@ -29,7 +52,7 @@ class ModelEntriesTest {
         assertEquals("deepseek: deepseek/deepseek-v4.1-flash via openrouter.ai — $0.024/0.72/0.005 per M, cap $20 a month, tier A (cheap, reads the most)", e.line());
         ModelEntries.put("local-27b", "http://homebox:8212/v1", "qwen3.8-27b", null, null, null, null);
         Map<String, ModelEntries.Entry> all = ModelEntries.all();
-        assertEquals(java.util.List.of("default", "deepseek", "local-27b"), java.util.List.copyOf(all.keySet()), "the default first, then by name");
+        assertEquals(List.of("default", "deepseek", "local-27b"), List.copyOf(all.keySet()), "the default first, then by name");
         assertEquals("http://homebox:8212", all.get("local-27b").drive(), "an address pasted with /v1 is the same drive"); assertFalse(all.get("local-27b").hosted());
         assertNull(ModelEntries.get("nobody"));
         ModelEntries.put("deepseek", null, null, null, "low", null, null);

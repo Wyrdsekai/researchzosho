@@ -96,7 +96,7 @@ class RunProgressTest {
         // done: one notice, as the Librarian, naming the report; the run is no longer followed; a resumed session knows
         ObjectNode done = job("done", "filing", 8, 8, 1, 1500, 0); done.put("job_id", "J-0001").put("ended_at", Instant.ofEpochMilli(NOW - 60_000).toString()).put("investigation", "I-0001-gears");
         String notice = s.told("J-0001", RunProgress.of(done, NOW));
-        assertEquals("Research run J-0001 is done after 24 min. Its report is [I-0001-gears]. Say \"show it\" to read the answer.", notice);
+        assertEquals("Research run J-0001 is done after 24 min. Its report is [I-0001-gears]. Say \"show it\" to read the answer. " + Librarian.Session.NEXT_CONVERSATION, notice);   // a report on the shelves is the point for a fresh conversation, and the notice says so
         assertTrue(s.watched().isEmpty());
         Librarian.Session again = Librarian.Session.resume(store, s.id);
         assertTrue(again.watched().isEmpty());
@@ -127,12 +127,12 @@ class RunProgressTest {
             assertTrue(page.headers().firstValue("content-security-policy").orElse("").contains("connect-src 'self'"), "the strip may refresh itself from this server");
             var frag = c.send(HttpRequest.newBuilder(URI.create(base + "/chat/runs?session=" + s.id)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, frag.statusCode());
-            assertTrue(frag.body().startsWith("<p class=\"k run\">") && frag.body().contains(jobId) && !frag.body().contains("<html"), "the strip alone: " + frag.body());
+            assertTrue(frag.body().startsWith("<div class=\"striphead\" data-active=\"1\">") && frag.body().contains("class=\"rline") && frag.body().contains(jobId) && !frag.body().contains("<html"), "the strip alone: " + frag.body());
             // a conversation that follows nothing has no strip; its page runs only its own inline script (the menu, the scroll box) and fetches nothing from elsewhere
             Librarian.Session quiet = Librarian.Session.open(store);
             quiet.append(M.createObjectNode().put("role", "user").put("content", "hello"));   // a conversation exists once something is said in it
             var plain = c.send(HttpRequest.newBuilder(URI.create(base + "/chat?session=" + quiet.id)).GET().build(), HttpResponse.BodyHandlers.ofString());
-            assertFalse(plain.body().contains("id=\"runs-strip\""), "no strip for a conversation that follows nothing");
+            assertTrue(plain.body().contains("id=\"runs-strip\"") && plain.body().contains("class=\"rline") && plain.body().contains(jobId), "the strip is the library's, so another conversation's page shows the run too: " + plain.body());
             String quietCsp = plain.headers().firstValue("content-security-policy").orElse("");
             assertTrue(quietCsp.startsWith("default-src 'none'") && !quietCsp.contains("http"), quietCsp);
         } finally { d.stop(); Explain.DRIVES = drives; }

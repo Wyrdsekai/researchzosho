@@ -7,6 +7,16 @@ import static org.junit.jupiter.api.Assertions.*;
 /** A page's text is the page's own content: not the site's menus, and not what a tag keeps in its attributes. */
 class ReadablePageTest {
 
+    @Test void aTagThatCarriesKilobytesInAnAttributeIsStrippedWithoutOverflowingTheStack() {
+        StringBuilder big = new StringBuilder("<p>before</p><div data-map=");
+        for (int i = 0; i < 60_000; i++) big.append("0.0123,45.678;");   // a county's map page keeps its geometry in an attribute, unquoted: one character per turn of the old loop
+        big.append(" class=x>inside</div><!-- ").append("a comment of many words ".repeat(20_000)).append("--><p>after</p>");
+        String text = WebFetchTool.readable(big.toString());
+        assertTrue(text.contains("before") && text.contains("inside") && text.contains("after"), text.length() > 200 ? text.substring(0, 200) : text);
+        assertFalse(text.contains("data-map") || text.contains("0.0123,45.678"), "the attribute's data is not the page's text");
+    }
+
+
     @Test
     void theSitesMenusAndATagsAttributesAreNotThePagesText() {
         String body = "x".repeat(300);

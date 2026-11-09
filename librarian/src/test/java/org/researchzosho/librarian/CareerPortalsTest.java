@@ -16,17 +16,19 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.function.Function;
 /** The hiring portals institutions use, and the way to them for a hospital a register listed with no site, against stand-ins: nothing here touches the web. */
 class CareerPortalsTest {
     static final ObjectMapper M = new ObjectMapper();
     final Map<String, String> pages = new HashMap<>();
     final Map<String, List<Hit>> searches = new HashMap<>();
     final Map<String, String> posts = new HashMap<>();
-    CareerPortals.Poster posterWas; java.util.function.Function<String, String> wikidataWas;
+    CareerPortals.Poster posterWas; Function<String, String> wikidataWas;
 
     static final String PHENOM = "{\"refineSearch\":{\"status\":200,\"hits\":3,\"totalHits\":3,\"data\":{\"jobs\":["
             + "{\"title\":\"Registered Nurse NICU\",\"city\":\"Austin\",\"state\":\"TX\",\"cityState\":\"Austin, TX\",\"postedDate\":\"2026-10-21T21:36:49.000+0000\",\"jobSeqNo\":\"AHEAHUUS20314EXTERNALENUS\",\"department\":\"Ascension Seton Medical Center Austin\",\"descriptionTeaser\":\"Nights, level IV NICU.\"},"
@@ -139,5 +141,25 @@ class CareerPortalsTest {
         posts.put("https://hr.baylor.example/widgets", "{\"refineSearch\":{\"totalHits\":1,\"data\":{\"jobs\":[{\"title\":\"Nurse Faculty\",\"cityState\":\"Austin, TX\",\"jobSeqNo\":\"B1\",\"descriptionTeaser\":\"teaching\"}]}}}");
         Found bsw = CareerPortals.find("Baylor Scott & White Medical Center- Austin", List.of("Austin"), List.of("Nurse"), List.of());
         assertNull(bsw.feed(), bsw.note()); assertTrue(bsw.note().contains("Baylor's board (own careers site) says nothing of a place of its kind"), bsw.note());
+    }
+
+    @Test void aTownMatchesABoardsLocationHoweverTheBoardWritesIt() {
+        assertTrue(CareerPortals.townIn("Boston-MA", "Boston, MA"));
+        assertTrue(CareerPortals.townIn("Springfield, Massachusetts", "Springfield, MA"));
+        assertTrue(CareerPortals.townIn("Massachusetts - Boston", "Boston, MA"));
+        assertTrue(CareerPortals.townIn("Atlanta, Georgia, United States", "Atlanta, GA"));
+        assertTrue(CareerPortals.townIn("Boston", "Boston, MA"), "the city alone, when that is all the board says");
+        assertFalse(CareerPortals.townIn("Springfield, IL", "Springfield, MA"), "the same city in another state");
+        assertFalse(CareerPortals.townIn("Portland, Oregon", "Portland, ME"));
+        assertTrue(CareerPortals.townIn("Manchester, England", "Manchester"), "a town with no state the library knows: the city as a word");
+        assertFalse(CareerPortals.townIn("HM Texas Medical Center - Research Institute", "Houston, TX"));
+        CareerSources.Opening campus = CareerSources.opening("Hospital", "Nurse", "HM Texas Medical Center - Smith Tower", false, "https://x.example/1", "", "", "", "", "", "");
+        CareerSources.Opening town = CareerSources.opening("Hospital", "Nurse", "Houston-TX", false, "https://x.example/2", "", "", "", "", "", "");
+        assertFalse(CareerPortals.anyTownNamed(List.of(campus)), "a board of campuses names no town");
+        assertTrue(CareerPortals.anyTownNamed(List.of(campus, town)));
+        assertTrue(CareerSources.institutionNamed(new CareerSources.Hit("Careers at the University of Michigan", "https://careers.umich.edu/", ""), "University of Michigan"));
+        assertTrue(CareerSources.institutionNamed(new CareerSources.Hit("Johns Hopkins University Jobs", "https://jobs.jhu.edu/", ""), "Johns Hopkins Hospital"));
+        assertFalse(CareerSources.institutionNamed(new CareerSources.Hit("University of Michigan Jobs - Indeed", "https://www.indeed.com/q-university-of-michigan-jobs.html", ""), "University of Michigan"), "an aggregator never");
+        assertFalse(CareerSources.institutionNamed(new CareerSources.Hit("Careers at Michigan State University", "https://careers.msu.edu/", ""), "University of Michigan"), "another institution whose title carries the words but not the name");
     }
 }

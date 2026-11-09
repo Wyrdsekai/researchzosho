@@ -5,6 +5,7 @@ import org.researchzosho.librarian.Fence;
 import org.researchzosho.librarian.LibraryStore;
 import org.researchzosho.librarian.RawCapture;
 import org.researchzosho.librarian.Video;
+import org.researchzosho.librarian.VideoRecall;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -17,6 +18,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 /**
  * One video, read: its details (who, when, how long, chapters, description, which caption languages exist) and, when asked, its
  * transcript as timed lines, so that a moment can be cited as {@code watch?v=…&t=312s} and checked. The transcript comes from the
@@ -99,6 +101,26 @@ public final class VideoDetailsTool implements Tool {
         } catch (Exception ignored) {
             // the reading reaches the run either way; the capture is for the check and the shelves
         }
+    }
+
+    /**
+     * A video brought onto a library's shelves without a run: its page and transcript read as the tool reads them and kept under its
+     * address, so the look and the recall can read it. What was kept, as the library holds it; null when the video could not be read.
+     */
+    public static VideoRecall.Held bring(LibraryStore store, String id) {
+        List<String> a = new ArrayList<>(List.of("--skip-download", "--dump-single-json", "--no-simulate", "--write-subs", "--write-auto-subs", "--sub-format", "json3", "--sub-langs", subLangs(""), "-o", Video.captionsDir().resolve("%(id)s").toString(), "https://www.youtube.com/watch?v=" + id));
+        Video.Result r = Video.ytdlp(a, Duration.ofMinutes(3), Video.readPaceMs);
+        if (r.code() != 0 || r.out() == null || r.out().indexOf('{') < 0) return null;
+        JsonNode d;
+        try { d = J.readTree(r.out().substring(r.out().indexOf('{'))); } catch (Exception e) { return null; }
+        LocalDate today = LocalDate.now();
+        String details = VideoText.detailLines(d, today);
+        String language = d.path("language").asText("en");
+        List<VideoText.Line> lines = lines(d, id, language);
+        String whole = lines.isEmpty() ? "" : "\ntranscript (" + language + ", from " + (LAST_ROUTE.get() == null ? "the captions" : LAST_ROUTE.get()) + "):\n" + VideoText.transcript(lines, 0, -1, Integer.MAX_VALUE);
+        String title = d.path("title").asText("video " + id);
+        RawCapture.capture(store, "https://www.youtube.com/watch?v=" + id, details + whole, title, "researchzosho-video", "", VideoText.day(d.path("upload_date").asText("")));
+        return new VideoRecall.Held(id, title, today.toString(), !lines.isEmpty(), Set.of(), Set.of(), Set.of());
     }
 
     /** The caption languages one call writes: the one asked for and YouTube's original-language track; without a language, English and the original. */

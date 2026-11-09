@@ -22,6 +22,11 @@ you supply and license separately.
 The site's wordmark is set in CMU Serif (SIL Open Font License), vendored under
 site/fonts/ with its license.
 
+The web pages draw diagrams with Mermaid 11.17.2 (MIT, Copyright (c) 2014 - 2022
+Knut Sveidqvist), vendored as the browser build of the npm package under
+librarian/src/main/resources/org/researchzosho/librarian/static/ with its license
+beside it, and served by the program itself at /static/.
+
 --------------------------------------------------------------------------------
 The program bundles a small list of pornography, shock and gore sites, used only
 until the OISD nsfw list has been downloaded, and whenever that download is

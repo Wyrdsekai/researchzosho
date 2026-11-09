@@ -144,6 +144,18 @@ public final class Acquisitions {
     /** As above; {@code title}, when not blank, is the report's title and names its file, instead of the question compressed. */
     public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
                                       String summary, String writer, String workerNotes, First first, String questionNote, String title) throws IOException {
+        return admit(store, index, question, summary, writer, workerNotes, first, questionNote, title, "");
+    }
+
+    /** As above; {@code language} (a code, ja) is the language the writer was told to write in, recorded on the report; "" when nothing decided it. */
+    public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
+                                      String summary, String writer, String workerNotes, First first, String questionNote, String title, String language) throws IOException {
+        return admit(store, index, question, summary, writer, workerNotes, first, questionNote, title, language, ReportOptions.NONE);
+    }
+
+    /** As above; {@code options}: the length, citations and shape the writer was given, recorded on the report (0.7.0). */
+    public static Investigation admit(LibraryStore store, LibrarianIndex index, String question,
+                                      String summary, String writer, String workerNotes, First first, String questionNote, String title, String language, ReportOptions options) throws IOException {
         boolean named = title != null && !title.isBlank();
         String id = store.nextInvestigationId(named ? title.strip() : question);
         first.write(id);
@@ -165,7 +177,7 @@ public final class Acquisitions {
             for (String u : urls) body.append("- ").append(u).append('\n');
         }
         Investigation inv = new Investigation(id, named ? compress(title.strip(), 160) : compress(question, 120), Finding.State.draft,
-                writer, Instant.now().toString(), List.of(), List.of(), body.toString());
+                writer, Instant.now().toString(), List.of(), List.of(), body.toString(), language, options);
         store.write(inv);
         index.upsert(inv);
         store.circulate("intake-admitted", id);

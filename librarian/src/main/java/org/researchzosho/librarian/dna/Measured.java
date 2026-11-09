@@ -17,6 +17,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.Collections;
 /**
  * The measured layer of a book's DNA (version {@code measured-0.1}): what a program counts from the whole text, no model. Length and
  * chapters; sentence length and its spread; the share of words inside quotation marks; the vocabulary (type–token, MTLD); a readability
@@ -184,7 +185,7 @@ public final class Measured {
     /** The measure of textual lexical diversity, forward and back, averaged; null under fifty tokens. */
     static Double mtld(List<String> tokens) {
         if (tokens.size() < 50) return null;
-        List<String> back = new ArrayList<>(tokens); java.util.Collections.reverse(back);
+        List<String> back = new ArrayList<>(tokens); Collections.reverse(back);
         return Py.round((mtldRun(tokens) + mtldRun(back)) / 2, 1);
     }
 

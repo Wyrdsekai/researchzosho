@@ -1,0 +1,4 @@
+# alpha: the first library, in the container rz-alpha on this server. scripts/fleet.sh writes files like this one.
+http://alpha.{$RZ_DOMAIN} {
+    reverse_proxy rz-alpha:4649
+}

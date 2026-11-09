@@ -86,7 +86,7 @@ public final class CareerCut {
         ObjectNode o = M.createObjectNode();
         put(o, "titles", c.titles()); put(o, "titles_also", c.titlesAlso()); put(o, "titles_not", c.titlesNot()); put(o, "areas", c.areas()); put(o, "places", c.places()); o.put("remote", c.remote()); put(o, "remote_where", c.remoteWhere());
         put(o, "prefer_titles", c.preferTitles()); put(o, "prefer_places", c.preferPlaces()); o.put("max_people", c.maxPeople()).put("min_people", c.minPeople()).put("by", c.by()).put("at", c.at()).put("basis", c.basis());
-        put(o, "nearby", c.nearby()); o.put("near_km", c.nearKm());
+        put(o, "nearby", c.nearby()); o.put("near_km", c.nearKm()).put("near_lookup", NEAR_LOOKUP);
         return o;
     }
 
@@ -111,8 +111,22 @@ public final class CareerCut {
     /** The cut for a search: the person's own as it is; the library's when it is still made from what the person wants now; else made again. */
     public static Cut current(LibraryStore store, Career.Seeker s) throws IOException {
         Cut c = kept(store, s);
-        if (c != null && (c.by().equals("you") || c.basis().equals(basis(store, s)))) return c;
+        if (c != null && (c.by().equals("you") || c.basis().equals(basis(store, s)))) return nearAgain(store, s, c);
         return make(store, s);
+    }
+
+    /** How the towns near a city are looked up; a cut kept with towns looked up an older way looks them up again. 3: a town counts whatever its size. */
+    static final int NEAR_LOOKUP = 3;
+
+    /**
+     * A kept cut whose towns near its cities were looked up before a town counted whatever its size gets them again, from Wikidata and with
+     * no model, and is kept so: the person's own cut too, whose towns the library looked up all the same. Nothing else in it changes.
+     */
+    static Cut nearAgain(LibraryStore store, Career.Seeker s, Cut c) throws IOException {
+        if (c.places().isEmpty() || M.readTree(file(store, s).toFile()).path("near_lookup").asInt(0) >= NEAR_LOOKUP) return c;
+        Cut again = withNearby(store, s, c.near(List.of(), 0), c.nearKm() > 0 ? c.nearKm() : radiusWanted(store, s));
+        save(store, s, again);
+        return again;
     }
 
     /** Whether what the person wants changed since the library made the cut: the cut is the library's and was made from something else. */
@@ -230,7 +244,9 @@ public final class CareerCut {
     /** Smaller places than this are not worth a line: in people. */
     static final int NEAR_MIN_PEOPLE = 5000;
     /** The towns within the kilometres of a city: where the city was taken to be, and the towns. */
-    public record Towns(String where, List<String> towns) { }
+    public record Towns(String where, List<String> towns, double lat, double lon) {
+        public Towns(String where, List<String> towns) { this(where, towns, 0, 0); }
+    }
     /** A city named for a lookup, with the words that say which one: the other places the person named, and where their record puts them. */
     public interface Near { Towns apply(String city, List<String> within, int km); }
     /** The towns within the kilometres of the city, from Wikidata; a test puts its own here. */
@@ -277,11 +293,11 @@ public final class CareerCut {
      * up again. An answer kept before the library said which city it took is looked up again.
      */
     static Towns near(LibraryStore store, String city, List<String> decided, List<String> record, int km) {
-        Path dir = store.root().resolve("catalog").resolve("career-cache"), f = dir.resolve("near2-" + CareerSources.id(city.toLowerCase(Locale.ROOT) + "|" + km) + ".json");   // near2: the answers kept before the city was chosen by its name are not served again
+        Path dir = store.root().resolve("catalog").resolve("career-cache"), f = dir.resolve("near3-" + CareerSources.id(city.toLowerCase(Locale.ROOT) + "|" + km) + ".json");   // near3: the answers kept before a town larger than twice the city counted (Boston for Cambridge) are not served again
         try {
             if (Files.isRegularFile(f)) {
                 JsonNode j = M.readTree(f.toFile());
-                if (j.has("where") && LocalDate.parse(j.path("at").asText("2000-01-01")).plusDays(31).isAfter(LocalDate.now()) && sameCity(j.path("where").asText(""), decided)) return new Towns(j.path("where").asText(""), list(j.path("towns")));
+                if (j.has("where") && LocalDate.parse(j.path("at").asText("2000-01-01")).plusDays(31).isAfter(LocalDate.now()) && sameCity(j.path("where").asText(""), decided)) return new Towns(j.path("where").asText(""), list(j.path("towns")), j.path("lat").asDouble(0), j.path("lon").asDouble(0));
             }
         } catch (Exception stale) { /* read again */ }
         List<String> within = new ArrayList<>(decided); within.addAll(record);
@@ -290,7 +306,7 @@ public final class CareerCut {
         if (towns == null) towns = new Towns("", List.of());
         try {
             Files.createDirectories(dir);
-            ObjectNode o = M.createObjectNode().put("city", city).put("km", km).put("at", LocalDate.now().toString()).put("where", towns.where());
+            ObjectNode o = M.createObjectNode().put("city", city).put("km", km).put("at", LocalDate.now().toString()).put("where", towns.where()).put("lat", towns.lat()).put("lon", towns.lon());
             put(o, "decided", decided); put(o, "towns", towns.towns());
             M.writerWithDefaultPrettyPrinter().writeValue(f.toFile(), o);
         } catch (IOException ignored) { }
@@ -351,48 +367,61 @@ public final class CareerCut {
         return cs.isEmpty() ? null : cs.get(0);
     }
 
-    /**
-     * Wikidata, in one query: the city is the most populous settlement of that name (its entity search, then the settlements among the
-     * matches); the towns are every place with a population of {@link #NEAR_MIN_PEOPLE} or more whose coordinates lie within the
-     * kilometres, largest first. What is more than twice as populous as the city is a region or a county that contains it, and is left
-     * out; so is the city itself.
-     */
     /** An administrative division's label, which names no town an opening is in: a canton, an arrondissement, a county, a diocese. */
     static final Pattern DIVISION = Pattern.compile("(?iu)\\b(canton|arrondissement|district|county|diocese|archdiocese|eparchy|archeparchy|deanery|region|department|departmental|urban area|metropolitan|metropolis|agglomeration|communauté|métropole|intercommunal|prefecture)\\b");
 
+    /** What Wikidata calls a city or a town, as the classes its places are instances of: a region, a county or a metropolitan area is neither. */
+    static final String CITY_OR_TOWN = "wd:Q515 wd:Q3957";
+
+    /**
+     * Wikidata, in two queries: the city is the most populous settlement of that name (its entity search, then the settlements among the
+     * matches); the towns are every place with a population of {@link #NEAR_MIN_PEOPLE} or more whose coordinates lie within the
+     * kilometres, largest first, each counted by where its centre is, whatever its size: Boston, across the river from Cambridge,
+     * Massachusetts, and five times its people, is near it. What the size rule of before kept out still stays out: a place more than twice
+     * as populous as the city that Wikidata does not call a city or a town is a region, a county or a metropolitan area around it (Greater
+     * Boston, Auvergne-Rhône-Alpes), and so is a label of a division at any size; and the city itself.
+     */
     static Towns nearFromWikidata(String city, List<String> within, int km) {
         String name = city.replace("\"", "").strip();
-        String first = "SELECT ?c ?cLabel ?cpop (GROUP_CONCAT(DISTINCT ?aLabel; separator=\"; \") AS ?within) ?countryLabel WHERE { SERVICE wikibase:mwapi { bd:serviceParam wikibase:endpoint \"www.wikidata.org\"; "
+        String first = "SELECT ?c ?cLabel ?cpop (GROUP_CONCAT(DISTINCT ?aLabel; separator=\"; \") AS ?within) ?countryLabel (SAMPLE(?loc) AS ?at) WHERE { SERVICE wikibase:mwapi { bd:serviceParam wikibase:endpoint \"www.wikidata.org\"; "
                 + "wikibase:api \"EntitySearch\"; mwapi:search \"" + name + "\"; mwapi:language \"en\" . ?c wikibase:apiOutputItem mwapi:item . } ?c wdt:P1082 ?cpop . ?c wdt:P625 ?loc . ?c wdt:P31/wdt:P279* wd:Q486972 . "
                 + "OPTIONAL { ?c wdt:P17 ?country } OPTIONAL { ?c wdt:P131+ ?a . ?a rdfs:label ?aLabel FILTER(lang(?aLabel) = \"en\") } SERVICE wikibase:label { bd:serviceParam wikibase:language \"en\". } } "
                 + "GROUP BY ?c ?cLabel ?cpop ?countryLabel ORDER BY DESC(?cpop) LIMIT 8";
         String body = CareerSources.get("https://query.wikidata.org/sparql?format=json&query=" + URLEncoder.encode(first, StandardCharsets.UTF_8));
         if (body == null) return new Towns("", List.of());
         List<Candidate> candidates = new ArrayList<>();
+        Map<String, double[]> at = new HashMap<>();   // where each candidate is: "Point(lon lat)"
         try {
             for (JsonNode r : M.readTree(body).path("results").path("bindings")) {
                 String item = r.path("c").path("value").asText("").replaceFirst(".*/", ""), country = r.path("countryLabel").path("value").asText("").strip(), in = r.path("within").path("value").asText("").strip();
                 if (item.matches("Q\\d+")) candidates.add(new Candidate(item, r.path("cLabel").path("value").asText(""), r.path("cpop").path("value").asDouble(0), in + (country.isEmpty() ? "" : "; " + country)));
+                Matcher pt = Pattern.compile("Point\\(([-\\d.]+) ([-\\d.]+)\\)").matcher(r.path("at").path("value").asText(""));
+                if (pt.find()) try { at.put(item, new double[]{Double.parseDouble(pt.group(2)), Double.parseDouble(pt.group(1))}); } catch (NumberFormatException ignored) { }
             }
         } catch (IOException e) { return new Towns("", List.of()); }
         Candidate chosen = choose(candidates, name, within);
         if (chosen == null) return new Towns("", List.of());
-        String q = "SELECT DISTINCT ?t ?tLabel ?pop WHERE { wd:" + chosen.item() + " wdt:P625 ?loc . SERVICE wikibase:around { ?t wdt:P625 ?tloc . bd:serviceParam wikibase:center ?loc . bd:serviceParam wikibase:radius \"" + Math.max(1, km) + "\" . } "
-                + "?t wdt:P1082 ?pop . FILTER(?pop >= " + NEAR_MIN_PEOPLE + ") FILTER(?t != wd:" + chosen.item() + ") SERVICE wikibase:label { bd:serviceParam wikibase:language \"en,fr,de,es,pt,it,ja,nl\". } } ORDER BY DESC(?pop) LIMIT 200";
+        double[] centre = at.getOrDefault(chosen.item(), new double[]{0, 0});
+        long twice = Math.round(2 * chosen.people());   // only a place larger than this is asked whether it is a city or a town: one class walk for a few places, not for two hundred
+        String q = "SELECT DISTINCT ?t ?tLabel ?pop ?town WHERE { wd:" + chosen.item() + " wdt:P625 ?loc . SERVICE wikibase:around { ?t wdt:P625 ?tloc . bd:serviceParam wikibase:center ?loc . bd:serviceParam wikibase:radius \"" + Math.max(1, km) + "\" . } "
+                + "?t wdt:P1082 ?pop . FILTER(?pop >= " + NEAR_MIN_PEOPLE + ") FILTER(?t != wd:" + chosen.item() + ") "
+                + (twice > 0 ? "BIND(IF(?pop > " + twice + ", EXISTS { ?t wdt:P31/wdt:P279* ?k . VALUES ?k { " + CITY_OR_TOWN + " } }, true) AS ?town) " : "")
+                + "SERVICE wikibase:label { bd:serviceParam wikibase:language \"en,fr,de,es,pt,it,ja,nl\". } } ORDER BY DESC(?pop) LIMIT 200";
         body = CareerSources.get("https://query.wikidata.org/sparql?format=json&query=" + URLEncoder.encode(q, StandardCharsets.UTF_8));
         List<String> out = new ArrayList<>();
-        if (body == null) return new Towns(chosen.within(), out);
+        if (body == null) return new Towns(chosen.within(), out, centre[0], centre[1]);
         try {
             for (JsonNode r : M.readTree(body).path("results").path("bindings")) {
                 String label = r.path("tLabel").path("value").asText("").strip();
                 double pop = r.path("pop").path("value").asDouble(0);
-                if (label.isEmpty() || label.matches("Q\\d+") || label.equalsIgnoreCase(name) || (chosen.people() > 0 && pop > 2 * chosen.people()) || DIVISION.matcher(label).find()) continue;
+                boolean town = r.path("town").path("value").asText("").equals("true");   // a city or a town by Wikidata's classes; an answer without it keeps a larger place out, as before
+                if (label.isEmpty() || label.matches("Q\\d+") || label.equalsIgnoreCase(name) || (chosen.people() > 0 && pop > 2 * chosen.people() && !town) || DIVISION.matcher(label).find()) continue;
                 if (out.stream().noneMatch(x -> x.equalsIgnoreCase(label))) out.add(label);
                 if (out.size() >= 100) break;
             }
         } catch (IOException ignored) { }
         // what the city lies within, for the log: the nearest division first, the country last, as Wikidata gave them
-        return new Towns(chosen.within().replace("; ", ", "), out);
+        return new Towns(chosen.within().replace("; ", ", "), out, centre[0], centre[1]);
     }
 
     /** The long form of each executive abbreviation and back, so "CTO" finds "Chief Technology Officer" and the other way round. */

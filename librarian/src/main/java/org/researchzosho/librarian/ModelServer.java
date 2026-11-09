@@ -1065,8 +1065,7 @@ public final class ModelServer {
         }
         String hello = probe.chat(base, model == null ? "local-model" : model, key);
         if (hello.startsWith("!")) { out.println("  The server answered, but the model did not reply (" + hello.substring(1) + "). Nothing was changed."); return 1; }
-        Config.set("RESEARCHZOSHO_DRIVE", base);
-        if (model != null) Config.set("RESEARCHZOSHO_MODEL", model);
+        ModelEntries.put(ModelEntries.DEFAULT, base, model, null, null, null, null);   // the one operation that sets the default: the Settings page and the chat's "make X the default" go through it too
         out.println("  The library now uses " + (model == null ? "the model" : model) + " at " + base + ". The service takes it for its next research run and its next question; a run going now finishes on the model it started with.");
         return 0;
     }

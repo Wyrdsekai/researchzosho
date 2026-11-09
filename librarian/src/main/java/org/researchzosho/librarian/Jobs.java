@@ -36,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.researchzosho.Config;
 import org.researchzosho.tools.ContentPolicy;
+import java.time.Duration;
 /**
  * The persisted job ledger and the ONE model worker.
  *
@@ -176,9 +177,13 @@ public final class Jobs {
      * default ({@code content}, the categories the offer would let in; empty for none). Each is its own question, asked one after the
      * other, and each is answered on its own; the job starts when every question it waits on is answered, or when the wait ends.
      */
-    public record Offer(String field, boolean onlyOnYes, List<String> content, boolean help) {
-        public Offer { content = content == null ? List.of() : List.copyOf(content); }
-        public Offer(String field, boolean onlyOnYes, List<String> content) { this(field, onlyOnYes, content, false); }
+    public record Offer(String field, boolean onlyOnYes, List<String> content, boolean help, List<String> choices, String question) {
+        public Offer { content = content == null ? List.of() : List.copyOf(content); choices = choices == null ? List.of() : List.copyOf(choices); question = question == null ? "" : question; }
+        public Offer(String field, boolean onlyOnYes, List<String> content) { this(field, onlyOnYes, content, false, List.of(), ""); }
+        public Offer(String field, boolean onlyOnYes, List<String> content, boolean help) { this(field, onlyOnYes, content, help, List.of(), ""); }
+        /** The same offer with a question of named choices: the run starts once one is chosen, and not at all when none is chosen in time. */
+        public Offer withChoices(List<String> choices, String question) { return new Offer(field, onlyOnYes, content, help, choices, question); }
+        public boolean asksChoice() { return !choices.isEmpty(); }
     }
 
     /** A job filed waiting for the person's answers to {@code offer}'s questions, until {@link #release}, {@link #releaseContent} or {@code untilMillis}. */
@@ -190,6 +195,7 @@ public final class Jobs {
         if (offer.field() != null && !offer.field().isBlank()) j.put("offered", offer.field());
         if (!offer.content().isEmpty()) { ArrayNode c = j.putArray("offered_content"); offer.content().forEach(c::add); }
         if (offer.help()) j.put("offered_help", true);   // the question whether to research it at all, after the help was shown: no, or no answer, starts nothing
+        if (offer.asksChoice()) { ArrayNode c = j.putArray("offered_choices"); offer.choices().forEach(c::add); j.put("offered_question", offer.question()); }   // which of these: one starts it, none in time does not
         j.put("offer_until", Instant.ofEpochMilli(untilMillis).toString());
         if (offer.onlyOnYes()) j.put("on_no", "stop");
         j.put("restarted", 0);
@@ -274,8 +280,52 @@ public final class Jobs {
     /** Whether the question whether to research it at all, asked after the help was shown, still waits for the person's answer. */
     static boolean helpWaits(JsonNode j) { return j.path("offered_help").asBoolean(false) && !j.has("help_answered"); }
 
+    /** Whether the question with named choices still waits for the person's answer. */
+    static boolean choiceWaits(JsonNode j) { return j.path("offered_choices").isArray() && !j.path("offered_choices").isEmpty() && !j.has("chosen"); }
+
     /** Whether any question still waits on this job. */
-    static boolean anyWaits(JsonNode j) { return helpWaits(j) || fieldWaits(j) || contentWaits(j); }
+    static boolean anyWaits(JsonNode j) { return helpWaits(j) || fieldWaits(j) || contentWaits(j) || choiceWaits(j); }
+
+    /**
+     * The person chose among the named choices, or none ({@code choice} null): the choice goes into the job's {@code choice}, and the run
+     * starts once no other question waits on it; none ends it before it starts. False when the question was not waiting.
+     */
+    public boolean releaseChoice(String id, String choice) throws IOException {
+        return store.locked("job-" + id, () -> {
+            synchronized (this) {
+                ObjectNode j = get(id);
+                if (j == null || !OFFERED.equals(j.path("state").asText()) || !choiceWaits(j)) return false;
+                if (choice == null || choice.isBlank()) { j.put("chosen", ""); stopBeforeStart(j, "not started: no choice was made among the ones the library asked about"); return true; }
+                ((ObjectNode) j.get("args")).put("choice", choice); j.put("chosen", choice);
+                if (anyWaits(j)) { writeActive(j); return true; }
+                queueAnswered(j);
+                return true;
+            }
+        });
+    }
+
+    /** The choice {@code words} name among a job's offered choices, or null. */
+    public static String choiceOf(JsonNode j, String words) {
+        List<String> labels = new ArrayList<>(); for (JsonNode c : j.path("offered_choices")) labels.add(c.asText());
+        return choiceAmong(labels, words);
+    }
+
+    /** The one of {@code labels} that {@code words} name: its number, its name, its name at the start, or the one name whose words the words all carry; null for none. */
+    public static String choiceAmong(List<String> labels, String words) {
+        String w = words == null ? "" : words.strip().replaceAll("[.!?,;:、。]+$", "");
+        if (w.matches("\\d+")) { int n = Integer.parseInt(w); return n >= 1 && n <= labels.size() ? labels.get(n - 1) : null; }
+        String f = fold(w);
+        for (String l : labels) if (fold(l).equals(f)) return l;
+        for (String l : labels) if (f.startsWith(fold(l)) && !Character.isLetterOrDigit(f.charAt(fold(l).length()))) return l;
+        String hit = null;
+        List<String> ws = List.of(f.split("[^\\p{L}\\p{N}]+"));
+        for (String l : labels) {
+            boolean all = true, any = false;
+            for (String t : fold(l).split("[^\\p{L}\\p{N}]+")) { if (t.isEmpty() || t.equals("a") || t.equals("an") || t.equals("the") || t.equals("one")) continue; any = true; if (!ws.contains(t)) { all = false; break; } }
+            if (any && all) { if (hit != null) return null; hit = l; }
+        }
+        return hit;
+    }
 
     /** The job ends before it starts, for {@code why}; nobody needs telling beyond the result. */
     private void stopBeforeStart(ObjectNode j, String why) throws IOException {
@@ -423,6 +473,7 @@ public final class Jobs {
                 ObjectNode now = get(id);
                 if (now == null || !OFFERED.equals(now.path("state").asText())) return false;
                 if (stopUnwanted(now, "not started: no answer came to the question whether to start a second run of this question")) return true;
+                if (choiceWaits(now)) { now.put("chosen", ""); stopBeforeStart(now, "not started: no choice came within the time among the ones the library asked about"); return true; }
                 if (helpWaits(now)) { now.put("help_answered", "none"); stopBeforeStart(now, "not started: no answer came to the question whether to research this question, which reads as a person asking about harming themselves"); return true; }
                 if (fieldWaits(now)) now.put("answered", "none");
                 if (contentWaits(now)) now.put("content_answered", "none");   // no answer is no: nothing is let in
@@ -580,6 +631,19 @@ public final class Jobs {
         if (!Files.exists(a)) return;
         ObjectNode j = read(a);
         j.set("declined", d);
+        writeActive(j);
+    }
+
+    /**
+     * What the run's checks made of its report ({@link Researcher.Result#checksView}): whether its answer is about its question, and
+     * whether the report waits for the keeper's eye. Onto the running job's record, for every view of it.
+     */
+    public synchronized void checks(String id, ObjectNode c) throws IOException {
+        if (c == null) return;
+        Path a = activeDir().resolve(id + ".json");
+        if (!Files.exists(a)) return;
+        ObjectNode j = read(a);
+        j.set("checks", c);
         writeActive(j);
     }
 
@@ -821,7 +885,7 @@ public final class Jobs {
                     ModelEntries.Entry entry = named.isEmpty() ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.research(j.path("args").path("quick").asBoolean(false))).entry() : ModelEntries.get(named);
                     if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
                     String waitOn = entry != null ? entry.drive() : drive;
-                    boolean answers = entry != null ? Crews.driveState(entry.drive(), entry.model(), java.time.Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : drive.isEmpty() || Crews.driveAnswersNow(drive);
+                    boolean answers = entry != null ? Crews.driveState(entry.drive(), entry.model(), Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : drive.isEmpty() || Crews.driveAnswersNow(drive);
                     if ("research".equals(kind) && !waitOn.isEmpty() && !answers) {
                         defer = true; wait = 30_000;
                         // say so on the record: a model server that sleeps between uses (llama-swap, Ollama) answers after a
@@ -944,13 +1008,20 @@ public final class Jobs {
                 waits.add((waits.isEmpty() ? "waiting for your answer: " : "then ") + "the library asked whether to let in " + ContentOffer.described(offered)
                         + " for this question's run; with no answer it starts with that material left out at " + j.path("offer_until").asText());
             }
+            if (choiceWaits(j)) {
+                List<String> cs = new ArrayList<>(); int n = 0; for (JsonNode c : j.path("offered_choices")) cs.add(++n + " " + c.asText());
+                waits.add((waits.isEmpty() ? "waiting for your answer: " : "then ") + j.path("offered_question").asText("the library asked which of these is meant.") + " Choices: " + String.join(", ", cs)
+                        + "; answer with op=choose and the number or the name; with no answer by " + j.path("offer_until").asText() + " it is not started");
+            }
             // a run the service held says in its own words what it waits for (the help, and how the yes is given), then the rule
             String own = j.path("waiting").asText("");
             r.put("waiting", (own.isEmpty() ? "" : own + "\n\n") + String.join("; ", waits));
         }
+        if (j.path("offered_choices").isArray()) { r.set("offered_choices", j.get("offered_choices")); r.put("offered_question", j.path("offered_question").asText("")); if (j.has("chosen")) r.put("chosen", j.path("chosen").asText()); }
         if (j.path("args").hasNonNull("field")) r.put("field", j.path("args").path("field").asText());
         if (j.path("args").path("allow").isArray() && !j.path("args").path("allow").isEmpty()) r.set("allow", j.path("args").path("allow").deepCopy());   // what the run lets in, because the person asked
         if (j.path("declined").isObject()) r.set("declined", j.get("declined"));   // the model declined the run or parts of it: said, never as a failure
+        if (j.path("checks").isObject()) r.set("checks", j.get("checks"));   // whether the report's answer is about its question, and whether the report waits for the keeper
         JsonNode q = j.path("args").get("question");
         if (q != null) r.put("question", q.asText());
         String st = j.path("state").asText();

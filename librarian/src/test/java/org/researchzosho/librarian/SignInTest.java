@@ -33,6 +33,8 @@ import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
+import org.researchzosho.Config;
 /**
  * Signing in with an account (0.6.1): the owner on the library's own computer needs no sign-in and makes their account on the account
  * page; from anywhere else, name and password; the account page's changes; a passkey made and used by an authenticator the test plays;
@@ -51,7 +53,7 @@ class SignInTest {
     static HttpResponse<String> get(HttpClient c, String url, String cookie) throws Exception { return LetPeopleInTest.get(c, url, cookie); }
     static HttpResponse<String> post(HttpClient c, String url, String form, String cookie) throws Exception { return LetPeopleInTest.post(c, url, form, cookie); }
     static HttpResponse<String> postJson(HttpClient c, String url, String json, String cookie) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json));
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(120)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json));
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -264,7 +266,7 @@ class SignInTest {
     @Test
     void shareAsksForTheOwnersAccountBeforeTheFirstOpen(@TempDir Path tmp) throws Exception {
         LibraryStore store = lib(tmp);
-        String realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); org.researchzosho.Config.invalidate();
+        String realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
         PrintStream o = System.out; ByteArrayOutputStream bo = new ByteArrayOutputStream();
         try {
             Interaction.OVERRIDE = false;
@@ -277,7 +279,7 @@ class SignInTest {
             assertTrue(out.contains("First, your own account") && out.contains("Your account is made"), out);
             assertNotNull(Accounts.signIn(store, "Owner Example", "owner-secret-1"));
             assertEquals("", Share.ownerStep(store, System.out), "made once");
-        } finally { System.setOut(o); System.setProperty("user.home", realHome); org.researchzosho.Config.invalidate(); }
+        } finally { System.setOut(o); System.setProperty("user.home", realHome); Config.invalidate(); }
     }
 
     // ---- the authenticator the tests play ----

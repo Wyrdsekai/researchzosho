@@ -9,6 +9,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -30,6 +31,37 @@ class RunTraceLedgerTest {
             @Override public String classify(ArrayNode messages, int maxTokens) { return "yes"; }
             @Override public int contextWindow() { return 16384; }
         };
+    }
+
+    @Test
+    void theDriveSeenThroughTheTraceKeepsItsModelsNameAndItsDecisionTurn() throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        List<String> went = new ArrayList<>();
+        Researcher.Drive small = new Researcher.Drive() {
+            @Override public ObjectNode chat(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { went.add("chat"); return M.createObjectNode().put("role", "assistant").put("content", "thought aloud"); }
+            @Override public ObjectNode decide(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { went.add("decide"); return M.createObjectNode().put("role", "assistant").put("content", "picked"); }
+            @Override public String classify(ArrayNode messages, int maxTokens) { return "yes"; }
+            @Override public int contextWindow() { return 16384; }
+            @Override public String model() { return "stand-in-4b"; }
+        };
+        RunTrace t = RunTrace.open(store, "J-0002");
+        Researcher.Drive d = t.wrap(small, "workers");
+        assertEquals("stand-in-4b", d.model(), "the brain reads the tier off the name, through the trace too");
+        assertEquals(Brain.Tier.SMALL, Brain.tierOf(d.model()));
+        ArrayNode msgs = M.createArrayNode(); msgs.addObject().put("role", "user").put("content", "pick one");
+        assertEquals("picked", d.decide(msgs, M.createArrayNode(), 200, "auto").path("content").asText(), "the decision turn is the drive's own, not its chat");
+        assertEquals("thought aloud", d.chat(msgs, M.createArrayNode(), 200, "auto").path("content").asText());
+        assertEquals(List.of("decide", "chat"), went);
+        List<String> lines = Files.readAllLines(RunTrace.fileFor(store, "J-0002"), StandardCharsets.UTF_8);
+        assertEquals(2, lines.size(), String.join("\n", lines));
+        assertTrue(M.readTree(lines.get(0)).path("decide").asBoolean(false), "the trace says which turn was a decision turn");
+        assertFalse(M.readTree(lines.get(1)).has("decide"));
+        assertEquals("chat", M.readTree(lines.get(0)).path("kind").asText(), "a decision turn is a chat call to every reader of the trace");
+    }
+
+    @Test
+    void theConversationsSeatSaysItsModel() {
+        assertEquals("stand-in-4b", Researcher.calmDrive("http://127.0.0.1:1", "stand-in-4b").model());
     }
 
     @Test

@@ -4,6 +4,13 @@ import org.researchzosho.librarian.Profile;
 import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
+import org.researchzosho.librarian.PodcastsPage;
+import org.researchzosho.librarian.Patrons;
+import org.researchzosho.librarian.LibraryStore;
+import java.util.Map;
+import java.io.IOException;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 /**
  * The podcasts field (0.5.5): a question about what someone says on a show, about a show, or about a host or a guest. Its rules send the
@@ -14,6 +21,18 @@ import java.util.List;
 public final class PodcastsProfile implements Profile {
 
     @Override public String name() { return "podcasts"; }
+
+    @Override public String goalName() { return "choose"; }
+
+    @Override public String sourceName() { return "podcasts"; }
+
+    @Override public List<String> pagePaths() { return List.of(PodcastsPage.PATH); }
+    @Override public List<Link> menu() { return List.of(new Link(PodcastsPage.PATH, "Podcasts", false, "♫")); }
+    @Override public Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> query, Map<String, String> form) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        if ("POST".equals(method)) return new Page("Podcasts", "", false, PodcastsPage.PATH + "?note=" + URLEncoder.encode(PodcastsPage.post(store, patron, form), StandardCharsets.UTF_8));
+        return new Page("Podcasts", PodcastsPage.body(store, patron, query), false, null);
+    }
 
     @Override public String description() { return "what people say on podcasts: the episodes' own words, with the time, before articles about them; shows found by fit, not by charts"; }
 

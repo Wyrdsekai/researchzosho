@@ -99,4 +99,13 @@ class AnalysisTest {
     void aForecastNamesAnEventThatWillOrWillNotHaveHappenedByItsDate() {
         assertTrue(Analysis.WRITER_RULES.contains("will or will not have happened by that date") && Analysis.WRITER_RULES.contains("is no forecast"));
     }
+
+    @Test
+    void aConjectureUnderAContinuedHeadingIsLeftOutOfTheClaimsToo() {
+        String body = "## Answer\n\nAcme makes widgets [1].\n\n## Conjectures\n\nAcme may sell its plant.\n\n## Filings\n\n2024: Annual report [1].\n\n"
+                + "## Conjectures (cont.)\n\nAcme will likely move north.\n\n## Sources\n\n[1] https://a.example/filing\n";
+        String cut = Analysis.withoutAnalysis(body);
+        assertFalse(cut.contains("may sell its plant") || cut.contains("move north") || cut.contains("## Conjectures"), "both parts of the section are left out: " + cut);
+        assertTrue(cut.contains("## Answer") && cut.contains("Acme makes widgets") && cut.contains("## Filings") && cut.contains("## Sources"), cut);
+    }
 }

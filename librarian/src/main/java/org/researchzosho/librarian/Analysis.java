@@ -178,10 +178,14 @@ public final class Analysis {
         if (body == null || body.isEmpty()) return body;
         String b = body;
         for (String name : SECTIONS) {
-            int at = ("\n" + b).indexOf("\n## " + name + "\n");
-            if (at < 0) continue;
-            int end = b.indexOf("\n## ", at + 1);
-            b = b.substring(0, at) + (end < 0 ? "" : b.substring(end));
+            // every section of that name and its continuations: a conjecture under "## Conjectures (cont.)" is a conjecture too
+            while (true) {
+                Matcher h = TimelineClaims.heading(name).matcher("\n" + b);
+                if (!h.find()) break;
+                int at = h.start();   // in b, the "\n" before the heading (or the start when the heading is the first line)
+                int end = b.indexOf("\n## ", Math.max(at, 0) + 1);
+                b = b.substring(0, Math.max(at, 0)) + (end < 0 ? "" : b.substring(end));
+            }
         }
         return b;
     }

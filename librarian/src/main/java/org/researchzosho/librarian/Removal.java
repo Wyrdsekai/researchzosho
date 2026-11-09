@@ -111,12 +111,13 @@ public final class Removal {
                 try { index.remove(plan.id()); } catch (IOException ignored) { }
                 Changes.append(store, "investigation", plan.id(), "removed", "by " + who + (plan.claimsGo().isEmpty() ? "" : ", with " + plan.claimsGo().size() + " claim(s)"));
                 removed.add(plan.id());
+                Files.deleteIfExists(ReportStanding.setAsideFile(store, plan.id()));   // a write-up that was set aside for it goes with the report
             }
         } else if (plan.kind().equals("investigation") && !plan.claimsGo().isEmpty()) {
             Investigation inv = store.investigation(plan.id());
             if (inv != null) {
                 List<String> left = new ArrayList<>(inv.findings()); left.removeAll(plan.claimsGo());
-                store.write(new Investigation(inv.id(), inv.title(), inv.state(), inv.writer(), inv.recordedAt(), left, inv.open(), inv.body()));
+                store.write(inv.withFindings(left));
             }
         }
         store.circulate("remove", who + " :: " + plan.id() + " (" + plan.what() + ") — " + removed.size() + " gone" + (plan.claimsStay().isEmpty() ? "" : ", " + plan.claimsStay().size() + " claim(s) kept: cited elsewhere"));

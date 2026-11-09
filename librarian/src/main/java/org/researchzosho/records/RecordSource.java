@@ -11,7 +11,10 @@ import java.util.Collection;
  * file edit and not a release.
  *
  * <p>{@code url} takes {@code {query}} (or {@code {query:bare}}, its quotes removed; {@code {query:last}} and {@code {query:rest}} for a collection that takes a family name and given names apart), {@code {limit}}, {@code {from}}, {@code {to}} and {@code {key}}; a
- * part in square brackets is dropped when a value inside it is missing. {@code fields} names the fields whose runs search it
+ * part in square brackets is dropped when a value inside it is missing. A collection that pages takes {@code {page}} (the page asked for, counted
+ * from 1, empty on the first page so that a bracketed page part drops and the first page's address is what it always was), {@code {page0}} (the same
+ * counted from 0), {@code {offset0}} (the records before the page) or {@code {first}}-{@code {last}} (the range of the page's records, counted
+ * from 1), and {@code max} says how many records one page may hold (twenty when it says nothing). {@code fields} names the fields whose runs search it
  * (genealogy, software); {@code key_header} sends the key as a header ("Authorization: Bearer {key}") and {@code key_optional} marks a key
  * that only raises a limit. A source whose key comes from a login ({@code key_login}, an address to open with the application's key
  * {@code app} in it) is signed in to with {@code records login}: the person pastes the address they land on and the token is taken from it. Every other field is a template over one hit:
@@ -21,10 +24,16 @@ public record RecordSource(String id, String name, String holds, String kind, Li
                            int fromYear, int toYear, String tier, String url, String format, String items,
                            String title, String date, String link, String snippet, String where,
                            String keyName, String keyFrom, boolean keyOptional, String keyHeader, String keyLogin, String appName, String appFrom, List<String> fields, List<String> hosts, boolean builtIn,
-                           String secretName, String tokenUrl, String accept, int emptyStatus, int perRun) {
+                           String secretName, String tokenUrl, String accept, int emptyStatus, int perRun, int max) {
 
     /** Whether one run may search this collection only so many times ({@code per_run}): a collection whose monthly allowance is small, such as SerpApi's 250. */
     public boolean hasAllowance() { return perRun > 0; }
+
+    /** How many records one page of this collection gives at most ({@code max}); twenty when the collection says nothing. */
+    public int pageSize() { return max > 0 ? max : 20; }
+
+    /** Whether the address pages: page 2 of a search is the records after the first page's, so a whole class, name or span of years can be taken in page by page. */
+    public boolean pages() { return url != null && (url.contains("{page}") || url.contains("{page0}") || url.contains("{offset0}") || url.contains("{first}")); }
 
     /** A source that hands out a short-lived token for a key and a secret (OAuth's client credentials): the search then carries the token. */
     public boolean exchangesAToken() { return tokenUrl != null && !tokenUrl.isBlank(); }

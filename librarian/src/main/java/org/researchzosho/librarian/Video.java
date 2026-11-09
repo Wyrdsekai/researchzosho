@@ -40,6 +40,7 @@ import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.stream.Stream;
 /**
  * The video helper: how ResearchZosho reaches YouTube without an API key. YouTube's Data API allows a hundred searches a day, which one
  * research run can use up, so the library works the way yt-dlp does, reading the pages a browser reads. YouTube refuses that from an
@@ -129,6 +130,16 @@ public final class Video {
     private static final ObjectMapper J = new ObjectMapper();
     /** Whether the token provider answers; tests replace it. */
     public static volatile BooleanSupplier providerProbe = Video::providerAnswersNow;
+    /** A GET through the tunnel's proxy, the body as bytes (a picture); tests replace it. */
+    public interface ByteFetcher { byte[] get(String url, Duration timeout) throws Exception; }
+    public static volatile ByteFetcher byteFetcher = (url, timeout) -> {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
+                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build();
+        HttpResponse<byte[]> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(timeout)
+                .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36").GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+        if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode());
+        return r.body();
+    };
     /** A GET through the tunnel's proxy, the body as text; tests replace it. */
     public interface Fetcher { String get(String url, Duration timeout) throws Exception; }
     public static volatile Fetcher fetcher = (url, timeout) -> {
@@ -489,6 +500,17 @@ public final class Video {
         }
     }
 
+    /** A picture fetched through the tunnel under the same rules, for when a plain fetch of it was refused; null when it could not be had. */
+    public static byte[] fetchBytesThroughTunnel(String url, Duration timeout) {
+        if (!installed() || !providerAnswers()) return null;
+        pace(readPaceMs);
+        try { return byteFetcher.get(url, timeout); }
+        catch (Exception e) {
+            if (refused(e.getMessage())) noteRefusal(e.getMessage());
+            return null;
+        }
+    }
+
     /** The pace of a search, in milliseconds; a test with a stand-in for yt-dlp sets it to nothing. */
     public static volatile long paceMs = PACE_MS;
     /** The pace of a read (a video's details and captions, a channel's list or feed), in milliseconds; a test sets it to nothing. */
@@ -520,7 +542,7 @@ public final class Video {
 
     /** How many caption tracks are kept. */
     public static int captionsHeld() {
-        try (java.util.stream.Stream<Path> s = Files.list(captionsDir())) { return (int) s.filter(p -> p.getFileName().toString().endsWith(".json3")).count(); }
+        try (Stream<Path> s = Files.list(captionsDir())) { return (int) s.filter(p -> p.getFileName().toString().endsWith(".json3")).count(); }
         catch (IOException e) { return 0; }
     }
 
@@ -562,7 +584,7 @@ public final class Video {
     private static Result runWithPath(List<String> cmd, Duration timeout) throws Exception {
         if (runner != DEFAULT) return runner.run(cmd, timeout);
         ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
-        pb.environment().put("PATH", dir().resolve("bin") + java.io.File.pathSeparator + pb.environment().getOrDefault("PATH", ""));
+        pb.environment().put("PATH", dir().resolve("bin") + File.pathSeparator + pb.environment().getOrDefault("PATH", ""));
         return run(pb, timeout);
     }
     private static final Runner DEFAULT = runner;

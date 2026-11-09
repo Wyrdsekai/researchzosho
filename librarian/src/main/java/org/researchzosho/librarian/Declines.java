@@ -141,6 +141,8 @@ public final class Declines {
             }
             @Override public int contextWindow() { return d.contextWindow(); }
             @Override public DeclineJudge declineJudge() { return judge; }
+            @Override public String model() { return model == null || model.isBlank() ? d.model() : model; }
+            @Override public ObjectNode decide(ArrayNode messages, ArrayNode tools, int maxTokens, String toolChoice) { return d.decide(messages, tools, maxTokens, toolChoice); }
 
             /** The judge on one suspect reply: a sure decline is raised, an unsure reply noted, anything else passes. */
             private void read(ArrayNode messages, String words) {

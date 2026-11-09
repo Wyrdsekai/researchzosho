@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.file.Files;
 import org.researchzosho.Version;
+import java.time.Duration;
 /** The library in a browser: the pages render from a real store, and writing needs the cookie. */
 class PagesTest {
 
@@ -27,12 +28,12 @@ class PagesTest {
     }
 
     static HttpResponse<String> get(HttpClient c, String url, String cookie) throws Exception {
-        var b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).GET();
+        var b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(120)).GET();
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
     static HttpResponse<String> post(HttpClient c, String url, String form, String cookie) throws Exception {
-        var b = HttpRequest.newBuilder(URI.create(url)).timeout(java.time.Duration.ofSeconds(120)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
+        var b = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(120)).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString(form));
         if (cookie != null) b.header("Cookie", cookie);
         return c.send(b.build(), HttpResponse.BodyHandlers.ofString());
     }
@@ -71,7 +72,9 @@ class PagesTest {
             var home = get(c, base + "/", null);
             assertEquals(200, home.statusCode());
             assertTrue(home.headers().firstValue("content-type").orElse("").startsWith("text/html"));
-            assertTrue(home.body().contains("2 claims") && home.body().contains("Open questions") && home.body().contains("sign in"), home.body());
+            assertTrue(home.body().contains("id=\"chat-say\"") && home.body().contains("sign in"), "the home is the chat: " + home.body());
+            var past = get(c, base + "/past", null);
+            assertTrue(past.body().contains("2 claims") && past.body().contains("Open questions"), "Past holds the counts and the open questions: " + past.body());
             assertFalse(home.body().contains("/tree"), "a library with no family shows no family pages");
             // the header says which version this is, next to the library's name; the footer says it in full
             String v = Version.number();
@@ -139,12 +142,12 @@ class PagesTest {
             assertTrue(qp.headers().firstValue("Content-Security-Policy").orElse("").contains("script-src 'unsafe-inline'"), "a pick form's \"all\" box needs its inline handler allowed");
             String changesCsp = get(c, base + "/changes", null).headers().firstValue("Content-Security-Policy").orElse("");
             assertTrue(changesCsp.startsWith("default-src 'none'") && changesCsp.contains("script-src 'unsafe-inline'") && changesCsp.contains("connect-src 'self'") && !changesCsp.contains("http"),
-                    "every page carries the chat panel (0.6.0): its own inline script and fetches of its own origin are allowed, nothing from elsewhere: " + changesCsp);
+                    "every page carries the look switch and may carry the runs strip: its own inline script and fetches of its own origin are allowed, nothing from elsewhere: " + changesCsp);
             assertTrue(get(c, base + "/changes", null).body().contains("F-0002-teeth"));
             assertTrue(get(c, base + "/jobs", null).body().contains("Nothing is running"));
             var map = get(c, base + "/map?focus=gears", null);
             assertEquals(200, map.statusCode());
-            assertTrue(map.body().contains("<nav id=\"site-nav\"") && map.body().contains("id=\"c\"></canvas>") && map.body().contains("main class=\"wide\""), "the map sits in the site frame with the nav");
+            assertTrue(map.body().contains("<header class=\"top\">") && map.body().contains("id=\"c\"></canvas>") && map.body().contains("main class=\"wide\""), "the map sits in the site frame, the whole window wide");
             assertTrue(map.headers().firstValue("content-security-policy").orElse("").contains("script-src 'unsafe-inline'"));
             assertEquals(404, get(c, base + "/entry/F-9999-nope", null).statusCode());
             assertEquals(404, get(c, base + "/nothing-here", null).statusCode(), "a stray path is still the API's 404, not a page");
@@ -188,7 +191,8 @@ class PagesTest {
             var second = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves&once=" + once, null);
             assertTrue(second.body().contains("already sent") && second.body().contains("J-0042"), second.body());
             // as shipped the pages are open: a browser may send a question with no sign-in, and the home page says so
-            assertTrue(home.body().contains("open to everyone") && home.body().contains("web signin on"), home.body());
+            assertTrue(home.body().contains("open to everyone"), home.body());
+            assertTrue(get(c, base + "/keep", null).body().contains("web signin on"), "the keeper's page says how to require sign-in");
             var open = post(c, base + "/research", "question=" + Pages.enc("Who cut the gears of the Antikythera mechanism, and how?") + "&mode=broad&sources=shelves", null);
             assertEquals(200, open.statusCode());
             assertTrue(open.body().contains("No model is answering"), "it got as far as the drive check, so it was allowed: " + open.body());
@@ -223,6 +227,10 @@ class PagesTest {
         assertEquals("<h2>Title</h2><p>One <b>two</b> <code>three</code>.</p><ul><li>a</li><li>b</li></ul><p><a href=\"https://x.org/p\" rel=\"noreferrer\">https://x.org/p</a> and <a href=\"https://y.org\" rel=\"noreferrer\">y</a></p>",
                 Pages.md("# Title\n\nOne **two** `three`.\n\n- a\n- b\n\nhttps://x.org/p and [y](https://y.org)\n"));
         assertEquals("<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>", Pages.md("<script>alert(1)</script>"), "page text is escaped");
+        // a run's result links the file it made by the library's own path: the Runs page showed the brackets as text (the translation job of 2026-11-07)
+        assertEquals("<p>Download: <a href=\"/exports/a.en.epub\">a.en.epub</a> · <a href=\"/exports/a.en.translation.md\">the note</a></p>",
+                Pages.md("Download: [a.en.epub](/exports/a.en.epub) · [the note](/exports/a.en.translation.md)"), "a link by the library's own path is a link");
+        assertEquals("<p>[x](//evil.example/y) and [y](ftp://z)</p>", Pages.md("[x](//evil.example/y) and [y](ftp://z)"), "a protocol-relative or other-scheme target stays text");
         assertEquals("<p>How ‘Tokyo Vice’ Secured Japan's Capital &amp; more</p>", Pages.md("How &#8216;Tokyo Vice&#8217; Secured Japan&#039;s Capital &amp; more"), "entities captured as text become characters, then are escaped once");
         assertEquals("<p>&lt;b&gt;x&lt;/b&gt;</p>", Pages.md("&lt;b&gt;x&lt;/b&gt;"), "a decoded tag is still text, not markup");
         assertEquals("<p class=\"ref\" id=\"ref-1\"><b>[1]</b> A title — <a href=\"https://a.example/x\" rel=\"noreferrer\">https://a.example/x</a></p><p class=\"ref\" id=\"ref-2\"><b>[2]</b> <a href=\"https://b.example/y\" rel=\"noreferrer\">https://b.example/y</a><br>also <a href=\"https://b.example/z\" rel=\"noreferrer\">https://b.example/z</a></p>",

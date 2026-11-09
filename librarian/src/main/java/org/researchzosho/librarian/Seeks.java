@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
+import java.util.function.Supplier;
 /**
  * Seeks (0.6.6): the same question researched several times apart, and one report merged from them. Each seek is an ordinary research
  * run on its OWN copy of the shelves, made under {@code seeks/<group>/<job>/} when the run starts: the library's findings, reports and
@@ -49,7 +50,7 @@ public final class Seeks {
     static final int PAIRS_MAX = 60;
 
     /** The embedder a seek's shelves are indexed with: the library's, as set; a test gives none. */
-    static volatile java.util.function.Supplier<Embeddings.Embedder> EMBEDDER = Embeddings::configured;
+    static volatile Supplier<Embeddings.Embedder> EMBEDDER = Embeddings::configured;
 
     static Path dir(LibraryStore store) { return store.root().resolve("seeks"); }
     static Path groupDir(LibraryStore store, String group) { return dir(store).resolve(group); }

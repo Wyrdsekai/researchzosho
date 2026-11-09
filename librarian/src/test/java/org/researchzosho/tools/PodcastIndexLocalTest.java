@@ -39,6 +39,8 @@ class PodcastIndexLocalTest {
             st.execute(ins + "(4,'https://d.example/feed','Dead Iaido Show','https://d.example',1,'x','','Nobody','','','episodic','',"+ now +",'en',3,1,'','','','','iaido, once.','sports','','','','','','','','','',NULL)");
             st.execute(ins + "(6,'https://a2.example/feed','Iaido Hour (copy)','https://a.example',0,'x','','Sword Society','','','episodic','',"+ now +",'en',40,9,'','','','','Talks on iaido and the Japanese sword.','sports','','','','','','','','','',1)");
             st.execute(ins + "(5,'https://e.example/feed','History Weekly','https://e.example',0,'x','','Historians','','','episodic','',"+ (now + 60) +",'en',300,9,'','','','','The week in history.','history','','','','','','','','','','')");
+            // a show that names the words in its title, with the lowest popularity score in the file and an older last episode: the order is the title's and the date's, never the score's
+            st.execute(ins + "(7,'https://f.example/feed','居合の時間','https://f.example',0,'x','','道場','','','episodic','',"+ (now - 86400L*30) +",'ja',12,1,'','','','','毎週の稽古の話。','sports','','','','','','','','','','')");
         }
         return db;
     }
@@ -48,19 +50,20 @@ class PodcastIndexLocalTest {
         Path db = smallIndex(tmp);
         try (Connection c = PodcastIndexLocal.open(db, false)) { PodcastIndexLocal.index(c); }
         PodcastIndexLocal.use(db);
-        assertTrue(PodcastIndexLocal.present()); assertEquals(6, PodcastIndexLocal.count());
+        assertTrue(PodcastIndexLocal.present()); assertEquals(7, PodcastIndexLocal.count());
         List<Podcasts.Show> hits = PodcastIndexLocal.search("iaido", "", "", false, 10);
         assertNotNull(hits);
         assertEquals(List.of("Iaido Hour"), hits.stream().map(Podcasts.Show::title).toList(), "a word, not a substring (no Aikido), not the dead show, not the duplicate: " + hits);
         assertEquals("Podcast Index, local file", hits.get(0).source());
         assertEquals(List.of("sports", "history"), hits.get(0).categories());
         List<Podcasts.Show> ja = PodcastIndexLocal.search("居合", "", "", false, 10);
-        assertEquals(1, ja.size(), "a CJK word as text within its language's shows: " + ja); assertEquals("歴史のラジオ", ja.get(0).title());
+        assertEquals(List.of("居合の時間", "歴史のラジオ"), ja.stream().map(Podcasts.Show::title).toList(), "a CJK word as text within its language's shows; the title that names it comes first although its popularity score is the lowest and its last episode older: " + ja);
         assertEquals("ja", PodcastIndexLocal.cjkLanguage("居合の番組")); assertEquals("zh", PodcastIndexLocal.cjkLanguage("居合")); assertEquals("ko", PodcastIndexLocal.cjkLanguage("검도")); assertNull(PodcastIndexLocal.cjkLanguage("iaido"));
         assertTrue(PodcastIndexLocal.search("剣術", "ja", "", false, 10).stream().anyMatch(s -> s.title().equals("歴史のラジオ")), "inside a run of characters");
         assertTrue(PodcastIndexLocal.search("iaido", "ja", "", false, 10).isEmpty(), "language narrows");
         List<Podcasts.Show> browse = PodcastIndexLocal.browse("en", "history", true, 10);
-        assertEquals(List.of("History Weekly", "Iaido Hour"), browse.stream().map(Podcasts.Show::title).toList(), "by popularity, any category slot, active this year: " + browse);
+        assertEquals(List.of("History Weekly", "Iaido Hour"), browse.stream().map(Podcasts.Show::title).toList(), "the most recently updated first, never by the popularity score; any category slot, active this year: " + browse);
+        assertEquals(List.of("Iaido Hour", "居合の時間", "Aikido of London"), PodcastIndexLocal.browse("", "sports", false, 10).stream().map(Podcasts.Show::title).toList(), "a browse is the newest first: the show with the lowest score and a newer episode stands before the one with a higher score and an older one");
         assertEquals(2, PodcastIndexLocal.browse("", "history", false, 10).stream().filter(s -> s.language().startsWith("ja") || s.title().equals("History Weekly")).count());
         assertTrue(PodcastIndexLocal.browse("", "sports", true, 10).stream().noneMatch(s -> s.title().equals("Aikido of London")), "active narrows to the last year");
         assertEquals("\"iaido\" \"sword\"", PodcastIndexLocal.matchQuery("iaido  sword")); assertEquals("\"居合\"*", PodcastIndexLocal.matchQuery("居合")); assertEquals("\"it's\"", PodcastIndexLocal.matchQuery("\"it's\""));

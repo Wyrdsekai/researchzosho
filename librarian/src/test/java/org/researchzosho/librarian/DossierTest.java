@@ -12,26 +12,28 @@ import java.util.Map;
 import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.ArrayList;
+import org.junit.jupiter.api.Assertions;
 /** The dossier (0.6.6): a view over everything the shelves hold on a subject; and telling the library, a told claim whose leads join the open questions. */
 class DossierTest {
-    @org.junit.jupiter.api.Test
+    @Test
     void thePatternOfLifeIsComputedFromTheClaims() {
-        java.util.List<Finding> claims = new java.util.ArrayList<>();
+        List<Finding> claims = new ArrayList<>();
         String[][] rows = {{"Ada Example, 2019: keynote at the Widget Summit, Austin, TX", "She gave the keynote at the Widget Summit in Austin, TX."}, {"Ada Example, 2019: joined Acme", "Joined Acme Corp. in Boston, MA."}, {"Ada Example, 2021: moved to Needham", "Lives in Needham, MA since 2021."}, {"Ada Example, 2021: a podcast", "Guest on the Gears podcast."}, {"Ada Example: an undated note", "A note with no year, Chestnut Hill, MA."}, {"Ada Example, 2007: a consultant", "Part-time Consultant, IV Labs; Chapter IV of the memoir."}};
         int n = 0;
-        for (String[] r : rows) claims.add(new Finding("F-000" + (++n) + "-x", r[0], java.util.List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.medium, "patron:test", "2026-10-26T00:00:00Z", "2026-10-26", Finding.Volatility.stable, "", java.util.List.of(new Finding.Source("https://a.example/" + n, "n/a", "x")), java.util.List.of(), null, r[1] + "\n"));
+        for (String[] r : rows) claims.add(new Finding("F-000" + (++n) + "-x", r[0], List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.medium, "patron:test", "2026-10-26T00:00:00Z", "2026-10-26", Finding.Volatility.stable, "", List.of(new Finding.Source("https://a.example/" + n, "n/a", "x")), List.of(), null, r[1] + "\n"));
         PatternOfLife.Pattern p = PatternOfLife.of(claims);
-        org.junit.jupiter.api.Assertions.assertEquals(java.util.Map.of("2007", 1, "2019", 2, "2021", 2), p.byYear());
-        org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("2019"), p.places().get("Austin")); org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("2021"), p.places().get("Needham")); org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("undated"), p.places().get("Chestnut Hill"));
-        org.junit.jupiter.api.Assertions.assertFalse(p.places().containsKey("Boston"), "the big places every dossier names are left out");
-        org.junit.jupiter.api.Assertions.assertFalse(p.places().containsKey("Consultant") || p.places().containsKey("Chapter"), "a Roman numeral is not a state: " + p.places());
-        claims.add(new Finding("F-0009-x", "Ada Example, 2022: 東京へ", java.util.List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.medium, "patron:test", "2026-10-26T00:00:00Z", "2022", Finding.Volatility.stable, "", java.util.List.of(new Finding.Source("https://a.example/9", "n/a", "x")), java.util.List.of(), null, "2022年に東京都千代田区の本社を訪れた。\n"));
+        Assertions.assertEquals(Map.of("2007", 1, "2019", 2, "2021", 2), p.byYear());
+        Assertions.assertEquals(List.of("2019"), p.places().get("Austin")); Assertions.assertEquals(List.of("2021"), p.places().get("Needham")); Assertions.assertEquals(List.of("undated"), p.places().get("Chestnut Hill"));
+        Assertions.assertFalse(p.places().containsKey("Boston"), "the big places every dossier names are left out");
+        Assertions.assertFalse(p.places().containsKey("Consultant") || p.places().containsKey("Chapter"), "a Roman numeral is not a state: " + p.places());
+        claims.add(new Finding("F-0009-x", "Ada Example, 2022: 東京へ", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.medium, "patron:test", "2026-10-26T00:00:00Z", "2022", Finding.Volatility.stable, "", List.of(new Finding.Source("https://a.example/9", "n/a", "x")), List.of(), null, "2022年に東京都千代田区の本社を訪れた。\n"));
         PatternOfLife.Pattern pj = PatternOfLife.of(claims);
-        org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("2022"), pj.places().get("千代田区")); org.junit.jupiter.api.Assertions.assertFalse(pj.places().containsKey("東京都"), "the capital is every dossier's; the ward is the place: " + pj.places());
-        org.junit.jupiter.api.Assertions.assertEquals(2, p.appearances().size(), p.appearances().toString()); org.junit.jupiter.api.Assertions.assertTrue(p.appearances().get(0).startsWith("2019: Ada Example, 2019: keynote"));
-        String md = PatternOfLife.markdown(p); org.junit.jupiter.api.Assertions.assertTrue(md.startsWith("## Pattern of life") && md.contains("- 2019 ████████████████████ 2") && md.contains("- Austin (2019)") && md.contains("### Appearances"), md);
-        String html = PatternOfLife.html(p); org.junit.jupiter.api.Assertions.assertTrue(html.contains("<ul class=\"bars\">") && html.contains("style=\"width:100%\"") && html.contains("Needham <span class=\"date\">2021</span>"), html);
-        org.junit.jupiter.api.Assertions.assertTrue(PatternOfLife.markdown(PatternOfLife.of(java.util.List.of())).isEmpty());
+        Assertions.assertEquals(List.of("2022"), pj.places().get("千代田区")); Assertions.assertFalse(pj.places().containsKey("東京都"), "the capital is every dossier's; the ward is the place: " + pj.places());
+        Assertions.assertEquals(2, p.appearances().size(), p.appearances().toString()); Assertions.assertTrue(p.appearances().get(0).startsWith("2019: Ada Example, 2019: keynote"));
+        String md = PatternOfLife.markdown(p); Assertions.assertTrue(md.startsWith("## Pattern of life") && md.contains("- 2019 ████████████████████ 2") && md.contains("- Austin (2019)") && md.contains("### Appearances"), md);
+        String html = PatternOfLife.html(p); Assertions.assertTrue(html.contains("<ul class=\"bars\">") && html.contains("style=\"width:100%\"") && html.contains("Needham <span class=\"date\">2021</span>"), html);
+        Assertions.assertTrue(PatternOfLife.markdown(PatternOfLife.of(List.of())).isEmpty());
     }
 
     private static final ObjectMapper J = new ObjectMapper();
@@ -75,7 +77,7 @@ class DossierTest {
         String md = d.path("markdown").asText();
         assertTrue(md.startsWith("# Dossier: Ada Example\n"), md);
         assertTrue(md.contains("## Relations\n") && md.contains("Acme Corp.") && md.contains("[" + f1 + "]"), md);
-        assertTrue(md.contains("## Timeline\n") && md.contains("- 1999: Ada Example joined Acme [public record, 2026-10-24] (" + f1 + ")") && md.contains("- 2004: Ada Example on the record [third-party"), md);
+        assertTrue(md.contains("## Timeline\n") && md.contains("- 1999: Ada Example joined Acme [public record, said 2026-10-24] (" + f1 + ")") && md.contains("- 2004: Ada Example on the record [third-party"), md);
         assertTrue(md.contains("## Told\n") && md.contains("I worked beside Ada at Acme in 2000"), md);
         assertTrue(md.contains("## Reports to dive into\n") && md.contains(i1 + " — Who is Ada Example?") && md.contains("Ada Example is an engineer who joined Acme in 1999."), md);
         assertTrue(md.contains("## Looked for and not found\n\n- Wikidata: Ada Example"), md);

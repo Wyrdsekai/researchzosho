@@ -23,6 +23,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.time.Duration;
+import java.util.HashMap;
 /** Podcasts (0.5.5): the directories, the feed, the transcripts published and made, the budget, and the tool's rendering — against a stub server. */
 class PodcastsTest {
 
@@ -147,7 +149,7 @@ class PodcastsTest {
         LibraryStore store = new LibraryStore(tmp); store.init();
         Podcasts.Episode ep = new Podcasts.Episode("Episode 1", "2026-10-02", "", base + "/ep1", base + "/episode.mp3", "audio/mpeg", 5385, "g1", "Show", feedUrl(), List.<String[]>of(new String[]{base + "/captions.srt", "application/srt"}), List.of());
         StringBuilder why = new StringBuilder();
-        String srtBody = Archives.text(base + "/captions.srt", java.time.Duration.ofSeconds(5), "x");
+        String srtBody = Archives.text(base + "/captions.srt", Duration.ofSeconds(5), "x");
         assertNotNull(srtBody, "the stub serves the SRT");
         assertFalse(Podcasts.parseTranscript(srtBody, "application/srt").isEmpty(), "the SRT parses: " + srtBody.substring(0, Math.min(120, srtBody.length())));
         Podcasts.Transcript t = Podcasts.transcript(store, ep, "", new Podcasts.Budget(), why);
@@ -221,7 +223,7 @@ class PodcastsTest {
 
     /** Settings for the span of a test, put back after. */
     static final class ConfigKeys implements AutoCloseable {
-        final Map<String, String> before = new java.util.HashMap<>();
+        final Map<String, String> before = new HashMap<>();
         ConfigKeys(Map<String, String> values) throws Exception { for (var e : values.entrySet()) { before.put(e.getKey(), Config.get(e.getKey())); Config.set(e.getKey(), e.getValue()); } }
         @Override public void close() throws Exception { for (var e : before.entrySet()) Config.set(e.getKey(), e.getValue() == null ? "" : e.getValue()); }
     }

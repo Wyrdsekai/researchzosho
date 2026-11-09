@@ -21,7 +21,7 @@ class TimelineClaimsTest {
     void theEventsAreReadWithTheirReferences() {
         List<TimelineClaims.Event> ev = TimelineClaims.events(BODY);
         assertEquals(6, ev.size(), ev.toString());
-        assertEquals("1959", ev.get(0).year()); assertEquals("Born Fort Meade, MD", ev.get(0).text()); assertEquals(List.of("https://en.wikipedia.org/wiki/Ada_Example"), ev.get(0).locators());
+        assertEquals("1959", ev.get(0).year()); assertEquals(TimelineClaims.MILESTONE + "Born Fort Meade, MD", ev.get(0).text());   // a birth is a milestone of the Timeline assertEquals(List.of("https://en.wikipedia.org/wiki/Ada_Example"), ev.get(0).locators());
         assertEquals("1978–79", ev.get(1).year()); assertEquals(List.of("https://www.encyclopedia.com/x"), ev.get(1).locators());
         assertEquals("The Big U", ev.get(2).text()); assertEquals(List.of("https://isfdb.org/cgi-bin/ea.cgi?429="), ev.get(2).locators());
         assertEquals(2, ev.get(3).locators().size(), "two citations, two references");
@@ -34,7 +34,7 @@ class TimelineClaimsTest {
         String body = "## Timeline\n\n1984-12-10: Founded by Bosack and Lerner in San Francisco, CA [2]. 1987: Bill Graves becomes CEO [47]. 1990: IPO; Bosack resigns [12][73].1995: John Chambers becomes CEO [47]. 1993-09-24: Crescendo, $94.5M [10]. 1994-07: Newport, $95M [10]. 1999–2006: Member, Technical Staff [1]. 2026-07-25: FY2026 ends; 10-K filed 2026-09-02 [14][16].\n\n## References\n\n[1] https://a.example/1\n[2] https://a.example/2\n[10] https://a.example/10\n[12] https://a.example/12\n[14] https://a.example/14\n[16] https://a.example/16\n[47] https://a.example/47\n[73] https://a.example/73\n";
         List<TimelineClaims.Event> ev = TimelineClaims.events(body);
         assertEquals(List.of("1984-12-10", "1987", "1990", "1995", "1993-09-24", "1994-07", "1999–2006", "2026-07-25"), ev.stream().map(TimelineClaims.Event::year).toList(), ev.toString());
-        assertEquals("Founded by Bosack and Lerner in San Francisco, CA", ev.get(0).text());
+        assertEquals(TimelineClaims.MILESTONE + "Founded by Bosack and Lerner in San Francisco, CA", ev.get(0).text());   // the founding is a milestone
         assertEquals("IPO; Bosack resigns", ev.get(2).text(), "a missing space before the next date still splits");
         assertEquals("FY2026 ends; 10-K filed 2026-09-02", ev.get(7).text(), "a date inside the text is not a new event");
         assertEquals(2, ev.get(7).locators().size());
@@ -45,7 +45,7 @@ class TimelineClaimsTest {
         String body = "## Timeline\n\n1973 (Jul) — Born [4].\nc. 1981 — Attended St. Ignatius College Prep (yearbook on archive.org) [60].\n1991–1995 — B.S. Psychology, Trinity College; played MUDs in college [3][22].\n2003 (Aug) — Moved to Monolith Productions as Lead Game Designer [6].\n2016 (Aug–Oct) — NPD Group acquired EEDAR; announced 29 Aug 2016, closed early Oct 2016 [14].\n\n## References\n\n[3] https://a.example/3\n[4] https://a.example/4\n[6] https://a.example/6\n[14] https://a.example/14\n[22] https://a.example/22\n[60] https://a.example/60\n";
         List<TimelineClaims.Event> ev = TimelineClaims.events(body);
         assertEquals(List.of("1973 (Jul)", "c. 1981", "1991–1995", "2003 (Aug)", "2016 (Aug–Oct)"), ev.stream().map(TimelineClaims.Event::year).toList(), ev.toString());
-        assertEquals("Born", ev.get(0).text()); assertEquals(List.of("https://a.example/4"), ev.get(0).locators());
+        assertEquals(TimelineClaims.MILESTONE + "Born", ev.get(0).text()); assertEquals(List.of("https://a.example/4"), ev.get(0).locators());
         assertEquals("NPD Group acquired EEDAR; announced 29 Aug 2016, closed early Oct 2016", ev.get(4).text(), "a date inside the text stays inside it");
         assertEquals(2, ev.get(2).locators().size());
     }
@@ -270,5 +270,43 @@ class TimelineClaimsTest {
         Investigation other = new Investigation(i2, "The record of a writer", Finding.State.accepted, "patron:test", Instant.now().toString(), List.of(filed.get(0), filed.get(1)), List.of(), "## Timeline\n\n1990: x [1].\n\n## References\n\n[1] https://a.example/\n");
         store.write(other);
         assertEquals("Ada Example", TimelineClaims.subjectOf(store, other), "the name the claims lead with, before the first comma or colon");
+    }
+
+    @Test
+    void aContinuedSectionAndALineThatRunsOnAreReadAsTheirEvents() {
+        // the writer listed the first milestone, then went on under "(cont.)" with the rest as one paragraph (a university's dossier, 2026-11-04)
+        String body = "## Question\n\nWho is Example University?\n\n## Milestones\n\n1636: Founded in Newtowne by the General Court [1].\n\n"
+                + "## Milestones (cont.)\n\n1639: Named after a benefactor's bequest [1]. 1642: First commencement; the Board of Overseers established [2]. "
+                + "1650: Chartered as the President and Fellows [2]. 1999: The sister college fully merged into the university [2].\n\n"
+                + "## Registry card\n\nLegal name: President and Fellows of Example College [2].\n\n"
+                + "## References\n\n[1] https://a.example/history\n[2] https://b.example/charter\n";
+        List<TimelineClaims.Event> ev = TimelineClaims.events(body);
+        List<String> years = new ArrayList<>(); for (TimelineClaims.Event e : ev) if (e.text().startsWith(TimelineClaims.MILESTONE)) years.add(e.year());
+        assertEquals(List.of("1636", "1639", "1642", "1650", "1999"), years, "every milestone of the section and its continuation, each its own event: " + ev);
+        TimelineClaims.Event named = ev.stream().filter(e -> e.year().equals("1639")).findFirst().orElseThrow();
+        assertEquals(TimelineClaims.MILESTONE + "Named after a benefactor's bequest", named.text(), "the run-on line is cut where the next date begins");
+        assertEquals(List.of("https://a.example/history"), named.locators());
+        assertEquals("1636: Founded in Newtowne by the General Court [1].\n1639: Named after a benefactor's bequest [1]. 1642: First commencement; the Board of Overseers established [2]. 1650: Chartered as the President and Fellows [2]. 1999: The sister college fully merged into the university [2].",
+                TimelineClaims.sectionIn(body, "Milestones"), "a section is read with its continuation");
+        assertEquals("", TimelineClaims.sectionIn(body, "Milestones (cont.)".substring(0, 9) + "x"), "another heading is not a continuation");
+    }
+
+    @Test
+    void aMilestoneThatRepeatsADecisionOfItsYearIsNotFiledTwice(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        String body = "## Question\n\nWho is Example University?\n\n## Milestones\n\n1636: Founded in Newtowne by the General Court [1].\n"
+                + "1999: The sister college fully merged into Example University [2].\n2023-06-29: Supreme Court ruled SFFA v. Example University, ending race-based admissions [2].\n\n"
+                + "## Decisions\n\n2023-06-29: Supreme Court ruled SFFA v. Example University 6-2; Example University announced it would comply [2].\n"
+                + "1999: Example University raised its tuition for the coming year [2].\n\n"
+                + "## References\n\n[1] https://a.example/history\n[2] https://b.example/news\n";
+        String id = store.nextInvestigationId("Who is Example University? A full dossier.");
+        store.write(new Investigation(id, "Who is Example University? A full dossier.", Finding.State.accepted, "patron:test", Instant.now().toString(), List.of(), List.of(), body));
+        List<String> filed = TimelineClaims.file(store, store.investigation(id), "Example University");
+        List<String> titles = new ArrayList<>(); for (String f : filed) titles.add(store.finding(f).title());
+        assertTrue(titles.stream().anyMatch(x -> x.contains("2023-06-29: " + TimelineClaims.DECISION + "Supreme Court ruled")), "the decision is filed: " + titles);
+        assertFalse(titles.stream().anyMatch(x -> x.contains("2023-06-29: " + TimelineClaims.MILESTONE)), "the milestone that repeats it is not: " + titles);
+        assertTrue(titles.stream().anyMatch(x -> x.contains("1636: " + TimelineClaims.MILESTONE + "Founded")), titles.toString());
+        assertTrue(titles.stream().anyMatch(x -> x.contains("1999: " + TimelineClaims.MILESTONE + "The sister college fully merged")), "a milestone and another decision of its year are two events: " + titles);
+        assertTrue(titles.stream().anyMatch(x -> x.contains("1999: " + TimelineClaims.DECISION + "Example University raised its tuition")), titles.toString());
     }
 }

@@ -2,11 +2,13 @@ package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.researchzosho.Config;
 
 import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -84,6 +86,52 @@ class ServiceTest {
         assertTrue(other.isAlive(), "not ours; not touched");
         assertFalse(Files.exists(pid), "the stale record goes, so status no longer reports a server that is not there");
         other.destroy();
+    }
+
+    @Test
+    void theServicesPidRecordIsTheServicesAndADaemonTakesAwayOnlyItsOwn(@TempDir Path tmp) throws Exception {
+        Path service = tmp.resolve("state").resolve("researchzosho.pid"), scratch = tmp.resolve("scratch-library");
+        assertEquals(service, Service.pidFileFor(service, scratch, true, false, 4242L), "the daemon the service manager started records itself there, whoever held it");
+        assertEquals(service, Service.pidFileFor(service, scratch, false, true, 4242L), "so does the daemon of the default library");
+        assertEquals(service, Service.pidFileFor(service, scratch, false, false, null), "no other daemon running holds it: any daemon may record itself there, as one does on a box with one daemon");
+        assertEquals(scratch.resolve("catalog").resolve("researchzosho.pid"), Service.pidFileFor(service, scratch, false, false, 4242L),
+                "a test daemon on a scratch library while the service runs: inside its own library, and the service keeps its record");
+        // on exit a daemon takes the record away only while it holds its own pid
+        Files.createDirectories(service.getParent());
+        Files.writeString(service, "4242");
+        assertFalse(Service.forget(service, 777L), "another daemon's record stays");
+        assertEquals(4242L, Service.recordedPid(service));
+        assertTrue(Service.forget(service, 4242L));
+        assertFalse(Files.exists(service));
+        assertFalse(Service.forget(service, 4242L), "no record, nothing to take away");
+    }
+
+    @Test
+    void aDaemonOfAnotherLibraryLeavesTheRunningServicesRecordAlone(@TempDir Path tmp) throws Exception {
+        assumeFalse("1".equals(System.getenv("RESEARCHZOSHO_SERVICE")), "a suite run from inside the service would be the service");
+        String realHome = System.getProperty("user.home");
+        String jvm = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        Process running = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"), ServiceTest.class.getName() + "$Sleeper").redirectErrorStream(true).start();
+        try {
+            System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
+            Path service = Service.pidFile();
+            assertTrue(service.startsWith(tmp), service.toString());
+            Files.createDirectories(service.getParent());
+            Files.writeString(service, Long.toString(running.pid()));   // the service, running
+            Thread.sleep(300);
+            LibraryStore scratch = new LibraryStore(tmp.resolve("scratch")); scratch.init();
+            Path f = Service.recordPid(scratch);
+            assertEquals(Service.pidFileIn(scratch.root()), f, "a daemon of a scratch library records itself inside it");
+            assertEquals(running.pid(), Service.recordedPid(service), "the service's record still holds the service");
+            assertEquals(ProcessHandle.current().pid(), Service.recordedPid(f));
+            // the service is gone: a daemon may record itself in its record, as a daemon alone on its box does
+            running.destroy(); running.waitFor();
+            assertEquals(service, Service.recordPid(scratch));
+            assertEquals(ProcessHandle.current().pid(), Service.recordedPid(service));
+        } finally {
+            running.destroyForcibly();
+            System.setProperty("user.home", realHome); Config.invalidate();
+        }
     }
 
     /** A JVM that waits to be stopped. */

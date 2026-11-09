@@ -44,7 +44,7 @@ class LawAndPatentsProfilesTest {
                 "Can a provisional application be searched?"}) assertTrue(patents.applies(q), q);
         for (String q : new String[]{"How were the Antikythera gears cut?", "What is the best recording of the Bach cello suites?"}) assertFalse(patents.applies(q), q);
         for (String rule : new String[]{patents.register(), patents.planRules(), patents.criticRules(), patents.writerRules(), patents.extractionRule()}) assertFalse(rule.isBlank());
-        assertTrue(patents.register().contains("https://patents.google.com/patent/US12450652B1/en"));
+        assertTrue(patents.register().contains("A patent is read with patent_claims and never by opening its page yourself") && !patents.register().contains("patents.google.com"), "a patent is read from the office's full text, never from a page that refuses a program");
         assertTrue(patents.register().contains("never published"), "what a provisional is");
     }
 }

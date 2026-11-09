@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.zip.GZIPInputStream;
 
+import java.nio.file.attribute.FileTime;
 /**
  * The Podcast Index as a file (0.5.5): the index publishes its whole directory of shows weekly as one SQLite database (about 1.8 GB to
  * download, 4.9 GB unpacked, 4.7 million shows on 2026-10-08), for exactly the use its API forbids — searching and browsing the directory at
@@ -95,7 +96,7 @@ public final class PodcastIndexLocal {
         try (Connection c = open(fresh, false)) { index(c); }
         catch (SQLException e) { throw new IOException("the index could not be built: " + e.getMessage(), e); }
         Files.move(fresh, file(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-        Files.setLastModifiedTime(file(), java.nio.file.attribute.FileTime.from(Instant.now()));
+        Files.setLastModifiedTime(file(), FileTime.from(Instant.now()));
         try { Config.set("RESEARCHZOSHO_PODCASTINDEX_LOCAL", "on"); } catch (IOException ignored) { }
         long shows = count();
         String said = "The Podcast Index is on this machine: " + shows + " shows, " + Files.size(file()) / 1_000_000 + " MB, word index built in " + (System.currentTimeMillis() - t1) / 1000
@@ -184,14 +185,15 @@ public final class PodcastIndexLocal {
             // Han alone may be Japanese or Chinese: both, unless the language was given
             if (langs.isEmpty()) langs = cjk.equals("zh") ? List.of("ja", "zh") : List.of(cjk);
             String sql = "SELECT p.url, p.title, p.itunesAuthor, p.link, p.language, p.category1, p.category2, p.category3, p.category4, p.category5, p.episodeCount, p.newestItemPubdate, p.description, p.popularityScore"
-                    + " FROM podcasts p WHERE p.dead = 0 AND NOT (typeof(p.duplicateOf) = 'integer' AND p.duplicateOf > 0)" + filters(langs.size(), category, active) + " AND (p.title LIKE ? OR p.description LIKE ?) ORDER BY p.popularityScore DESC, p.newestItemPubdate DESC LIMIT ?";
-            return query(sql, null, langs, category, active, limit, "%" + w.replace("%", "").replace("_", "") + "%");
+                    + " FROM podcasts p WHERE p.dead = 0 AND NOT (typeof(p.duplicateOf) = 'integer' AND p.duplicateOf > 0)" + filters(langs.size(), category, active) + " AND (p.title LIKE ? OR p.description LIKE ?) ORDER BY CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END, p.newestItemPubdate DESC LIMIT ?";
+            // the shows that name the words in their title first, then the most recently updated; the file's popularity score is never the order (2026-11-05)
+            return query(sql, null, langs, category, active, limit, "%" + w.replace("%", "").replace("_", "") + "%", 3);
         }
         String match = matchQuery(w);
         if (match.isEmpty()) return List.of();
         String sql = "SELECT p.url, p.title, p.itunesAuthor, p.link, p.language, p.category1, p.category2, p.category3, p.category4, p.category5, p.episodeCount, p.newestItemPubdate, p.description, p.popularityScore"
                 + " FROM podcasts_fts f JOIN podcasts p ON p.id = f.rowid WHERE podcasts_fts MATCH ? AND p.dead = 0 AND NOT (typeof(p.duplicateOf) = 'integer' AND p.duplicateOf > 0)" + filters(langs.size(), category, active) + " ORDER BY bm25(podcasts_fts) LIMIT ?";
-        return query(sql, match, langs, category, active, limit, null);
+        return query(sql, match, langs, category, active, limit, null, 0);
     }
 
     /** The language a query's script says it is in: ja for kana, ko for hangul, zh for Han alone; null for the rest. */
@@ -206,14 +208,17 @@ public final class PodcastIndexLocal {
         return kana ? "ja" : hangul ? "ko" : han ? "zh" : null;
     }
 
-    /** The directory by category and language, the most popular and recent first: browsing, which the API does not offer. */
+    /**
+     * The directory by category and language, the most recently updated first: browsing, which the API does not offer. Never by the file's
+     * popularity score: a chart is not a pool, and the show a person would want is as likely in the tail (2026-11-05).
+     */
     public static List<Podcasts.Show> browse(String language, String category, boolean active, int limit) {
         if (!present()) return null;
         if ((language == null || language.isBlank()) && (category == null || category.isBlank())) return List.of();
         List<String> langs = language == null || language.isBlank() ? List.of() : List.of(language);
         String sql = "SELECT p.url, p.title, p.itunesAuthor, p.link, p.language, p.category1, p.category2, p.category3, p.category4, p.category5, p.episodeCount, p.newestItemPubdate, p.description, p.popularityScore"
-                + " FROM podcasts p WHERE p.dead = 0 AND NOT (typeof(p.duplicateOf) = 'integer' AND p.duplicateOf > 0)" + filters(langs.size(), category, active) + " ORDER BY p.popularityScore DESC, p.newestItemPubdate DESC LIMIT ?";
-        return query(sql, null, langs, category, active, limit, null);
+                + " FROM podcasts p WHERE p.dead = 0 AND NOT (typeof(p.duplicateOf) = 'integer' AND p.duplicateOf > 0)" + filters(langs.size(), category, active) + " ORDER BY p.newestItemPubdate DESC, p.episodeCount DESC LIMIT ?";
+        return query(sql, null, langs, category, active, limit, null, 0);
     }
 
     // a show that is no duplicate carries '' in duplicateOf (text), a duplicate the other show's id (integer); NULL and 0 appear nowhere (measured 2026-10-08)
@@ -225,7 +230,8 @@ public final class PodcastIndexLocal {
         return w.toString();
     }
 
-    static List<Podcasts.Show> query(String sql, String match, List<String> langs, String category, boolean active, int limit, String like) {
+    /** {@code likeBinds}: how many times the text pattern stands in the statement, the two of the WHERE and, for the search, the one of its ORDER BY. */
+    static List<Podcasts.Show> query(String sql, String match, List<String> langs, String category, boolean active, int limit, String like, int likeBinds) {
         List<Podcasts.Show> out = new ArrayList<>();
         try (Connection c = open(file(), true); PreparedStatement ps = c.prepareStatement(sql)) {
             int i = 1;
@@ -233,7 +239,7 @@ public final class PodcastIndexLocal {
             for (String l : langs) ps.setString(i++, l.toLowerCase(Locale.ROOT).replaceAll("[-_].*$", "") + "%");
             if (category != null && !category.isBlank()) { String cat = category.toLowerCase(Locale.ROOT).strip(); for (int k = 0; k < 5; k++) ps.setString(i++, cat); }
             if (active) ps.setLong(i++, Instant.now().minus(Duration.ofDays(365)).getEpochSecond());
-            if (like != null) { ps.setString(i++, like); ps.setString(i++, like); }
+            if (like != null) for (int k = 0; k < likeBinds; k++) ps.setString(i++, like);
             ps.setInt(i, Math.max(1, limit));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {

@@ -40,7 +40,7 @@ class EpoSourceTest {
             RecordSources.search(epo, "Ann Ellis", 0, 0, 5, reader);
             assertEquals(1, seen.stream().filter(x -> x.startsWith("POST")).count(), "one token serves until it runs out: " + seen);
             assertEquals("POST https://ops.epo.org/3.2/auth/accesstoken Basic  grant_type=client_credentials", seen.get(0));
-            assertTrue(seen.get(1).startsWith("GET https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=in%3D%22Robert+Hale%22%20and%20pd%3E%3D1900%20and%20pd%3C%3D1930&Range=1-5 Bearer tok-1 application/json"), seen.get(1));
+            assertTrue(seen.get(1).startsWith("GET https://ops.epo.org/3.2/rest-services/published-data/search/biblio?q=in%3D%22Robert+Hale%22%20and%20pd%20within%20%221900%201930%22&Range=1-5 Bearer tok-1 application/json"), seen.get(1));
             assertFalse(seen.get(2).contains("pd%3E"), "no years asked for, none in the address: " + seen.get(2));
             RecordSources.Hit h = hits.get(0);
             assertEquals("Manufacture of bread", h.title(), "the title in English, of the two it came in");

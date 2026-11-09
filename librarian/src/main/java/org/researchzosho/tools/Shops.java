@@ -183,8 +183,18 @@ public final class Shops {
     // ---- shops ----
 
     /** Yahoo! JAPAN Shopping: items by words, yen, with the seller and the JAN code where the listing carries one. */
-    public static List<Listing> yahoo(String query, int limit) throws IOException {
-        JsonNode d = getJson(BASE.get("yahoo") + "?appid=" + enc(setting(YAHOO_KEY)) + "&query=" + enc(query) + "&results=" + Math.max(1, Math.min(limit, 30)) + "&in_stock=true", Map.of());
+    public static List<Listing> yahoo(String query, int limit) throws IOException { return yahoo(query, limit, 0, 0, 1); }
+
+    /**
+     * The same within a price window and on a page: {@code priceMin} and {@code priceMax} in yen (0 for none) are the shop's own filters, the
+     * rows come cheapest first within the window and {@code page} reads on, so the pool is what the shop lists for the words and the budget,
+     * never its default order, which is the shop's score of popularity and advertising (2026-11-05).
+     */
+    public static List<Listing> yahoo(String query, int limit, long priceMin, long priceMax, int page) throws IOException {
+        int results = Math.max(1, Math.min(limit, 30));
+        JsonNode d = getJson(BASE.get("yahoo") + "?appid=" + enc(setting(YAHOO_KEY)) + "&query=" + enc(query) + "&results=" + results + "&in_stock=true"
+                + (priceMin > 0 ? "&price_from=" + priceMin : "") + (priceMax > 0 ? "&price_to=" + priceMax : "") + (priceMin > 0 || priceMax > 0 ? "&sort=%2Bprice" : "")
+                + (page > 1 ? "&start=" + ((page - 1) * results + 1) : ""), Map.of());
         List<Listing> out = new ArrayList<>();
         String seen = now();
         for (JsonNode h : d.path("hits")) {
@@ -195,8 +205,13 @@ public final class Shops {
     }
 
     /** 楽天市場: items by words, yen, each with its link as the terms require. */
-    public static List<Listing> rakuten(String query, int limit) throws IOException {
-        JsonNode d = getJson(BASE.get("rakuten") + "?applicationId=" + enc(setting(RAKUTEN_APP)) + "&accessKey=" + enc(setting(RAKUTEN_KEY)) + "&keyword=" + enc(query) + "&hits=" + Math.max(1, Math.min(limit, 30)) + "&availability=1&format=json", Map.of());
+    public static List<Listing> rakuten(String query, int limit) throws IOException { return rakuten(query, limit, 0, 0, 1); }
+
+    /** The same within a price window (yen, 0 for none), cheapest first within it, and on a page: the shop's own filters, as {@link #yahoo(String, int, long, long, int)}. */
+    public static List<Listing> rakuten(String query, int limit, long priceMin, long priceMax, int page) throws IOException {
+        JsonNode d = getJson(BASE.get("rakuten") + "?applicationId=" + enc(setting(RAKUTEN_APP)) + "&accessKey=" + enc(setting(RAKUTEN_KEY)) + "&keyword=" + enc(query) + "&hits=" + Math.max(1, Math.min(limit, 30)) + "&availability=1&format=json"
+                + (priceMin > 0 ? "&minPrice=" + priceMin : "") + (priceMax > 0 ? "&maxPrice=" + priceMax : "") + (priceMin > 0 || priceMax > 0 ? "&sort=%2BitemPrice" : "")
+                + (page > 1 ? "&page=" + Math.min(page, 100) : ""), Map.of());
         List<Listing> out = new ArrayList<>();
         String seen = now();
         for (JsonNode w : d.path("Items")) {

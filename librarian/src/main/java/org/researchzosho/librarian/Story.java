@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import org.researchzosho.drive.Declined;
 
+import java.util.LinkedHashMap;
+import java.util.function.Supplier;
 /**
  * The story of a subject (0.6.6): a report written chapter by chapter from the claims the library holds on a person or an organisation,
  * for a reader who wants the people and what happened, not a table. Each chapter is a decade of the claims that name a year, with the
@@ -24,7 +26,7 @@ public final class Story {
     private Story() { }
 
     /** The model a story is written with: the library's own; tests put a stand-in here. */
-    static volatile java.util.function.Supplier<Researcher.Drive> DRIVE = Explain::drive;
+    static volatile Supplier<Researcher.Drive> DRIVE = Explain::drive;
 
     /** The subject's story, when there is one: the latest report titled "The story of <subject>", else null. */
     public static Investigation existing(LibraryStore store, String subject) throws IOException {
@@ -80,7 +82,7 @@ public final class Story {
 
     /** The decades folded into chapters: a run of thin decades joins the first decade with enough, named by its span ("1950s–1990s"); a thin tail joins the chapter before it. */
     static Map<String, List<Finding>> chapters(Map<String, List<Finding>> decades) {
-        Map<String, List<Finding>> out = new java.util.LinkedHashMap<>();
+        Map<String, List<Finding>> out = new LinkedHashMap<>();
         String from = null; List<Finding> pending = new ArrayList<>(); String lastKey = null;
         for (var e : decades.entrySet()) {
             if (from == null) from = e.getKey();

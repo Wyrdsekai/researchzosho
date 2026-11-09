@@ -153,6 +153,7 @@ public final class Service {
     static String windowsScript(String exec, String host, int port, int crewHour, Path log, String javaHome) {
         String launcher = exec.replace("'", "''");
         return "# ResearchZosho (The Librarian) as a logon task - written by 'researchzosho service install' (ASCII only: PowerShell reads a BOM-less file as ANSI)\n"
+                + "$env:RESEARCHZOSHO_SERVICE = '1'\n"   // the server knows it is the service's, as the unit and the LaunchAgent tell it: the pid record in the state dir is its own
                 + passthroughEnv("$env:", " = '", "'\n", v -> v.replace("'", "''"))
                 + (heapOpts().isEmpty() ? "" : "$env:RESEARCHZOSHO_JAVA_OPTS = '" + heapOpts() + "'\n")
                 + "$log = '" + log.toString().replace("'", "''") + "'\n"
@@ -455,19 +456,63 @@ public final class Service {
         return steps;
     }
 
-    /** Where a running server records its pid: the state dir, beside the logs. */
+    /**
+     * Where the service's server records its pid: the state dir, beside the logs. `service status`, `service restart` and `service
+     * uninstall` (which stop it by this record on Windows), the update and `share` read it. Another daemon writes it only as
+     * {@link #pidFileFor} says.
+     */
     public static Path pidFile() { return Config.home().resolve("researchzosho.pid"); }
 
-    /** Called by `serve`: record this process so `service uninstall` can stop it on a platform that will not. */
-    public static void recordPid() {
+    /** Where a daemon of another library records its pid when the service's record is not its own: inside that library's catalog. */
+    public static Path pidFileIn(Path library) { return library.resolve("catalog").resolve("researchzosho.pid"); }
+
+    /**
+     * Where a daemon records its pid. The service's record belongs to the daemon the service manager started (its definition sets
+     * RESEARCHZOSHO_SERVICE=1) and to a daemon of the default library; any other daemon, as a test daemon on a scratch library or another
+     * port, writes it only while no other running daemon holds it, and otherwise records its pid inside its own library's catalog, so the
+     * service keeps its record. {@code heldByAnother}: the running daemon other than this one that the service's record holds, or null.
+     */
+    static Path pidFileFor(Path serviceRecord, Path library, boolean startedAsService, boolean defaultLibrary, Long heldByAnother) {
+        return startedAsService || defaultLibrary || heldByAnother == null ? serviceRecord : pidFileIn(library);
+    }
+
+    /**
+     * Called by `serve`: record this process so `service uninstall` can stop it on a platform that will not, where {@link #pidFileFor} says.
+     * On exit the record is taken away only while it still holds this process's pid. The record's path, or null when none could be written.
+     */
+    public static Path recordPid(LibraryStore store) {
+        long self = ProcessHandle.current().pid();
+        Path service = pidFile();
+        Long other = runningServer(service);
+        Path f = pidFileFor(service, store.root(), "1".equals(System.getenv("RESEARCHZOSHO_SERVICE")), sameFolder(store.root(), defaultLibrary()), other);
         try {
-            Files.createDirectories(pidFile().getParent());
-            Files.writeString(pidFile(), Long.toString(ProcessHandle.current().pid()), StandardCharsets.UTF_8);
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> { try { Files.deleteIfExists(pidFile()); } catch (IOException ignored) { } }));
-            System.out.println("  pid " + ProcessHandle.current().pid() + " recorded at " + pidFile());
+            Files.createDirectories(f.getParent());
+            Files.writeString(f, Long.toString(self), StandardCharsets.UTF_8);
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> forget(f, self)));
+            System.out.println("  pid " + self + " recorded at " + f + (f.equals(service) ? "" : ", inside this library, because the service's own record, " + service + ", belongs to the running pid " + other + " and is left alone"));
+            return f;
         } catch (IOException e) {
             System.out.println("  pid not recorded (" + e + "): service uninstall will stop only what the platform stops");
+            return null;
         }
+    }
+
+    /** Takes a pid record away only while it still holds {@code pid}: a daemon that has recorded itself there since keeps its record. */
+    static boolean forget(Path file, long pid) {
+        Long held = recordedPid(file);
+        if (held == null || held != pid) return false;
+        try { return Files.deleteIfExists(file); } catch (IOException e) { return false; }
+    }
+
+    /** The library a command opens when nothing names one for it: the one the config file names, else the folder in the home. */
+    static Path defaultLibrary() {
+        String stored = Config.stored("RESEARCHZOSHO_LIBRARY");
+        return stored != null ? Path.of(stored) : LibraryStore.defaultRoot(Path.of(System.getProperty("user.home")));
+    }
+
+    static boolean sameFolder(Path a, Path b) {
+        try { return a.toRealPath().equals(b.toRealPath()); }
+        catch (IOException e) { return a.toAbsolutePath().normalize().equals(b.toAbsolutePath().normalize()); }
     }
 
     static Long recordedPid(Path pidFile) {
@@ -489,17 +534,17 @@ public final class Service {
         Long pid = recordedPid(pidFile);
         if (pid == null) return false;
         var h = ProcessHandle.of(pid);
-        if (h.isEmpty() || !h.get().isAlive()) { try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { } return false; }
+        if (h.isEmpty() || !h.get().isAlive()) { forget(pidFile, pid); return false; }
         String cmd = h.get().info().command().orElse("").toLowerCase(Locale.ROOT);
         if (!cmd.contains("java")) {
             // the server is gone and another program has its number now: that program is left alone, and the stale record goes
             out.println("  pid " + pid + " is not the server any more (" + cmd + "); left alone");
-            try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { }
+            forget(pidFile, pid);
             return false;
         }
         h.get().destroy();
         try { h.get().onExit().get(10, TimeUnit.SECONDS); } catch (Exception e) { h.get().destroyForcibly(); }
-        try { Files.deleteIfExists(pidFile); } catch (IOException ignored) { }
+        forget(pidFile, pid);   // a server started since, which recorded itself, keeps its record
         out.println("stopped the running server (pid " + pid + ")");
         return true;
     }

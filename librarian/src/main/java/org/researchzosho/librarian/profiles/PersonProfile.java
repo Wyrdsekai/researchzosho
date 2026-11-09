@@ -25,6 +25,7 @@ import java.util.regex.Pattern;
  */
 public final class PersonProfile implements Profile {
     @Override public String name() { return "person"; }
+    @Override public String goalName() { return "dossier"; }
     @Override public String description() { return "a dossier on a person: identity, timeline, roles, holdings, material, associations, public record, what is current, each claim with the class of its source"; }
     @Override public List<Vocabulary.Term> predicates() {
         return List.of(
@@ -104,7 +105,8 @@ public final class PersonProfile implements Profile {
     @Override public String planRules() {
         return "This is a question about a person. The leaning of the question decides the Reading, never what is gathered: every facet is "
                 + "researched in full whatever the question asks, so that the dossier is the whole person and the story can be written from it. The "
-                + "first sub-question resolves the identity: who they are, by which handles, and which namesakes are set aside. The second is what they "
+                + "first sub-question resolves the identity and the major things of the life, first: who they are, by which handles, and which namesakes are "
+                + "set aside; born when and where; educated where and when; the roles in order with their years, each with a source that says so. The second is what they "
                 + "do, which for a person says who they are: the role now and what it produces; the work they are known for and how it was received; how "
                 + "the doing changed over the career; and what they say they are about in their own words (talks, interviews, bios), kept apart from how "
                 + "others describe them. Then one sub-question "
@@ -126,17 +128,19 @@ public final class PersonProfile implements Profile {
         return "For a dossier the evidence is enough when the identity is resolved by named handles, every facet has either claims or a search "
                 + "that found nothing in a named collection, each claim carries its source class and date, and the current state carries a date; the "
                 + "question's leaning does not excuse a facet: a person's works are complete when the claims list as many as the catalogue counts, and "
-                + "the life has its places and its schooling. A "
+                + "the life has its places and its schooling; the evidence is not enough while the birth (year, place), the schooling or the roles in order "
+                + "are missing or rest on no source. A "
                 + "gap worth another search names a facet not yet searched, a handle not yet followed (an employer, a co-author, an account), or a "
                 + "collection made for the facet that was not used." + Facets.PERSON_CRITIC;
     }
     @Override public String writerRules() {
         return "The Answer section, first, is the Reading: what the record shows for the leaning of the question, every sentence cited, nothing in it "
                 + "that the sections below do not carry; for a question of the shape 'who is X', the Reading opens with what they do. Then the sections in this "
-                + "order: Identity (names, aliases, how resolved, namesakes set aside); What they do (now: the role and what it produces; known for: the "
+                + "order: Identity (names, aliases, how resolved, namesakes set aside; then the major things of the life: born YEAR in PLACE [n], educated at "
+                + "WHERE, YEARS [n], the roles in order with their years [n]); What they do (now: the role and what it produces; known for: the "
                 + "principal work and how it was received; the arc: how the doing changed over the career; in their own words: what they say they are about, "
                 + "apart from how others describe them); "
-                + "Timeline (year by year); Roles; Decisions (the principal moves of the career, " + Facets.DECISION_LINE + "); " + Facets.STATEMENTS_WRITE + "Holdings and filings; Material; "
+                + "Timeline (year by year, opening with the milestones, one a line, YEAR: Born in PLACE / Graduated from WHERE / Appointed WHAT at WHERE / Joined / Left / Died [n]); Roles; Decisions (the principal moves of the career, " + Facets.DECISION_LINE + "); " + Facets.STATEMENTS_WRITE + "Holdings and filings; Material; "
                 + "Associations; Influences (who and what shaped them, as they said it; whom they shaped and who credits them); " + Facets.MEDIA_WRITE + "Public record; Current (with the date it is "
                 + "current as of); Looked for and not found. Every claim carries its date. The library marks each reference in the list with "
                 + "its source class (public record, own publication, third-party, supplied), so cite the reference and the class follows. "

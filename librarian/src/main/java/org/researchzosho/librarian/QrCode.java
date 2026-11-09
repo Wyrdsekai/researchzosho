@@ -3,6 +3,7 @@ package org.researchzosho.librarian;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
+import java.util.BitSet;
 /**
  * A QR code (ISO 18004) for a short text, drawn as SVG: byte mode, error correction M, versions 1 to 10 (up to 213 bytes), the mask
  * chosen by the standard's penalty score. Enough for the otpauth address an authenticator app scans, and for nothing larger.
@@ -88,7 +89,7 @@ final class QrCode {
     }
 
     private static final class BitBuffer {
-        private final java.util.BitSet bits = new java.util.BitSet();
+        private final BitSet bits = new BitSet();
         int length;
         void append(int value, int n) { for (int i = n - 1; i >= 0; i--, length++) bits.set(length, ((value >>> i) & 1) != 0); }
         byte[] bytes() { byte[] b = new byte[length / 8]; for (int i = 0; i < length; i++) if (bits.get(i)) b[i >>> 3] |= (byte) (0x80 >>> (i & 7)); return b; }

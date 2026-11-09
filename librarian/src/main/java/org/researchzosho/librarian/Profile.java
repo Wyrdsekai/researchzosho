@@ -186,6 +186,12 @@ public interface Profile {
     default List<String> chatCommandWords() { return List.of(); }
 
     /**
+     * The person's answer, in the chat, to a question of this field's with named choices, by the key the field gave it ("who:<person>"):
+     * {@code choice} is the name chosen, null for none; the words for the person, or null when the key is not this field's.
+     */
+    default String answerChoice(LibraryStore store, String key, String choice) throws IOException { return null; }
+
+    /**
      * A line of a chat this field answers itself, as the reply's text; null when the line is not its own. {@code chat} names the
      * conversation ("terminal", or "web:" and the browser chat's session), so a field holding a conversation, an interview in progress,
      * knows whose plain lines are its answers. The browser chat asks every enabled field before the model; the terminal chat asks for
@@ -252,6 +258,19 @@ public interface Profile {
      * another way (a family's, by person and relation) says no, and the cataloger leaves them alone; everything else is filed as before.
      */
     default boolean filesUnderSubjects() { return true; }
+
+    /**
+     * The goal this field backs ({@link Goals}): "home", "work", "dossier", "buy", "prior-art", "what-the-law-says", "family",
+     * "learn-a-craft", "choose"; "" when it backs none. A goal's words, instruments, shape and decision rules are the goal's own; its
+     * plan, critic and writer rules are this field's during the transition.
+     */
+    default String goalName() { return ""; }
+
+    /** The convention this field carries ({@link Conventions}): "law", "science", "patents"; "" for none. */
+    default String conventionName() { return ""; }
+
+    /** The source this field is ({@link Places}): "books", "podcasts", "videos", "software"; "" for none. */
+    default String sourceName() { return ""; }
 
     /** How this field splits a question into sub-questions; added to the planner's instruction. */
     default String planRules() { return ""; }

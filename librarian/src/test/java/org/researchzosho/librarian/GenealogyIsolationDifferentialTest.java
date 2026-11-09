@@ -120,6 +120,7 @@ class GenealogyIsolationDifferentialTest {
         return s.replace(root.toString(), "<root>")
                 .replaceAll("\\d{4}-\\d{2}-\\d{2}T[0-9:.]+Z?", "<time>")
                 .replaceAll("\\d{4}-\\d{2}-\\d{2}", "<date>")
+                .replaceAll("C-<date>-\\d{2}-\\d{2}-\\d{2}(?:-\\d+)?", "C-<session>")   // a conversation is named by the moment it began, and the chat is the home
                 .replaceAll("name=\"once\" value=\"[0-9a-f]+\"", "name=\"once\" value=\"<once>\"")
                 .replaceAll("\\b\\d+ (second|minute|hour|day)s? ago\\b", "<ago>")
                 .replaceAll("lib_[0-9a-f]{6,}", "<lib>");

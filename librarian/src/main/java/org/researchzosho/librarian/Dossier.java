@@ -94,6 +94,23 @@ public final class Dossier {
             if (mine) claims.add(f);
         }
         for (Graph.Edge e : relations) { Finding f = byId.get(e.findingId()); if (f != null && !claims.contains(f) && f.state() != Finding.State.retired) claims.add(f); }
+        // the subject's other names, told by its own identity claims (the legal name, a former name): the claims under those names are the subject's too
+        List<String> more = new ArrayList<>();
+        for (Finding f : claims) {
+            if (f.triple() == null) continue;
+            String p = f.triple().predicate().toLowerCase(Locale.ROOT).strip(), o = f.triple().object().strip();
+            if (NAME_PREDICATES.contains(p) && names.contains(f.triple().subject().toLowerCase(Locale.ROOT)) && o.length() > 3 && !names.contains(o.toLowerCase(Locale.ROOT))) more.add(o.toLowerCase(Locale.ROOT));
+        }
+        if (!more.isEmpty()) {
+            names.addAll(more);
+            for (Finding f : byId.values()) {
+                if (claims.contains(f) || f.state() == Finding.State.retired || f.state() == Finding.State.superseded) continue;
+                boolean mine = false;
+                if (f.triple() != null) for (String n : more) if (f.triple().subject().toLowerCase(Locale.ROOT).equals(n) || f.triple().object().toLowerCase(Locale.ROOT).equals(n)) mine = true;
+                if (!mine) { String tx = (f.title() + "\n" + f.body()).toLowerCase(Locale.ROOT); for (String n : more) if (tx.contains(n)) mine = true; }
+                if (mine) claims.add(f);
+            }
+        }
         // the reports about the subject: the question names it
         List<Investigation> reports = new ArrayList<>();
         if (Files.isDirectory(store.investigationsDir())) {
@@ -182,7 +199,7 @@ public final class Dossier {
         for (Finding f : claims) { String y = yearOf(f); if (y == null) undated.add(f); else byYear.computeIfAbsent(y, k -> new ArrayList<>()).add(f); }
         if (!byYear.isEmpty()) {
             b.append("## Timeline\n\n");
-            for (var e : byYear.entrySet()) for (Finding f : e.getValue()) b.append("- ").append(e.getKey()).append(": ").append(line(f, w, own)).append('\n');
+            for (var e : byYear.entrySet()) for (Finding f : milestonesFirst(e.getValue())) b.append("- ").append(e.getKey()).append(": ").append(line(f, w, own)).append('\n');
             b.append('\n');
         }
         List<Finding> decisions = decisions(claims);
@@ -248,7 +265,7 @@ public final class Dossier {
     static String line(Finding f, Translate.Words w) { return line(f, w, SourceClass.Own.NONE); }
 
     static String line(Finding f, Translate.Words w, SourceClass.Own own) {
-        String date = f.validAsOf() == null ? "" : f.validAsOf();
+        String date = dateShown(f);
         return w.tr(f.title()) + " [" + SourceClass.of(f.sources(), own).label() + (date.isEmpty() ? "" : ", " + date) + "] (" + f.id() + ")";
     }
 
@@ -345,6 +362,19 @@ public final class Dossier {
 
     /** The decision claims among a subject's: the ones the Timeline step read from a Decisions section, in the order of their years. */
     static List<Finding> decisions(List<Finding> claims) { return ofKind(claims, TimelineClaims.DECISION); }
+    /** The milestone claims among a subject's: founded, chartered, renamed, born, appointed, in the order of their years. */
+    static List<Finding> milestones(List<Finding> claims) { return ofKind(claims, TimelineClaims.MILESTONE); }
+    /** Whether a claim is a milestone: the major things come first within a year on the timeline. */
+    static boolean isMilestone(Finding f) { return f.title().contains(": " + TimelineClaims.MILESTONE) || f.body().startsWith(TimelineClaims.MILESTONE); }
+    /** A year's claims with the milestones first, the rest in the order they came: the founding before the year's decisions. */
+    static List<Finding> milestonesFirst(List<Finding> ofYear) {
+        List<Finding> out = new ArrayList<>();
+        for (Finding f : ofYear) if (isMilestone(f)) out.add(f);
+        for (Finding f : ofYear) if (!isMilestone(f)) out.add(f);
+        return out;
+    }
+    /** The predicates whose object is another name of the subject: the claims under that name are the subject's too ("Harvard University | has legal name | President and Fellows of Harvard College"). */
+    static final Set<String> NAME_PREDICATES = Set.of("has legal name", "legal name", "also known as", "known as", "formerly", "formerly known as", "former name", "formerly named", "renamed to", "renamed from", "trades as", "doing business as", "has alias", "alias");
     /** The statements in the subject's own words, read from a Statements section. */
     static List<Finding> statements(List<Finding> claims) { return ofKind(claims, TimelineClaims.SAID); }
     /** The media records — photographs, video, scans with their provenance — read from a Media section. */
@@ -356,7 +386,22 @@ public final class Dossier {
         return out;
     }
 
+    /**
+     * The date beside a claim: the day its source said it, as "said 2021-02-17" when the claim is about another year than the one it
+     * was said in, so a charter of 1650 read off a page of 2021 is not taken for an event of 2021; the date alone when the two agree.
+     */
+    static String dateShown(Finding f) {
+        String d = f.validAsOf() == null ? "" : f.validAsOf().strip();
+        if (d.isEmpty()) return "";
+        String y = yearOf(f);
+        return y != null && d.matches("\\d{4}.*") && !d.startsWith(y) ? "said " + d : d;
+    }
+
     static String yearOf(Finding f) {
+        if (f.triple() != null && f.triple().object() != null) {   // "chartered on | 1650": the date the claim is about, before any year its words mention
+            Matcher o = Pattern.compile("^(1[5-9]\\d\\d|20\\d\\d)(?:-\\d\\d(?:-\\d\\d)?)?$").matcher(f.triple().object().strip());
+            if (o.find()) return o.group(1);
+        }
         Matcher m = YEAR.matcher(f.title());
         if (m.find()) return m.group(1);
         String first = f.body().strip(); int dot = first.indexOf(". "); if (dot > 0) first = first.substring(0, dot + 1);

@@ -239,8 +239,8 @@ class SeeksTest {
             @Override public ObjectNode chat(ArrayNode m, ArrayNode t, int x, String c) { return null; }
             @Override public String classify(ArrayNode m, int x) { return "<tool_call>nothing readable"; }
             @Override public int contextWindow() { return 8192; }
-        }, "q", new Finding("F-0001-a", "A", java.util.List.of(), Finding.State.draft, Finding.ClaimType.extraction, Finding.Confidence.medium, "t", "2026-10-22T00:00:00Z", "2026-10-22", Finding.Volatility.stable, "", java.util.List.of(), java.util.List.of(), null, "a"),
-           new Finding("F-0002-b", "B", java.util.List.of(), Finding.State.draft, Finding.ClaimType.extraction, Finding.Confidence.medium, "t", "2026-10-22T00:00:00Z", "2026-10-22", Finding.Volatility.stable, "", java.util.List.of(), java.util.List.of(), null, "b"))[0],
+        }, "q", new Finding("F-0001-a", "A", List.of(), Finding.State.draft, Finding.ClaimType.extraction, Finding.Confidence.medium, "t", "2026-10-22T00:00:00Z", "2026-10-22", Finding.Volatility.stable, "", List.of(), List.of(), null, "a"),
+           new Finding("F-0002-b", "B", List.of(), Finding.State.draft, Finding.ClaimType.extraction, Finding.Confidence.medium, "t", "2026-10-22T00:00:00Z", "2026-10-22", Finding.Volatility.stable, "", List.of(), List.of(), null, "b"))[0],
            "junk twice is no verdict, not DIFFERENT");
     }
 }

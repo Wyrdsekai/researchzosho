@@ -156,7 +156,7 @@ class ResearcherDeclineTest {
                 List.of("how were the gears cut?", "who cut them?")), "");
         List<ArrayNode> declinedHistories = inner.histories.stream().filter(h -> h.toString().contains("who cut them?") && !h.toString().contains("THE ASK")).toList();
         assertEquals(1, declinedHistories.size(), "the declined worker was asked once: " + declinedHistories);
-        assertTrue(inner.histories.stream().filter(h -> h.toString().contains("how were the gears cut?") && !h.toString().contains("who cut them?")).anyMatch(h -> h.toString().contains("Act by calling a tool.")),
+        assertTrue(inner.histories.stream().filter(h -> h.toString().contains("how were the gears cut?") && !h.toString().contains("who cut them?")).anyMatch(h -> h.toString().contains("Act by calling a tool.") || h.toString().contains(Brain.REASK_CALL)),
                 "prose that is not a decline is still asked to act");
         assertEquals(1, r.declines().size());
     }

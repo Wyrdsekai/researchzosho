@@ -19,6 +19,7 @@ import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.util.Arrays;
 /**
  * As much of a mail reader as the library needs: a message's headers with their encoded words decoded, its plain text and
  * its HTML, and the messages of a Thunderbird or Unix mailbox file one at a time. Nothing is kept beyond the message in hand,
@@ -68,7 +69,7 @@ final class Mime {
     static Message parse(byte[] raw) {
         int split = headerEnd(raw);
         Map<String, String> headers = headers(new String(raw, 0, split, StandardCharsets.ISO_8859_1));
-        byte[] body = split < raw.length ? java.util.Arrays.copyOfRange(raw, skipBlank(raw, split), raw.length) : new byte[0];
+        byte[] body = split < raw.length ? Arrays.copyOfRange(raw, skipBlank(raw, split), raw.length) : new byte[0];
         String[] found = {"", ""};
         part(headers.getOrDefault("content-type", "text/plain"), headers.getOrDefault("content-transfer-encoding", ""), body, found, 0);
         return new Message(headers, found[0], found[1]);
@@ -112,7 +113,7 @@ final class Mime {
             for (byte[] piece : pieces(body, boundary)) {
                 int split = headerEnd(piece);
                 Map<String, String> h = headers(new String(piece, 0, split, StandardCharsets.ISO_8859_1));
-                byte[] inner = split < piece.length ? java.util.Arrays.copyOfRange(piece, skipBlank(piece, split), piece.length) : new byte[0];
+                byte[] inner = split < piece.length ? Arrays.copyOfRange(piece, skipBlank(piece, split), piece.length) : new byte[0];
                 part(h.getOrDefault("content-type", "text/plain"), h.getOrDefault("content-transfer-encoding", ""), inner, found, depth + 1);
             }
             return;
@@ -165,7 +166,7 @@ final class Mime {
         int start = -1;
         for (int i = 0; i <= body.length - mark.length; i++) {
             if ((i == 0 || body[i - 1] == '\n') && matches(body, i, mark)) {
-                if (start >= 0) out.add(java.util.Arrays.copyOfRange(body, start, i > 0 && body[i - 1] == '\n' ? (i > 1 && body[i - 2] == '\r' ? i - 2 : i - 1) : i));
+                if (start >= 0) out.add(Arrays.copyOfRange(body, start, i > 0 && body[i - 1] == '\n' ? (i > 1 && body[i - 2] == '\r' ? i - 2 : i - 1) : i));
                 int lineEnd = i + mark.length;
                 boolean last = lineEnd + 1 < body.length && body[lineEnd] == '-' && body[lineEnd + 1] == '-';
                 while (lineEnd < body.length && body[lineEnd] != '\n') lineEnd++;

@@ -18,10 +18,10 @@ import org.researchzosho.Version;
 import org.researchzosho.librarian.LibraryStore;
 import org.researchzosho.drive.Declined;
 /**
- * The Librarian over MCP (JSON-RPC 2.0): the library protocol's fourteen tools and its three resource
- * schemes, over stdio ({@code researchzosho mcp}) and, through {@link #envelopeFor}, the daemon's
- * {@code /rpc}. The contract is {@code docs/LIBRARY_PROTOCOL.md}; every tool takes an optional patron and
- * every result carries library_id / library_name / contract. Protocol errors become JSON-RPC errors with
+ * The Librarian over MCP (JSON-RPC 2.0): the library protocol's tools ({@link #allTools}, every one of them a row of
+ * {@code docs/public/LIBRARY_PROTOCOL.md} §3, which a test pins both ways) and its three resource schemes, over stdio
+ * ({@code researchzosho mcp}) and, through {@link #envelopeFor}, the daemon's {@code /rpc}. Every tool takes an optional
+ * patron and every result carries library_id / library_name / contract. Protocol errors become JSON-RPC errors with
  * the stable string code in {@code data.code}.
  *
  * <p><b>stdout is the protocol channel.</b> Everything else the process prints goes to stderr for the
@@ -41,6 +41,11 @@ public final class McpServer {
 
     /** Restrict every entry point (stdio and the daemon's /rpc) to the tools {@code filter} admits. */
     public static void setToolFilter(Predicate<String> filter) { toolFilter = filter; }
+    /** The mark the daemon puts on a patron it proved by a key or a session, and whether to believe it: only the daemon sets this, never the stdio server. */
+    public static final String PROVEN = "proven";
+    private static volatile boolean trustProven;
+    public static void trustProven(boolean on) { trustProven = on; }
+    static boolean assertedKeeper(JsonNode patron) { return "person".equals(patron.path("did").asText("")) && !(trustProven && patron.path(PROVEN).asBoolean(false)); }
 
     /** Serve MCP over stdio with only the tools {@code filter} admits. */
     public static void serveStdio(Predicate<String> filter) throws Exception {
@@ -175,6 +180,7 @@ public final class McpServer {
                         prop("section", "string", "Optional: one section by heading, or \"answer\" for the write-up alone."),
                         prop("offset", "integer", "Optional: start of the body window, in characters."),
                         prop("max_chars", "integer", "Optional: at most this many characters of the body; chars and truncated say what was left."),
+                        prop("in", "string", "Optional: a language (ja, English…); a report comes translated into it by the library's model, kept until the report changes, with written_in and read_in."),
                         patronProp())));
         tools.add(tool("library_read",
                 "The captured raw text behind a source locator — the verbatim path: read the evidence, not only "
@@ -217,6 +223,46 @@ public final class McpServer {
                         enumProp("mode", "keep | link | survey (default keep).", "keep", "link", "survey"),
                         prop("register", "boolean", "For a folder: the housekeeping rescans it for new and changed files."),
                         patronProp())));
+        tools.add(tool("library_translate",
+                "Translate a document the person has (txt, md, pdf, docx or epub) into a language and write it out in the same format or another, as a job. "
+                + "The document is cut into its units (headings, paragraphs, list items, table cells, captions) and each is translated in order with the library's glossary; "
+                + "the structure is kept, the layout is not. quality=quick (default) is one pass; quality=checked adds the program's checks (every number, address, citation "
+                + "and glossary term on both sides, a length band, no unit dropped), a second reading of every unit by the judge's model when two are set, a revision of what "
+                + "was flagged, and a mark on what still stands. The answer is the plan: the units, the characters and the time; library_job follows the run, whose result "
+                + "names the file, the translation note beside it and both documents on the shelves. op=glossary lists the glossary, or with term and rendering adds to it. "
+                + "Paths are only accepted from the keeper (the terminal, the pages); raw names a document on the shelves.",
+                schema(new String[]{},
+                        enumProp("op", "translate (default) | glossary.", "translate", "glossary"),
+                        prop("path", "string", "The file to translate, on this machine (absolute path)."),
+                        prop("raw", "string", "A document on the shelves, by its entry (the raw name library_search or library_read gives)."),
+                        prop("to", "string", "The language to translate into: a name (Japanese) or a code (ja)."),
+                        enumProp("as", "The format written: md | txt | pdf | docx | epub (default: the input's).", "md", "txt", "pdf", "docx", "epub"),
+                        enumProp("quality", "checked (default: one pass, the program's checks, the scores, a revision of what they flag) | quick (one pass) | reviewed (checked, then a second reading of the flagged units and a sample of the rest) | thorough (checked, then every unit read).", "checked", "quick", "reviewed", "thorough"),
+                        prop("model", "string", "The model entry that translates (researchzosho models names them); default the library's model. A hosted entry is a paid call: the answer says its cost first (model_cost_dollars), and the run stays inside the entry's monthly cap."),
+                        prop("judge", "string", "For checked: the model entry that reads source and translation side by side, or auto for the strongest other entry, local before hosted; default the library's judge seat, else the translator's model in fresh calls with a sample translated back and compared. A hosted entry is a paid call: the answer says its cost first (judge_cost_dollars)."),
+                        prop("back_translation", "boolean", "For checked: translate a sample of units back and compare them with the source; on by itself when the same model checks its own work, off otherwise."),
+                        prop("collection", "string", "The collection the translation is shelved under (default: the original's)."),
+                        prop("term", "string", "For op=glossary: the term as it stands in a source."),
+                        prop("rendering", "string", "For op=glossary: the rendering chosen for the term in the language (to)."),
+                        prop("remove", "boolean", "For op=glossary with term: remove the entry."),
+                        patronProp())));
+        tools.add(tool("library_images",
+                "Pictures: find candidates on the web for words, keep them on the shelves, and have the model that sees pictures describe or judge them. "
+                + "op=find with words returns found[] (each picture's address, the page it stands on, its title, the engine, its size, a small copy's address and when it was found) from Brave when its key is kept and from the library's SearXNG, merged and told apart; "
+                + "with criteria each is judged (verdicts[]: yes, no or unsure and one sentence why); with keep=true (write access) each is fetched onto the shelves under catalog/images/, given an entry on the shelves with its page and shown at /images/<file>. "
+                + "op=keep with images (addresses, or the found[] objects) keeps them. op=describe with images returns the seeing model's words about each (what it shows, the people, the place, the time, any writing), and its answer to question. "
+                + "op=judge with criteria and images returns one typed verdict per picture. An image is a web address, a kept picture's file name or shelf entry, or (from the keeper) a path on this machine. "
+                + "When no model sees pictures the answer is unavailable, with the sentence that says what the library has and how one is added (researchzosho models test <name> probes an entry).",
+                schema(new String[]{},
+                        enumProp("op", "find (default) | keep | describe | judge.", "find", "keep", "describe", "judge"),
+                        prop("words", "string", "For find: what the pictures should be of, as a search engine takes it (an event's name, a person's name, a thing)."),
+                        prop("count", "integer", "For find: how many candidates at most (default 8, at most 40)."),
+                        prop("keep", "boolean", "For find: fetch the candidates onto the shelves (write access)."),
+                        prop("criteria", "string", "For find and judge: what a picture should show, in words; each is judged against it."),
+                        prop("images", "array", "For keep, describe and judge: the pictures, as web addresses, kept pictures' file names or shelf entries, or the found[] objects of a find."),
+                        prop("question", "string", "For describe: what to answer about the picture after describing it."),
+                        prop("collection", "string", "For keep: the collection the kept pictures are shelved under."),
+                        patronProp())));
         tools.add(tool("library_absorb",
                 "Absorb a conversation the person had with another assistant (ChatGPT, Claude, any chat) as a starting point for "
                 + "research. Give a path (a saved transcript or an export such as conversations.json), a url, or the pasted text. "
@@ -251,6 +297,18 @@ public final class McpServer {
                         prop("url", "string", "A url: a git repository, a paper, a page, or a GitHub issues page."),
                         prop("kind", "string", "repo, paper, site or issues; detected from the thing when not given."),
                         prop("name", "string", "The name the survey gave the thing, for pick and do."),
+                        prop("picks", "string", "For pick: the direction numbers, like \"1,3\"."),
+                        prop("question", "string", "For do: what to research about it, in your own words."),
+                        patronProp())));
+        tools.add(tool("library_repo",
+                "A code repository as a starting point for research: library_survey with kind=repo. A folder on this machine (keeper only) or a git url, cloned when git is "
+                + "installed; op=survey (the default) reads it, shelves the text, files one draft claim saying what it is and does, and returns numbered directions; "
+                + "op=pick with picks=\"1,3\" files a research run for each direction named; op=do with question files the person's own direction.",
+                schema(new String[]{},
+                        enumProp("op", "survey (default), pick, or do.", "survey", "pick", "do"),
+                        prop("path", "string", "A folder on this machine (absolute path). Keeper only."),
+                        prop("url", "string", "A git repository's url."),
+                        prop("name", "string", "The name the survey gave the repository, for pick and do."),
                         prop("picks", "string", "For pick: the direction numbers, like \"1,3\"."),
                         prop("question", "string", "For do: what to research about it, in your own words."),
                         patronProp())));
@@ -370,11 +428,48 @@ public final class McpServer {
                         prop("title", "string", "A name for the list."),
                         prop("limit", "integer", "How many questions to take (default all, up to 200)."),
                         patronProp())));
-        tools.add(tool("library_models",
-                "The models this library can run on, by name: list them; add one (a name, a host address or word — anthropic, openai, openrouter, gemini, nebius, huggingface — a model id, prices per million tokens as in/out/cache, an effort, a monthly cap in dollars); remove one; keep a host's key. A key is never returned. Write access.",
+        tools.add(tool("library_mcp",
+                "The OTHER MCP servers whose tools this library's research may use as sources, the keeper's alone: list them, with whether each answers and which of its tools research may call; "
+                + "show one's tools; add one (a command this computer starts, an address, or exa or tavily by name alone); remove one; allow or forbid a tool; let readers use a server; cap its calls a month; "
+                + "test one; call one of its tools as research would. Research calls the tools that read; a tool that may change things stays off unless allowed. A key is never returned. Since 0.7.0.",
                 schema(new String[]{},
-                        enumProp("op", "list (default) | add | remove | key", "list", "add", "remove", "key"),
-                        prop("name", "string", "With add or remove: the entry's name — letters, digits and hyphens."),
+                        enumProp("op", "list (default) | tools | test | add | remove | allow | forbid | readers | cap | call.", "list", "tools", "test", "add", "remove", "allow", "forbid", "readers", "cap", "call"),
+                        prop("name", "string", "The server's short name: small letters, digits and dashes. With add, exa or tavily alone adds that search engine's server."),
+                        arrayProp("command", "With add: the command that starts a server on this computer, and its arguments, one word an item."),
+                        prop("env", "object", "With add and a command: environment variables for it, as names and values."),
+                        prop("url", "string", "With add: the address of a server spoken to over Streamable HTTP."),
+                        prop("header_key", "string", "With add and an address: the setting its key is kept in, such as mcp_docs_key."),
+                        prop("header", "string", "With add and an address: the header the key is sent in; Authorization (as Bearer) when absent."),
+                        prop("header_value", "string", "With add and an address: the key itself, kept in that setting and never returned."),
+                        prop("readers", "boolean", "With add: readers' research and chats may use it too."),
+                        prop("cap", "integer", "With add: the most calls research makes to it a month; 0 for no cap."),
+                        prop("timeout", "integer", "With add: seconds a call may take before it is given up (60 unless set)."),
+                        prop("tool", "string", "With allow, forbid and call: the tool's name as the server lists it."),
+                        prop("value", "string", "With readers: on or off. With cap: calls a month, or off."),
+                        prop("arguments", "object", "With call: the tool's arguments."),
+                        prop("check", "boolean", "With list: ask each server now whether it answers (true unless set)."),
+                        patronProp())));
+        tools.add(tool("library_sources",
+                "The places the library mines for a field — registers, directories, boards, list pages, feeds, saved searches — each with what it yields and for whom. "
+                + "op=list (field, for, off=true to include the ones taken off); op=show with id; op=add with address (and for, field, kind, yields, note), after the person said so; "
+                + "op=remove with id takes one off (a saved search is parked); op=restore with id brings it back. Read access for list and show, write for the rest.",
+                schema(new String[]{},
+                        enumProp("op", "list (default) | show | add | remove | restore.", "list", "show", "add", "remove", "restore"),
+                        prop("id", "string", "With show, remove and restore: the source's id, as list gives it."),
+                        prop("field", "string", "With list: only the sources of this field; with add: the field the source is for."),
+                        prop("for", "string", "With list: words the source's address, subject, place or note must carry; with add: whom or what the source is for."),
+                        prop("off", "boolean", "With list: include the sources taken off."),
+                        prop("address", "string", "With add: the source's address, or the words of a search to run again."),
+                        prop("kind", "string", "With add: the kind of place (register, directory, board, list, feed, search…); read off the address when left out."),
+                        prop("yields", "string", "With add: what it yields (openings, companies, listings…)."),
+                        prop("note", "string", "With add: a note shown beside it."),
+                        patronProp())));
+        tools.add(tool("library_models",
+                "The models this library can run on, by name: list them; add one (a name, a host address or word — anthropic, openai, openrouter, gemini, nebius, huggingface — a model id, prices per million tokens as in/out/cache, an effort, a monthly cap in dollars); remove one; keep a host's key; "
+                + "test one (whether its server answers now: answers, starting, or down, with a note when no key is kept for its host). The list states the default outright: default (name, model, host, drive) is the entry runs and chats that name no model use, summary says it in one sentence, and each entry's key is a word, kept, missing or not needed (a local server). A key is never returned. Write access.",
+                schema(new String[]{},
+                        enumProp("op", "list (default) | add | remove | key | test", "list", "add", "remove", "key", "test"),
+                        prop("name", "string", "With add, remove or test: the entry's name — letters, digits and hyphens."),
                         prop("drive", "string", "With add: the host's address, or a word: anthropic, openai, openrouter, gemini, nebius, huggingface."),
                         prop("model", "string", "With add: the model id on that host."),
                         prop("prices", "string", "With add, optional: dollars per million tokens as in/out or in/out/cache, for example 0.024/0.72/0.005."),
@@ -387,9 +482,11 @@ public final class McpServer {
         tools.add(tool("library_settings",
                 "The library's settings (write access): op=list shows every setting with what it is for and its value, a key only as set or not; "
                 + "op=set with name and value writes one (name as the key, or without its RESEARCHZOSHO_ prefix; a blank value, or op=unset, unsets it). "
-                + "A program sets a key or an address only when the person gave it in this conversation.",
+                + "A program sets a key or an address only when the person gave it in this conversation. "
+                + "op=read_in with value sets the language the person reads reports in (a blank unsets it); read access is enough. "
+                + "op=check asks every outside service whose key is set whether it is accepted and what is left, keeps the answers and returns checks[].",
                 schema(new String[]{},
-                        enumProp("op", "list (default) | set | unset.", "list", "set", "unset"),
+                        enumProp("op", "list (default) | set | unset | read_in | check.", "list", "set", "unset", "read_in", "check"),
                         prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER."),
                         prop("value", "string", "The value to write (set)."),
                         patronProp())));
@@ -426,6 +523,16 @@ public final class McpServer {
                         prop("words", "string", "Words of the episode's show or title (podcast-like)."),
                         prop("limit", "integer", "How many rows (podcast-like; default 10)."),
                         prop("minutes", "integer", "How long to read (podcast-read; default 5) or to fill records (records; default 2)."),
+                        patronProp())));
+        tools.add(tool("library_follow",
+                "The podcasts the person follows: a show's feed kept as a search, so its new episodes land on the arrival table and the housekeeping transcribes them at night. "
+                + "op=list the shows followed; op=follow with feed (the feed's address; library_search or the podcast search gives it) and every (days, 1 unless set), only when the person asked for it in this conversation; "
+                + "op=unfollow with which (the show's name as listed, or its feed address). The transcripts already in the library stay. Read access for list, write for the rest.",
+                schema(new String[]{},
+                        enumProp("op", "list (default) | follow | unfollow.", "list", "follow", "unfollow"),
+                        prop("feed", "string", "With follow: the podcast feed's address."),
+                        prop("every", "integer", "With follow: how often to look for new episodes, in days (default 1)."),
+                        prop("which", "string", "With unfollow: the show's name as listed, or its feed address."),
                         patronProp())));
         tools.add(tool("library_prefs",
                 "The person's preferences file for books: what they want more and less of, each line with its source (drafted from the shelf, learned from the reactions, or said by the person). op=show (default) the lines; "
@@ -514,6 +621,18 @@ public final class McpServer {
                         prop("outcome", "string", "For score: happened, did-not or void."),
                         prop("note", "string", "For score: what settled it, in a sentence."),
                         patronProp())));
+        tools.add(tool("library_export",
+                "A REPORT OR A DOSSIER AS A FILE: a PDF or a Word file holding what its page shows (a report's title, question, the answer's sections, "
+                + "how each point was checked, the open questions and sub-goals, the checks, the claims with their marks and the sources as links; "
+                + "a dossier's sections), written under the library's catalog/exports/ and served by its web pages at /exports/<file>. Returns path, "
+                + "url, file, bytes. A report comes in the language in names, else in the caller's own language to read in, when the library keeps "
+                + "that translation; otherwise as written, and note says so. format=md is the same document as Markdown text. Read access. Since 0.7.0.",
+                schema(new String[]{},
+                        prop("id", "string", "A report's id (I-…). Give id or subject."),
+                        prop("subject", "string", "A dossier's person or organisation, by name. Give id or subject."),
+                        enumProp("format", "pdf (default) | docx (a Word file) | md (Markdown text).", "pdf", "docx", "md"),
+                        prop("in", "string", "Optional: a language (ja, English…) the file is in, from the translation the library keeps."),
+                        patronProp())));
         tools.add(tool("library_suggest",
                 "What the library suggests the person do next, from the shelves' own events: a forecast whose date passed, a story the shelves have grown past, a question of theirs a claim "
                 + "now answers, a question asked again and again, a report that landed, a dossier not researched for months. Each is classed now, next or hold with the probability they take it "
@@ -571,7 +690,9 @@ public final class McpServer {
         tools.add(tool("library_inbox",
                 "The claims waiting for the keeper's decision — drafts, and accepted claims whose review went stale — and the decisions. op=list returns items[] {id, title, state, stale, kind, tier, confidence, writer, date, subjects, language, sources, report, report_title}, "
                 + "oldest first, with filters report (an investigation id or its prefix), subject, kind (extraction | synthesis | interpretation | speculation), tier, confidence, writer, state (draft | stale), language, q (words in the title). "
-                + "op=accept puts claims into every answer from now on; op=dispute files why; op=retire keeps them on disk and out of every answer — each takes ids[] (or id), or report for every waiting claim of one investigation (write access).",
+                + "op=accept puts claims into every answer from now on; op=dispute files why; op=retire keeps them on disk and out of every answer — each takes ids[] (or id), or report for every waiting claim of one investigation (write access). "
+                + "op=list also returns reports[] {id, title, state, held_by, date, topic, reasons}: the reports that wait for the keeper's eye because one of their own checks stands against them (the write-up did not answer the question, or part of it; "
+                + "flagged sentences never sent for revision; most cited sources not read); op=accept with such a report's id (I-…) in id or ids accepts it as it stands.",
                 schema(new String[]{},
                         enumProp("op", "list (default) | accept | dispute | retire.", "list", "accept", "dispute", "retire"),
                         arrayProp("ids", "For accept, dispute, retire: the claim ids."),
@@ -617,10 +738,20 @@ public final class McpServer {
                         prop("note", "string", "Why, in a sentence or two."),
                         patronProp())));
         tools.add(tool("library_access",
-                "What became of an access request: pending, denied (with the reason), or approved, in which case the token, once, when the claim secret is right.",
-                schema(new String[]{"request_id", "claim"},
-                        prop("request_id", "string", "The id library_request_access returned."),
-                        prop("claim", "string", "The claim secret it returned."),
+                "What became of an access request (op=collect, the default, with request_id and claim): pending, denied (with the reason), or approved, in which case the token, once, when the claim secret is right. "
+                + "The keeper's side, for the person who keeps the library alone (anyone else is refused): op=readers lists who may read or write and the default; op=allow with did, level (deny, read or write) and name sets a reader's level; "
+                + "op=remove with did removes one; op=invite with name and level makes a link that signs a new person in once, shown once; op=requests lists who asked to be let in; op=approve with request_id and level, or op=deny with request_id and reason (or did), answers one; "
+                + "op=keys lists the keeper's keys for programs; op=key with label and level makes one, shown once; op=revoke with key_id revokes one. Nothing here is done unless the person asked for it in this conversation.",
+                schema(new String[]{},
+                        enumProp("op", "collect (default) | readers | allow | remove | invite | requests | approve | deny | keys | key | revoke.", "collect", "readers", "allow", "remove", "invite", "requests", "approve", "deny", "keys", "key", "revoke"),
+                        prop("request_id", "string", "With collect, approve and deny: the id library_request_access returned."),
+                        prop("claim", "string", "With collect: the claim secret it returned."),
+                        prop("did", "string", "With allow, remove and deny: the reader's did."),
+                        enumProp("level", "With allow, invite, approve and key: deny | read | write.", "deny", "read", "write"),
+                        prop("name", "string", "With allow: the reader's name; with invite: the new person's name, as they will sign in."),
+                        prop("reason", "string", "With deny: why, in a sentence."),
+                        prop("label", "string", "With key: what the key is for."),
+                        prop("key_id", "string", "With revoke: the key's id or prefix, as keys lists it."),
                         patronProp())));
         tools.add(tool("library_subscribe",
                 "Register a webhook: every change on this library's feed (retired, disputed, revised, supplied, …) is POSTed to your address, "
@@ -652,19 +783,198 @@ public final class McpServer {
                         arrayProp("collections", "Optional: names of the person's collections (folders shelved with `researchzosho add <dir>`) to search."),
                         prop("quick", "boolean", "Look it up now: the front of the line and short ceilings (12 turns, 6 minutes) unless the ask names its own."),
                         prop("model", "string", "Optional: the named model to run on, one of the library's model entries by name (library_models op=list names them), or auto for best judgement, which is the default when more than one is named. Each entry is a host, a model id and its prices; the run's report says which ran it and what it cost."),
+                        prop("paid", "boolean", "Optional: false leaves the paid search places and the paid page reader off for this run (Exa, Tavily, the keeper's own search service, Serper, SerpApi, Brave, Firecrawl); the free places answer. True unless given. Since 0.7.0."),
                         prop("seek", "string", "Optional: a seek group's name (letters, digits, dashes). The run reads and writes its own copy of the shelves under that name, so several seeks of one question never see each other's work; library_seeks op=merge writes one report from them."),
+                        prop("goal", "string", "Optional: the goal the run serves, by name (home, work, dossier, buy, prior-art, family, choose, learn-a-craft, generic), which chooses the report's shape and the instruments the run brings; a field's name is taken as its goal until the goals land. Since 0.7.0."),
+                        prop("length", "string", "Optional: how long the report is: short (about 400 words), medium (about 1,200), long (about 3,000), or a number of words. Without it, the library's setting report_length, else as long as the question needs. Since 0.7.0."),
+                        enumProp("citations", "Optional: how the report's sources are written: numbered (the default), apa, mla, chicago or ieee. The numbers in the text stay, so every cited sentence is still checked. Without it, the library's setting citation_style. Since 0.7.0.", "numbered", "apa", "mla", "chicago", "ieee"),
+                        enumProp("shape", "Optional: report (the default); reading-list, an annotated bibliography, each source with what it is, why it matters for the question, how strong it is and its link; outline, headings with one line each. A question that asks for a format in its own words gets that format. Since 0.7.0.", "report", "reading-list", "outline"),
                         prop("field", "string", "Optional: the field the run is to be, one of the library's fields by name (researchzosho profile list shows them). An unknown or switched-off field is refused with a sentence saying which fields there are."),
                         allowProp(),
                         localeProp(),
                         patronProp())));
-        tools.add(tool("library_job",
-                "One job from the ledger ({job}: state queued|running|done|failed|stopped, elapsed_s, result when finished), or "
-                + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends at its next turn. "
-                + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access).",
-                schema(new String[]{},
-                        enumProp("op", "read (default) | stop | pause | resume.", "read", "stop", "pause", "resume"),
-                        prop("job_id", "string", "The job to read or stop, e.g. J-0007."),
+        tools.add(tool("library_candidates",
+                "CANDIDATES FOR A VIDEO YOU REMEMBER but cannot name: give the name of the thing made or shown, two to four words, in each language the video may be in, and what you remember of the video itself as short phrases in your own words (remembered), never a search, "
+                + "and the library enumerates for itself: deep YouTube searches of its own plain phrasings, the pages where other people describe a video in the words remembered, every upload of the channels those surface, the YouTube "
+                + "Data API in date order when a key is set, other search indexes, and your own watch history first. It drops what a machine can check (rejected ids, uploads outside the dates, "
+                + "lengths outside the minutes) and answers with the pool best fit first, a video whose title, description or linking page holds more of what is remembered before one that holds less, forty a page, with no popularity in it. About ten minutes; the pool is kept, so page 2 fetches nothing. "
+                + "Then give the first five to library_look. Since 0.7.0.",
+                schema(new String[]{"things"},
+                        arrayProp("things", "The thing made or shown, two to four words, once per language the video may be in: [\"apron\", \"エプロン\", \"앞치마\"]."),
+                        arrayProp("remembered", "Optional: what is remembered of the video itself, short phrases in the person's own words, one thing each (what happens, what is seen or heard, who or what appears): [\"nobody speaks\", \"a pocket on the front\"]. The library makes its own web searches from them; it is never a search itself. Since 0.7.0."),
+                        prop("before", "string", "Optional: the video was watched before this month or day, 2025-11 or 2025-11-05; uploads after it are dropped."),
+                        prop("after", "string", "Optional: uploaded after this month or day."),
+                        prop("minutes_min", "integer", "Optional: the shortest the video can be, in minutes."),
+                        prop("minutes_max", "integer", "Optional: the longest the video can be, in minutes."),
+                        arrayProp("exclude", "Optional: video ids or links the person has already rejected."),
+                        prop("language", "string", "Optional: the language of the video's title or on-screen text when the person said it, as a code (ja, ko, zh, ru, en); titles in another script are dropped."),
+                        prop("page", "integer", "Optional: the page of a pool already made today with the same things, 2 for the second forty."),
                         patronProp())));
+        tools.add(tool("library_sift",
+                "SIFT THE CANDIDATES for a video you remember, the funnel between the pool and the five a look can afford: every candidate's thumbnail, then the first storyboard sheet of those that "
+                + "pass, each judged yes, maybe or no by the model that reads pictures, keeping yes and maybe; the thumbnail for what one still can show (the thing, its colours, a tag or label, a "
+                + "person shown or not), the first sheet for what you remember about the start; what no picture shows is left to the look. Give the pool's key from "
+                + "library_candidates (from) and what you remember (what), or the videos themselves (videos). The thumbnails go nine to a call as one numbered grid, under a second each, and a sheet takes about ten seconds on a local model; it says how many "
+                + "were not reached, and the same call with page=2 goes on; nothing is judged twice; one sift runs in a library at a time, and a second call while one runs comes back at once saying so. Then give the first five survivors to library_look. Since 0.7.0.",
+                schema(new String[]{"what"},
+                        prop("what", "string", "What you remember of the video, one thing after another, separated by semicolons."),
+                        prop("from", "string", "The key of the kept pool, as library_candidates answered it; the newest pool when absent and no videos are given."),
+                        arrayProp("videos", "Optional: the videos to sift instead of a pool, by link or id."),
+                        arrayProp("things", "Optional, with videos: the thing made or shown, once per language, as library_candidates took it."),
+                        prop("limit", "integer", "Optional: the most candidates taken anew in this call (200 outside a research run)."),
+                        prop("page", "integer", "Optional: 2 to go on after a call the time cut short."),
+                        patronProp())));
+        tools.add(tool("library_patents",
+                "PRIOR ART, THE POOL: every patent publication of a classification in a span of years, enumerated from the European Patent Office's own records page by page to the end, "
+                + "never a search engine's first page. Give the classification symbols the invention sits in (each a CPC group with its slash, like A47G19/22), the years, and the invention's "
+                + "features, each a short phrase with the words and synonyms that would name it in a title or an abstract, in every language you can give; never a query. The library says the "
+                + "office's own count, keeps one line a patent family with the other members on it, counts which features each family's titles and abstracts name, and answers with the pool "
+                + "ordered by more features named, then the rarer feature, then the older, forty a page, with no citation count, family size or other popularity in the order. A class of a "
+                + "thousand publications takes two to five minutes and about ten megabytes of the office's free four gigabytes a week; every page is kept, so page 2 and the reading fetch "
+                + "nothing. It needs the office's free key (researchzosho records key epo-query <key> <secret>). Then give the key to library_patent_abstracts. Since 0.7.0.",
+                schema(new String[]{"classes", "features"},
+                        arrayProp("classes", "The classification symbols, each a CPC group with its slash: [\"A47G19/22\"]. A class is found from the office's classification, or read off a known patent with library_patent_claims."),
+                        prop("from_year", "integer", "Optional: the first year of publication; the twenty years before to_year when absent."),
+                        prop("to_year", "integer", "Optional: the last year of publication; this year when absent."),
+                        arrayProp("features", "The invention's features, each a short phrase with the words and synonyms that would name it: [\"lid, cover, cap, Deckel, 蓋\", \"straw, drinking tube, ストロー\"]."),
+                        arrayProp("exclude", "Optional: publication numbers already rejected; their families are left out."),
+                        prop("page", "integer", "Optional: the page of the pool, 2 for the second forty; a pool the time cut goes on with it."),
+                        patronProp())));
+        tools.add(tool("library_patent_abstracts",
+                "PRIOR ART, THE ABSTRACTS: the cheap reading between a pool of patents and their claims. The library's model reads the abstract of every family in the pool, best fit first, "
+                + "twenty to a call, and says of each feature yes, maybe or no; the families that pass come back best first with the counts. Give the pool's key from library_patents (from); "
+                + "the features are the pool's. About ten seconds for twenty abstracts on a local model; it says how many were not read, and the same call with page=2 goes on; nothing is "
+                + "read twice; one reading runs in a library at a time. Then give the key to library_patent_claims. Since 0.7.0.",
+                schema(new String[]{},
+                        prop("from", "string", "The key of the kept pool, as library_patents answered it; the newest pool when absent."),
+                        prop("limit", "integer", "Optional: the most families read anew in this call (400 outside a research run)."),
+                        prop("page", "integer", "Optional: 2 to go on after a call that did not read them all."),
+                        patronProp())));
+        tools.add(tool("library_patent_claims",
+                "PRIOR ART, THE CLAIMS: the claims of patents from the patent office's own full text. For a pool (from), the claims of the families that pass by their abstracts, best first, "
+                + "and for each feature the claim that comes closest, quoted with its number and the office's link, or that none that was read meets it. For publications given by number "
+                + "(publications), each one's record, its classes and its claims. Where the office holds no text for a publication (it holds none for the United States, China, Japan or Korea) "
+                + "the family member whose text it does hold is read, and the answer says which; where no member has a text there, the claims are read from Google Patents' copy of the office's "
+                + "record at the publication's own address, never by a search there, and the answer says so; a publication with claims at neither is read by its abstract, said to be an abstract. "
+                + "A quotation is kept only when its words stand in the text as read; a status worded on Google's page is given as Google's own reading. About twenty seconds a family; "
+                + "the same call with page=2 goes on; nothing is read twice. Since 0.7.0.",
+                schema(new String[]{},
+                        prop("from", "string", "The key of the kept pool, as library_patents answered it; the newest pool when absent and no publications are given."),
+                        arrayProp("publications", "Optional: publication numbers to read instead of a pool: [\"EP1000000A1\"]."),
+                        arrayProp("features", "Optional, with publications: the features to read the claims for, as library_patents takes them."),
+                        prop("limit", "integer", "Optional: the most families read anew in this call (20 outside a research run)."),
+                        prop("page", "integer", "Optional: 2 to go on after a call that did not read them all."),
+                        patronProp())));
+        tools.add(tool("library_look",
+                "LOOK AT A VIDEO at any address: the library reads its frames and transcript into three tracks, what was said, the words shown on screen and what is seen, keeps them, "
+                + "and answers what you ask of it with found, maybe or no and the second. About seven minutes per ten minutes of video on a local model; sparse=true reads a third of the "
+                + "frames. Since 0.7.0.",
+                schema(new String[]{"video"},
+                        prop("video", "string", "The video's address (a YouTube link)."),
+                        prop("what", "string", "What to look for, in your words: a thing, a moment, words on screen."),
+                        prop("sparse", "boolean", "true: every fourth frame and the first minute in full, a third of the time."),
+                        patronProp())));
+        tools.add(tool("library_records",
+                "THE PUBLIC RECORDS OF A HOME by its address: one line saying which source answered (the city's or county's own portal, a state's parcel layer, a written reader) or that "
+                + "none is known and what was looked at; the sales or values and the permits on the street; the Census tract's figures when a key is set. Seconds to a minute; once a county, "
+                + "the library researches where it publishes its records. Since 0.7.0.",
+                schema(new String[]{"address"},
+                        prop("address", "string", "The address as street, city, state, for example 108 Example St, Cambridge, MA."),
+                        patronProp())));
+        tools.add(tool("library_board",
+                "AN EMPLOYER'S OWN CAREERS BOARD and its openings: the hiring system the employer uses, found from its careers page or from the organisation it belongs to, and the openings "
+                + "read from it, cut to the towns you name. Seconds to a minute. Since 0.7.0.",
+                schema(new String[]{"employer"},
+                        prop("employer", "string", "The employer's or institution's name."),
+                        arrayProp("towns", "Optional: towns the openings are cut to."),
+                        arrayProp("words", "Optional: words an opening's title must carry."),
+                        patronProp())));
+        tools.add(tool("library_video",
+                "THE VIDEOS THE LIBRARY HAS READ, beyond the three tools that find one (library_candidates, library_sift, library_look): op=status (default) says how many videos are held and with which tracks; "
+                + "op=saw with query finds the moments where words were said or shown across every video held, with the second and a link; op=picture with description files the picture in the person's head "
+                + "(what they remember seeing) as a run that reads the held videos' frames for it (write). The ops look, candidates and sift are taken too, as those tools take them.",
+                schema(new String[]{},
+                        enumProp("op", "status (default) | saw | picture | look | candidates | sift.", "status", "saw", "picture", "look", "candidates", "sift"),
+                        prop("query", "string", "With saw: the words remembered hearing or seeing."),
+                        prop("k", "integer", "With saw: how many moments (default 8, up to 50)."),
+                        prop("description", "string", "With picture: what the person remembers seeing, in their words."),
+                        arrayProp("kinds", "With picture, optional: the kinds of thing remembered (a place, a person, an object…)."),
+                        patronProp())));
+        tools.add(tool("library_home",
+                "THE HOME SEARCH beyond one address's records: a person looking for a home to buy or rent. op=list the searches; op=start with name; op=read (search) the topics decided, guessed and open; "
+                + "op=tell with words, read by the model for the topics they settle; op=want with dimension, state (decided, guess, open) and want; op=keep_out with words (drop=true takes it back); op=search files the search run "
+                + "(more=true: the next page of listings); op=listings (show) the kept listings through the cut, in tiers, with the ones set aside and why; op=react with id and reaction (like, pass, or blank) and why; "
+                + "op=card with id reads the records and researches one listing; op=add with words (url, tenure) keeps a listing the person found; op=records with address is library_records. Read access for list, read, listings and records; write for the rest.",
+                schema(new String[]{},
+                        enumProp("op", "list | start | read (default) | tell | want | keep_out | search | listings | react | card | add | records.", "list", "start", "read", "tell", "want", "keep_out", "search", "listings", "react", "card", "add", "records"),
+                        prop("search", "string", "The search's name; left out when the library holds one."),
+                        prop("name", "string", "With start: the new search's name."),
+                        prop("words", "string", "With tell, keep_out and add: the words."),
+                        prop("dimension", "string", "With want: the topic (place, price, beds, tenure, walk, floor…)."),
+                        enumProp("state", "With want: decided | guess | open.", "decided", "guess", "open"),
+                        prop("want", "string", "With want: what is wanted for the topic."),
+                        prop("drop", "boolean", "With keep_out: take the words back."),
+                        prop("more", "boolean", "With search: the next page of the portal's listings for the cut as it stands."),
+                        prop("show", "integer", "With listings: how many to show in the text (default 12)."),
+                        prop("id", "string", "With react and card: the listing's id."),
+                        prop("reaction", "string", "With react: like, pass, or blank to take a reaction back."),
+                        prop("why", "string", "With react: why, in a few words."),
+                        prop("url", "string", "With add: the listing's page."),
+                        prop("tenure", "string", "With add: buy or rent."),
+                        prop("address", "string", "With records: the address as street, city, state."),
+                        patronProp())));
+        tools.add(tool("library_career",
+                "THE CAREER SEARCH beyond one employer's board: a person looking for work. op=list the people kept; op=provide with what (a resume, a LinkedIn file, a path for the keeper, or words) and name; "
+                + "op=evidence the facts kept; op=reading the model's reading of the working life (write); op=shape (words) how seats are filled for them; op=wants what they want, drafted again; op=questions the interview, "
+                + "op=answers with answers (a number to its answer) and op=resettle; op=company and op=keep_out with words (drop=true takes it back); op=search files the search run and op=more reads more; "
+                + "op=openings (show) and op=companies (show) what was found; op=react with id or company, reaction (like, pass, or blank) and why; op=company_state with name and state (kept, dropped, or blank); "
+                + "op=watch (on) the standing search; op=cut (titles, titles_also, titles_not, places, remote, remote_where, prefer_titles, prefer_places, again) the cut; op=want with dimension, state and want; op=board with employer is library_board. "
+                + "Read access for list, evidence, questions, openings, companies, cut and watch without changes, and board; write for the rest.",
+                schema(new String[]{},
+                        enumProp("op", "list | provide | evidence | reading | shape | wants | questions | answers | resettle | company | keep_out | search | more | openings | react | companies | company_state | watch | cut | want | board (default read).", "list", "provide", "evidence", "reading", "shape", "wants", "questions", "answers", "resettle", "company", "keep_out", "search", "more", "openings", "react", "companies", "company_state", "watch", "cut", "want", "board"),
+                        prop("seeker", "string", "The person, by name; left out when the library keeps one."),
+                        prop("what", "string", "With provide: the resume or file (a path, for the keeper), or the words."),
+                        prop("name", "string", "With provide: the person's name; with company_state: the company's."),
+                        prop("words", "string", "With shape, company and keep_out: the words."),
+                        prop("drop", "boolean", "With company and keep_out: take the words back."),
+                        prop("answers", "object", "With answers: the interview's question numbers to the answers."),
+                        prop("vary", "string", "With search and more: how to vary the search, when asked."),
+                        prop("show", "integer", "With openings and companies: how many to show in the text."),
+                        prop("id", "string", "With react: the opening's id."),
+                        prop("company", "string", "With react: a company of the place instead of an opening."),
+                        prop("reaction", "string", "With react: like, pass, or blank to take a reaction back."),
+                        prop("why", "string", "With react: why, in a few words."),
+                        prop("state", "string", "With company_state: kept, dropped, or blank; with want: decided, guess or open."),
+                        prop("on", "boolean", "With watch: the standing search on or off."),
+                        prop("again", "boolean", "With cut: make the cut again from what is kept."),
+                        prop("dimension", "string", "With want: the topic."),
+                        prop("want", "string", "With want: what is wanted for the topic."),
+                        prop("employer", "string", "With board: the employer's or institution's name."),
+                        arrayProp("towns", "With board, optional: towns the openings are cut to."),
+                        patronProp())));
+        tools.add(tool("library_job",
+                "One job from the ledger ({job}: state queued|running|done|failed|stopped|offered, elapsed_s, result when finished), or "
+                + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends within seconds. "
+                + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access). "
+                + "op=choose {job_id, choice} answers a run held for one of its named choices, by number or by name; op=allow and op=decline answer for the person on a run the service held for their yes about help: "
+                + "a program sends any of the three only after it asked the person (write access).",
+                schema(new String[]{},
+                        enumProp("op", "read (default) | stop | pause | resume | choose | allow | decline.", "read", "stop", "pause", "resume", "choose", "allow", "decline"),
+                        prop("job_id", "string", "The job to read, stop or answer for, e.g. J-0007."),
+                        prop("choice", "string", "With choose: the choice, by its number or its name as offered."),
+                        prop("limit", "integer", "Without a job id: how many finished runs a page holds (default 20)."),
+                        prop("cursor", "string", "Without a job id: next_cursor from the previous page."),
+                        patronProp())));
+        tools.add(tool("library_crews",
+                "THE HOUSEKEEPING: op=plan (default) says what its next run will do, from the same files and plan it uses — the kept searches due, the open questions the explorer takes and in what bundles, the counts, "
+                + "the weekly and monthly extras — as runs[] and as text; op=run files its tasks as a job now, which the service runs behind any run in progress (write).",
+                schema(new String[]{},
+                        enumProp("op", "plan (default) | run.", "plan", "run"),
+                        patronProp())));
+        tools.add(tool("library_spend",
+                "WHAT RESEARCH RUNS COST, at each model's list prices: the library's arithmetic on the servers' usage counts, not a bill. This month and in all, by host and by named model, "
+                + "with the cap where one is set, as hosts[] and entries[] and as text. Write access, as the settings.",
+                schema(new String[]{}, patronProp())));
         tools.add(tool("library_status",
                 "library_id, library_name, contract, counts by kind and state, last_updated.",
                 schema(new String[]{}, patronProp())));
@@ -725,7 +1035,7 @@ public final class McpServer {
      * caller its token proved there). A caller who names nobody reads at the library's default level.
      */
     private static Patrons.Patron resourcePatron(JsonNode params) {
-        if ("person".equals(params.path("patron").path("did").asText(""))) {
+        if (assertedKeeper(params.path("patron"))) {
             throw new RpcError(403, "The did \"person\" is the keeper's own and cannot be asserted by a client; name your patron by its did.", "forbidden");
         }
         return Patrons.Patron.from(params);
@@ -738,7 +1048,7 @@ public final class McpServer {
         // "person" is the keeper at the command line and the chat — in-process callers. An MCP client
         // is a patron and names itself by its did; letting it say "person" skipped the allow list
         // (found by Wyrdsekai, 2026-09-07).
-        if ("person".equals(args.path("patron").path("did").asText(""))) {
+        if (assertedKeeper(args.path("patron"))) {
             throw new RpcError(403, "The did \"person\" is the keeper's own and cannot be asserted by a client; name your patron by its did.", "forbidden");
         }
         return library(p -> switch (name) {
@@ -749,6 +1059,8 @@ public final class McpServer {
             case "library_established" -> p.established(args);
             case "library_submit" -> p.submit(args);
             case "library_add" -> p.add(args);
+            case "library_translate" -> p.translate(args);
+            case "library_images" -> p.images(args);
             case "library_absorb" -> p.absorb(args);
             case "library_survey" -> p.survey(args);
             case "library_repo" -> p.repo(args);
@@ -763,6 +1075,14 @@ public final class McpServer {
             case "library_bookmarks" -> p.bookmarks(args);
             case "library_settings" -> p.settings(args);
             case "library_models" -> p.models(args);
+            case "library_mcp" -> p.mcp(args);
+            case "library_sources" -> p.sources(args);
+            case "library_video" -> p.video(args);
+            case "library_home" -> p.home(args);
+            case "library_career" -> p.career(args);
+            case "library_crews" -> p.crews(args);
+            case "library_spend" -> p.spend(args);
+            case "library_follow" -> p.follow(args);
             case "library_share" -> p.share(args);
             case "library_owned" -> p.owned(args);
             case "library_my_shelf" -> p.myShelf(args);
@@ -773,6 +1093,7 @@ public final class McpServer {
             case "library_bridges" -> p.bridges(args);
             case "library_seeks" -> p.seeks(args);
             case "library_dossier" -> p.dossier(args);
+            case "library_export" -> p.export(args);
             case "library_suggest" -> p.suggest(args);
             case "library_tell" -> p.tell(args);
             case "library_frontier" -> p.frontier(args);
@@ -787,6 +1108,14 @@ public final class McpServer {
             case "library_subscribe" -> p.subscribe(args);
             case "library_unsubscribe" -> p.unsubscribe(args);
             case "library_research" -> p.research(args);
+            case "library_look" -> p.video(withOp(args, "look"));
+            case "library_candidates" -> p.video(withOp(args, "candidates"));
+            case "library_sift" -> p.video(withOp(args, "sift"));
+            case "library_patents" -> p.patents(withOp(args, "pool"));
+            case "library_patent_abstracts" -> p.patents(withOp(args, "abstracts"));
+            case "library_patent_claims" -> p.patents(withOp(args, "claims"));
+            case "library_records" -> p.home(withOp(args, "records"));
+            case "library_board" -> p.career(withOp(args, "board"));
             case "library_job" -> p.job(args);
             case "library_map" -> p.map(args);
             case "library_perspectives" -> p.perspectives(args);
@@ -869,6 +1198,13 @@ public final class McpServer {
         ObjectNode wrap = M.createObjectNode();
         wrap.set(name, spec);
         return wrap;
+    }
+
+    /** The tool's arguments with the protocol operation the tool stands for. */
+    private static ObjectNode withOp(JsonNode args, String op) {
+        ObjectNode a = args != null && args.isObject() ? ((ObjectNode) args).deepCopy() : M.createObjectNode();
+        a.put("op", op);
+        return a;
     }
 
     private static ObjectNode tool(String name, String desc, ObjectNode inputSchema) {

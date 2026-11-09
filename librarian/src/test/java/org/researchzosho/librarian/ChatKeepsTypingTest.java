@@ -46,8 +46,8 @@ class ChatKeepsTypingTest {
             HttpResponse<String> turn = post(c, base + "/chat", "page=1&session=" + s.id + "&say=hello+from+the+page");
             assertEquals(200, turn.statusCode(), "answered in place, never with a redirect: " + turn.body());
             String frag = turn.body();
-            assertTrue(frag.contains("id=\"chat-scroll\"") && frag.contains("class=\"chat\""), frag);
-            assertFalse(frag.contains("<html") || frag.contains("id=\"chat-say\"") || frag.contains("name=\"say\" autofocus"), "the box is never sent back: " + frag);
+            assertTrue(frag.contains("id=\"chat-scroll\"") && frag.contains("class=\"turns\""), frag);
+            assertFalse(frag.contains("<html") || frag.contains("id=\"chat-say\"") || frag.contains("<textarea"), "the box is never sent back: " + frag);
             // the same with no conversation named: the latest one answers
             HttpResponse<String> latest = post(c, base + "/chat", "page=1&say=again");
             assertEquals(200, latest.statusCode(), latest.body());
@@ -56,25 +56,9 @@ class ChatKeepsTypingTest {
     }
 
     @Test
-    void thePanelKeepsItsBoxAndBothScriptsKeepTheDraft(@TempDir Path tmp) throws Exception {
-        LibraryStore store = new LibraryStore(tmp); store.init();
-        LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
-        try {
-            HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
-            String base = "http://127.0.0.1:" + d.port();
-            Librarian.Session.open(store);
-            HttpResponse<String> panel = get(c, base + "/chat/panel");
-            assertEquals(200, panel.statusCode(), panel.body());
-            assertTrue(panel.body().contains("<form id=\"panel-say\" class=\"panel-say\""), "the box the script keeps is named: " + panel.body());
-            assertEquals(1, panel.body().split("id=\"panel-say\"", -1).length - 1, "one box; the Yes and No forms are not it");
-        } finally { d.stop(); }
-        String js = Pages.CHAT_PANEL_JS;
-        assertTrue(js.contains("getElementById('panel-say')") && js.contains("body.insertBefore(") && js.contains("osid.value=sid.value"), "the panel's content is rebuilt around the box already there: " + js);
-        assertTrue(js.contains("querySelectorAll('button')") && !js.contains("'button,input'"), "while the model works the buttons are held, the box is not: " + js);
-        assertFalse(js.contains("then(function(h){body.innerHTML=h"), "a reply or a refresh never redraws the box: " + js);
-        for (String s : new String[]{Pages.CHAT_PANEL_JS, Pages.CHAT_PAGE_JS}) {
-            assertTrue(s.contains("sessionStorage.getItem(dkey)") && s.contains("sessionStorage.setItem(dkey,") && s.contains("sessionStorage.removeItem(dkey)"), "the draft is kept by the browser for the tab, and cleared once sent: " + s);
-            assertTrue(s.contains("dkey='rz.chat.draft'") && s.contains("if(busy)return"), "one key for both, and a second turn waits for the first: " + s);
-        }
+    void theChatScriptKeepsTheDraft() {
+        String s = Pages.CHAT_PAGE_JS;
+        assertTrue(s.contains("sessionStorage.getItem(dkey)") && s.contains("sessionStorage.setItem(dkey,") && s.contains("sessionStorage.removeItem(dkey)"), "the draft is kept by the browser for the tab, and cleared once sent: " + s);
+        assertTrue(s.contains("dkey='rz.chat.draft'") && s.contains("if(busy)return"), "a second turn waits for the first: " + s);
     }
 }

@@ -28,6 +28,13 @@ public final class AtomicWrite {
         finally { Files.deleteIfExists(tmp); }
     }
 
+    /** Bytes written whole or not at all: a file a page serves is never seen half written. */
+    public static void bytes(Path file, byte[] bytes) throws IOException {
+        Path tmp = beside(file);
+        try { Files.write(tmp, bytes); into(tmp, file); }
+        finally { Files.deleteIfExists(tmp); }
+    }
+
     /** A copy that is whole or not there at all. */
     public static void copy(Path from, Path to) throws IOException {
         Path tmp = beside(to);

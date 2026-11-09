@@ -95,6 +95,10 @@ public final class Setup {
         default String modelOffer() { return null; }
         /** Set the model server on demand up; the model's name, or "!reason". */
         default String modelServe(PrintStream out) { return "!not on this machine"; }
+        /** Whether setup offers the translation's scorers (LaBSE, MetricX-24) where they are missing. */
+        default boolean offerScorers() { return true; }
+        /** Set the missing scorers up, saying each step; "ready", or what stood in the way. */
+        default String installScorers(PrintStream out) { return TranslationScores.ensureAll(line -> out.println("  " + line)); }
     }
 
     /** The programs that can be registered from the command line: their command, their name, and how they take an MCP server. */
@@ -480,6 +484,23 @@ public final class Setup {
             }
         }
         out.println();
+
+        // 4b. the translation's scorers, both, where the disk allows; the sizes said first
+        String missing = acts.offerScorers() && TranslationScores.setupAllowed() ? TranslationScores.missingSaid() : "";
+        if (!missing.isEmpty()) {
+            long free = TranslationScores.freeBytes();
+            if (free >= 0 && free < TranslationScores.NEEDS_BYTES) {
+                out.println("  A checked translation scores every line with LaBSE and MetricX-24; " + missing + " not set up: the disk has " + (free >> 30) + " GB free and they take about "
+                        + (TranslationScores.NEEDS_BYTES >> 30) + " GB. researchzosho translate scorers install sets them up later; RESEARCHZOSHO_SCORERS=off leaves them out.");
+            } else if (yesNo("  A checked translation scores every line with LaBSE and MetricX-24. Set up " + missing + " now?", true)) {
+                out.println("  Setting them up; this takes minutes.");
+                String r = acts.installScorers(out);
+                out.println("  " + (r.equals("ready") ? "Both scorers are ready." : r + ". researchzosho translate scorers status says where they stand; researchzosho translate scorers install tries again."));
+            } else {
+                out.println("  Left for later: researchzosho translate scorers install, or RESEARCHZOSHO_SCORERS=off to leave them out. The daemon sets them up itself when it starts, unless that is off.");
+            }
+            out.println();
+        }
 
         // 5. the service
         boolean serviceInstalled = false;

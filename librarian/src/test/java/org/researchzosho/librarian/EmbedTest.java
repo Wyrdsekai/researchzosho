@@ -11,6 +11,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.io.IOException;
+import java.util.Comparator;
 /** The embeddings server through Docker: the image for the card, the command lines, and the states — without docker. */
 class EmbedTest {
     final List<List<String>> ran = new ArrayList<>();
@@ -75,7 +76,7 @@ class EmbedTest {
             assertTrue(s.startsWith("docker run -d --name researchzosho-embed --restart unless-stopped --device /dev/kfd --device /dev/dri --group-add video -p 127.0.0.1:8215:8080 -v "), s);
             assertTrue(s.endsWith(":/m ghcr.io/ggml-org/llama.cpp:server-rocm -m /m/Qwen3-Embedding-0.6B-Q8_0.gguf --host 0.0.0.0 --port 8080 --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99"), s);
             assertFalse(s.contains("--gpus") || s.contains("text-embeddings-inference") || s.contains("--model-id"), s);
-            Files.writeString(d.resolve("vendor"), "0x8086\n"); Files.delete(d.resolve("mem_info_vram_total")); Files.walk(sys.resolve("kfd")).sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
+            Files.writeString(d.resolve("vendor"), "0x8086\n"); Files.delete(d.resolve("mem_info_vram_total")); Files.walk(sys.resolve("kfd")).sorted(Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
             assertEquals("llama-vulkan", Embed.tag(), "an Intel chip: the Vulkan container");
             String v = String.join(" ", Embed.plan(8215, "llama-vulkan").get(0));
             assertTrue(v.contains("--restart unless-stopped --device /dev/dri --group-add video -p") && !v.contains("/dev/kfd") && v.contains("llama.cpp:server-vulkan -m /m/"), v);

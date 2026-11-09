@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Map;
+import java.util.Set;
 /**
  * A hosted OpenAI-style API's limits on the plain path (OpenRouter, OpenAI, Gemini): a 429 is waited out for as long as retry-after says
  * and the call goes on; an error OpenRouter puts inside a 200 (a provider failing after the request was taken) is said as an error, never
@@ -74,7 +76,7 @@ class DriveHostedLimitsTest {
         ObjectNode body = M.createObjectNode(); body.put("model", "m"); body.put("max_tokens", 12);
         body.putObject("chat_template_kwargs").put("enable_thinking", false);
         body.put("temperature", 0.7); body.put("top_p", 0.9);
-        DriveClient.OpenRouterModels.OVERRIDE = java.util.Map.of("m", new DriveClient.OpenRouterModels.Entry(false, java.util.Set.of("tools", "tool_choice", "reasoning", "max_tokens")), "must", new DriveClient.OpenRouterModels.Entry(true, java.util.Set.of("tools", "temperature", "max_tokens")));
+        DriveClient.OpenRouterModels.OVERRIDE = Map.of("m", new DriveClient.OpenRouterModels.Entry(false, Set.of("tools", "tool_choice", "reasoning", "max_tokens")), "must", new DriveClient.OpenRouterModels.Entry(true, Set.of("tools", "temperature", "max_tokens")));
         try {
             ObjectNode or = DriveClient.hostedShape(body.deepCopy(), "https://openrouter.ai/api/v1");
             assertFalse(or.has("chat_template_kwargs")); assertFalse(or.path("reasoning").path("enabled").asBoolean(true), "off where the model allows it"); assertEquals(DriveClient.QUICK_FLOOR, or.path("max_tokens").asInt(), "room for the answer under the thinking");

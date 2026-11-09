@@ -5,6 +5,7 @@ import org.researchzosho.librarian.Settings;
 import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * The shopping field (0.6.0): a question about what to buy. Its rules make the run a researcher for a purchase, not a ranker: the
@@ -18,6 +19,8 @@ public final class ShoppingProfile implements Profile {
 
     @Override public String name() { return "shopping"; }
 
+    @Override public String goalName() { return "buy"; }
+
     @Override public String description() { return "what to buy: candidates for sale now in the person's own market, each checked for fit, specs, recalls, repair and owners' words; fit, never rank"; }
 
     @Override public List<Vocabulary.Term> predicates() {
@@ -27,17 +30,25 @@ public final class ShoppingProfile implements Profile {
                 new Vocabulary.Term("recalled", "was recalled", List.of("is subject to a recall", "has a safety notice"), ""));
     }
 
-    /** Words that mean the person is choosing something to buy. */
-    static final List<String> WORDS = List.of(
-            "buy", "buying", "purchase", "purchasing", "shopping", "cheapest", "worth buying", "which one should i", "what should i get", "recommend a", "recommend me",
-            "looking for a", "looking to buy", "best value", "price of", "how much does", "where to buy", "where can i buy", "vs.", " versus ",
-            "買う", "買い", "購入", "おすすめ", "お勧め", "比較", "価格", "値段", "安い", "どれが", "選び方", "買うなら", "コスパ");
+    /**
+     * The words that mean the person is choosing something to buy: a verb of buying with a thing, a budget in money beside a which or a
+     * what, the words of value. Phrases, never a bare word: "buy" alone took "why did Disney buy Pixar", "price of" the price of oil in
+     * 1973, "recommend a" a book and "looking for a" a job (2026-11-05); a budget by the square foot, the month or the hour, or in
+     * millions, is a home's or a wage's, not a purchase's. Read on {@link Vocabulary#norm}'s form of the question: lower case, NFKC.
+     */
+    static final Pattern ASK = Pattern.compile(
+            "\\b(should|shall|can|could|do|would) (i|we) (buy|purchase|order)\\b|\\b(should|shall) (i|we) get\\b"
+            + "|\\bwhich\\b[^.?!]{0,80}\\b(to buy|to purchase|should (i|we) (buy|get)|is worth (buying|getting)|worth buying)"
+            + "|\\b(buy|buying|purchase|purchasing|shopping for|looking to buy|in the market for|get me|recommend me) (a|an|some|the|my|new|another|replacement|cheap|good|decent)\\b"
+            + "|\\bworth (buying|the money|the price)\\b|\\bbest value\\b|\\bcheapest\\b|\\bvalue for money\\b"
+            + "|\\bwhere (to|can (i|we)|do (i|we)|should (i|we)) (buy|order) (a|an|some|the|my|replacement)\\b"
+            + "|\\b(which|what|best|good|recommend|cheapest|a|an|some)\\b[^.?!]{0,60}\\b(under|below|less than|up to|around|about|max(imum)?) (\\$|¥|€|£|usd|eur|gbp|jpy|cad|aud) ?[\\d,.]+k?(?!( ?(a|per|/)?) ?(square|sq|month|hour|year|week|night|day|foot|ft|m2|㎡|million|mil\\b|m\\b))"
+            + "|\\b(under|below|less than|up to|around|about) \\d[\\d,.]*k? ?(dollars|bucks|euros?|pounds|yen|ドル|ユーロ)\\b(?! ?(a|per|/) ?(square|sq|month|hour|year|week|night|day|foot|ft))"
+            + "|[\\d一二三四五六七八九十百千万,.]+(円|万円)(以下|以内|まで|くらい|ぐらい|程度)"
+            + "|買いたい|買うなら|買い替え|買い換え|買うべき|買えますか|買える(か|の|場所)|どこで買|購入(する|したい|を検討|を考え|なら|する場合)|選び方|コスパ|価格と性能|価格(で|を)比較|値段(で|を)比較|どちらが安い|どっちが安い|安く買"
+            + "|おすすめ(の|は|を)?(機種|製品|商品|モデル|メーカー|家電|ブランド)");
 
-    @Override public boolean applies(String question) {
-        String q = Vocabulary.norm(question);
-        for (String w : WORDS) if (q.contains(w)) return true;
-        return false;
-    }
+    @Override public boolean applies(String question) { return ASK.matcher(Vocabulary.norm(question)).find(); }
 
     /** The needs-and-critique loop, which lives in the chat: the questions before a run, the critiques after it. */
     @Override public String chatNote() {

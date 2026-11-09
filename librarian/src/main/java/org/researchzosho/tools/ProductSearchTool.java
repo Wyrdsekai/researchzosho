@@ -51,6 +51,9 @@ public final class ProductSearchTool implements Tool {
         props.putObject("market").put("type", "string").put("description", "shops, marketplaces: the country, two letters (JP, US, GB, DE…); the person's own when left out");
         props.putObject("language").put("type", "string").put("description", "specs: the language of the datasheet (EN, JA, DE…)");
         props.putObject("limit").put("type", "integer").put("description", "how many rows, up to " + MOST + " (default 10)");
+        props.putObject("price_min").put("type", "integer").put("description", "shops: the least price, in the market's own money (yen in Japan); the shop's own filter");
+        props.putObject("price_max").put("type", "integer").put("description", "shops: the budget, the most to pay, in the market's own money; within a window the rows come cheapest first, never in the shop's own order");
+        props.putObject("page").put("type", "integer").put("description", "shops: the page of listings to read, 1 first; page=2 reads on past the first rows, so the pool is everything the shop lists for the words and the budget");
         p.putArray("required").add("kind");
         return p;
     }
@@ -61,7 +64,7 @@ public final class ProductSearchTool implements Tool {
         String query = args.path("query").asText("").strip();
         int limit = Math.max(1, Math.min(MOST, args.path("limit").asInt(10)));
         return switch (kind) {
-            case "shops" -> shops(query, args.path("market").asText("").strip().toUpperCase(Locale.ROOT), limit);
+            case "shops" -> shops(query, args.path("market").asText("").strip().toUpperCase(Locale.ROOT), limit, args.path("price_min").asLong(0), args.path("price_max").asLong(0), Math.max(1, args.path("page").asInt(1)));
             case "marketplaces" -> marketplaces(query, args.path("market").asText("").strip().toUpperCase(Locale.ROOT), args.path("books").asBoolean(false), limit);
             case "specs" -> specs(args.path("brand").asText("").strip(), args.path("model").asText("").strip(), args.path("barcode").asText("").strip(), args.path("language").asText("EN"), query);
             case "identity" -> identity(query, limit);
@@ -97,21 +100,25 @@ public final class ProductSearchTool implements Tool {
         return b.toString();
     }
 
-    static String shops(String query, String marketArg, int limit) {
+    static String shops(String query, String marketArg, int limit) { return shops(query, marketArg, limit, 0, 0, 1); }
+
+    /** The market's shops for the words within a price window, cheapest first within it, on a page: the pool is what the shops list for the words and the budget, never their first page in their own order. */
+    static String shops(String query, String marketArg, int limit, long priceMin, long priceMax, int page) {
         if (query.isEmpty()) return "ERROR: query is needed: the words of the thing.";
         String market = marketArg.matches("^[A-Z]{2}$") ? marketArg : Settings.market();
         StringBuilder b = new StringBuilder("Market " + market + ". ");
         List<Shops.Listing> all = new ArrayList<>(); List<String> notes = new ArrayList<>();
+        String window = (priceMin > 0 || priceMax > 0 ? " within " + (priceMin > 0 ? priceMin + " to " : "up to ") + (priceMax > 0 ? String.valueOf(priceMax) : "any price") + ", cheapest first" : "") + (page > 1 ? ", page " + page : "");
         if (market.equals("JP")) {
-            if (Shops.yahooOn()) { try { all.addAll(Shops.yahoo(query, limit)); } catch (Exception e) { notes.add("Yahoo! JAPAN Shopping did not answer (" + e.getMessage() + ")"); } }
+            if (Shops.yahooOn()) { try { all.addAll(Shops.yahoo(query, limit, priceMin, priceMax, page)); } catch (Exception e) { notes.add("Yahoo! JAPAN Shopping did not answer (" + e.getMessage() + ")"); } }
             else notes.add("Yahoo! JAPAN Shopping is not set up (the setting yahoo_jp_client_id; developer.yahoo.co.jp gives a Client ID)");
-            if (Shops.rakutenOn()) { try { all.addAll(Shops.rakuten(query, limit)); } catch (Exception e) { notes.add("楽天市場 did not answer (" + e.getMessage() + ")"); } }
+            if (Shops.rakutenOn()) { try { all.addAll(Shops.rakuten(query, limit, priceMin, priceMax, page)); } catch (Exception e) { notes.add("楽天市場 did not answer (" + e.getMessage() + ")"); } }
             else notes.add("楽天市場 is not set up (the settings rakuten_app_id and rakuten_access_key; webservice.rakuten.co.jp gives both)");
         } else {
-            notes.add("no shop in the " + market + " market answers without a key the library does not have; search the web for the product and point at the shop's own page, with the price and the date as that page shows them");
+            notes.add("no shop in the " + market + " market answers without a key the library does not have; search the web for the product and point at the shop's own page, opened for the price and the date as that page shows them, within the budget; a web hit is a lead, never a candidate until its listing is read");
         }
-        if (all.isEmpty()) return b.append(String.join("; ", notes)).append(". Nothing listed for \"").append(query).append("\" through the shops the library can ask.").toString();
-        b.append(all.size()).append(" listing(s) for \"").append(query).append("\", each for sale now; only these may be recommended from this call. Price = what the shop asked at the time shown.\n");
+        if (all.isEmpty()) return b.append(String.join("; ", notes)).append(". Nothing listed for \"").append(query).append("\"").append(window).append(" through the shops the library can ask.").toString();
+        b.append(all.size()).append(" listing(s) for \"").append(query).append("\"").append(window).append(", each for sale now; only these may be recommended from this call. Price = what the shop asked at the time shown.").append(all.size() >= limit ? " The shop may list more: page=" + (page + 1) + " reads on." : "").append('\n');
         int n = 0;
         for (Shops.Listing l : all) {
             if (n++ >= limit * 2) break;
