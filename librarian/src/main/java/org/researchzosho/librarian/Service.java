@@ -17,6 +17,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.researchzosho.Config;
 /**
  * Run The Librarian as a user service on all three platforms: a systemd --user unit on Linux, a
@@ -166,7 +168,7 @@ public final class Service {
                 + "# the Java 'service install' ran under, when the logon environment has none: JAVA_HOME or a Java on PATH still wins\n"
                 + "if (-not $env:JAVA_HOME -and -not (Get-Command java.exe -ErrorAction SilentlyContinue)) { $env:JAVA_HOME = '" + javaHome.replace("'", "''") + "' }\n"
                 + "$java = if ($env:JAVA_HOME) { Join-Path $env:JAVA_HOME 'bin\\java.exe' } else { (Get-Command java.exe -ErrorAction SilentlyContinue | Select-Object -First 1).Source }\n"
-                + "$own = Join-Path (Split-Path (Split-Path '" + launcher + "')) 'jre\\bin\\java.exe'\n"
+                + OWN_JAVA.replace("{launcher}", launcher) + "\n"
                 + "if (-not (Test-Path -LiteralPath $own) -and -not ($java -and (Test-Path -LiteralPath $java))) {\n"
                 + "    New-Item -ItemType Directory -Force -Path (Split-Path $log) | Out-Null\n"
                 + "    [IO.File]::AppendAllText($log, (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') + '  " + NO_JAVA_AT_LOGON.replace("'", "''") + "' + [Environment]::NewLine)\n"
@@ -174,6 +176,20 @@ public final class Service {
                 + "}\n"
                 + "& '" + launcher + "' " + verbFor(exec) + "serve" + hostFlag(host, " --host ", "") + " --port " + port + " --crew-hour " + crewHour + " --log $log\n"
                 + "exit $LASTEXITCODE\n";
+    }
+
+    /**
+     * Where the task script finds the Java the launcher brings: in the version {@code current.txt} names, under {@code versions\}, or
+     * beside {@code bin\} in an install from before 0.7.2. {@code {launcher}} is the launcher's path, its quotes doubled.
+     */
+    static final String OWN_JAVA = "$rz = Split-Path (Split-Path '{launcher}'); $own = if (Test-Path -LiteralPath (Join-Path $rz 'current.txt')) "
+            + "{ Join-Path $rz ('versions\\' + (Get-Content -LiteralPath (Join-Path $rz 'current.txt') -TotalCount 1).Trim() + '\\jre\\bin\\java.exe') } else { Join-Path $rz 'jre\\bin\\java.exe' }";
+
+    /** A task script written before 0.7.2, its line for the launcher's own Java made to read the version {@code current.txt} names; the script as it was otherwise. */
+    static String withVersionedJava(String script) {
+        Matcher m = Pattern.compile("(?m)^\\$own = Join-Path \\(Split-Path \\(Split-Path '((?:[^']|'')*)'\\)\\) 'jre\\\\bin\\\\java\\.exe'(\r?)$").matcher(script);
+        if (!m.find()) return script;
+        return script.substring(0, m.start()) + OWN_JAVA.replace("{launcher}", m.group(1)) + m.group(2) + script.substring(m.end());
     }
 
     /** The command that installs the Windows build carrying its own Java. */

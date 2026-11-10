@@ -225,9 +225,11 @@ public final class LibrarianDaemon {
                 // seeks: one report from a group's seeks; the judge reads the claim pairs, the writer seat writes the answer
                 String group = a.path("group").asText("");
                 if (!Crews.driveAnswers(d)) throw new IllegalStateException("No model is answering at " + d + ". The merge needs one to read the seeks' claims.");
-                Researcher.Drive judge = judgeFactory != null ? judgeFactory.apply(d) : Researcher.judgeDrive(d, model());
                 String writer = job.path("patron").asText("").isEmpty() ? "patron:anonymous" : "patron:" + job.path("patron").asText();
-                try {
+                // the judge's readings of the claim pairs are kept in order: a restart gives back the ones read, and a merge filed before it is not filed again
+                try (Checkpoint mcp = checkpoint(job, Checkpoint.basisOf(group)); var lane = Checkpoint.lane("main")) {
+                    if (mcp.get("merged") != null) return mcp.get("merged").asText();
+                    Researcher.Drive judge = mcp.seat(judgeFactory != null ? judgeFactory.apply(d) : Researcher.judgeDrive(d, model()));
                     // a seek that landed with its claims unsettled (a stop, an outage) is settled now, on its own shelves, so the merge has claims to read
                     ObjectNode g = Seeks.group(store, group);
                     for (String seekJob : Seeks.jobsOf(g)) {
@@ -237,44 +239,75 @@ public final class LibrarianDaemon {
                     }
                     Seeks.Merged m = Seeks.merge(store, group, judge, writer);
                     Crews.log(store, "merge " + job.path("job_id").asText(""), "seeks " + group + " → " + m.investigationId() + " (" + m.agreed() + " agreed, " + m.disputed() + " disputed, " + m.lone() + " by one seek)", 0);
-                    return "investigation " + m.investigationId() + "\n\nMerged from the seeks of " + group + ": " + m.agreed() + " claim" + (m.agreed() == 1 ? "" : "s") + " agreed, " + m.disputed() + " disputed, " + m.lone() + " found by one seek.";
+                    String result = "investigation " + m.investigationId() + "\n\nMerged from the seeks of " + group + ": " + m.agreed() + " claim" + (m.agreed() == 1 ? "" : "s") + " agreed, " + m.disputed() + " disputed, " + m.lone() + " found by one seek.";
+                    mcp.put("merged", M.getNodeFactory().textNode(result));
+                    return result;
                 } catch (IOException e) { throw new IllegalStateException("The library could not be written: " + e.getMessage(), e); }
             }
             case "crews" -> {
                 String crewId = job.path("job_id").asText("");
-                var steps = Crews.runAll(store, d, model(), () -> !crewId.isEmpty() && jobs.stopRequested(crewId));
+                List<Crews.Step> steps;
+                try (Checkpoint cp = checkpoint(job, Checkpoint.basisOf(job.path("queued_at").asText("")))) {   // step by step: a restart goes on from the step it was on
+                    steps = Crews.runAll(store, d, model(), () -> !crewId.isEmpty() && jobs.stopRequested(crewId), cp);
+                }
                 StringBuilder sb = new StringBuilder();
                 for (var s : steps) sb.append(s.name()).append(": ").append(s.outcome()).append(" (").append(s.ms()).append("ms)\n");
                 return sb.toString();
             }
             case "career-search", "career-read" -> {   // the career field's search, or more of its readings (docs/DESIGN_CAREER.md, step 3)
                 String jid = job.path("job_id").asText("");
+                beganAgain(job, "This kind of job begins again from the start; the openings the model already read keep their readings and are not read again.");
                 try { return CareerFind.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             case HomeFind.JOB_KIND -> {   // the home field's search: the listings from every source the library can read, the cut, the cards
                 String jid = job.path("job_id").asText("");
+                beganAgain(job, "This kind of job begins again from the start.");
                 try { return HomeFind.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             case VideoRecall.JOB_KIND -> {   // the picture in your head: the frames of the videos held, described and judged by the model that reads pictures
                 String jid = job.path("job_id").asText("");
+                beganAgain(job, "This kind of job begins again from the start; the videos the model already looked through keep what it saw and are not looked through again.");
                 try { return VideoRecall.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             case Translation.JOB_KIND -> {   // a document a person handed over, translated unit by unit and written out in a format, with its note; onto the shelves with the original
                 String jid = job.path("job_id").asText("");
-                return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid));
+                try (Checkpoint cp = checkpoint(job, Translation.basis(job))) {   // unit by unit: a restart resumes it where it was
+                    return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid), cp);
+                }
             }
             case "translate" -> {   // a dossier or a report read in another language, made by the library's model and kept until it changes
-                try {
-                    if (!a.path("report").asText("").isEmpty()) return Translate.reportIn(store, a.path("report").asText(), a.path("lang").asText("en"), Translate.DRIVE.get()).summary();
-                    return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), Translate.DRIVE.get()).summary();
+                try (Checkpoint cp = checkpoint(job, Checkpoint.basisOf(a.path("report").asText(""), a.path("subject").asText(""), a.path("lang").asText("en")));
+                     var lane = Checkpoint.lane("main")) {   // its calls in order: a restart gives back the parts translated
+                    if (!a.path("report").asText("").isEmpty()) return Translate.reportIn(store, a.path("report").asText(), a.path("lang").asText("en"), cp.seat(Translate.DRIVE.get())).summary();
+                    return Translate.dossierIn(store, a.path("subject").asText(""), a.path("lang").asText("en"), cp.seat(Translate.DRIVE.get())).summary();
                 }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
             default -> throw new IllegalArgumentException("unknown job kind " + kind);
         }
+    }
+
+    /**
+     * The job's kept work ({@link Checkpoint}), opened for its run. A job a restart or an update interrupted resumes from it, and the crews
+     * log says where; when its kept work could not be used, its record says why it began again.
+     */
+    Checkpoint checkpoint(ObjectNode job, String basis) {
+        String id = job.path("job_id").asText("");
+        Checkpoint cp = Checkpoint.open(store, id, job.path("kind").asText(""), basis);
+        if (job.path("interruptions").isArray()) {
+            if (!cp.startedOver().isEmpty()) jobs.startedOver(id, cp.startedOver());
+            Crews.log(store, job.path("kind").asText("job") + " " + id, cp.resumed() ? "resumes after the restart" + (cp.saidBefore().isEmpty() ? "" : ", at " + cp.saidBefore()) + ", from the work it kept"
+                    : cp.startedOver().isEmpty() ? "starts again after the restart; it had kept nothing yet" : cp.startedOver(), 0);
+        }
+        return cp;
+    }
+
+    /** A job of a kind that keeps no work to resume from, interrupted: its record says it began again, in {@code sentence}. */
+    void beganAgain(ObjectNode job, String sentence) {
+        if (job.path("interruptions").isArray()) jobs.startedOver(job.path("job_id").asText(""), sentence);
     }
 
     /**
@@ -326,6 +359,24 @@ public final class LibrarianDaemon {
 
     private String runResearch(ObjectNode job, ObjectNode a, String drive, String writer) throws IOException {
         String jobId = job.path("job_id").asText("job");
+        // the run keeps its work as it goes: a restart or an update resumes it at the turn it was on
+        try (Checkpoint cp = checkpoint(job, researchBasis(a))) { return runResearch(job, a, drive, writer, cp); }
+    }
+
+    /** What a research run's kept work is for: its question and what it was asked to be. Another of any of them is another run. */
+    static String researchBasis(JsonNode a) {
+        List<String> subs = new ArrayList<>(); for (JsonNode s : a.path("sub_questions")) subs.add(s.asText(""));
+        return Checkpoint.basisOf(Jobs.sameAskKey(a), a.path("delta_of").asText(""), a.path("max_turns").asText(""), a.path("max_minutes").asText(""), String.join("\n", subs), a.path("seek").asText(""), a.path("title").asText(""));
+    }
+
+    private String runResearch(ObjectNode job, ObjectNode a, String drive, String writer, Checkpoint cp) throws IOException {
+        String jobId = job.path("job_id").asText("job");
+        // the report was filed before the restart: the job ends with it, and nothing is filed twice
+        if (cp.get("filed") != null) {
+            String id = cp.get("filed").asText();
+            Crews.log(store, "research " + jobId, "the report " + id + " was filed before the restart; the job ends with it, and the nightly housekeeping reads its claims", 0);
+            return "investigation " + id + "\n\nThe report was filed before the service restarted. The claims in it are read by the nightly housekeeping.";
+        }
         String question = a.path("question").asText();
         if (a.hasNonNull("delta_of")) question = withEarlier(question, a.get("delta_of").asText());
         List<String> subs = new ArrayList<>();
@@ -337,7 +388,10 @@ public final class LibrarianDaemon {
         if (a.path("suggested").isObject()) Crews.log(store, "research " + jobId, "suggestion: " + a.path("suggested").path("field").asText() + " — " + a.path("suggested").path("offer").asText() + " The run is ordinary research.", 0);
         long t0 = System.currentTimeMillis();
         RunTrace trace = RunTrace.open(store, jobId);
+        if (cp.resumed()) { ObjectNode ev = M.createObjectNode(); ev.put("at", cp.saidBefore()); ev.put("worked_ms", cp.elapsedBeforeMs()); trace.event("resumed", ev); }
         Researcher researcher = researcher(drive, trace);
+        researcher.checkpoint(cp);
+        researcher.onFiled(id -> cp.put("filed", M.getNodeFactory().textNode(id)));
         researcher.entry(JOB_ENTRY.get() == null ? ModelEntries.defaultEntry() : JOB_ENTRY.get());   // the run's model, for its report and its cost
         researcher.why(JOB_WHY.get());
         researcher.paid(a.path("paid").asBoolean(true));   // the paid search places left off for this run when the ask said so
@@ -388,6 +442,7 @@ public final class LibrarianDaemon {
                 System.currentTimeMillis() - t0, drive, model(), trace.totals());
         row.put("fetches_total", RunLedger.fetchCalls(store, jobId));
         RunLedger.record(store, row);
+        if (cp.resumed()) Crews.log(store, "research " + jobId, cp.resumedLine(), 0);
         if (filed.admitted()) settle(shelves, filed.investigationId(), drive, jobId);   // a seek settles on its own shelves: its claims become findings there
         if (!seek.isEmpty()) Seeks.landed(store, seek, jobId, filed.admitted() ? filed.investigationId() : null, filed.result().summary());
         Crews.log(store, "research " + jobId, filed.result().summary() + (filed.admitted() ? " → " + filed.investigationId() + (held.isEmpty() ? "" : " (a draft that waits for the keeper: " + held + ")") : filed.declined() ? " → declined by the model" : " → refused: " + filed.reason()),
@@ -528,6 +583,9 @@ public final class LibrarianDaemon {
         d.followVault();
         d.watchStalls();
         Runtime.getRuntime().addShutdownHook(new Thread(lease::close, "serve-lease-release"));   // systemd stops us with SIGTERM
+        // the jobs it leaves running say why when they resume: an update, or a restart
+        d.stopping = new Thread(() -> { String to = Updater.restartingTo(); d.jobs.stopping(to == null ? Jobs.RESTART : Jobs.UPDATE, to); }, "serve-stopping");
+        Runtime.getRuntime().addShutdownHook(d.stopping);
         s.createContext("/", x -> d.handle(new PerRequest(x)));   // each request's marks are its own: the server's are shared by every request
         s.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-http"); t.setDaemon(true); return t; }));
         s.start();
@@ -540,7 +598,7 @@ public final class LibrarianDaemon {
         if (crewHour >= 0) {
             d.crews = Crews.nightly(store, crewHour, () -> {
                 try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not start the nightly tasks: " + e, 0); }
-            }, () -> { try { return d.jobs.active().isEmpty(); } catch (Exception e) { return false; } });   // the auto-update waits for an idle daemon
+            });
             d.crews.start();
         }
         return d;
@@ -585,7 +643,9 @@ public final class LibrarianDaemon {
     }
     public String url() { return "http://" + server.getAddress().getHostString() + ":" + port(); }
     private Lease lease;
-    public void stop() { if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); if (lease != null) lease.close(); }
+    /** The hook that writes why the service stopped, for the jobs it leaves running; a daemon stopped in the program (a test) takes it away. */
+    private Thread stopping;
+    public void stop() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
         return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());

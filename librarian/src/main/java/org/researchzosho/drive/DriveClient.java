@@ -831,6 +831,12 @@ public final class DriveClient {
     private static final ThreadLocal<long[]> COUNT = new ThreadLocal<>();
     public static void countInto(long[] acc) { if (acc == null) COUNT.remove(); else COUNT.set(acc); }
     public static void stopCounting() { COUNT.remove(); }
+    /** A call a resumed job gave back from its record ({prompt, completion}): what it cost when it was made counts for the run this thread works for. */
+    public static void countReplayed(long[] u) {
+        long[] acc = COUNT.get();
+        if (acc == null || u == null || u.length < 2) return;
+        synchronized (acc) { acc[0] += u[0]; acc[2] += u[1]; }
+    }
 
     private ObjectNode accept(JsonNode parsed, String raw) {
         {

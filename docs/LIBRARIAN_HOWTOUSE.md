@@ -317,15 +317,20 @@ library with it. The nightly housekeeping would do that the next night.
 `researchzosho status` and the page footer say when a newer release exists. To install it:
 
 ```
-researchzosho update            # the installed release, the latest, and the mode
-researchzosho update now        # download, verify against the release's checksums, swap in, restart the service
-researchzosho update auto on    # the service updates itself after each housekeeping, when no run is active
+researchzosho update            # the installed release, the versions kept, the latest, and the mode
+researchzosho update now        # download, verify against the release's checksums, install beside the running one, restart the service
+researchzosho update back       # the version before runs again, and the service restarts onto it
+researchzosho update auto on    # the service installs a newer release after each housekeeping and restarts at once
 ```
 
 The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. An update never touches
-the library or the settings. On Windows the new version goes in place when `update now` has ended,
-and a service that was running starts again on it. Open a new terminal and run
-`researchzosho --version` to see it. What the update did is written to
+the library or the settings. Each version is installed in a folder of its own, `versions/<version>` in the
+install, and the launchers run the one `current` names (`current.txt` on Windows), so the running program's
+files are left alone. The version before stays as the way back, and two are kept. The service restarts at
+once, and a job that was running resumes where it was when it is back (section 4). After `update back` the
+auto-update leaves the version you went back from, and `update now` installs it again. An install from before
+0.7.2 moves into this layout at its first update. On Windows a small helper starts the service again once the
+old one has ended, and moves an install from before 0.7.2 then; what it did is written to
 `~/.researchzosho/logs/update.log`.
 
 One update runs at a time. An update that starts while another is running, from this program or
@@ -337,17 +342,19 @@ CodeZaiku, Wyrdsekai and any other program that updates ResearchZosho ask its ow
 never download it or replace its files themselves:
 
 ```
-researchzosho update --json        # installed, running, latest, newer, mode, root, canUpdate, updating
+researchzosho update --json        # installed, running, latest, newer, mode, root, canUpdate, updating, versions, held
 researchzosho update now --json    # result, code, from, to, finishesAfterExit, note
+researchzosho update back --json   # the same fields
 ```
 
 `update now` ends with 0 when it updated or the install was already current, 75 when another update
 is running (ask again later), 3 when this install cannot update itself (a run from the source tree),
 and 1 when it failed. With `--json` it prints one JSON document, and the progress goes to the error
 stream. `installed` is the version whose files are in place, and `running` the one answering, which
-differ until a program started before the update is started again. Only ResearchZosho's own service
-updates it without being asked, and only with `RESEARCHZOSHO_UPDATE=auto`. While the service
-restarts after an update, calls to it fail for a few seconds: try them again.
+differ until a program started before the update is started again. `versions` lists the versions kept, and
+`held` names the one `update back` went back from. Only ResearchZosho's own service updates it without being
+asked, and only with `RESEARCHZOSHO_UPDATE=auto`. While the service restarts after an update, calls to it fail
+for a few seconds: try them again. A run a program started goes on after the restart, under the same id.
 
 ## 3. The basic loop
 
@@ -451,7 +458,11 @@ in that field.
 
 The run starts as soon as a worker is free. `researchzosho jobs` lists the runs, queued and running
 ones first. `researchzosho jobs <J-id>` shows one run: its state, how far it has got, what it is
-waiting for, and where its write-up went. A run that waits for one of its named choices is answered with
+waiting for, and where its write-up went. A job keeps what it gets as it goes: every search, page, model answer
+and worker's notes of a research run, every unit of a translation, every task of the nightly housekeeping. When the
+service restarts, for an update or anything else, a job that was running resumes where it was: a research run at
+the turn it was on, a translation at the unit it was on, the housekeeping at its next task. The job's line says so:
+"Resumed after a restart, at turn 14." A career search, a home search and a video search begin again. A run that waits for one of its named choices is answered with
 `researchzosho jobs <J-id> --choose <number or name>`; one held for the question whether to research it at all, with
 `--yes` or `--no`. A run that has shown no progress for a quarter of an hour
 (`RESEARCHZOSHO_STALL_MINUTES`) is marked "no progress since" with the time, and the service writes
@@ -2877,7 +2888,7 @@ checked and what was not. Each field below is one of the three kinds and works a
 ```
 researchzosho service install            # Linux, macOS or Windows; a user service, no administrator rights
 researchzosho service status
-researchzosho service restart            # asks first when a research run is going: a restart starts it over
+researchzosho service restart            # a job that is going stops, and resumes where it was when the service is back
 researchzosho service uninstall
 ```
 

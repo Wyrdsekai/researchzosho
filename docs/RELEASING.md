@@ -30,8 +30,8 @@ cd npm && LAUNCHER_TEST_DIST=../dist npm test    # the npm launcher against the 
 ```
 
 The platform pass installs through the one-line installer from a local server, drives the verbs on a
-fresh library, fetches the pages, installs the service, swaps in a fake next version through
-`update now`, installs the runtime build and updates it too, and uninstalls. On a Mac it also
+fresh library, fetches the pages, installs the service, installs a fake next version beside the
+running one through `update now`, installs the runtime build and updates it too, and uninstalls. On a Mac it also
 quarantines every file of the runtime build and runs it, which is what a browser download meets:
 the runtime's binaries carry Adoptium's Developer ID signature and notarization, and jlink copies
 them unchanged, so no signing of ours is involved. Run the pass on every platform the release

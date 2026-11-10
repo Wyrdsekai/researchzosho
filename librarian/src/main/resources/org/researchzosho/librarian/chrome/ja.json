@@ -1915,5 +1915,14 @@
  "The likeness helper is set up: a judgement of likeness measures the faces and the pictures first, and the seeing model judges in that order.": "類似ヘルパーは設定済みです。類似の判定ではまず顔と画像を数値で測り、画像を見るモデルはその順に判定します。",
  "No likeness helper is set up: judgements of likeness rest on the seeing model's reading alone. researchzosho images likeness install sets it up (about 2 GB, on the CPU).": "類似ヘルパーは未設定です。類似の判定は、画像を見るモデルの読みだけによります。researchzosho images likeness install で設定できます（約2 GB、CPUで動きます）。",
  "Show as text": "テキストで表示",
- "This diagram could not be drawn; its text is shown instead.": "この図は描けませんでした。代わりにテキストを表示しています。"
+ "This diagram could not be drawn; its text is shown instead.": "この図は描けませんでした。代わりにテキストを表示しています。",
+ "a restart": "再起動",
+ "an update to {0}": "{0} への更新",
+ "an update": "更新",
+ "a stop the service did not finish (a crash, or the computer went off)": "サービスが正しく止まらなかったこと（異常終了、またはコンピューターの電源断）",
+ "Started again after {0}.": "{0}のあと、最初からやり直しました。",
+ "Starts again after {0}; nothing had been kept yet.": "{0}のあと、最初からやり直します。まだ何も保存されていませんでした。",
+ "Started again after {0}; nothing had been kept yet.": "{0}のあと、最初からやり直しました。まだ何も保存されていませんでした。",
+ "Resumes after {0}, at {1}.": "{0}のあと、{1}から再開します。",
+ "Resumed after {0}, at {1}.": "{0}のあと、{1}から再開しました。"
 }

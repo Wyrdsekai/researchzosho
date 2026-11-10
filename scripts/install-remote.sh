@@ -77,10 +77,38 @@ else die "no sha256sum or shasum found. Cannot check the download"; fi
 printf 'researchzosho: checksum verified\n'
 
 LIBDIR="$PREFIX/share/researchzosho"
-mkdir -p "$TMP/x" "$PREFIX/bin" "$(dirname "$LIBDIR")"
+mkdir -p "$TMP/x" "$PREFIX/bin" "$LIBDIR/versions" "$LIBDIR/bin"
 tar xzf "$TMP/$TAR" -C "$TMP/x"
-rm -rf "$LIBDIR"
-mv "$TMP/x/researchzosho" "$LIBDIR"
+
+# The install keeps its versions side by side: each in versions/<version>/, 'current' pointing at the one that runs, and the
+# launchers in bin/ running that one. researchzosho update installs the next version beside it and moves the pointer, and
+# researchzosho update back moves it back. An install from before 0.7.2 (bin/ and lib/ at the top) moves into versions/ first.
+if [ -d "$LIBDIR/lib" ] && [ ! -L "$LIBDIR/current" ]; then
+    OLD=$(ls "$LIBDIR/lib" | sed -n 's/^librarian-\([0-9][0-9.]*\)\.jar$/\1/p' | head -1)
+    if [ -n "$OLD" ] && [ "$OLD" != "$VER" ] && [ ! -d "$LIBDIR/versions/$OLD" ]; then
+        mkdir -p "$LIBDIR/versions/$OLD"
+        for N in bin lib jre README.md LICENSE; do [ -e "$LIBDIR/$N" ] && mv "$LIBDIR/$N" "$LIBDIR/versions/$OLD/$N"; done
+    fi
+    for N in bin lib jre README.md LICENSE; do rm -rf "${LIBDIR:?}/$N"; done
+    mkdir -p "$LIBDIR/bin"
+fi
+rm -rf "${LIBDIR:?}/versions/$VER"
+mv "$TMP/x/researchzosho" "$LIBDIR/versions/$VER"
+ln -sfn "versions/$VER" "$LIBDIR/current"
+for NAME in researchzosho zosho; do
+    { cat <<'LAUNCHER'
+#!/bin/sh
+# ResearchZosho: runs the version that 'current' points at. researchzosho update installs a new version beside it in versions/ and moves the pointer.
+p=$0
+while [ -h "$p" ]; do l=$(ls -ld "$p"); t=${l#*' -> '}; case $t in /*) p=$t ;; *) p=$(dirname "$p")/$t ;; esac; done
+root=$(cd "$(dirname "$p")/.." && pwd -P) || exit 1
+LAUNCHER
+      printf 'exec "$root/current/bin/%s" "$@"\n' "$NAME"; } > "$LIBDIR/bin/$NAME"
+    chmod +x "$LIBDIR/bin/$NAME"
+done
+# two versions are kept: this one and the newest before it, the way back
+KEEP=$(ls "$LIBDIR/versions" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | grep -vx "$VER" | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+for D in "$LIBDIR"/versions/*; do N=$(basename "$D"); [ "$N" = "$VER" ] || [ "$N" = "$KEEP" ] || rm -rf "$D"; done
 
 # A wrapper, never a symlink: on Windows under MSYS a symlink becomes a copy, and the launcher
 # works out its own location from where it was called.

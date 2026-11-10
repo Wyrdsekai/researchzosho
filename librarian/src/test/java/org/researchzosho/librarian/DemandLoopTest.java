@@ -113,13 +113,15 @@ class DemandLoopTest {
         jobs.acknowledge(q);
         assertEquals(List.of(r), jobs.landed());
         assertTrue(jobs.get(q).get("acknowledged").asBoolean());
-        // a job caught running for the second time is failed, not run again
-        ObjectNode twice = jobs.get(q); twice.put("state", "running"); twice.put("restarted", 1);
+        // a job caught running a third time in a row with nothing new kept between is failed, not run again: it may be what stops the service
+        ObjectNode twice = jobs.get(q); twice.put("state", "running"); twice.put("restarted", 2);
+        for (int i = 0; i < 2; i++) twice.withArray("interruptions").addObject().put("why", "unclean").put("seq", -1).put("said", "");
         Files.writeString(jobs.activeDir().resolve(q + ".json"), M.writeValueAsString(twice));
         jobs.stop();
         Jobs third = new Jobs(store, j -> "must not run");
         third.start();
         assertEquals("failed", third.get(q).get("state").asText());
+        assertTrue(third.get(q).get("result").asText().startsWith("The service stopped 3 times in a row while this job ran, and the job kept nothing new between those stops"), third.get(q).get("result").asText());
         third.stop();
         assertTrue(q.startsWith("J-0001"));
     }

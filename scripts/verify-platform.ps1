@@ -15,10 +15,11 @@ function Expect($name, $want, [scriptblock]$run) {
 function Check($name, [bool]$ok, $why) { if ($ok) { Pass $name } else { Fail $name $why } }
 # wait up to $seconds for a condition
 function Within([int]$seconds, [scriptblock]$cond) { for ($i = 0; $i -lt $seconds; $i++) { if (& $cond) { return $true }; Start-Sleep 1 }; return [bool](& $cond) }
-# the version in the manifest of the program installed at $root (its lib\librarian-*.jar)
+# the version in the manifest of the program installed at $root: the jar of the version current.txt names (versions\<v>\lib), or lib\ at the top before 0.7.2
 Add-Type -AssemblyName System.IO.Compression.FileSystem
+function Home($root) { if (Test-Path "$root\current.txt") { return "$root\versions\" + (Get-Content "$root\current.txt" -TotalCount 1).Trim() } else { return $root } }
 function JarVersion($root) {
-  $jar = Get-ChildItem "$root\lib" -Filter 'librarian-*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
+  $jar = Get-ChildItem "$(Home $root)\lib" -Filter 'librarian-*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
   if (-not $jar) { return '' }
   $z = [System.IO.Compression.ZipFile]::OpenRead($jar.FullName)
   try { $r = New-Object System.IO.StreamReader($z.GetEntry('META-INF/MANIFEST.MF').Open()); $t = $r.ReadToEnd(); $r.Close() } finally { $z.Dispose() }
@@ -130,7 +131,7 @@ Expect 'service install' 'installed' { & $Z service install }
 Check "the service serves $Ver" (Within 60 { (ServedVersion 4649) -eq $Ver }) "port 4649 says '$(ServedVersion 4649)'"
 $before = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
 $o = (& $Z update now $Next 2>&1 | Out-String); Show "update now ${Next}:" $o
-Check "update now hands the swap over" ($LASTEXITCODE -eq 0 -and $o -match 'The update finishes when this command ends') "exit $LASTEXITCODE"
+Check "update now installs beside and restarts" ($LASTEXITCODE -eq 0 -and $o -match "$Next is in place") "exit $LASTEXITCODE"
 Check 'the update finishes' (Within 120 { UpdateDone $env:RESEARCHZOSHO_PREFIX }) "the download folder is still beside the install"
 $jv = JarVersion $Root; Show 'installed jar after the update:' "Implementation-Version: $jv"
 Check "the installed jar is $Next" ($jv -eq $Next) "the installed jar says '$jv'"
@@ -153,20 +154,20 @@ Write-Output "== the build with its own Java runtime: installed on request, runs
 $RT = "$W\prefix-rt"
 $env:RESEARCHZOSHO_VERSION = $Ver; $env:RESEARCHZOSHO_RUNTIME = '1'; $env:RESEARCHZOSHO_PREFIX = $RT
 # Write-Host lines do not reach a 2>&1 capture: judge by the exit code and by what landed on disk
-$out = (& "$Dist\install.ps1" 2>&1 | Out-String); if ($LASTEXITCODE -eq 0 -and (Test-Path "$RT\researchzosho\jre\bin\java.exe")) { Pass 'install (own runtime)' } else { Fail 'install (own runtime)' ($out -split "`n" | Select-Object -Last 3) }
+$out = (& "$Dist\install.ps1" 2>&1 | Out-String); if ($LASTEXITCODE -eq 0 -and (Test-Path "$(Home "$RT\researchzosho")\jre\bin\java.exe")) { Pass 'install (own runtime)' } else { Fail 'install (own runtime)' ($out -split "`n" | Select-Object -Last 3) }
 Remove-Item Env:RESEARCHZOSHO_VERSION; Remove-Item Env:RESEARCHZOSHO_RUNTIME; $env:RESEARCHZOSHO_PREFIX = "$W\prefix"
 $Z2 = "$RT\researchzosho\bin\researchzosho.bat"
-Check 'the runtime came with it' (Test-Path "$RT\researchzosho\jre\bin\java.exe") "no jre under $RT"
+Check 'the runtime came with it' (Test-Path "$(Home "$RT\researchzosho")\jre\bin\java.exe") "no jre under $RT"
 $env:JAVA_HOME = 'C:\nonexistent'
 Expect 'version (own runtime, JAVA_HOME pointing nowhere)' $Ver { & $Z2 --version }
 $env:RESEARCHZOSHO_CONFIG = "$W\config-rt"; $env:RESEARCHZOSHO_LIBRARY = "$W\lib-rt"
 Expect 'init (own runtime)' 'library|initiali|ready|created' { & $Z2 init }
 $o = (& $Z2 update now $Next --no-restart 2>&1 | Out-String); Show "update now $Next --no-restart (own runtime):" $o
-Check 'update now hands the swap over (own runtime)' ($LASTEXITCODE -eq 0 -and $o -match 'The update finishes when this command ends') "exit $LASTEXITCODE"
+Check 'update now installs beside the running version (own runtime)' ($LASTEXITCODE -eq 0 -and $o -match "$Next is in place") "exit $LASTEXITCODE"
 Check 'the update finishes (own runtime)' (Within 120 { UpdateDone $RT }) "the download folder is still beside the install"
 $jv = JarVersion "$RT\researchzosho"; Show 'installed jar after the update (own runtime):' "Implementation-Version: $jv"
 Check "the installed jar is $Next (own runtime)" ($jv -eq $Next) "the installed jar says '$jv'"
-Check 'the runtime is still there after the update' (Test-Path "$RT\researchzosho\jre\bin\java.exe") 'jre gone'
+Check 'the runtime is still there after the update' (Test-Path "$(Home "$RT\researchzosho")\jre\bin\java.exe") 'jre gone'
 Expect 'version after the update (own runtime)' "researchzosho $Next" { & $Z2 --version }
 Remove-Item Env:JAVA_HOME; $env:RESEARCHZOSHO_CONFIG = "$W\config"; $env:RESEARCHZOSHO_LIBRARY = "$W\lib"
 Stop-Process -Id $http.Id -Force -ErrorAction SilentlyContinue

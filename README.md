@@ -201,7 +201,7 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_FIRECRAWL_KEY` | a page a plain fetch cannot read (built by scripts, a bot wall, a 403) is read through Firecrawl's browser (firecrawl.dev); paid per page after the free credits, at most twenty pages a run |
 | `RESEARCHZOSHO_BRAVE_KEY` / `RESEARCHZOSHO_SEARXNG` | the web search backend: a Brave Search API key (used before SearXNG), a SearXNG address (default `http://localhost:8888`; `researchzosho search start` runs one with Docker); with neither, the built-in fallback, Wikipedia plus Crossref and OpenAlex (`RESEARCHZOSHO_FALLBACK_SEARCH=off` turns it off) |
 | `RESEARCHZOSHO_API_KEY` | the key for a hosted API; it is sent only to that server |
-| `RESEARCHZOSHO_UPDATE` | `check` (default): say when a newer release exists; `auto`: the service updates itself after the housekeeping when idle; `off` |
+| `RESEARCHZOSHO_UPDATE` | `check` (default): say when a newer release exists; `auto`: the service installs it after the housekeeping and restarts at once; `off` |
 | `RESEARCHZOSHO_EXPLORER_PER_NIGHT` / `RESEARCHZOSHO_EXPLORER_TYPES` | how many open questions the housekeeping researches a night (default 2), and of which types (default report, asked, person) |
 | `RESEARCHZOSHO_PODCASTINDEX_KEY` / `RESEARCHZOSHO_PODCASTINDEX_SECRET` | the Podcast Index key and secret (api.podcastindex.org/signup, free): the open podcast directory and search by person. Apple's directory answers without them. `researchzosho podcast index download` keeps the directory's weekly file on the machine (1.8 GB) for searching and browsing shows by word, category and language without the API; `RESEARCHZOSHO_PODCASTINDEX_LOCAL=on` has the housekeeping refresh it. |
 | `RESEARCHZOSHO_YAHOO_JP_CLIENT_ID`, `RESEARCHZOSHO_RAKUTEN_APP_ID` + `RESEARCHZOSHO_RAKUTEN_ACCESS_KEY`, `RESEARCHZOSHO_ICECAT_USER`, `RESEARCHZOSHO_REDDIT_CLIENT_ID` + `RESEARCHZOSHO_REDDIT_CLIENT_SECRET` | the shops and catalogues a shopping question may ask, all free: Yahoo!ショッピング and 楽天市場 listings with prices (Japan), Open Icecat datasheets, what owners wrote on Reddit through an app of your own. Without them the run uses the open sources and points at shops. |
@@ -228,7 +228,8 @@ bin/researchzosho service install           # Linux, macOS or Windows; a user se
 ```
 
 The service listens on `127.0.0.1:4649`. It does the housekeeping at 03:00 and runs the questions
-you send. `service install --host 0.0.0.0` opens it to your own network. The pages are open as
+you send. A job keeps its work as it goes: when the service restarts, for an update or anything else, a job
+that was running resumes where it was. `service install --host 0.0.0.0` opens it to your own network. The pages are open as
 shipped: anyone who can reach them can read and send questions. `researchzosho web signin on` turns
 on access control.
 

@@ -65,10 +65,38 @@ try {
     if ($expect -ne $actual) { Die "checksum mismatch for $tar. Refusing to install`n  expected $expect`n  got      $actual" }
     Write-Host 'researchzosho: checksum verified'
 
+    # The install keeps its versions side by side: each in versions\<version>, current.txt naming the one that runs, and the
+    # launchers in bin\ running that one. researchzosho update installs the next version beside it and rewrites the name, and
+    # researchzosho update back writes the one before. An install from before 0.7.2 (bin\ and lib\ at the top) moves into versions\ first.
     $dest = Join-Path $prefix 'researchzosho'
-    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
-    New-Item -ItemType Directory -Path $prefix -Force | Out-Null
-    tar -xzf "$tmp\$tar" -C $prefix          # unpacks a top-level 'researchzosho'
+    $versions = Join-Path $dest 'versions'
+    New-Item -ItemType Directory -Path $versions -Force | Out-Null
+    if ((Test-Path (Join-Path $dest 'lib')) -and -not (Test-Path (Join-Path $dest 'current.txt'))) {
+        $jar = Get-ChildItem (Join-Path $dest 'lib') -Filter 'librarian-*.jar' -ErrorAction SilentlyContinue | Select-Object -First 1
+        $old = if ($jar -and $jar.Name -match '^librarian-(\d+\.\d+\.\d+)\.jar$') { $Matches[1] } else { '' }
+        try {
+            if ($old -and $old -ne $ver -and -not (Test-Path (Join-Path $versions $old))) {
+                New-Item -ItemType Directory -Path (Join-Path $versions $old) -Force | Out-Null
+                foreach ($n in @('bin', 'lib', 'jre', 'README.md', 'LICENSE')) { $p = Join-Path $dest $n; if (Test-Path $p) { Move-Item -LiteralPath $p -Destination (Join-Path (Join-Path $versions $old) $n) } }
+            }
+            foreach ($n in @('bin', 'lib', 'jre', 'README.md', 'LICENSE')) { $p = Join-Path $dest $n; if (Test-Path $p) { Remove-Item -Recurse -Force -LiteralPath $p } }
+        } catch { Die "the install at $dest is in use: close every program that runs ResearchZosho (the service: researchzosho service uninstall) and run this again ($_)" }
+    }
+    $unpack = Join-Path $tmp 'x'
+    New-Item -ItemType Directory -Path $unpack | Out-Null
+    tar -xzf "$tmp\$tar" -C $unpack          # unpacks a top-level 'researchzosho'
+    $here = Join-Path $versions $ver
+    if (Test-Path $here) { Remove-Item -Recurse -Force $here }
+    Move-Item -LiteralPath (Join-Path $unpack 'researchzosho') -Destination $here
+    [System.IO.File]::WriteAllText((Join-Path $dest 'current.txt'), "$ver`r`n")
+    New-Item -ItemType Directory -Path (Join-Path $dest 'bin') -Force | Out-Null
+    foreach ($name in @('researchzosho', 'zosho')) {
+        $text = "@echo off`r`nrem ResearchZosho: runs the version that current.txt names. researchzosho update installs a new version beside it in versions\ and rewrites the name.`r`nsetlocal`r`nset `"RZ_ROOT=%~dp0..`"`r`nset /p RZ_VERSION=<`"%RZ_ROOT%\current.txt`"`r`nendlocal & call `"%~dp0..\versions\%RZ_VERSION%\bin\$name.bat`" %*`r`nexit /b %ERRORLEVEL%`r`n"
+        [System.IO.File]::WriteAllText((Join-Path (Join-Path $dest 'bin') "$name.bat"), $text, [System.Text.Encoding]::ASCII)
+    }
+    # two versions are kept: this one and the newest before it, the way back
+    $others = @(Get-ChildItem $versions -Directory | Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' -and $_.Name -ne $ver } | Sort-Object { [version]$_.Name })
+    if ($others.Count -gt 1) { $others[0..($others.Count - 2)] | ForEach-Object { Remove-Item -Recurse -Force -LiteralPath $_.FullName -ErrorAction SilentlyContinue } }
 
     $bin = Join-Path $dest 'bin'
     $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

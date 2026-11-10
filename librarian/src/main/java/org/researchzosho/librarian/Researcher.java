@@ -339,8 +339,8 @@ public final class Researcher {
     }
     static final int WORKER_TIMEOUT_MIN = Config.getInt("RESEARCHZOSHO_RESEARCH_WORKER_MINUTES", 40);
 
-    private final Drive drive;     // the workers' seat: search, fetch, note — local labour
-    private final Drive judge;     // the judgment seat: plan, perspectives, critic, synthesis, cite-check — a frontier model when configured
+    private Drive drive;     // the workers' seat: search, fetch, note — local labour
+    private Drive judge;     // the judgment seat: plan, perspectives, critic, synthesis, cite-check — a frontier model when configured
     /** The language lanes of the current run: sub-question → lane, and which lanes were sent round again. */
     private final Map<String, Lanes.Lane> laneOf = new ConcurrentHashMap<>();
     private final List<Lanes.Lane> lanes = new CopyOnWriteArrayList<>();
@@ -396,19 +396,27 @@ public final class Researcher {
     /** The pools of patents this run enumerated or read, by their keys, in the order met. */
     private final Set<String> patentPools = Collections.synchronizedSet(new LinkedHashSet<>());
 
-    void recordRefused(RecordSearchTool.Refused r) {
-        sourcesRefused.merge(r.source().name(), new Object[]{1, r.reason()}, (a, b) -> new Object[]{(Integer) a[0] + 1, b[1]});
-        log.accept("records: " + r.source().id() + " ← " + r.query() + " → did not answer (" + r.reason() + ")");
+    void recordRefused(RecordSearchTool.Refused r) { refusedRecords(r.source().name(), r.source().id(), r.query(), r.reason()); }
+
+    private void refusedRecords(String name, String id, String query, String reason) {
+        sourcesRefused.merge(name, new Object[]{1, reason}, (a, b) -> new Object[]{(Integer) a[0] + 1, b[1]});
+        log.accept("records: " + id + " ← " + query + " → did not answer (" + reason + ")");
     }
 
     void recordSearched(RecordSearchTool.Searched s) {
-        kindsSearched.merge(s.source().kind(), 1, Integer::sum);
-        sourcesSearched.merge(s.source().name(), new int[]{1, s.hits().isEmpty() ? 0 : 1}, (a, b) -> new int[]{a[0] + b[0], a[1] + b[1]});
-        log.accept("records: " + s.source().id() + " ← " + s.query() + " → " + s.hits().size() + " record(s)");
-        for (var h : s.hits()) if (!h.link().isBlank() && !h.where().isBlank()) recordCitations.putIfAbsent(Fetch.canonical(h.link()), h.where());
-        if (!s.hits().isEmpty()) return;
-        String years = s.fromYear() > 0 || s.toYear() > 0 ? ", " + (s.fromYear() > 0 ? s.fromYear() : "…") + "-" + (s.toYear() > 0 ? s.toYear() : "…") : "";
-        String line = s.source().name() + ": " + s.query() + years;
+        List<String[]> hits = new ArrayList<>(); for (var h : s.hits()) hits.add(new String[]{h.link(), h.where()});
+        searchedRecords(s.source().kind(), s.source().name(), s.source().id(), s.query(), s.fromYear(), s.toYear(), hits);
+    }
+
+    /** A record collection searched: {@code hits} each {link, how the record is cited}. */
+    private void searchedRecords(String kind, String name, String id, String query, int fromYear, int toYear, List<String[]> hits) {
+        kindsSearched.merge(kind, 1, Integer::sum);
+        sourcesSearched.merge(name, new int[]{1, hits.isEmpty() ? 0 : 1}, (a, b) -> new int[]{a[0] + b[0], a[1] + b[1]});
+        log.accept("records: " + id + " ← " + query + " → " + hits.size() + " record(s)");
+        for (String[] h : hits) if (!h[0].isBlank() && !h[1].isBlank()) recordCitations.putIfAbsent(Fetch.canonical(h[0]), h[1]);
+        if (!hits.isEmpty()) return;
+        String years = fromYear > 0 || toYear > 0 ? ", " + (fromYear > 0 ? fromYear : "…") + "-" + (toYear > 0 ? toYear : "…") : "";
+        String line = name + ": " + query + years;
         if (!nothingFound.contains(line)) nothingFound.add(line);
     }
 
@@ -662,6 +670,85 @@ public final class Researcher {
     private volatile Patrons.Patron mcpFor = Patrons.Patron.PERSON;
     public void mcpFor(Patrons.Patron who) { this.mcpFor = who == null ? Patrons.Patron.ANONYMOUS : who; }
     public void onProgress(Consumer<ObjectNode> sink) { this.onProgress = sink; }
+
+    /** The job's kept work ({@link Checkpoint}); nothing kept without one. */
+    private volatile Checkpoint cp = Checkpoint.NONE;
+
+    /**
+     * The run keeps its work in {@code c} as it goes, and a run that resumes takes back what was kept: both seats' calls in the order each
+     * thread made them (the plan, each worker's turns under its sub-question, the critic, the write-up, the checks), and every tool call's
+     * answer with what it did beside it (the pages it read, the record collections it searched), so a resumed run reads again from the
+     * record what it read before and asks the model and the web only from where the last process stopped. Set before {@link #run}.
+     */
+    public Researcher checkpoint(Checkpoint c) {
+        cp = c == null ? Checkpoint.NONE : c;
+        if (!cp.keeps()) return this;
+        boolean same = judge == drive;
+        drive = cp.seat(drive);
+        judge = same ? drive : cp.seat(judge);
+        brain = Brain.of(drive, judge, drive == null ? "" : drive.model(), judge == null ? "" : judge.model(), o -> event("decision", o));
+        cp.positionBy(this::positionNow, this::saidNow);
+        return this;
+    }
+
+    /** Where the run stands, for its checkpoint: the phase, the round, the workers, the turns, the sub-questions asked. */
+    ObjectNode positionNow() {
+        Budget b = currentBudgetForProgress;
+        ObjectNode o = J.createObjectNode();
+        o.put("phase", phase); o.put("round", round); o.put("workers_done", workersDone.get()); o.put("workers_total", workersTotal);
+        o.put("turns_used", b == null ? 0 : b.used()); o.put("turns_ceiling", b == null ? 0 : b.ceiling());
+        ArrayNode subs = o.putArray("sub_questions"); for (String q : subsAsked) subs.add(q);
+        return o;
+    }
+
+    /** Where the run stands, in the words its job's line says after a restart: "turn 14". */
+    String saidNow() { Budget b = currentBudgetForProgress; return b == null ? "the plan" : "turn " + b.used(); }
+
+    /** Called with the report's id the moment it is on the shelves, so a job the restart caught after that does not file it twice. */
+    private volatile Consumer<String> onFiled = id -> { };
+    public void onFiled(Consumer<String> c) { onFiled = c == null ? id -> { } : c; }
+
+    /** The tools whose answers are kept and given back: every tool but the run's own (the notebook, done, the writer's sections) and the picture tools, which keep state of their own and run again. */
+    static boolean keepsTool(String name) {
+        return !Set.of("note", "done", "write_section", RunPictures.SEARCH, RunPictures.JUDGE, RunPictures.FOR).contains(name) && !Brain.BRAIN_TOOLS.contains(name);
+    }
+
+    /** What a tool did beside its answer while it ran, for its kept answer: the record collections searched, refused and counted. */
+    private static final ThreadLocal<ArrayNode> EFFECTS = new ThreadLocal<>();
+    private static void effect(ObjectNode e) { ArrayNode fx = EFFECTS.get(); if (fx != null) fx.add(e); }
+
+    void searchedKept(RecordSearchTool.Searched s) {
+        ObjectNode e = J.createObjectNode(); e.put("e", "searched"); e.put("kind", s.source().kind()); e.put("name", s.source().name()); e.put("id", s.source().id());
+        e.put("q", s.query()); e.put("from", s.fromYear()); e.put("to", s.toYear());
+        ArrayNode h = e.putArray("hits"); for (var x : s.hits()) h.addArray().add(x.link()).add(x.where());
+        effect(e);
+        recordSearched(s);
+    }
+
+    void refusedKept(RecordSearchTool.Refused r) {
+        ObjectNode e = J.createObjectNode(); e.put("e", "refused"); e.put("name", r.source().name()); e.put("id", r.source().id()); e.put("q", r.query()); e.put("why", r.reason());
+        effect(e);
+        recordRefused(r);
+    }
+
+    boolean allowanceKept(RecordSource s) {
+        ObjectNode e = J.createObjectNode(); e.put("e", "allow"); e.put("id", s.id());
+        effect(e);
+        return withinAllowance(s);
+    }
+
+    /** A kept tool answer's doings, done again on the run's counts: what the record collections were asked, as when the call was made. */
+    void againFrom(JsonNode events) {
+        for (JsonNode e : events) switch (e.path("e").asText("")) {
+            case "searched" -> {
+                List<String[]> hits = new ArrayList<>(); for (JsonNode h : e.path("hits")) hits.add(new String[]{h.path(0).asText(""), h.path(1).asText("")});
+                searchedRecords(e.path("kind").asText(""), e.path("name").asText(""), e.path("id").asText(""), e.path("q").asText(""), e.path("from").asInt(0), e.path("to").asInt(0), hits);
+            }
+            case "refused" -> refusedRecords(e.path("name").asText(""), e.path("id").asText(""), e.path("q").asText(""), e.path("why").asText(""));
+            case "allow" -> { RecordSource src = RecordSources.named(e.path("id").asText("")); if (src != null) withinAllowance(src); }
+            default -> { }
+        }
+    }
     /** The run's trace, when the daemon opened one: the runner writes its own events (a compaction) to it. */
     private RunTrace trace = null;
     public void trace(RunTrace t) { this.trace = t; }
@@ -767,7 +854,7 @@ public final class Researcher {
     }
 
     /** The brain this run decides through: light decisions on the workers' seat, heavy ones on the judge's. */
-    private final Brain brain;
+    private Brain brain;
     /** The run's pictures (0.7.0): the workers' two tools, the chain after them, the kept pictures and the seeing entry's tally; made anew at each run's start. */
     volatile RunPictures pictures = new RunPictures(null, null, null);
     public Brain brain() { return brain; }
@@ -999,7 +1086,7 @@ public final class Researcher {
         DriveClient.countInto(usage);
         SearchTally.paidOff(!paid);   // on this thread and the threads the run starts: the paid places are left off at the tally's gate
         if (!paid) log.accept("no paid search service this run, as the person asked: Exa, Tavily, the keeper's own search service, Serper, SerpApi, Brave and Firecrawl are left off for it");
-        try { return runCounted(ask, known); }
+        try (var lane = Checkpoint.lane("run")) { return runCounted(ask, known); }
         finally { DriveClient.stopCounting(); SearchTally.paidOff(false); }
     }
 
@@ -1013,7 +1100,8 @@ public final class Researcher {
     }
 
     private Result running(Ask ask, String known) {
-        Budget budget = new Budget(ask.maxTurns(), ask.maxMinutes());
+        Budget budget = new Budget(ask.maxTurns(), ask.maxMinutes(), cp.elapsedBeforeMs());   // a resumed run's time ceiling counts the time it worked before
+        budget.keptIn(cp);   // its decisions against the clock are kept, and given back on a resumed run
         currentBudget = budget;
         writeUpFactor = WriteUpTimes.correction(store);   // what this library's earlier runs say of the estimate (0.7.0)
         pictures = new RunPictures(store, log, this::event);
@@ -1079,8 +1167,8 @@ public final class Researcher {
             // critic's questions can be READ, not just searched: on a 60-minute run the first round's six workers took
             // 27 minutes and the write-up's reserve then covered the rest, and the four second-round workers got one
             // search each (a test box, I-0002, 2026-09-11).
-            if (round == 1 && ROUNDS > 1 && budget.deadlineMs() > 0) budget.roundDeadline(System.currentTimeMillis() + (budget.deadlineMs() - System.currentTimeMillis()) * 3 / 5);
-            else budget.roundDeadline(0);
+            if (round == 1 && ROUNDS > 1 && budget.timed()) budget.roundDeadlineAtThreeFifths();
+            else budget.noRoundDeadline();
             this.round = round; workersTotal = open.size(); workersDone.set(0);
             progress("workers");
             for (String piece : investigateAll(ask, open, budget)) evidence.add(withoutLeftOut(piece));   // a page left out is never cited
@@ -1119,7 +1207,7 @@ public final class Researcher {
         // 3b. Pictures, the second part (0.7.0): the full names the findings raise, each looked for once and judged by the model that sees, the
         //     yeses kept as evidence, on the turns and the time left; and every picture a worker kept and did not note, so the references carry it.
         //     Bounded, said in the log and the trace with the numbers when it cannot run, and a step of the workers' phase, not a phase of its own.
-        budget.roundDeadline(0);   // the round's own deadline bound the workers, not the step after them
+        budget.noRoundDeadline();   // the round's own deadline bound the workers, not the step after them
         { String chained = pictures.later(ask, String.join("\n\n", evidence), budget, fields.stream().map(Profile::name).toList()); if (!chained.isEmpty()) evidence.add(chained);   // the findings' names: the one step that stays after the workers
           budget.hold(0);   // whatever the step did not take goes back to the run
           String unnoted = pictures.unnoted(String.join("\n\n", evidence)); if (!unnoted.isEmpty()) evidence.add(unnoted);
@@ -1294,8 +1382,10 @@ public final class Researcher {
                 }, questionNote(ContentOffer.reportSentence(letIn), researcher.researchedBy(), RunLimits.reportSentence(ask, researcher.paid, r.stats() != null && r.stats().path("ceiling_cut").asBoolean(false))), researcher.title, languageDecided(researcher.askedFormat), researcher.written);
         // a field's own reading of its report: the dossier fields file the Timeline's dated events as claims, so the shelves hold what the report found
         for (Profile p : Fields.forRun(store, ask)) { try { List<String> more = p.onReport(store, inv); if (!more.isEmpty()) researcher.log.accept(p.name() + ": " + more.size() + " claims filed from the report's timeline"); } catch (IOException | RuntimeException e) { researcher.log.accept(p.name() + ": the report's timeline was not read into claims (" + e.getMessage() + ")"); } }
-        if (researcher.entry != null) { try { Spend.record(store, jobId, inv.id(), researcher.entry, researcher.usage(), researcher.cost(), (System.currentTimeMillis() - researcher.startedMs) / 1000, "filed", ask.maxTurns() > 0 && ask.maxTurns() <= 12 ? "quick" : "research"); } catch (IOException e) { researcher.log.accept("spend: not recorded (" + e.getMessage() + ")"); } }
-        researcher.pictures.tally(store, jobId, inv.id(), (System.currentTimeMillis() - researcher.startedMs) / 1000);   // a hosted seeing entry's calls, as the translator's
+        researcher.onFiled.accept(inv.id());   // on the shelves: a restart from here on does not file it again
+        long worked = (System.currentTimeMillis() - researcher.startedMs + researcher.cp.elapsedBeforeMs()) / 1000;   // a resumed run's time is every process's
+        if (researcher.entry != null) { try { Spend.record(store, jobId, inv.id(), researcher.entry, researcher.usage(), researcher.cost(), worked, "filed", ask.maxTurns() > 0 && ask.maxTurns() <= 12 ? "quick" : "research"); } catch (IOException e) { researcher.log.accept("spend: not recorded (" + e.getMessage() + ")"); } }
+        researcher.pictures.tally(store, jobId, inv.id(), worked);   // a hosted seeing entry's calls, as the translator's
         // the research log: every search this run made, under the question's subject, with the report it belongs to
         List<SearchLog.Entry> made = new ArrayList<>();
         for (SearchLog.Entry e : researcher.searches()) made.add(new SearchLog.Entry(e.date(), ask.question(), e.where(), e.query(), e.fromYear(), e.toYear(), e.found(), inv.id(), e.status()));
@@ -2088,7 +2178,14 @@ public final class Researcher {
         budget.expectWorkers(open.size());
         try {
             // each worker's thread works under the run's stop, as the run's own thread does
-            for (String sub : open) futures.add(pool.submit(Stopping.carried(() -> { workersActive.incrementAndGet(); try { return investigate(ask, sub, budget); } finally { workersActive.decrementAndGet(); } })));
+            // each worker's calls are kept under its own lane: the round and its sub-question, the same in every process of the run
+            Map<String, Integer> named = new HashMap<>();
+            for (String sub : open) {
+                String base = Checkpoint.laneFor("r" + round + "/", sub);
+                int n = named.merge(base, 1, Integer::sum);
+                String lane = n == 1 ? base : base + "#" + n;
+                futures.add(pool.submit(Stopping.carried(() -> { workersActive.incrementAndGet(); try (var l = Checkpoint.lane(lane)) { return investigate(ask, sub, budget); } finally { workersActive.decrementAndGet(); } })));
+            }
             pool.shutdown();
             for (int i = 0; i < futures.size(); i++) {
                 try {
@@ -2119,9 +2216,16 @@ public final class Researcher {
             }
         } finally {
             pool.shutdownNow();
+            // a worker in the middle of its step ends it before the run goes on or ends: what it got is kept, and nothing of the run works on
+            // after it (a reply that came back after the stop was lost, because the run had ended and its record was closed under it)
+            try { if (!pool.awaitTermination(WORKERS_END_SECONDS, TimeUnit.SECONDS)) log.accept("workers: " + WORKERS_END_SECONDS + " s after the round ended, a worker was still in its step"); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }
         return out;
     }
+
+    /** How long a round waits for its workers to end the step they are on, once it is over or stopped; a stopped request ends within a second. */
+    static final int WORKERS_END_SECONDS = 15;
 
     /**
      * One worker: a fresh context, its own tools, notes as it goes. Never throws — the evidence survives.
@@ -2163,7 +2267,7 @@ public final class Researcher {
                 r = r.forYears(RecordSources.lived(sub, fields));   // the years are read by the run's own fields, and only when it is given the tool
                 if (priorArt) r = r.without(RANKED_PATENT_SEARCHES);
                 if (!r.any()) continue;
-                t = r.listen(this::recordSearched).refusals(this::recordRefused).allowance(this::withinAllowance);
+                t = r.listen(this::searchedKept).refusals(this::refusedKept).allowance(this::allowanceKept);
             }
             byName.put(t.name(), t);
         }
@@ -2262,6 +2366,7 @@ public final class Researcher {
                 String id = call.path("id").asText("call_" + turn);
                 JsonNode args = parseArgs(call.path("function").path("arguments"));
                 String observation;
+                String place = null;   // the place the table's search looked in
                 boolean ran = false;   // the tool itself was called: a bounced call is no search
                 Tool t = byName.get(name);
                 if (deadline && !done.name().equals(name) && !(closingNote && notebook.name().equals(name))) {
@@ -2277,27 +2382,51 @@ public final class Researcher {
                     calls.merge(name, 1, Integer::sum);
                     ran = true;
                     String served = "web_fetch".equals(name) ? servedFromRun(args) : null;
+                    String key = served == null && keepsTool(name) ? cp.toolKey(name, args) : null;
+                    Checkpoint.Kept kept = cp.kept(key);   // a resumed run: what this call brought back before, with what it did
                     if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
-                    else try {
+                    else if (kept != null) {
+                        observation = kept.observation();
+                        JsonNode fx = kept.effects() == null ? J.createObjectNode() : kept.effects();
+                        for (JsonNode address : fx.path("read")) { fetchedInRun.add(address.asText()); fetchedHere++; readsInRun.incrementAndGet(); }
+                        for (JsonNode pool : fx.path("pools")) patentPools.add(pool.asText());
+                        if (fx.hasNonNull("need")) filed.add(fx.get("need").asText());
+                        if (fx.hasNonNull("place")) place = fx.get("place").asText();
+                        againFrom(fx.path("events"));
+                    }
+                    else try (var off = Checkpoint.lane(null)) {   // what the tool asks a model by itself is the tool's answer, kept with it, not a call of the worker's
+                        ArrayNode events = J.createArrayNode(); EFFECTS.set(events);
                         Instruments.step(budget, stopWhen, drive);
                         observation = t.execute(args);
                         // what an instrument read by itself and kept (a patent's claims from the office's full text) is a source read this run, and the pools of patents it worked on are the run's
                         List<String> readByIt = Instruments.readNow();
                         for (String address : readByIt) { fetchedInRun.add(address); fetchedHere++; readsInRun.incrementAndGet(); }
-                        patentPools.addAll(Instruments.poolsNow());
+                        List<String> pools = Instruments.poolsNow();
+                        patentPools.addAll(pools);
                         if (!readByIt.isEmpty()) observation += "\n\n(Before your next step: note each feature's closest claim — note(claim, source, quote), the quote being the claim's words and the source the link on its line; and note the counts: the office's total, the families enumerated, the abstracts read, the claims read, and what was not read.)";
                         Brain.Needed need = Instruments.needed();   // an instrument stopped on a question for the person: filed with the report
-                        if (need != null) filed.add("for you to answer: " + need.question() + (need.choices().isEmpty() ? "" : " (" + String.join(" | ", need.choices()) + ")"));
+                        String needLine = need == null ? null : "for you to answer: " + need.question() + (need.choices().isEmpty() ? "" : " (" + String.join(" | ", need.choices()) + ")");
+                        if (needLine != null) filed.add(needLine);
+                        if (name.equals("search")) place = Instruments.searched();
+                        if (key != null) {
+                            ObjectNode fx = J.createObjectNode();
+                            if (!readByIt.isEmpty()) { ArrayNode a = fx.putArray("read"); readByIt.forEach(a::add); }
+                            if (!pools.isEmpty()) { ArrayNode a = fx.putArray("pools"); pools.forEach(a::add); }
+                            if (needLine != null) fx.put("need", needLine);
+                            if (place != null) fx.put("place", place);
+                            if (!events.isEmpty()) fx.set("events", events);
+                            cp.keep(key, observation, fx);
+                        }
                     } catch (Stopping.Requested e) {
                         throw stopped(e);   // a person stopped the run while the tool waited: the run ends here
                     } catch (Exception e) {
                         observation = "ERROR: " + name + " failed — " + e.getMessage();
-                    }
+                    } finally { EFFECTS.remove(); }
                     if (stopWhen.getAsBoolean()) throw stopped(new Stopping.Requested());   // a tool that caught the stop itself
                 }
                 if (observation == null) observation = "";
                 if (ran && (name.equals("web_search") || name.equals("scholar_search") || name.equals("record_search"))) logSearch(name, args, observation);
-                else if (ran && name.equals("search")) { String place = Instruments.searched(); if (place != null) logPlaceSearch(place, args, observation); }   // the table's search, under the place it looked in
+                else if (ran && name.equals("search")) { if (place != null) logPlaceSearch(place, args, observation); }   // the table's search, under the place it looked in
                 else if (ran && name.equals(RunPictures.SEARCH)) logPlaceSearch("images", args, observation);   // a picture search is a search of the run, under its own place
                 observation = cut(observation);
                 if (lane != null && "web_search".equals(name) && !observation.startsWith("ERROR") && !lane.inLanguage(args.path("query").asText(""))) {
@@ -2948,7 +3077,10 @@ public final class Researcher {
                         else if (fetches >= allowance) { refused++; observation = allowanceUsed(allowance); }
                         else {
                             fetches++;
-                            try { observation = t.execute(args); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                            String key = cp.toolKey(name, args);
+                            Checkpoint.Kept kept = cp.kept(key);
+                            if (kept != null) observation = kept.observation();
+                            else try (var off = Checkpoint.lane(null)) { observation = t.execute(args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                             if (observation == null) observation = "";
                             String src = observation.startsWith("source: ") ? observation.substring(8).split(" — |\\n", 2)[0].strip() : "";
                             if (!src.isEmpty() && fetchedInRun.add(src)) {
@@ -2957,7 +3089,11 @@ public final class Researcher {
                             }
                         }
                     } else {
-                        try { observation = t.execute(args); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                        String key = keepsTool(name) ? cp.toolKey(name, args) : null;
+                        Checkpoint.Kept kept = cp.kept(key);
+                        if (kept != null) observation = kept.observation();
+                        else if (key == null) { try { observation = t.execute(args); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); } }
+                        else try (var off = Checkpoint.lane(null)) { observation = t.execute(args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                     }
                     observation = cut(observation == null ? "" : observation);
                     ObjectNode toolMsg = history.addObject();
@@ -3348,15 +3484,25 @@ public final class Researcher {
 
     static final List<String> RANKED_SEARCHES = List.of("video_search", "video_sites_search", "web_search", "scholar_search", "channels_like", "forum_search", "exa_search", "tavily_search", "custom_search");
 
+    /**
+     * The ask's ceilings and what is spent of them. Time is the run's own clock ({@link #runNow}): the time it has worked, its earlier
+     * processes' and this one's. Every decision made against that clock (the workers' time up, the write-up's, the round's deadline, the
+     * minutes left, room for a second write-up) is part of the run's record ({@link Checkpoint#decided}): a resumed run gives back the
+     * decisions it made before instead of making them again on a clock that has moved, and its clock stands at the time worked until it
+     * takes its first new step. Only new ground is held to the ceiling.
+     */
     static final class Budget {
         private final int total;          // 0 = no turn ceiling
-        private final long deadlineMs;    // 0 = no time ceiling
+        private final long ceilingMs;     // the person's time ceiling, 0 = none
+        private final long workedMs;      // what the run worked before this process, when it keeps no record
+        private final long startedAt = System.currentTimeMillis();
+        private volatile Checkpoint cp = Checkpoint.NONE;
         private volatile long wrapUpMs = 0;   // what the write-up needs, from the run's own turn time
         private final AtomicInteger used = new AtomicInteger();
         private final AtomicInteger graces = new AtomicInteger();
         private volatile int expectedWorkers = 1;
         private volatile int roundCap = 0;
-        private volatile long roundDeadlineMs = 0;   // round one stops here when a second round may follow, so it has time left
+        private volatile long roundAtMs = -1;   // round one stops here, on the run's clock, when a second round may follow, so it has time left; -1 for none
         /** Turns kept back from the workers for the picture step after them, one an entity; taken through {@link #takeHeld} (0.7.0: a live run's workers spent the whole share and the step had none). */
         private volatile int held = 0;
         /**
@@ -3367,22 +3513,36 @@ public final class Researcher {
          */
         private volatile long stepMs = 0;
         Budget(int total) { this(total, 0); }
-        /** Stop the workers of this round at {@code atMs} (0 = no round deadline); the run's own deadline still stands. */
-        void roundDeadline(long atMs) { roundDeadlineMs = atMs; }
-        /** When this round's workers stop taking turns, epoch milliseconds; 0 when the round has no deadline of its own. */
-        long roundDeadlineMs() { return roundDeadlineMs; }
-        long deadlineMs() { return deadlineMs; }
+        /** The run's record, which keeps the decisions made against the clock and gives them back on a resumed run. */
+        void keptIn(Checkpoint c) { cp = c == null ? Checkpoint.NONE : c; }
+        /** The run's own clock, ms: the time it has worked, standing while a resumed run gives back its kept work ({@link Checkpoint#runMs}). */
+        long runNow() { return cp.keeps() ? cp.runMs() : workedMs + (System.currentTimeMillis() - startedAt); }
+        /** Whether the ask has a time ceiling. */
+        boolean timed() { return ceilingMs > 0; }
+        /** Stop the workers of this round at three fifths of the time left, so a second round has time to read: decided once, and kept. */
+        void roundDeadlineAtThreeFifths() { roundAtMs = ceilingMs == 0 ? -1 : (long) cp.decidedNumber("round-deadline", () -> runNow() + (ceilingMs - runNow()) * 3.0 / 5); }
+        /** The round has no deadline of its own; the run's still stands. */
+        void noRoundDeadline() { roundAtMs = -1; }
+        /** Stop the workers of this round at {@code atMs}, epoch milliseconds (0 = no round deadline); the run's own deadline still stands. */
+        void roundDeadline(long atMs) { roundAtMs = atMs == 0 ? -1 : Math.max(0, runNow() + (atMs - System.currentTimeMillis())); }
+        /** When this round's workers stop taking turns, epoch milliseconds, for an instrument that times itself; 0 when the round has no deadline of its own. */
+        long roundDeadlineMs() { return roundAtMs < 0 ? 0 : System.currentTimeMillis() + (roundAtMs - runNow()); }
+        /** When the person's ceiling is reached, epoch milliseconds as the clock stands now; 0 without a ceiling. */
+        long deadlineMs() { return ceilingMs == 0 ? 0 : System.currentTimeMillis() + (ceilingMs - runNow()); }
         /** Minutes the workers still have before the picture step and the write-up must start; a large number when there is no deadline. */
-        double minutesLeftForWorkers() { return deadlineMs == 0 ? 1e9 : (deadlineMs - wrapUpMs - heldMs() - System.currentTimeMillis()) / 60_000.0; }
-        Budget(int total, int maxMinutes) {
+        double minutesLeftForWorkers() { return ceilingMs == 0 ? 1e9 : cp.decidedNumber("minutes-left", () -> (ceilingMs - wrapUpMs - heldMs() - runNow()) / 60_000.0); }
+        Budget(int total, int maxMinutes) { this(total, maxMinutes, 0); }
+        /** {@code workedMs}: the time the run worked before this process, a resumed run's, which its time ceiling counts. */
+        Budget(int total, int maxMinutes, long workedMs) {
             this.total = total <= 0 ? 0 : Math.max(4, total);
-            this.deadlineMs = maxMinutes <= 0 ? 0 : System.currentTimeMillis() + maxMinutes * 60_000L;
+            this.ceilingMs = maxMinutes <= 0 ? 0 : maxMinutes * 60_000L;
+            this.workedMs = Math.max(0, workedMs);
         }
         boolean unbounded() { return total == 0; }
         /** The workers' time is up when the picture step's held time and the write-up would no longer fit before the person's deadline. */
-        boolean workersTimeUp() { return deadlineMs > 0 && System.currentTimeMillis() + wrapUpMs + heldMs() >= deadlineMs; }
+        boolean workersTimeUp() { return ceilingMs > 0 && cp.decided("workers-time-up", () -> runNow() + wrapUpMs + heldMs() >= ceilingMs); }
         /** The write-up's own margin: when it would no longer fit, the picture step does not start either. */
-        boolean writeUpTimeUp() { return deadlineMs > 0 && System.currentTimeMillis() + wrapUpMs >= deadlineMs; }
+        boolean writeUpTimeUp() { return ceilingMs > 0 && cp.decided("write-up-time-up", () -> runNow() + wrapUpMs >= ceilingMs); }
         void wrapUp(long ms) { wrapUpMs = Math.max(0, ms); }
         /** What the write-up is reckoned to need now, ms. */
         long wrapUpMs() { return wrapUpMs; }
@@ -3408,7 +3568,7 @@ public final class Researcher {
         /** The cite-check's share of the reserve. */
         int checkReserve() { return reserve() * CHECK_TURNS / RESERVE; }
         /** A WORKER's turn: refused once only the reserve is left (workers' bounces once ate it — measured, J-0006). */
-        boolean takeWorker() { if (workersTimeUp()) return false; if (roundDeadlineMs > 0 && System.currentTimeMillis() >= roundDeadlineMs) return false; return take(kept()); }
+        boolean takeWorker() { if (workersTimeUp()) return false; if (roundAtMs >= 0 && cp.decided("round-over", () -> runNow() >= roundAtMs)) return false; return take(kept()); }
         /** A SYNTHESIS turn: refused once only the cite-check's turns are left (it read zero sentences once — J-0007). */
         boolean takeSynthesis() { return take(checkReserve()); }
 
@@ -3427,7 +3587,7 @@ public final class Researcher {
          * for a write-up as long again and the checks after it; with a turn ceiling, turns for a few sections beside the cite-check's.
          */
         boolean roomForAnotherWriteUp(long firstMs) {
-            boolean time = deadlineMs == 0 || System.currentTimeMillis() + 2 * Math.max(1, firstMs) <= deadlineMs;
+            boolean time = ceilingMs == 0 || cp.decided("room-for-write-up", () -> runNow() + 2 * Math.max(1, firstMs) <= ceilingMs);
             boolean turns = unbounded() || left() - checkReserve() >= ANOTHER_WRITE_UP_TURNS;
             return time && turns;
         }

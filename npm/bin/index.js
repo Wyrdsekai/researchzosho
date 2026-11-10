@@ -67,18 +67,25 @@ function cacheRoot() { return path.join(HOME, `.${TOOL}`, 'launcher'); }
 /**
  * The version an installed program is, read off the jar beside its start script — or, through the installer's
  * wrapper (`exec "<root>/bin/<tool>" "$@"`), the root it names; null when it cannot be told without starting it.
+ * An install that keeps its versions side by side (0.7.2 and later) runs the one `current` names, `current.txt`
+ * on Windows, under versions/.
  */
 function installedVersion(script) {
   let root = path.resolve(path.dirname(script), '..');
-  if (!fs.existsSync(path.join(root, 'lib'))) {
+  if (!fs.existsSync(path.join(root, 'lib')) && !fs.existsSync(path.join(root, 'versions'))) {
     try {
       const m = /exec "([^"]+)\/bin\/[^"/]+"/.exec(fs.readFileSync(script, 'utf8'));
       if (m) root = m[1];
     } catch (e) { return null; }
   }
+  let lib = path.join(root, 'lib');
+  try {
+    if (fs.existsSync(path.join(root, 'current.txt'))) lib = path.join(root, 'versions', fs.readFileSync(path.join(root, 'current.txt'), 'utf8').trim(), 'lib');
+    else if (fs.existsSync(path.join(root, 'current'))) lib = path.join(root, 'current', 'lib');
+  } catch (e) { /* the first layout: lib/ beside bin/ */ }
   try {
     const re = new RegExp(`^(?:${TOOL}|librarian|core)-(\\d+\\.\\d+\\.\\d+)\\.jar$`);
-    for (const f of fs.readdirSync(path.join(root, 'lib'))) { const m = re.exec(f); if (m) return m[1]; }
+    for (const f of fs.readdirSync(lib)) { const m = re.exec(f); if (m) return m[1]; }
   } catch (e) { /* not a layout we know */ }
   return null;
 }

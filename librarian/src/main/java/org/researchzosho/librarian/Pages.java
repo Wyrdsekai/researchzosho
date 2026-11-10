@@ -2068,7 +2068,7 @@ final class Pages {
         if (r.path("active").size() == 0) b.append("<p class=\"k\">").append(t("Nothing is running.")).append("</p>");
         else {
             b.append("<div class=\"strip\">");
-            for (JsonNode j : r.path("active")) { ObjectNode raw = jobs.get(j.path("job_id").asText()); b.append(rline(RunProgress.of(j, now, typical), raw == null ? j.path("job_id").asText() : runName(store, raw), j.path("waiting").asText(""))); }
+            for (JsonNode j : r.path("active")) { ObjectNode raw = jobs.get(j.path("job_id").asText()); b.append(rline(RunProgress.of(j, now, typical), raw == null ? j.path("job_id").asText() : runName(store, raw), j.path("waiting").asText(""), RunProgress.resumed(j))); }
             b.append("</div>");
         }
         b.append("<h2>").append(t("Finished")).append("</h2>");
@@ -2153,6 +2153,7 @@ final class Pages {
         b.append(" · ").append(j.path("elapsed_s").asLong()).append(" s");
         if (j.hasNonNull("drive")) b.append(" · ").append(t("on {0}", esc(j.path("drive").asText())));
         b.append("</p>");
+        if (j.hasNonNull("resumed")) b.append("<p class=\"k\">").append(esc(RunProgress.resumed(j))).append("</p>");   // a restart or an update interrupted it: where it picked up
         if (live && j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(p, args(patron).path("patron"))); b.append("<p><b>").append(esc(v.stage())).append("</b> · ").append(t("{0} elapsed", esc(RunProgress.elapsed(v.elapsedSeconds())))).append(" · ").append(t("about {0}% done", v.percent())).append(" <progress max=\"100\" value=\"").append(v.percent()).append("\"></progress></p>"); }
         if (live && j.has("progress")) b.append("<p class=\"k\">").append(esc(progressLine(j.get("progress")))).append("</p>");
         if (live && j.hasNonNull("waiting")) b.append("<p class=\"k\">").append(t("Waiting for the model: {0}.", esc(j.get("waiting").asText()))).append(" ").append(t("A model server that sleeps between uses is starting.")).append("</p>");
@@ -3495,11 +3496,14 @@ final class Pages {
     }
 
     /** One run's line in the strip: its name, its phase, a bar and the time while it goes, with a stop; done, the time it took and the report. The id is the name's tooltip. */
-    static String rline(RunProgress.View v, String name, String waiting) {
+    static String rline(RunProgress.View v, String name, String waiting) { return rline(v, name, waiting, ""); }
+
+    /** The same; {@code resumed}: where a run a restart or an update interrupted picked up, said beside its stage. */
+    static String rline(RunProgress.View v, String name, String waiting, String resumed) {
         String link = "<a href=\"/jobs/" + enc(v.id()) + "\" title=\"" + esc(v.id()) + "\">" + esc(name) + "</a>";
         if (v.active()) {
             boolean q = !v.state().equals("running");
-            String phase = q ? v.stage() : waiting.isBlank() ? v.stage() : t("waiting for the model: {0}", waiting);
+            String phase = (q ? v.stage() : waiting.isBlank() ? v.stage() : t("waiting for the model: {0}", waiting)) + (resumed == null || resumed.isBlank() ? "" : " · " + resumed);
             return "<div class=\"rline " + (q ? "queued" : "running") + "\"><span class=\"nm\">" + link + "</span>"
                  + "<form class=\"inline\" method=\"post\" action=\"/jobs\"><input type=\"hidden\" name=\"op\" value=\"stop\"><input type=\"hidden\" name=\"job_id\" value=\"" + esc(v.id()) + "\"><button class=\"stop\">" + (v.state().equals("queued") ? t("remove") : t("stop")) + "</button></form>"
                  + "<span class=\"ph\">" + esc(phase) + "</span><span class=\"bar\"><i style=\"width:" + Math.max(0, Math.min(100, v.percent())) + "%\"></i></span>"

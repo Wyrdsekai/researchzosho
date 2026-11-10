@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.2
+
+What's new: jobs survive a restart or an update, and an update installs beside the running version and restarts at once.
+
+### Added
+
+- Every job saves its work as it goes, in the library's `catalog/jobs/work` folder. A job that was running when the service stopped resumes where it was, and nothing already searched, fetched, read or translated is done again. A career, home or video search starts over.
+- The job's line says where it resumed and why it stopped, in `researchzosho jobs`, on the Runs page and in `library_job`.
+- `researchzosho update back` returns to the previous version.
+
+### Changed
+
+- An update installs into `versions/<version>` in the install folder and restarts the service at once, also with `RESEARCHZOSHO_UPDATE=auto`. The running program's files are not touched, and the previous version is kept.
+- `researchzosho service restart` no longer asks when a run is going.
+
+### Fixed
+
+- A job interrupted by a restart started over, and a second restart failed it. It now resumes, and is failed only after three interruptions with nothing new saved between them.
+
 ## 0.7.1
 
 What's new: fixes for translating long documents. A checked translation no longer stalls while it is scored, revising one is faster, and the job line shows how far the scoring has got.

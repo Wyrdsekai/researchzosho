@@ -78,6 +78,18 @@ test('an installed program is started with mcp, found through the installer pref
   assert.match(r.stderr, /installed .* is 0\.0\.1, this launcher starts /, 'an install older than the launcher is said out loud: ' + r.stderr);
 });
 
+test('an install that keeps its versions side by side is read off the version current names', async () => {
+  const home = tmp(); const prefix = path.join(home, 'prefix');
+  const root = WIN ? path.join(prefix, TOOL) : path.join(prefix, 'share', TOOL);
+  fakeInstall(root);   // bin/ with the start script, as the launchers in bin/ are
+  fs.mkdirSync(path.join(root, 'versions', '0.0.2', 'lib'), { recursive: true }); fs.writeFileSync(path.join(root, 'versions', '0.0.2', 'lib', `librarian-0.0.2.jar`), '');
+  if (WIN) fs.writeFileSync(path.join(root, 'current.txt'), '0.0.2\r\n'); else fs.symlinkSync(path.join('versions', '0.0.2'), path.join(root, 'current'));
+  if (!WIN) { fs.mkdirSync(path.join(prefix, 'bin'), { recursive: true }); const w = path.join(prefix, 'bin', TOOL); fs.writeFileSync(w, `#!/bin/sh\nexec "${path.join(root, 'bin', TOOL)}" "$@"\n`); fs.chmodSync(w, 0o755); }
+  const r = await runLauncher({ ...bareEnv(home), [`${ENV}_PREFIX`]: prefix }, '');
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.match(r.stderr, /starting .*mcp \(.* 0\.0\.2\)/, 'the version current names: ' + r.stderr);
+});
+
 test('an installed program on PATH is preferred over a download', async () => {
   const home = tmp(); const dir = path.join(home, 'onpath'); fakeInstall(dir);
   const env = bareEnv(home); env[PATH_KEY] = path.join(dir, 'bin') + path.delimiter + env[PATH_KEY];

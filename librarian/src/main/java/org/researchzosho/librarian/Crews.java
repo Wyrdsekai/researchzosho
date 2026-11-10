@@ -17,6 +17,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,6 +29,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import org.researchzosho.Config;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
@@ -115,6 +117,24 @@ public final class Crews {
     private static final ThreadLocal<BooleanSupplier> STOP = new ThreadLocal<>();
     static BooleanSupplier stop() { BooleanSupplier s = STOP.get(); return s == null ? () -> false : s; }
 
+    /**
+     * As above, keeping each task's outcome in {@code cp} the moment it ends ({@link Checkpoint}): a crews job a restart interrupted goes
+     * on from the task it was on, and the tasks done before are not done again. The task in flight starts again; most of the tasks pick up
+     * by themselves where they were, since each works only on what is not done yet. The explorer's research run in flight starts over.
+     */
+    public static List<Step> runAll(LibraryStore store, String driveUrl, String model, BooleanSupplier stop, Checkpoint cp) {
+        return keeping(stop, cp, () -> runAll(store, driveUrl, model));
+    }
+
+    /** {@code run} with each task's outcome kept in {@code cp} and {@code stop} read by the long tasks. */
+    static List<Step> keeping(BooleanSupplier stop, Checkpoint cp, Supplier<List<Step>> run) {
+        STOP.set(stop); KEPT.set(cp == null ? Checkpoint.NONE : cp); DONE.set(new int[1]);
+        try { return run.get(); } finally { STOP.remove(); KEPT.remove(); DONE.remove(); }
+    }
+    private static final ThreadLocal<Checkpoint> KEPT = new ThreadLocal<>();
+    private static final ThreadLocal<int[]> DONE = new ThreadLocal<>();
+    private static Checkpoint kept() { Checkpoint c = KEPT.get(); return c == null ? Checkpoint.NONE : c; }
+
     /** Which extra cadences tonight carries: weekly on {@code RESEARCHZOSHO_CREWS_WEEKLY_DAY} (7 = Sunday), monthly on day 1. */
     public record Cadence(boolean weekly, boolean monthly) {
         public static Cadence tonight(LocalDate d) {
@@ -124,7 +144,16 @@ public final class Crews {
     }
 
     public static List<Step> runAll(LibraryStore store, String driveUrl, String model, Researcher researcher, int explorePerNight) {
-        return runAll(store, driveUrl, model, researcher, explorePerNight, Cadence.tonight(LocalDate.now()));
+        return runAll(store, driveUrl, model, researcher, explorePerNight, keptCadence(Cadence.tonight(LocalDate.now())));
+    }
+
+    /** The night's cadences as they were when the job began: a job that resumes after midnight keeps the night it was. */
+    static Cadence keptCadence(Cadence tonight) {
+        Checkpoint cp = kept();
+        JsonNode k = cp.get("cadence");
+        if (k != null && k.isObject()) return new Cadence(k.path("weekly").asBoolean(false), k.path("monthly").asBoolean(false));
+        cp.put("cadence", new ObjectMapper().createObjectNode().put("weekly", tonight.weekly()).put("monthly", tonight.monthly()));
+        return tonight;
     }
 
     public static List<Step> runAll(LibraryStore store, String driveUrl, String model, Researcher researcher, int explorePerNight, Cadence cadence) {
@@ -299,12 +328,24 @@ public final class Crews {
     interface Work { String run() throws Exception; }
 
     private static Step step(LibraryStore store, String name, Work work) {
+        Checkpoint cp = kept();
+        int[] done = DONE.get();
+        JsonNode was = cp.get("step|" + name);
+        if (was != null) {   // done before the restart: what it did then, not done again
+            if (done != null) done[0]++;
+            return new Step(name, was.path("o").asText("") + " (done before the restart)", was.path("ms").asLong(0));
+        }
         long t0 = System.currentTimeMillis();
         String outcome;
         try { outcome = work.run(); }
         catch (Exception e) { outcome = "FAILED: " + e; }
         long ms = System.currentTimeMillis() - t0;
         log(store, name, outcome, ms);
+        if (cp.keeps()) {
+            cp.put("step|" + name, new ObjectMapper().createObjectNode().put("o", outcome).put("ms", ms));
+            if (done != null) done[0]++;
+            cp.position(new ObjectMapper().createObjectNode().put("tasks_done", done == null ? 0 : done[0]).put("last", name), "the task after " + name + " (" + (done == null ? 0 : done[0]) + " done)");
+        }
         return new Step(name, outcome, ms);
     }
 
@@ -473,28 +514,12 @@ public final class Crews {
         return Duration.between(now, next).toMillis();
     }
 
-    /** The nightly scheduler thread; daemon, so it never keeps a JVM alive. {@code fire} runs (or enqueues) the crews. */
-    public static Thread nightly(LibraryStore store, int hour, Runnable fire) { return nightly(store, hour, fire, () -> true); }
-
-    /** How long the nightly waits for the daemon to go idle before the auto-update, and how often it looks. */
-    static final long UPDATE_WAIT_MS = 3L * 60 * 60 * 1000, UPDATE_LOOK_MS = 30_000;
-
     /**
-     * Waits until {@code idle} says no run is active, looking every {@code step} ms, for at most {@code max} ms; true when idle. The
-     * housekeeping the nightly has just queued is a run too, so the quiet moment comes after it ends, not in the same breath: asked at
-     * once, idle was always false, and the auto-update never fired on a daemon that runs the nightly.
+     * The nightly scheduler thread; daemon, so it never keeps a JVM alive. {@code fire} runs (or enqueues) the crews; then, in auto mode,
+     * a newer release is installed beside the running one and the service restarts at once, whatever runs: every job resumes from the
+     * work it kept, the housekeeping just queued included.
      */
-    static boolean waitForIdle(BooleanSupplier idle, long max, long step) throws InterruptedException {
-        long until = System.currentTimeMillis() + max;
-        while (!idle.getAsBoolean()) {
-            if (System.currentTimeMillis() >= until) return false;
-            Thread.sleep(step);
-        }
-        return true;
-    }
-
-    /** As above; {@code idle} says whether no run is active, which is when the auto-update may swap the program. */
-    public static Thread nightly(LibraryStore store, int hour, Runnable fire, BooleanSupplier idle) {
+    public static Thread nightly(LibraryStore store, int hour, Runnable fire) {
         Thread t = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
@@ -502,9 +527,7 @@ public final class Crews {
                     log(store, "nightly", "begin (" + LocalDateTime.now().withNano(0) + ")", 0);
                     Service.rotate(Config.home().resolve("logs").resolve("librarian-serve.log"), 20L * 1024 * 1024);
                     fire.run();
-                    // the quiet moment: the housekeeping has ended and no run is active; in auto mode a newer release is swapped in and the service restarts
-                    try { Updater.maybeAuto(store, waitForIdle(idle, UPDATE_WAIT_MS, UPDATE_LOOK_MS)); }
-                    catch (InterruptedException e) { return; }
+                    try { Updater.maybeAuto(store); }
                     catch (Throwable e) { log(store, "update", "FAILED: " + e, 0); }
                 } catch (InterruptedException e) {
                     return;

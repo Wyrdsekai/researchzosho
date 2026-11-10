@@ -48,8 +48,9 @@ PY
 }
 for f in "$DIST"/researchzosho-"$VER"*.tar.gz; do fake_next "$f" "$W/www/$(basename "$f" | sed "s/$VER/$NEXT/")" || echo "  (could not make the fake $NEXT from $f)"; done
 ( cd "$W/www" && (sha256sum researchzosho-"$NEXT"*.tar.gz 2>/dev/null || shasum -a 256 researchzosho-"$NEXT"*.tar.gz) >> SHA256SUMS )
-# The version in the manifest of the program installed at $1 (its lib/librarian-*.jar)
-jar_version() { unzip -p "$1"/lib/librarian-*.jar META-INF/MANIFEST.MF | tr -d '\r' | sed -n 's/^Implementation-Version: *//p'; }
+# The version in the manifest of the program installed at $1: the jar of the version 'current' points at, or lib/ at the top before 0.7.2
+home() { if [ -L "$1/current" ]; then echo "$1/current"; else echo "$1"; fi; }
+jar_version() { unzip -p "$(home "$1")"/lib/librarian-*.jar META-INF/MANIFEST.MF | tr -d '\r' | sed -n 's/^Implementation-Version: *//p'; }
 # what a server on port $1 says it is
 served_version() { curl -s --max-time 3 "http://127.0.0.1:$1/v1/status" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p'; }
 serves() { [ "$(served_version "$1")" = "$2" ]; }
@@ -107,21 +108,21 @@ SERVE_PID=""
 echo "== the build with its own Java runtime: installed on request, runs with no Java of its own, updates to its own kind"
 RT="$W/prefix-rt"
 check "install (own runtime)" env RESEARCHZOSHO_VERSION="$VER" RESEARCHZOSHO_RUNTIME=1 RESEARCHZOSHO_PREFIX="$RT" sh "$INSTALL"
-expect "the runtime came with it" "java" ls "$RT/share/researchzosho/jre/bin"
+expect "the runtime came with it" "java" ls "$RT/share/researchzosho/current/jre/bin"
 expect "version (own runtime, JAVA_HOME pointing nowhere)" "$VER" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
 if [ "$(uname)" = Darwin ]; then
   # What a copy saved through a browser meets: every file quarantined, then Gatekeeper's verdict at exec. The runtime's
   # binaries are Temurin's own, signed and notarized by Eclipse Adoptium (Developer ID), and jlink copies them unchanged;
   # everything we add is jars and text, which Gatekeeper does not assess. So no signing of our own — and this proves it.
   find "$RT/share/researchzosho" -type f -exec xattr -w com.apple.quarantine "0083;$(printf '%x' "$(date +%s)");Safari;" {} \; 2>/dev/null
-  expect "the runtime's java carries a Developer ID signature" "Authority=Developer ID Application" codesign -dvv "$RT/share/researchzosho/jre/bin/java"
+  expect "the runtime's java carries a Developer ID signature" "Authority=Developer ID Application" codesign -dvv "$RT/share/researchzosho/current/jre/bin/java"
   check "every Mach-O in the build has a valid signature" sh -c 'for f in $(find "$1" -type f); do file -b "$f" | grep -q Mach-O || continue; codesign --verify --strict "$f" || exit 1; done' _ "$RT/share/researchzosho"
   expect "runs with every file quarantined" "$VER" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
 fi
 check "init (own runtime)" env RESEARCHZOSHO_CONFIG="$W/config-rt" RESEARCHZOSHO_LIBRARY="$W/lib-rt" "$RT/bin/researchzosho" init
 expect "update now swaps in $NEXT (own runtime)" "$NEXT is in place" env RESEARCHZOSHO_CONFIG="$W/config-rt" RESEARCHZOSHO_LIBRARY="$W/lib-rt" "$RT/bin/researchzosho" update now "$NEXT" --no-restart
 expect "the installed jar is $NEXT (own runtime)" "^$NEXT\$" jar_version "$RT/share/researchzosho"
-expect "the runtime is still there after the update" "java" ls "$RT/share/researchzosho/jre/bin"
+expect "the runtime is still there after the update" "java" ls "$RT/share/researchzosho/current/jre/bin"
 expect "version after the update (own runtime)" "researchzosho $NEXT" env JAVA_HOME=/nonexistent "$RT/bin/researchzosho" --version
 echo "== the service, and the update path with a restart"
 # never on a box that already runs the service: the unit name is shared, and an uninstall here would remove the live one

@@ -261,7 +261,7 @@ public final class LibrarianCli {
                                            discussion threads read in full, best first: a subreddit (site r/name, through the Arctic Shift archive) or a Stack Exchange site (workplace, softwareengineering, stackoverflow, …)
               serials                      check the saved searches for new sources. List overdue reviews
               tonight                      what nightly maintenance will do at its next run: searches due, questions it will research
-              update [now | auto on|off]   compare the installed release with the latest. Install it. Let the service do it after nightly maintenance
+              update [now | back | auto on|off]   compare the installed release with the latest. Install it beside the running one and restart. Run the one before again. Let the service do it after nightly maintenance
               questions [list [--type t] [--parked|--all] [--report I-…] [--fate f] [--who text] [--subject s] [--language x] [--grep words] [--by-report] [--hints] | add <q…> | file <file> | next|later|park|unpark|drop <n> [park: --why <reason>] | tidy | budget <n> | tonight <n>]   the queue the nightly research draws from. A report's leftover questions wait parked
               bench [k]                    how often search misses on the library's own test queries
               subjects                     the subject list with counts and the subjects that appear together
@@ -1726,19 +1726,25 @@ public final class LibrarianCli {
                         case "now" -> {
                             boolean restart = !Arrays.asList(args).contains("--no-restart");
                             String ver = null; for (int i = 3; i < args.length; i++) if (args[i].matches("\\d+\\.\\d+\\.\\d+")) ver = args[i];
+                            Updater.unhold();   // asked for by hand: a version gone back from is no longer held back
                             // with --json the progress lines go to the error stream, so the output is one JSON document
                             Updater.Outcome o = Updater.now(ver, restart, json ? System.err : System.out);
+                            System.out.println(json ? Updater.outcomeJson(o) : o.note());
+                            return o.result().code;
+                        }
+                        case "back" -> {   // the version before runs again, and the service restarts onto it
+                            Updater.Outcome o = Updater.back(!Arrays.asList(args).contains("--no-restart"), json ? System.err : System.out);
                             System.out.println(json ? Updater.outcomeJson(o) : o.note());
                             return o.result().code;
                         }
                         case "auto" -> {
                             if (args.length < 4 || !(args[3].equals("on") || args[3].equals("off"))) { System.err.println("usage: researchzosho update auto on|off"); return 2; }
                             Config.set("RESEARCHZOSHO_UPDATE", args[3].equals("on") ? "auto" : "check");
-                            System.out.println(args[3].equals("on") ? "auto-update is on: after each nightly maintenance, when no research run is active, a newer release is installed and the service restarts"
+                            System.out.println(args[3].equals("on") ? "auto-update is on: after each nightly maintenance a newer release is installed beside the running one and the service restarts at once; a job that was running resumes where it was"
                                                                     : "auto-update is off: researchzosho status says when a newer release exists. researchzosho update now installs it");
                             return 0;
                         }
-                        default -> { System.err.println("usage: researchzosho update [status | now [version] [--no-restart] | auto on|off] [--json]"); return 2; }
+                        default -> { System.err.println("usage: researchzosho update [status | now [version] [--no-restart] | back [--no-restart] | auto on|off] [--json]"); return 2; }
                     }
                 }
                 case "questions" -> {
@@ -1888,15 +1894,12 @@ public final class LibrarianCli {
                     }
                     var plan = Service.plan(Service.os(), op.equals("install") ? Service.resolveExec(exec) : (exec == null ? "researchzosho" : exec),
                             host, port, hour, Path.of(System.getProperty("user.home")));
-                    // a restart, or an install that changes a running service's settings, starts a run that is going over from the
-                    // beginning (a second restart fails it): say so first
+                    // a restart, or an install that changes a running service's settings, stops a run that is going, and the run resumes
+                    // from the work it kept when the service is back: said, not asked
                     boolean restarts = op.equals("restart") || (op.equals("install") && Service.changes(plan));
                     if (restarts && !yes) {
                         String going = runningResearch();
-                        if (going != null) {
-                            System.out.println("A research run is going: " + going + ". A restart stops it, and it starts again from the beginning.");
-                            if (!Interaction.yes("Restart the service anyway? (y/N)")) { System.out.println("Nothing was " + (op.equals("install") ? "changed." : "restarted.")); return 1; }
-                        }
+                        if (going != null) System.out.println("A research run is going: " + going + ". It stops for the restart and resumes where it was when the service is back.");
                     }
                     int rc = Service.run(op, plan, System.out);
                     if (rc == 0 && op.equals("install") && !Service.hostFlag(host, "x", "").isEmpty()) {
@@ -2790,8 +2793,9 @@ public final class LibrarianCli {
         try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
         if (!id.isEmpty()) {
             var j = r.path("job");
-            System.out.println(j.path("job_id").asText() + "  " + j.path("state").asText() + "  " + j.path("kind").asText() + (j.path("restarted").asInt(0) > 0 ? "  (restarted " + j.path("restarted").asInt() + "×)" : ""));
+            System.out.println(j.path("job_id").asText() + "  " + j.path("state").asText() + "  " + j.path("kind").asText() + (j.path("restarted").asInt(0) > 1 ? "  (interrupted " + j.path("restarted").asInt() + " times)" : ""));
             if (j.hasNonNull("question")) System.out.println("  question: " + j.get("question").asText());
+            if (j.hasNonNull("resumed")) System.out.println("  " + j.get("resumed").asText());   // where a restart or an update interrupted it, and where it picked up
             System.out.println("  queued " + j.path("queued_at").asText() + (j.hasNonNull("started_at") ? " · started " + j.get("started_at").asText() : "") + (j.hasNonNull("ended_at") ? " · ended " + j.get("ended_at").asText() : "") + " · " + elapsed(j.path("elapsed_s").asLong()));
             if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText() + (j.hasNonNull("model") ? "  (model: " + j.get("model").asText() + ")" : ""));
             if (j.hasNonNull("waiting")) System.out.println("  waiting: " + j.get("waiting").asText());
@@ -2819,6 +2823,7 @@ public final class LibrarianCli {
         b.append(" · ").append(elapsed(j.path("elapsed_s").asLong()));
         if (j.has("progress") && j.get("progress").isObject()) b.append(" · ").append(progressWords(j.get("progress")));
         if (j.hasNonNull("waiting")) b.append(" · waiting for the model");
+        if (j.hasNonNull("resumed")) b.append(" · ").append(j.get("resumed").asText().replaceFirst("\\.$", "").replaceFirst("^R", "r").replaceFirst("^S", "s"));
         if (j.hasNonNull("no_progress_since")) b.append(" · no progress since ").append(localTime(j.get("no_progress_since").asText()));
         if (j.path("declined").path("run").asBoolean(false)) b.append(" · declined by the model");
         else if (j.path("declined").isObject()) b.append(" · parts declined by the model");

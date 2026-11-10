@@ -15,6 +15,7 @@ import org.researchzosho.librarian.TranslationScores.Scorers;
 import org.researchzosho.librarian.TranslationScores.Thresholds;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -410,7 +411,22 @@ public final class Translation {
      * between units, with nothing written.
      */
     public static Outcome run(LibraryStore store, Path in, String to, String format, String quality, Path out, String collection, Seats seats, Consumer<ObjectNode> progress, BooleanSupplier stop) throws IOException {
-        long t0 = System.currentTimeMillis();
+        return run(store, in, to, format, quality, out, collection, seats, progress, stop, Checkpoint.NONE);
+    }
+
+    /**
+     * The same, keeping its work in {@code cp} as it goes ({@link Checkpoint}): the seats' calls in order (each batch of units translated,
+     * the glossary's terms, each revision, each reading), the scores step by step, the library's glossary and the pair's thresholds as they
+     * stood when it began, and the output's path. A resumed translation gives all of it back and asks the model only from where the last
+     * process stopped, so a unit it has is never translated again; the time it reports is the time of every process together.
+     */
+    public static Outcome run(LibraryStore store, Path in, String to, String format, String quality, Path out, String collection, Seats seats, Consumer<ObjectNode> progress, BooleanSupplier stop, Checkpoint cp) throws IOException {
+        Consumer<ObjectNode> told = !cp.keeps() ? progress : p -> { if (progress != null) progress.accept(p); cp.position(p.deepCopy(), said(p)); };   // where it stands, after each step of units
+        try (var lane = Checkpoint.lane("main")) { return running(store, in, to, format, quality, out, collection, seats, told, stop, cp); }
+    }
+
+    private static Outcome running(LibraryStore store, Path in, String to, String format, String quality, Path out, String collection, Seats seats, Consumer<ObjectNode> progress, BooleanSupplier stop, Checkpoint cp) throws IOException {
+        long t0 = System.currentTimeMillis() - cp.elapsedBeforeMs();   // a resumed translation's time counts its earlier processes
         Plan plan = plan(store, in, to, format, quality, seats.translatorModel(), seats.translatorEntry() == null ? "" : seats.translatorEntry().name(), seats.judgeEntry() == null ? "" : seats.judgeEntry().name());
         String code = plan.to(), language = Translate.LANGUAGES.getOrDefault(code, code), q = plan.quality(), fmt = plan.as();
         Doc doc = DocUnits.cut(Files.readAllBytes(in), in.getFileName().toString());
@@ -421,13 +437,14 @@ public final class Translation {
         StringBuilder all = new StringBuilder(); for (int i : todo) all.append(units.get(i).text()).append('\n');
         // the glossary: the library's entries for this language that the document uses, then the recurring terms the model fixes once
         Map<String, String> applied = new LinkedHashMap<>();
-        for (var e : Glossary.forLanguage(store, code).entrySet()) if (all.indexOf(e.getKey()) >= 0) applied.put(e.getKey(), e.getValue());
+        Map<String, String> library = libraryGlossary(store, code, cp);   // as it stood when the translation began, on every resumption of it
+        for (var e : library.entrySet()) if (all.indexOf(e.getKey()) >= 0) applied.put(e.getKey(), e.getValue());
         List<String> terms = new ArrayList<>(Translate.terms(all.toString()));
         terms.removeIf(t -> applied.keySet().stream().anyMatch(t::contains));   // a phrase that holds the person's term is rendered by the person's word, not a word of its own
         Map<String, String> fixed = terms.isEmpty() ? Map.of() : Translate.glossary(seats.translator(), terms, language, what, FENCE);
         Map<String, String> glossary = new LinkedHashMap<>(fixed);
         glossary.putAll(applied);   // the person's word wins
-        for (var e : Glossary.forLanguage(store, code).entrySet()) {   // "The group" at a sentence's start is the glossary's "the group"
+        for (var e : library.entrySet()) {   // "The group" at a sentence's start is the glossary's "the group"
             String cap = capitalised(e.getKey());
             if (!cap.equals(e.getKey()) && all.indexOf(cap) >= 0 && !glossary.containsKey(cap)) { glossary.put(cap, e.getValue()); applied.putIfAbsent(e.getKey(), e.getValue()); }
         }
@@ -465,7 +482,7 @@ public final class Translation {
             // the quick tier keeps Translate's rule: a unit whose translation would lose an address or a citation stays as it was
             for (int i : todo) { String tr = words.get(i); if (tr == null || !Translate.keeps(units.get(i).text(), tr)) { words.remove(i); keptOriginal++; } }
         } else {
-            checked = check(store, units, todo, words, glossary, applied.keySet(), code, doc.lang(), seats, q, progress, stop);
+            checked = check(store, units, todo, words, glossary, applied.keySet(), code, doc.lang(), seats, q, progress, stop, cp);
             // the units still flagged after a revision are marked in the output, in the document's new language
             Map<Integer, List<Flag>> standing = new TreeMap<>();
             for (Flag f : checked.flags) if (f.stands()) standing.computeIfAbsent(f.unit(), x -> new ArrayList<>()).add(f);
@@ -489,7 +506,7 @@ public final class Translation {
         translated = new Doc(doc.format(), translatedTitle, code, translated.chapters(), translated.images(), meta);
         String footer = store.identity().name() + " · " + Translate.LANGUAGES.getOrDefault(code, code) + " · " + LocalDate.now();
         DocWriters.Written w = DocWriters.write(translated, fmt, footer);
-        Path output = out != null ? out : outputPath(in, null, code, fmt);
+        Path output = out != null ? out : keptPath(cp, "output", () -> outputPath(in, null, code, fmt));
         Files.createDirectories(output.toAbsolutePath().getParent());
         AtomicWrite.bytes(output, w.bytes());
         long seconds = Math.max(1, (System.currentTimeMillis() - t0) / 1000);
@@ -601,23 +618,31 @@ public final class Translation {
      * and is ended when the checks end, however they end.
      */
     static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop) throws IOException {
+        return check(store, units, todo, words, glossary, binding, code, fromCode, seats, q, progress, stop, Checkpoint.NONE);
+    }
+
+    static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop, Checkpoint cp) throws IOException {
         List<Integer> read = new ArrayList<>(); for (int i : todo) if (words.get(i) != null) read.add(i);
         tell(progress, "scoring", 0, read.size(), q);
         try (Scorers sc = TranslationScores.SCORERS.get()) {
-            Checked c = check(store, units, todo, words, glossary, binding, code, fromCode, seats, q, progress, stop, sc, read);
-            c.scorersSaid = sc.said();   // said after the scoring, so a scorer that stopped partway is in it
+            Checked c = check(store, units, todo, words, glossary, binding, code, fromCode, seats, q, progress, stop, sc, read, cp);
+            c.scorersSaid = sc.said() + stopsKept(cp, sc);   // said after the scoring, so a scorer that stopped partway is in it, in this process or an earlier one
             return c;
         }
     }
 
     static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop, Scorers sc, List<Integer> read) throws IOException {
+        return check(store, units, todo, words, glossary, binding, code, fromCode, seats, q, progress, stop, sc, read, Checkpoint.NONE);
+    }
+
+    static Checked check(LibraryStore store, List<Unit> units, List<Integer> todo, Map<Integer, String> words, Map<String, String> glossary, Set<String> binding, String code, String fromCode, Seats seats, String q, Consumer<ObjectNode> progress, BooleanSupplier stop, Scorers sc, List<Integer> read, Checkpoint cp) throws IOException {
         String language = Translate.LANGUAGES.getOrDefault(code, code);
         Checked c = new Checked();
         Map<Integer, List<Flag>> byUnit = new TreeMap<>();
         for (int i : todo) for (Flag f : mechanical(i, units.get(i).text(), words.get(i), glossary, binding, code, "")) byUnit.computeIfAbsent(i, x -> new ArrayList<>()).add(f);
         // the scores, a step of units at a time with the count told after each, and their flags against what the pair's accepted units say
-        c.thresholds = TranslationScores.thresholds(store, fromCode, code);
-        score(sc, units, words, read, c.labse, c.metricx, scored -> tell(progress, "scoring", scored, read.size(), q), stop);
+        c.thresholds = keptThresholds(cp, () -> TranslationScores.thresholds(store, fromCode, code));   // as they stood when the scoring began
+        score(sc, units, words, read, c.labse, c.metricx, scored -> tell(progress, "scoring", scored, read.size(), q), stop, cp, "all");
         for (int i : read) for (Flag f : scoreFlags(i, units.get(i).text(), c.labse.get(i), c.metricx.get(i), c.thresholds, sc)) byUnit.computeIfAbsent(i, x -> new ArrayList<>()).add(f);
         Set<Integer> flaggedByScores = new TreeSet<>(byUnit.keySet());
         // each flagged unit translated again in a fresh call; the revision kept only when its score improves, or its mechanical flags clear with the score no worse
@@ -634,7 +659,7 @@ public final class Translation {
             if (revised == null || revised.isBlank()) { List<Flag> st = new ArrayList<>(); for (Flag f : found) st.add(f.revisedTo(true)); byUnit.put(i, st); continue; }
             List<Flag> mechAfter = mechanical(i, source, revised, glossary, binding, code, "");
             Map<Integer, Double> l2 = new TreeMap<>(), m2 = new TreeMap<>();
-            score(sc, units, Map.of(i, revised), List.of(i), l2, m2);
+            score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, () -> false, cp, "revised" + i);
             Double lb = c.labse.get(i), la = l2.get(i), mb = c.metricx.get(i), ma = m2.get(i);
             boolean mechBefore = found.stream().anyMatch(f -> !f.score()), mechCleared = mechAfter.isEmpty();
             boolean better = (la != null && lb != null && la > lb) || (ma != null && mb != null && ma < mb);
@@ -695,7 +720,7 @@ public final class Translation {
                 List<Flag> after = new ArrayList<>(mechanical(i, source, revised, glossary, binding, code, ""));
                 after.addAll(judge(seats, units, Map.of(i, revised), List.of(i), language, glossary, binding, false));
                 Map<Integer, Double> l2 = new TreeMap<>(), m2 = new TreeMap<>();
-                score(sc, units, Map.of(i, revised), List.of(i), l2, m2);
+                score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, () -> false, cp, "read" + i);
                 Double lb = c.labse.get(i), la = l2.get(i), mb = c.metricx.get(i), ma = m2.get(i);
                 words.put(i, revised); if (la != null) c.labse.put(i, la); if (ma != null) c.metricx.put(i, ma);
                 c.changes.add(new Change(i, lb, la, mb, ma, true, seats.checkerName()));
@@ -710,7 +735,7 @@ public final class Translation {
         List<Double> okL = new ArrayList<>(), okM = new ArrayList<>();
         for (int i : read) if (!byUnit.containsKey(i) && (c.labse.containsKey(i) || c.metricx.containsKey(i))) { if (c.labse.containsKey(i)) okL.add(c.labse.get(i)); if (c.metricx.containsKey(i)) okM.add(c.metricx.get(i)); }
         c.accepted = Math.max(okL.size(), okM.size());
-        if (c.accepted > 0) TranslationScores.accept(store, fromCode, code, okL, okM);
+        if (c.accepted > 0 && !cp.has("accepted")) { TranslationScores.accept(store, fromCode, code, okL, okM); cp.put("accepted", M.getNodeFactory().numberNode(c.accepted)); }   // once, however often the translation resumed
         return c;
     }
 
@@ -753,20 +778,107 @@ public final class Translation {
 
     /** The same, {@link #SCORED_AT_ONCE} units a step, {@code scored} told the count after each; a scorer that fails is left out for the rest. */
     static void score(Scorers sc, List<Unit> units, Map<Integer, String> words, List<Integer> read, Map<Integer, Double> labse, Map<Integer, Double> metricx, IntConsumer scored, BooleanSupplier stop) throws IOException {
+        score(sc, units, words, read, labse, metricx, scored, stop, Checkpoint.NONE, "");
+    }
+
+    /**
+     * The same, each step's scores kept in {@code cp} under {@code label} the moment they come back, with which scorer failed and what
+     * stopped one: a resumed translation takes a kept step's scores and scores only the steps after it.
+     */
+    static void score(Scorers sc, List<Unit> units, Map<Integer, String> words, List<Integer> read, Map<Integer, Double> labse, Map<Integer, Double> metricx, IntConsumer scored, BooleanSupplier stop, Checkpoint cp, String label) throws IOException {
         boolean[] failed = new boolean[2];
         for (int from = 0; from < read.size(); from += SCORED_AT_ONCE) {
             if (stop.getAsBoolean()) throw new IOException("Stopped during the scoring; nothing was written.");
             List<Integer> step = read.subList(from, Math.min(read.size(), from + SCORED_AT_ONCE));
+            String key = "score|" + label + "|" + from;
+            JsonNode kept = cp.get(key);
+            if (kept != null) {
+                for (int k = 0; k < 2; k++) {
+                    if (kept.path(k == 0 ? "lf" : "mf").asBoolean(false)) failed[k] = true;
+                    JsonNode got = kept.path(k == 0 ? "l" : "m");
+                    for (int j = 0; j < step.size() && j < got.size(); j++) if (got.get(j).isNumber()) (k == 0 ? labse : metricx).put(step.get(j), got.get(j).asDouble());
+                }
+                scored.accept(from + step.size());
+                continue;
+            }
             List<String[]> pairs = new ArrayList<>(); for (int i : step) pairs.add(new String[]{units.get(i).text(), words.get(i)});
+            ObjectNode keep = M.createObjectNode();
             for (int k = 0; k < 2; k++) {
                 Scorer s = k == 0 ? sc.labse() : sc.metricx();
-                if (s == null || failed[k]) continue;
+                if (s == null || failed[k]) { if (failed[k]) keep.put(k == 0 ? "lf" : "mf", true); continue; }
                 List<Double> got;
-                try { got = s.score(pairs); } catch (IOException e) { failed[k] = true; continue; }
+                try { got = s.score(pairs); } catch (IOException e) { failed[k] = true; keep.put(k == 0 ? "lf" : "mf", true); continue; }
+                ArrayNode list = keep.putArray(k == 0 ? "l" : "m");
+                for (int j = 0; j < step.size(); j++) { Double v = j < got.size() ? got.get(j) : null; if (v == null) list.addNull(); else list.add(v); }
                 for (int j = 0; j < step.size() && j < got.size(); j++) if (got.get(j) != null) (k == 0 ? labse : metricx).put(step.get(j), got.get(j));
+                if (!s.stopped().isEmpty()) keep.put(k == 0 ? "ls" : "ms", s.stopped());
             }
+            cp.put(key, keep);
             scored.accept(from + step.size());
         }
+    }
+
+    /** What stopped a scorer partway in an earlier process of this translation, for the note; "" when nothing did, or this process said it already. */
+    static String stopsKept(Checkpoint cp, Scorers sc) {
+        if (!cp.keeps()) return "";
+        String now = sc.said();
+        Set<String> stops = new LinkedHashSet<>();
+        for (String k : new String[]{"ls", "ms"}) for (JsonNode v : cp.valuesUnder("score|")) { String s = v.path(k).asText(""); if (!s.isEmpty() && !now.contains(s)) stops.add(s); }
+        StringBuilder b = new StringBuilder(); for (String s : stops) b.append("; ").append(s);
+        return b.toString();
+    }
+
+    /** The library's glossary for a language, as it stood when the translation began: kept, so a resumed one renders the terms as it did. */
+    static Map<String, String> libraryGlossary(LibraryStore store, String code, Checkpoint cp) {
+        JsonNode kept = cp.get("glossary");
+        Map<String, String> out = new LinkedHashMap<>();
+        if (kept != null && kept.isObject()) { kept.fields().forEachRemaining(e -> out.put(e.getKey(), e.getValue().asText())); return out; }
+        out.putAll(Glossary.forLanguage(store, code));
+        ObjectNode o = M.createObjectNode(); out.forEach(o::put);
+        cp.put("glossary", o);
+        return out;
+    }
+
+    /** The pair's thresholds as they stood when the scoring began, kept. */
+    static Thresholds keptThresholds(Checkpoint cp, Supplier<Thresholds> now) {
+        JsonNode k = cp.get("thresholds");
+        if (k != null && k.isObject())
+            return new Thresholds(k.path("pair").asText(""), k.path("la").asInt(0), k.path("ma").asInt(0), k.path("ll").isNumber() ? k.path("ll").asDouble() : null, k.path("mh").isNumber() ? k.path("mh").asDouble() : null);
+        Thresholds t = now.get();
+        ObjectNode o = M.createObjectNode(); o.put("pair", t.pair()); o.put("la", t.labseAccepted()); o.put("ma", t.metricxAccepted());
+        if (t.labseLow() != null) o.put("ll", t.labseLow()); if (t.metricxHigh() != null) o.put("mh", t.metricxHigh());
+        cp.put("thresholds", o);
+        return t;
+    }
+
+    /** A path chosen once and kept, so that a resumed translation writes the file it would have written. */
+    static Path keptPath(Checkpoint cp, String key, Supplier<Path> choose) {
+        JsonNode k = cp.get(key);
+        if (k != null && k.isTextual() && !k.asText().isBlank()) return Path.of(k.asText());
+        Path p = choose.get();
+        cp.put(key, M.getNodeFactory().textNode(p.toAbsolutePath().normalize().toString()));
+        return p;
+    }
+
+    /** The seats with their calls kept in {@code cp} and given back on a resumption; a call given back counts its cost on the seat's tally. */
+    static Seats kept(Seats s, Checkpoint cp) {
+        if (!cp.keeps()) return s;
+        Researcher.Drive t = cp.seat(s.translator(), s.translatorUsage());
+        Researcher.Drive c = s.checker() == s.translator() ? t : cp.seat(s.checker(), s.checkerUsage());
+        return new Seats(t, s.translatorModel(), s.translatorName(), s.translatorEntry(), c, s.checkerModel(), s.checkerName(), s.judgeEntry(), s.sameModel(), s.backTranslate(), s.why(), s.translatorUsage(), s.checkerUsage());
+    }
+
+    /** Where a translation stands, in the words a person reads after a restart: "unit 4,312 of 11,637". */
+    static String said(JsonNode p) {
+        String done = Checkpoint.count(p.path("units_done").asLong()), total = Checkpoint.count(p.path("units_total").asLong());
+        return switch (p.path("phase").asText("")) {
+            case "translating" -> "unit " + done + " of " + total;
+            case "scoring" -> "the scoring, unit " + done + " of " + total;
+            case "checking" -> "the second reading, unit " + done + " of " + total;
+            case "revising" -> "the revisions, " + done + " of " + total;
+            case "writing" -> "the writing of the file";
+            default -> "";
+        };
     }
 
     /** A unit shorter than this in its source is not flagged by a score: on a heading, a cell or a caption the scores reward the literal word over the right one (read live, 2026-11-07). */
@@ -1070,6 +1182,20 @@ public final class Translation {
 
     /** The job run: the translation, and the result as Markdown with the file, the note and the shelves, as the Runs page and the chat show it. */
     public static String runJob(LibraryStore store, ObjectNode job, String driveUrl, String model, Consumer<ObjectNode> progress, BooleanSupplier stop) {
+        return runJob(store, job, driveUrl, model, progress, stop, Checkpoint.NONE);
+    }
+
+    /** What a translation job's kept work is for: the document's bytes, the language, the format, the tier, where it goes. Another of any of them is another translation. */
+    public static String basis(JsonNode job) {
+        JsonNode a = job.path("args");
+        String file;
+        try { file = Checkpoint.sha(new String(Files.readAllBytes(Path.of(a.path("path").asText())), StandardCharsets.ISO_8859_1)); } catch (IOException | RuntimeException e) { file = "missing"; }
+        String choice = a.path("choice").asText(""), quality = !choice.isEmpty() && tier(choice) != null ? tier(choice) : a.path("quality").asText("");
+        return Checkpoint.basisOf(file, a.path("to").asText(""), a.path("as").asText(""), quality, a.path("out").asText(""), a.path("collection").asText(""));
+    }
+
+    /** The job run, keeping its work in {@code cp}: a translation a restart interrupted resumes where it was. */
+    public static String runJob(LibraryStore store, ObjectNode job, String driveUrl, String model, Consumer<ObjectNode> progress, BooleanSupplier stop, Checkpoint cp) {
         JsonNode a = job.path("args");
         Path in = Path.of(a.path("path").asText());
         String choice = a.path("choice").asText("");   // the chat's question answered: a tier names the tier; a yes keeps the one asked for
@@ -1081,18 +1207,19 @@ public final class Translation {
         Seats seats = null;
         try {
             if (!DRIVE_ANSWERS.test(driveUrl)) throw new Jobs.Failure("No model is answering at " + driveUrl + ". The translation needs one. Send it again when a model is up.");
-            seats = SEATS.make(driveUrl, model, reads(quality) ? judge : "", back).translatorNamed(modelEntry.isEmpty() || modelEntry.equalsIgnoreCase(Auto.NAME) ? entryFor(driveUrl, model) : ModelEntries.get(modelEntry));
+            seats = kept(SEATS.make(driveUrl, model, reads(quality) ? judge : "", back).translatorNamed(modelEntry.isEmpty() || modelEntry.equalsIgnoreCase(Auto.NAME) ? entryFor(driveUrl, model) : ModelEntries.get(modelEntry)), cp);
             // a hosted entry runs inside the monthly limit the library keeps for it: a run that would start past it is refused with the figure
             for (ModelEntries.Entry e : List.of(seats.translatorEntry() == null ? ModelEntries.defaultEntry() : seats.translatorEntry(), seats.judgeEntry() == null ? ModelEntries.defaultEntry() : seats.judgeEntry())) {
                 if (e == null || e.name().equals(ModelEntries.DEFAULT) || !e.hosted() || e.cap() <= 0) continue;
                 double spent = Spend.monthTotal(store, e.name());
                 if (spent >= e.cap()) throw new Jobs.Failure("The model " + e.name() + " has spent " + Spend.dollars(spent) + " this month against its cap of " + Spend.dollars(e.cap()) + ". The translation is not started. Raise the cap (researchzosho models set " + e.name() + " --cap <dollars>) or ask again with another model.");
             }
-            if (exports) { Path dir = Export.exportsDir(store); Files.createDirectories(dir); out = outputPath(in, dir, a.path("to").asText(), plan(store, in, a.path("to").asText(), a.path("as").asText(""), quality, model, "", "").as()); }
-            Outcome o = run(store, in, a.path("to").asText(), a.path("as").asText(""), quality, out, a.path("collection").asText(""), seats, progress, stop);
+            if (exports) { Path dir = Export.exportsDir(store); Files.createDirectories(dir); String q2 = quality; out = keptPath(cp, "output", () -> { try { return outputPath(in, dir, a.path("to").asText(), plan(store, in, a.path("to").asText(), a.path("as").asText(""), q2, model, "", "").as()); } catch (IOException e) { throw new UncheckedIOException(e); } }); }
+            Outcome o = run(store, in, a.path("to").asText(), a.path("as").asText(""), quality, out, a.path("collection").asText(""), seats, progress, stop, cp);
             tally(store, job.path("job_id").asText(""), seats, o.seconds());
             return result(store, o, exports);
         } catch (DriveClient.ErrorStatus e) { throw new Jobs.Failure(refusedByHost(e, seats)); }
+        catch (UncheckedIOException e) { throw new Jobs.Failure(e.getCause().getMessage()); }
         catch (IOException e) { throw new Jobs.Failure(e.getMessage()); }
     }
 

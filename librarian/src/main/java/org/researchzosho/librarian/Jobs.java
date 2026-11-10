@@ -27,6 +27,7 @@ import java.util.function.Supplier;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.StandardCopyOption;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +36,7 @@ import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 import org.researchzosho.Config;
+import org.researchzosho.Version;
 import org.researchzosho.tools.ContentPolicy;
 import java.time.Duration;
 /**
@@ -668,6 +670,7 @@ public final class Jobs {
         Files.writeString(target.resolve(id + ".json"), M.writerWithDefaultPrettyPrinter().writeValueAsString(j), StandardCharsets.UTF_8);
         Files.deleteIfExists(activeDir().resolve(id + ".json"));
         Files.deleteIfExists(dir().resolve(id + ".json"));
+        Checkpoint.discard(store, id);   // the job is over: the work it kept to resume from goes
         if ("research".equals(j.path("kind").asText()) && !j.path("acknowledged").asBoolean(false)) {
             Files.createDirectories(landedDir());
             Files.writeString(landedDir().resolve(id), "", StandardCharsets.UTF_8);
@@ -714,27 +717,107 @@ public final class Jobs {
 
     // ---- the worker ----
 
-    public synchronized void start() throws IOException {
-        migrate();
-        sweepLocks();
-        for (ObjectNode j : active()) {
-            String st = j.path("state").asText();
-            if ("queued".equals(st)) {
-                enqueue(j);
-            } else if ("running".equals(st)) {
-                int restarted = j.path("restarted").asInt(0) + 1;
-                j.put("restarted", restarted);
-                if (restarted > 1) {
-                    j.put("state", "failed"); j.put("result", "the daemon was restarted twice while this job ran"); j.put("is_error", true);
-                    j.put("ended_at", Instant.now().toString());
-                    finish(j);
-                } else {
-                    j.put("state", "queued");
-                    writeActive(j);
-                    enqueue(j);
-                }
-            }
+    /**
+     * Where the service says why it stopped, for the jobs it leaves running: written as it stops, read and removed when it starts again. Not
+     * a .json file: every .json beside the month folders is taken for a job of the first ledger's layout ({@link #migrate}).
+     */
+    Path stoppedFile() { return dir().resolve("service.stopped"); }
+
+    /** Why the service stops: a restart, or an update to {@code to}. */
+    public static final String RESTART = "restart", UPDATE = "update", UNCLEAN = "unclean";
+
+    /** The service is stopping, for {@code why} ({@link #RESTART} or {@link #UPDATE} with the version {@code to}): the jobs it leaves running say so when they resume. */
+    public void stopping(String why, String to) {
+        if (!Files.isDirectory(dir())) return;   // a library with no jobs, or gone (a test's)
+        try {
+            ObjectNode o = M.createObjectNode(); o.put("at", Instant.now().toString()); o.put("why", why == null ? RESTART : why);
+            if (to != null && !to.isBlank()) o.put("to", to);
+            AtomicWrite.text(stoppedFile(), M.writeValueAsString(o) + "\n");
+        } catch (IOException ignored) { }
+    }
+
+    /** Why the last service stopped, read once: what it wrote as it stopped, else an end it did not live to write down (a crash, the computer went off). */
+    /** The version of the service that last started on this library, written at each start: a different one now is an update. */
+    Path versionFile() { return dir().resolve("service.version"); }
+
+    private ObjectNode whyStopped(String before) {
+        ObjectNode o = null;
+        try { if (Files.isRegularFile(stoppedFile())) { JsonNode n = M.readTree(Files.readString(stoppedFile(), StandardCharsets.UTF_8)); if (n != null && n.isObject()) o = (ObjectNode) n; } } catch (IOException | RuntimeException unreadable) { o = null; }
+        try { Files.deleteIfExists(stoppedFile()); } catch (IOException ignored) { }
+        if (o == null) {
+            // the stopping service wrote nothing: an update that stopped it outright (Windows ends a server without its hooks) left its own mark
+            o = M.createObjectNode();
+            String to = Updater.restartingTo(), now = Version.string();
+            if (to != null) { o.put("why", UPDATE); o.put("to", to); }
+            else if (before == null) o.put("why", RESTART);   // a version from before 0.7.2 ran: it writes down neither why it stops nor what it was
+            else if (!before.equals(now)) { o.put("why", UPDATE); o.put("to", now); }   // another version ran before this one: an update the person made by hand
+            else o.put("why", UNCLEAN);
         }
+        return o;
+    }
+
+    /** A job the service stopped this many times in a row with nothing new kept between is not started again: it may be what stops the service. */
+    static final int STALLS = 3;
+
+    /**
+     * A job the last service left running is put back in line to resume where its kept work ends ({@link Checkpoint}): its record gets the
+     * interruption (when, why, where it stood) and says so in every view of it. A job stopped {@link #STALLS} times in a row with nothing new
+     * kept between ends as failed, with the sentence that says why.
+     */
+    private void interrupted(ObjectNode j, ObjectNode why) throws IOException {
+        String id = j.path("job_id").asText();
+        ObjectNode cp = Checkpoint.stateOf(store, id);
+        ArrayNode list = j.path("interruptions").isArray() ? (ArrayNode) j.get("interruptions") : j.putArray("interruptions");
+        ObjectNode i = list.addObject();
+        i.put("at", Instant.now().toString()); i.put("why", why.path("why").asText(UNCLEAN));
+        if (why.hasNonNull("to")) i.put("to", why.get("to").asText());
+        i.put("said", cp == null ? "" : cp.path("said").asText(""));
+        i.put("seq", cp == null ? -1 : cp.path("seq").asLong(-1));
+        j.put("restarted", j.path("restarted").asInt(0) + 1);
+        j.remove("started_over"); j.remove("progress");
+        int same = 1;
+        for (int k = list.size() - 2; k >= 0 && list.get(k).path("seq").asLong(-2) == i.path("seq").asLong(-3); k--) same++;
+        if (same >= STALLS) {
+            j.put("state", "failed"); j.put("is_error", true); j.put("ended_at", Instant.now().toString());
+            j.put("result", "The service stopped " + STALLS + " times in a row while this job ran, and the job kept nothing new between those stops, so it is not started again. It may be what stopped the service; the service's log says more.");
+            finish(j);
+            return;
+        }
+        j.put("state", "queued");
+        writeActive(j);
+        enqueue(j);
+    }
+
+    /** What a job says about its last interruption: "Resumed after a restart, at unit 4,312 of 11,637."; "" for a job never interrupted. */
+    public static String resumedSentence(JsonNode j) {
+        JsonNode list = j.path("interruptions");
+        if (!list.isArray() || list.isEmpty()) return "";
+        JsonNode i = list.get(list.size() - 1);
+        String why = switch (i.path("why").asText(UNCLEAN)) {
+            case RESTART -> "a restart";
+            case UPDATE -> "an update" + (i.hasNonNull("to") ? " to " + i.get("to").asText() : "");
+            default -> "a stop the service did not finish (a crash, or the computer went off)";
+        };
+        String said = i.path("said").asText(""), state = j.path("state").asText();
+        if (j.hasNonNull("started_over")) return "Started again after " + why + ". " + j.get("started_over").asText();
+        if (said.isEmpty()) return ("queued".equals(state) ? "Starts again after " : "Started again after ") + why + "; nothing had been kept yet.";
+        return ("queued".equals(state) ? "Resumes after " : "Resumed after ") + why + ", at " + said + ".";
+    }
+
+    /** The runner could not use the job's kept work and began again: {@code why} is the sentence the job's line carries. */
+    public synchronized void startedOver(String id, String why) {
+        try {
+            Path a = activeDir().resolve(id + ".json");
+            if (!Files.exists(a)) return;
+            ObjectNode j = read(a);
+            if (!j.path("interruptions").isArray()) return;
+            j.put("started_over", why == null || why.isBlank() ? "Its kept work could not be used, so it began from the start." : why.strip());
+            writeActive(j);
+        } catch (IOException ignored) { }
+    }
+
+    public synchronized void start() throws IOException {
+        pickUpLeftovers();
         for (int i = 0; i < workers; i++) {
             final int index = i;
             Thread t = new Thread(() -> loop(index), "librarian-jobs-" + i);
@@ -742,6 +825,29 @@ public final class Jobs {
             t.start();
             threads.add(t);
         }
+    }
+
+    /** What the last service left: the queued jobs join the line, and the ones it left running are interrupted and put back to resume. */
+    synchronized void pickUpLeftovers() throws IOException {
+        migrate();
+        sweepLocks();
+        ObjectNode why = null;
+        String before = null;
+        try { if (Files.isRegularFile(versionFile())) before = Files.readString(versionFile(), StandardCharsets.UTF_8).strip(); } catch (IOException ignored) { }
+        try { Files.createDirectories(dir()); AtomicWrite.text(versionFile(), Version.string() + "\n"); } catch (IOException ignored) { }
+        Set<String> active = new HashSet<>();
+        for (ObjectNode j : active()) {
+            String st = j.path("state").asText();
+            active.add(j.path("job_id").asText());
+            if ("queued".equals(st)) {
+                enqueue(j);
+            } else if ("running".equals(st)) {
+                if (why == null) why = whyStopped(before);
+                interrupted(j, why);
+            }
+        }
+        if (why == null) whyStopped(before);   // read once either way: the next start must not take this stop's reason for its own
+        Checkpoint.sweep(store, active);   // the kept work of a job that ended in a process that did not live to tidy it
     }
 
     public void stop() {
@@ -907,7 +1013,10 @@ public final class Jobs {
                     }
                     if (j != null) {
                         j.remove("waiting");
-                        j.put("state", "running"); j.put("started_at", Instant.now().toString());
+                        j.put("state", "running");
+                        // a job that resumes keeps the time it first started; the time it resumed is when its progress is measured from
+                        if (j.path("interruptions").isArray() && j.hasNonNull("started_at")) j.put("resumed_at", Instant.now().toString());
+                        else j.put("started_at", Instant.now().toString());
                         if (entry != null) j.put("drive", entry.drive()); else if (!drive.isEmpty()) j.put("drive", drive);   // the job record names the server it ran on
                         writeActive(j);
                         running.add(id);
@@ -964,7 +1073,11 @@ public final class Jobs {
     static String noProgressSince(ObjectNode j, long now) {
         if (!"running".equals(j.path("state").asText()) || !"research".equals(j.path("kind").asText())) return null;
         String last = j.path("progress").path("at").asText(j.path("started_at").asText(""));
-        try { return now - Instant.parse(last).toEpochMilli() >= STALL_MS ? last : null; }
+        String resumed = j.path("resumed_at").asText("");
+        try {
+            if (!resumed.isEmpty() && (last.isEmpty() || Instant.parse(resumed).isAfter(Instant.parse(last)))) last = resumed;   // a resumed run is measured from its resumption
+            return now - Instant.parse(last).toEpochMilli() >= STALL_MS ? last : null;
+        }
         catch (Exception unreadable) { return null; }
     }
 
@@ -984,6 +1097,15 @@ public final class Jobs {
         long end = j.hasNonNull("ended_at") ? Instant.parse(j.get("ended_at").asText()).toEpochMilli() : System.currentTimeMillis();
         r.put("elapsed_s", Math.max(0, (end - start) / 1000));
         r.put("restarted", j.path("restarted").asInt(0));
+        String resumed = resumedSentence(j);
+        if (!resumed.isEmpty()) {   // where a job a restart or an update interrupted picked up, or that it began again
+            r.put("resumed", resumed);
+            JsonNode last = j.path("interruptions").get(j.path("interruptions").size() - 1);
+            ObjectNode o = r.putObject("resume");
+            o.put("why", last.path("why").asText(UNCLEAN)); if (last.hasNonNull("to")) o.put("to", last.get("to").asText());
+            o.put("said", last.path("said").asText("")); o.put("at", last.path("at").asText(""));
+            if (j.hasNonNull("started_over")) o.put("started_over", j.get("started_over").asText());
+        }
         if (j.has("progress") && j.get("progress").isObject()) r.set("progress", j.get("progress"));
         String stalled = noProgressSince(j, System.currentTimeMillis());
         if (stalled != null) r.put("no_progress_since", stalled);

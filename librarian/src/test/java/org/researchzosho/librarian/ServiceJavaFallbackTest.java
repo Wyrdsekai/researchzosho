@@ -56,7 +56,13 @@ class ServiceJavaFallbackTest {
         int exit = s.indexOf("    exit 1\n", check);
         assertTrue(write > check && exit > write && exit < s.indexOf("& '" + BAT + "'"), "written, then exit 1, before the launcher: " + s);
         // the launcher's own Java (the build that carries one) counts: it is what the launcher uses
-        assertTrue(s.contains("$own = Join-Path (Split-Path (Split-Path '" + BAT + "')) 'jre\\bin\\java.exe'\n"), s);
+        assertTrue(s.contains("$rz = Split-Path (Split-Path '" + BAT + "'); $own = if (Test-Path -LiteralPath (Join-Path $rz 'current.txt')) { Join-Path $rz ('versions\\' + (Get-Content -LiteralPath (Join-Path $rz 'current.txt') -TotalCount 1).Trim() + '\\jre\\bin\\java.exe') } else { Join-Path $rz 'jre\\bin\\java.exe' }\n"),
+                "in the version current.txt names, or beside bin\\ before 0.7.2: " + s);
+        // a script written before 0.7.2 gets the same line at the update that moves its install to versions side by side
+        String old = "$log = 'x'\r\n$own = Join-Path (Split-Path (Split-Path '" + BAT + "')) 'jre\\bin\\java.exe'\r\nif (-not (Test-Path -LiteralPath $own)) { exit 1 }\r\n";
+        String now = Service.withVersionedJava(old);
+        assertTrue(now.contains("\r\n" + Service.OWN_JAVA.replace("{launcher}", BAT) + "\r\nif (-not"), now);
+        assertEquals(now, Service.withVersionedJava(now), "once");
         // the sentence, as PowerShell reads the single-quoted literal
         Matcher m = Pattern.compile("\\+ '  ((?:[^']|'')*)' \\+ \\[Environment\\]::NewLine").matcher(s);
         assertTrue(m.find(), s);

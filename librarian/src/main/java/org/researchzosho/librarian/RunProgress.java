@@ -136,6 +136,27 @@ public final class RunProgress {
         return typicalValue;
     }
 
+    /**
+     * Where a job a restart or an update interrupted picked up, or that it began again, in the reader's language: "Resumed after a restart,
+     * at unit 4,312 of 11,637." {@code v} is the job's view ({@link Jobs#view}); "" for a job never interrupted.
+     */
+    public static String resumed(JsonNode v) {
+        JsonNode r = v.path("resume");
+        Chrome c = Chrome.now();
+        if (c.english() || !r.isObject()) return v.path("resumed").asText("");
+        String to = r.path("to").asText("");
+        String why = switch (r.path("why").asText("")) {
+            case Jobs.RESTART -> c.t("a restart");
+            case Jobs.UPDATE -> to.isEmpty() ? c.t("an update") : c.t("an update to {0}", to);
+            default -> c.t("a stop the service did not finish (a crash, or the computer went off)");
+        };
+        boolean queued = "queued".equals(v.path("state").asText(""));
+        String said = r.path("said").asText("");
+        if (r.hasNonNull("started_over")) return c.t("Started again after {0}.", why) + " " + r.path("started_over").asText("");
+        if (said.isEmpty()) return queued ? c.t("Starts again after {0}; nothing had been kept yet.", why) : c.t("Started again after {0}; nothing had been kept yet.", why);
+        return queued ? c.t("Resumes after {0}, at {1}.", why, said) : c.t("Resumed after {0}, at {1}.", why, said);
+    }
+
     /** "1 hour 4 min", "12 min", "40 sec". */
     public static String elapsed(long seconds) {
         Chrome c = Chrome.now();
