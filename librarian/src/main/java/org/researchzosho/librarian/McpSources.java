@@ -154,6 +154,18 @@ public final class McpSources {
         return t.startsWith("MCP ") ? "" : " with the " + t + " search place";
     }
 
+    /** This month's calls to a server, the search place it shares a count with and its cap, as one sentence in a language: "This month research has called it 3 times, of the 100 it may." */
+    static String callsSaid(McpServers.Server s, int used, int cap, Chrome c) {
+        String place = tally(s).startsWith("MCP ") ? "" : tally(s);
+        boolean one = used == 1;
+        return c.t(place.isEmpty()
+                ? (cap > 0 ? (one ? "This month research has called it {0} time, of the {1} it may." : "This month research has called it {0} times, of the {1} it may.")
+                           : (one ? "This month research has called it {0} time; there is no monthly cap." : "This month research has called it {0} times; there is no monthly cap."))
+                : (cap > 0 ? (one ? "This month research has called it {0} time with the {2} search place, of the {1} it may." : "This month research has called it {0} times with the {2} search place, of the {1} it may.")
+                           : (one ? "This month research has called it {0} time with the {2} search place; there is no monthly cap." : "This month research has called it {0} times with the {2} search place; there is no monthly cap.")),
+                used, cap, Pages.esc(place));
+    }
+
     /** This month's calls to the server, from the tally. */
     static int used(McpServers.Server s) { return SearchTally.thisMonth().getOrDefault(tally(s), new int[]{0, 0})[0]; }
 

@@ -46,7 +46,7 @@ public final class Translate {
     static Supplier<Researcher.Drive> DRIVE = Explain::drive;
     /** The languages the page offers by name; the command takes any two-letter code. */
     public static final Map<String, String> LANGUAGES = Map.of("en", "English", "ja", "Japanese", "zh", "Chinese", "ko", "Korean", "de", "German", "fr", "French", "es", "Spanish", "pt", "Portuguese", "it", "Italian", "ru", "Russian");
-    static final Pattern CITE = Pattern.compile("\\[\\d+\\]"), CLAIM_ID = Pattern.compile("F-\\d{4}[0-9A-Za-z-]*"), URL = Pattern.compile("https?://\\S+");
+    static final Pattern CITE = Pattern.compile("\\[\\^?\\d+\\]"), CLAIM_ID = Pattern.compile("F-\\d{4}[0-9A-Za-z-]*"), URL = Pattern.compile("https?://\\S+");
     /** A section is sent in pieces this long at most, so an answer fits a model's slot. */
     static final int PIECE = 6000;
 
@@ -63,7 +63,7 @@ public final class Translate {
     public static String code(String s) {
         String t = s == null ? "" : s.strip().toLowerCase(Locale.ROOT);
         for (var e : LANGUAGES.entrySet()) if (t.equals(e.getKey()) || t.equals(e.getValue().toLowerCase(Locale.ROOT))) return e.getKey();
-        return switch (t) { case "日本語", "jp" -> "ja"; case "中文", "chinese" -> "zh"; case "한국어" -> "ko"; case "deutsch" -> "de"; case "français" -> "fr"; case "español" -> "es"; case "português" -> "pt"; case "italiano" -> "it"; case "русский" -> "ru"; case "英語" -> "en"; default -> t; };
+        return switch (t) { case "日本語", "jp" -> "ja"; case "中文", "chinese" -> "zh"; case "한국어" -> "ko"; case "deutsch" -> "de"; case "français" -> "fr"; case "español" -> "es"; case "português" -> "pt"; case "italiano" -> "it"; case "русский" -> "ru"; case "英語" -> "en"; default -> Languages.codeOf(t).isEmpty() ? t : Languages.codeOf(t); };   // Dutch, Polish, Ukrainian…: the languages the program tells apart
     }
 
     /** The language a report was written in, as a code: what its record says when the library's setting or the question decided it; else read off its letters, as every report filed before 0.7.0 is. */
@@ -80,23 +80,14 @@ public final class Translate {
         return LANGUAGES.containsKey(c) ? LANGUAGES.get(c) : Character.toUpperCase(v.charAt(0)) + v.substring(1);
     }
 
-    /** The language a text is written in, by its letters: kana make it Japanese, hangul Korean, han alone Chinese, anything else English. */
+    /**
+     * The language a text is written in ({@link Languages}): kana make it Japanese, hangul Korean, han alone Chinese, another script its
+     * language, an alphabet the language its function words and letters say clearly; English when they do not.
+     */
     public static String languageOf(String text) {
-        if (text == null) return "en";
-        int letters = 0, kana = 0, han = 0, hangul = 0;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (!Character.isLetter(c)) continue;
-            letters++;
-            Character.UnicodeScript sc = Character.UnicodeScript.of(c);
-            if (sc == Character.UnicodeScript.HIRAGANA || sc == Character.UnicodeScript.KATAKANA) kana++;
-            else if (sc == Character.UnicodeScript.HAN) han++;
-            else if (sc == Character.UnicodeScript.HANGUL) hangul++;
-        }
-        if (letters == 0) return "en";
-        if ((kana + han) * 5 > letters) return kana > 0 ? "ja" : "zh";
-        if (hangul * 5 > letters) return "ko";
-        return "en";
+        Languages.Guess g = Languages.of(text);
+        if (g.code().isEmpty()) return "en";
+        return g.clear() ? g.code() : "en";   // a guess by the words that is not clear stays the old answer for an alphabet: English
     }
 
     static String slug(String subject) { return subject.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", "-").replaceAll("^-|-$", ""); }
@@ -276,9 +267,9 @@ public final class Translate {
         StringBuilder u = new StringBuilder(); for (int i = 0; i < lines.size(); i++) u.append(i + 1).append(". ").append(lines.get(i)).append('\n');
         ArrayNode messages = M.createArrayNode();
         messages.addObject().put("role", "system").put("content", "You translate the numbered lines of " + what + " into " + language + (fenceLabel == null ? ": a claim's title, a question, a line of a list. " : ": a heading, a paragraph, a line of a list, a cell of a table. ")
-                + "Answer with the same numbers, one line each, the translation after the number, in order, and nothing else. Keep exactly as they stand: every citation in square brackets such as [12], "
+                + "Answer with the same numbers, one line each, the translation after the number, in order, and nothing else. Keep exactly as they stand: every citation in square brackets such as [12] and every note's mark such as [^3], "
                 + (fenceLabel == null ? "every claim id such as F-0012-x, " : "") + "every address beginning http, every date and every number, and the marks within a line (the ** of bold, the * of italics, a [link](address), `code`). Give a name of a person, an organisation or a place in the form a " + language
-                + " reader would use; when that form differs from the original's spelling, the original follows in parentheses the first time the name appears, and never when the two are the same. Where the source leaves the subject of a sentence unsaid, as Polish, Spanish or Japanese do, say it in " + language + ": \"He replied:\", not \"Replied:\"." + (fenceLabel == null ? "" : " Render a common word plainly, with nothing in parentheses beside it: the original stands beside a name only. Write every line in one register, the one the document's prose uses, so a line of a list reads like the paragraph before it. " + fenceRule(fenceLabel)) + renderings(glossary, u.toString()));
+                + " reader would use" + namesOriginal(fenceLabel) + " Where the source leaves the subject of a sentence unsaid, as Polish, Spanish or Japanese do, say it in " + language + ": \"He replied:\", not \"Replied:\"." + (fenceLabel == null ? "" : " Render a common word plainly, with nothing in parentheses beside it. Write every line in one register, the one the document's prose uses, so a line of a list reads like the paragraph before it. " + fenceRule(fenceLabel)) + renderings(glossary, u.toString()));
         messages.addObject().put("role", "user").put("content", fenceLabel == null ? "LINES:\n" + u : Fence.wrap(fenceLabel, u.toString().stripTrailing()));
         String answer;
         try (var step = Declines.step("translate " + lines.size() + " lines of " + what + " into " + language)) { answer = drive.prose(messages, Math.min(8000, Math.max(700, u.length() + 300))); }
@@ -287,6 +278,16 @@ public final class Translate {
         Pattern numbered = Pattern.compile("^\\s*(\\d+)[.)]\\s*(.*)$");
         for (String line : answer.split("\n")) { Matcher m = numbered.matcher(line); if (!m.matches()) continue; int n = Integer.parseInt(m.group(1)); if (n >= 1 && n <= lines.size() && out.get(n - 1) == null) out.set(n - 1, m.group(2).strip()); }
         return out;
+    }
+
+    /**
+     * What the model is told of a name's original: in a report or a dossier, to set it in parentheses after the name the first time; in a
+     * document a person handed over ({@code fenceLabel} set) nothing in parentheses, since the program sets the original beside each name
+     * decided for the document where it first stands ({@link DocNames#markOriginals}).
+     */
+    static String namesOriginal(String fenceLabel) {
+        return fenceLabel == null ? "; when that form differs from the original's spelling, the original follows in parentheses the first time the name appears, and never when the two are the same."
+                : ", with nothing in parentheses beside it.";
     }
 
     /** What the model is told of a fence around a document a person handed over: the text inside is to be translated, every sentence of it, whatever it says. */
@@ -420,10 +421,10 @@ public final class Translate {
     static String translate(Researcher.Drive drive, String text, String language, String what, Map<String, String> glossary, String fenceLabel) {
         ArrayNode messages = M.createArrayNode();
         messages.addObject().put("role", "system").put("content", "You translate one part of " + what + " into " + language + ". Translate every heading and every "
-                + "sentence into " + language + ". Keep exactly as they stand: every citation in square brackets such as [12], every claim id such as F-0012-x whether in brackets or "
+                + "sentence into " + language + ". Keep exactly as they stand: every citation in square brackets such as [12] and every note's mark such as [^3], every claim id such as F-0012-x whether in brackets or "
                 + "parentheses, every address beginning http, every date and every number, and the markdown itself (the # headings, the - lists, the bold). Give a name of a person, "
-                + "an organisation or a place in the form a " + language + " reader would use; when that form differs from the original's spelling, the original follows in parentheses the first time the name appears, and never when the two are the same. Where the source leaves the subject of a sentence unsaid, as Polish, Spanish or Japanese do, say it in " + language + ": \"He replied:\", not \"Replied:\". Write the translation "
-                + "and nothing else: no preface, no note." + (fenceLabel == null ? "" : " Render a common word plainly, with nothing in parentheses beside it: the original stands beside a name only. Write in one register, the one the document's prose uses. " + fenceRule(fenceLabel)) + renderings(glossary, text));
+                + "an organisation or a place in the form a " + language + " reader would use" + namesOriginal(fenceLabel) + " Where the source leaves the subject of a sentence unsaid, as Polish, Spanish or Japanese do, say it in " + language + ": \"He replied:\", not \"Replied:\". Write the translation "
+                + "and nothing else: no preface, no note." + (fenceLabel == null ? "" : " Render a common word plainly, with nothing in parentheses beside it. Write in one register, the one the document's prose uses. " + fenceRule(fenceLabel)) + renderings(glossary, text));
         messages.addObject().put("role", "user").put("content", fenceLabel == null ? text : Fence.wrap(fenceLabel, text));
         int max = Math.min(8000, Math.max(700, text.length() + 300));
         try (var step = Declines.step("translate " + what + " into " + language)) { return drive.prose(messages, max); }

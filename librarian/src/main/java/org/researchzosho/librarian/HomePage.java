@@ -210,7 +210,7 @@ public final class HomePage {
         if (!l.link().isEmpty()) b.append(" <a href=\"").append(Pages.esc(l.link())).append("\">").append(l.ownPage() && !l.url().contains("/search?q=") ? t("open its page") : t("search the web for it")).append("</a>");   // the home itself: its own page, or a search for its full address
         if (!l.seenOn().isEmpty()) b.append(" · <a href=\"").append(Pages.esc(l.seenOn())).append("\">").append(c.english() ? "seen on " + Pages.esc(HomeFind.possessive(l.seenOnName())) + " page" : t("seen on the page of {0}", Pages.esc(l.seenOnName()))).append("</a>");
         if (!r.reactionWord().isEmpty()) b.append(" <span class=\"k\">").append(r.reactionWord().equals("like") ? t("liked") : t("passed")).append(r.reaction().path("why").asText("").isBlank() ? "" : ": " + Pages.esc(r.reaction().path("why").asText())).append("</span>");
-        if (r.card() != null) b.append(" <span class=\"k\">· ").append(t("card {0}", Pages.esc(HomeCard.state(r.card())))).append("</span>");
+        if (r.card() != null) b.append(" <span class=\"k\">· ").append(Chrome.now().english() ? t("card {0}", Pages.esc(HomeCard.state(r.card()))) : Pages.esc(HomeCard.state(r.card(), Chrome.now()))).append("</span>");
         return b.toString();
     }
 
@@ -256,7 +256,7 @@ public final class HomePage {
         if (cs.isEmpty()) return "";
         StringBuilder b = new StringBuilder("<p class=\"k\">").append(t("A card: the records of the home read first, the flood zone, the schools and the stops around it, and where a city's own portal answers, what was paid on the street and the permits; then a research run on the library's model for the rest. The run's report lands on the Dossiers page.")).append("</p><ul>");
         for (ObjectNode c : cs) {
-            b.append("<li><b>").append(Pages.esc(c.path("line").asText(""))).append("</b> <span class=\"k\">").append(Pages.esc(HomeCard.state(c))).append("</span>");
+            b.append("<li><b>").append(Pages.esc(c.path("line").asText(""))).append("</b> <span class=\"k\">").append(Pages.esc(HomeCard.state(c, Chrome.now()))).append("</span>");
             String recordsLine = c.path("records_line").asText("");
             if (!recordsLine.isEmpty()) b.append("<br><span class=\"k\">").append(linked(recordsLine)).append("</span>");
             String records = c.path("records").asText("");

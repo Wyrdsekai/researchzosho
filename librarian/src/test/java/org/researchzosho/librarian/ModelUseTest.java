@@ -31,6 +31,7 @@ class ModelUseTest {
             @Override public List<String> models(String b, String key) { asked.add("models " + b); return b.equals(base) ? ids : null; }
             @Override public String chat(String b, String model, String key) { asked.add("chat " + model); return silent.contains(model) ? "!the server answered 500" : "ready"; }
             @Override public boolean embeds(String b, String key) { return false; }
+            @Override public ModelSlots.Plan slots(String b, String model) { return ModelSlots.plan(b.equals(base) ? 4 : 0, "stood in"); }
             @Override public boolean searxng(String b) { return false; }
             @Override public boolean brave(String key) { return false; }
         };

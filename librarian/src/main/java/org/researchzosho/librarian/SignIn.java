@@ -38,8 +38,8 @@ final class SignIn {
     static String loginPage(LibraryStore store, String note, HttpExchange x, String waiting) throws IOException {
         StringBuilder b = new StringBuilder();
         if (note != null) b.append("<p class=\"err\">").append(esc(note)).append("</p>");
-        if (!WebAccess.signInRequired()) b.append("<p>").append(esc(WebAccess.OPEN_NOTICE)).append(" ").append(t("Signing in only puts your name on what you send.")).append(" ")
-                .append(t("Run {0} on the computer where the library lives to change that.", "<code>" + esc(WebAccess.OPEN_HOWTO).replaceFirst("^.*run: ", "") + "</code>")).append("</p>");
+        if (!WebAccess.signInRequired()) b.append("<p>").append(t("Access is open.")).append(" ").append(t("Signing in only puts your name on what you send.")).append(" ")
+                .append(t("Run {0} on the computer where the library lives to change that.", "<code>" + esc(WebAccess.OPEN_COMMAND) + "</code>")).append("</p>");
         else b.append("<p class=\"k\">").append(t("Sign in with the name and password you chose when you were let in. The person who keeps this library signs in the same way.")).append("</p>");
         b.append("<form method=\"post\" action=\"/login\" class=\"stack\" id=\"signin\"><label>").append(t("Name")).append("<br><input name=\"name\" size=\"40\" autocomplete=\"username\" autofocus></label>")
          .append("<label>").append(t("Password")).append("<br><input type=\"password\" name=\"password\" size=\"40\" autocomplete=\"current-password\"></label><button>").append(t("Sign in")).append("</button></form>");
@@ -53,11 +53,11 @@ final class SignIn {
               .append(login == null ? "" : " " + t("You are {0} to the relay you came through, and the request says so.", esc(login))).append("</p>")
               .append("<form method=\"post\" action=\"/login\" class=\"stack\"><input type=\"hidden\" name=\"ask\" value=\"1\"><label>").append(t("Your name")).append("<br><input name=\"name\" size=\"40\" autocomplete=\"name\" value=\"").append(esc(name == null ? "" : name)).append("\"></label>")
               .append("<label>").append(t("A password of your choosing (at least {0} characters)", Passwords.MIN)).append("<br><input type=\"password\" name=\"password\" size=\"40\" autocomplete=\"new-password\"></label>")
-              .append("<label>").append(t("A note for them")).append("<br><input name=\"note\" size=\"60\"></label><button>").append(t("Ask")).append("</button></form>");
+              .append("<label>").append(t("A note for them")).append("<br><input name=\"note\" size=\"60\"></label><button>").append(Chrome.now().tc("Ask", "the button that sends a request to be let into the library")).append("</button></form>");
         b.append("<details><summary>").append(t("A program's token")).append("</summary><p class=\"k\">").append(t("A program (an MCP host, a script) signs in with a token the person who keeps the library makes for it. A person pastes one here only when they were given one.")).append("</p>")
          .append("<form method=\"post\" action=\"/login\" class=\"stack\"><label>").append(t("Token")).append("<br><input name=\"token\" size=\"60\"></label><button class=\"quiet\">").append(t("Sign in with the token")).append("</button></form>")
          .append("<p class=\"k\">").append(t("On the computer where the library lives:")).append("</p><pre>").append(esc(Patrons.TOKEN_HOWTO)).append("\n").append(esc(Patrons.INVITE_HOWTO)).append("</pre></details>");
-        b.append("<script>").append(LOGIN_JS).append("</script>");
+        b.append("<script>").append(script(LOGIN_JS)).append("</script>");
         return Pages.page(store, Patrons.Patron.ANONYMOUS, t("Sign in"), b.toString());
     }
 
@@ -223,7 +223,7 @@ final class SignIn {
             return Pages.page(store, patron, t("Your account"), b.toString());
         }
         boolean local = patron.person() && Pages.cookie(x, Pages.COOKIE) == null;   // the owner on the library's own computer: no password asked for a change
-        b.append("<p>").append(t("You sign in as {0}, with {1}.", "<b>" + esc(a.name()) + "</b>", esc(a.ways()))).append(a.owner() ? " " + t("You keep this library.") : "").append("</p>");
+        b.append("<p>").append(t("You sign in as {0}, with {1}.", "<b>" + esc(a.name()) + "</b>", esc(a.ways(Chrome.now())))).append(a.owner() ? " " + t("You keep this library.") : "").append("</p>");
         b.append("<h2>").append(t("Name and password")).append("</h2><form method=\"post\" action=\"/account\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"password\">")
          .append("<label>").append(t("Name")).append("<br><input name=\"name\" size=\"40\" value=\"").append(esc(a.name())).append("\" autocomplete=\"username\"></label>");
         if (a.hasPassword() && !local) b.append("<label>").append(t("Current password")).append("<br><input type=\"password\" name=\"current\" size=\"40\" autocomplete=\"current-password\"></label>");
@@ -257,7 +257,7 @@ final class SignIn {
             b.append("</table>\n<form method=\"post\" action=\"/account\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"signout-all\"><button class=\"quiet\">").append(t("Sign out everywhere")).append("</button></form>");
         }
         b.append("<h2>").append(t("For a program of yours")).append("</h2>").append(ApiKeysPage.section(store, patron, q, "/account"));
-        b.append("<script>").append(ACCOUNT_JS).append("</script>");
+        b.append("<script>").append(script(ACCOUNT_JS)).append("</script>");
         return Pages.page(store, patron, t("Your account"), b.toString());
     }
 
@@ -319,18 +319,18 @@ final class SignIn {
     /** POST /login/passkey/options and /account/passkey/options. */
     static void passkeyOptions(HttpExchange x, LibraryStore store, Patrons.Patron patron, boolean register) throws IOException {
         if (register) {
-            if (!hasAccountPage(patron)) { Pages.sendJson(x, 403, why("Sign in first.")); return; }
+            if (!hasAccountPage(patron)) { Pages.sendJson(x, 403, why(t("Sign in first."))); return; }
             Accounts.Account a = Accounts.byDid(store, patron.did());
-            if (a == null) { Pages.sendJson(x, 403, why("Make your account first.")); return; }
+            if (a == null) { Pages.sendJson(x, 403, why(t("Make your account first."))); return; }
             Pages.sendJson(x, 200, Passkeys.registerOptions(store, a, x));
         } else Pages.sendJson(x, 200, Passkeys.signInOptions(x));
     }
 
     /** POST /account/passkey: the browser's new credential, checked and kept. */
     static void passkeyRegister(HttpExchange x, LibraryStore store, Patrons.Patron patron) throws IOException {
-        if (!hasAccountPage(patron)) { Pages.sendJson(x, 403, why("Sign in first.")); return; }
+        if (!hasAccountPage(patron)) { Pages.sendJson(x, 403, why(t("Sign in first."))); return; }
         Accounts.Account a = Accounts.byDid(store, patron.did());
-        if (a == null) { Pages.sendJson(x, 403, why("Make your account first.")); return; }
+        if (a == null) { Pages.sendJson(x, 403, why(t("Make your account first."))); return; }
         try {
             Passkeys.register(store, a, x, body(x));
             Pages.sendJson(x, 200, ok());
@@ -343,7 +343,7 @@ final class SignIn {
             Accounts.Account a = Passkeys.signIn(store, x, body(x));
             if (!a.owner()) {
                 Patrons.Entry listed = Patrons.byDid(store, a.did());
-                if (listed == null || listed.level() == Patrons.Level.deny) { Pages.sendJson(x, 403, why("This account is no longer a reader of this library.")); return; }
+                if (listed == null || listed.level() == Patrons.Level.deny) { Pages.sendJson(x, 403, why(t("This account is no longer a reader of this library."))); return; }
             }
             signedIn(x, store, a);
             Pages.sendJson(x, 200, ok());
@@ -352,9 +352,9 @@ final class SignIn {
 
     private static JsonNode body(HttpExchange x) throws IOException {
         String s = (String) x.getAttribute(LibrarianDaemon.BODY);
-        if (s == null || s.isBlank()) throw new IOException("The browser sent nothing.");
+        if (s == null || s.isBlank()) throw new IOException(t("The browser sent nothing."));
         JsonNode n = Accounts.M.readTree(s);
-        if (!n.isObject()) throw new IOException("The browser sent something that is not a passkey.");
+        if (!n.isObject()) throw new IOException(t("The browser sent something that is not a passkey."));
         return n;
     }
 
@@ -363,23 +363,39 @@ final class SignIn {
 
     // ---- the scripts ----
 
+    /**
+     * A script with its sentences in the person's language: each T_… name in it is replaced by its sentence as a JavaScript string, the
+     * address or the browser's own error filled into {0} by the script itself.
+     */
+    static String script(String js) {
+        return js.replace("T_NAME", Pages.js(t("Passkeys need an address with a name, not a number: on this computer open {0} instead, or use the https address researchzosho share gives.")))
+                .replace("T_HTTPS", Pages.js(t("Passkeys need an https address (researchzosho share --tailscale gives one), or http://localhost on the library's own computer.")))
+                .replace("T_NOT_ACCEPTED", Pages.js(t("The passkey was not accepted.")))
+                .replace("T_NOT_USED", Pages.js(t("No passkey was used.")))
+                .replace("T_COULD_NOT_USE", Pages.js(t("The passkey could not be used: {0}")))
+                .replace("T_ADDED", Pages.js(t("The passkey is added.")))
+                .replace("T_NOT_KEPT", Pages.js(t("The passkey was not kept.")))
+                .replace("T_NOT_MADE", Pages.js(t("No passkey was made.")))
+                .replace("T_COULD_NOT_MAKE", Pages.js(t("The passkey could not be made: {0}")));
+    }
+
     /** base64url to bytes and back, shared by both scripts. */
     private static final String B64_JS = "function u2b(s){s=s.replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';var r=atob(s),a=new Uint8Array(r.length);for(var i=0;i<r.length;i++)a[i]=r.charCodeAt(i);return a.buffer}"
             + "function b2u(b){var a=new Uint8Array(b),s='';for(var i=0;i<a.length;i++)s+=String.fromCharCode(a[i]);return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'')}"
-            + "function ready(btn,why){if(/^[\\d.]+$|^\\[/.test(location.hostname)){btn.disabled=true;why.textContent='Passkeys need an address with a name, not a number: on this computer open http://localhost:'+(location.port||'80')+'/ instead, or use the https address researchzosho share gives.';return false}"
-            + "if(!window.isSecureContext||!window.PublicKeyCredential){btn.disabled=true;why.textContent='Passkeys need an https address (researchzosho share --tailscale gives one), or http://localhost on the library\\'s own computer.';return false}return true}";
+            + "function ready(btn,why){if(/^[\\d.]+$|^\\[/.test(location.hostname)){btn.disabled=true;why.textContent=T_NAME.replace('{0}','http://localhost:'+(location.port||'80')+'/');return false}"
+            + "if(!window.isSecureContext||!window.PublicKeyCredential){btn.disabled=true;why.textContent=T_HTTPS;return false}return true}";
 
     static final String LOGIN_JS = "(function(){var b=document.getElementById('passkey'),w=document.getElementById('passkey-why');if(!b)return;" + B64_JS
             + "if(!ready(b,w))return;b.addEventListener('click',function(){w.textContent='';fetch('/login/passkey/options',{method:'POST'}).then(function(r){return r.json()}).then(function(o){"
             + "o.challenge=u2b(o.challenge);(o.allowCredentials||[]).forEach(function(c){c.id=u2b(c.id)});return navigator.credentials.get({publicKey:o})}).then(function(c){"
             + "var r={id:c.id,rawId:b2u(c.rawId),type:c.type,response:{clientDataJSON:b2u(c.response.clientDataJSON),authenticatorData:b2u(c.response.authenticatorData),signature:b2u(c.response.signature),userHandle:c.response.userHandle?b2u(c.response.userHandle):null}};"
-            + "return fetch('/login/passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)})}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.href='/';else w.textContent=j.why||'The passkey was not accepted.'})"
-            + ".catch(function(e){w.textContent=(e&&e.name==='NotAllowedError')?'No passkey was used.':'The passkey could not be used: '+(e&&e.message?e.message:e)})})})();";
+            + "return fetch('/login/passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)})}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.href='/';else w.textContent=j.why||T_NOT_ACCEPTED})"
+            + ".catch(function(e){w.textContent=(e&&e.name==='NotAllowedError')?T_NOT_USED:T_COULD_NOT_USE.replace('{0}',e&&e.message?e.message:e)})})})();";
 
     static final String ACCOUNT_JS = "(function(){var b=document.getElementById('passkey-add'),w=document.getElementById('passkey-why');if(!b)return;" + B64_JS
             + "if(!ready(b,w))return;b.addEventListener('click',function(){w.textContent='';fetch('/account/passkey/options',{method:'POST'}).then(function(r){return r.json()}).then(function(o){"
             + "if(o.ok===false)throw new Error(o.why);o.challenge=u2b(o.challenge);o.user.id=u2b(o.user.id);(o.excludeCredentials||[]).forEach(function(c){c.id=u2b(c.id)});return navigator.credentials.create({publicKey:o})}).then(function(c){"
             + "var r={id:c.id,rawId:b2u(c.rawId),type:c.type,label:navigator.userAgent,response:{clientDataJSON:b2u(c.response.clientDataJSON),attestationObject:b2u(c.response.attestationObject)}};"
-            + "return fetch('/account/passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)})}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.href='/account?note='+encodeURIComponent('The passkey is added.');else w.textContent=j.why||'The passkey was not kept.'})"
-            + ".catch(function(e){w.textContent=(e&&e.name==='NotAllowedError')?'No passkey was made.':'The passkey could not be made: '+(e&&e.message?e.message:e)})})})();";
+            + "return fetch('/account/passkey',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(r)})}).then(function(r){return r.json()}).then(function(j){if(j.ok)location.href='/account?note='+encodeURIComponent(T_ADDED);else w.textContent=j.why||T_NOT_KEPT})"
+            + ".catch(function(e){w.textContent=(e&&e.name==='NotAllowedError')?T_NOT_MADE:T_COULD_NOT_MAKE.replace('{0}',e&&e.message?e.message:e)})})})();";
 }

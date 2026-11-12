@@ -6,14 +6,15 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 
 /**
  * Where to find help, shown first when a question reads as a person asking about harming themselves, before the library asks whether
  * to research it. In plain words, free lines first, the line for the person's country first when their locale says which country it
- * is (the locale a program sends with the question, else the machine's), then the worldwide directory, then the others. In English,
- * Spanish or Japanese, by the locale's language; English otherwise. A program also gets the lines as data ({@link #data}).
+ * is (the locale a program sends with the question, else the machine's; in the chat, the chat's language with the machine's country),
+ * then the worldwide directory, then the others. Every sentence is the interface's words ({@link Chrome}: the English here is the key,
+ * each language's file carries its own), so the help is in every language the program has a file for, by the locale's language, and in
+ * English for one it has none for; the names of the services and their numbers stay as they are. A program also gets the lines as data
+ * ({@link #data}).
  *
  * <p>Checked against each service's own page:
  * <ul>
@@ -45,64 +46,48 @@ public final class CrisisHelp {
 
     private static final ObjectMapper M = new ObjectMapper();
 
-    /** The languages the help is written in; any other falls back to English. */
-    static final Set<String> LANGUAGES = Set.of("en", "es", "ja");
-
-    /** One service: the ISO country codes it serves, its name, how to reach it, when, whether it is free, its page, and its sentence by language. */
-    record Line(List<String> countries, String name, String contact, String hours, boolean free, String url, Map<String, String> text) { }
+    /** One service: the ISO country codes it serves, its name, how to reach it, when, whether it is free, its page, and its sentence in English (the key of its sentence in every language). */
+    record Line(List<String> countries, String name, String contact, String hours, boolean free, String url, String text) { }
 
     static final List<Line> LINES = List.of(
             new Line(List.of("US", "CA"), "988 Suicide & Crisis Lifeline", "call or text 988", "any hour", true, "https://988lifeline.org",
-                    Map.of("en", "In the United States and Canada: call or text 988, free, at any hour.",
-                           "es", "En Estados Unidos y Canadá: llama o envía un mensaje de texto al 988, gratis, a cualquier hora. En Estados Unidos te atienden en español.",
-                           "ja", "アメリカとカナダ：988 に電話またはテキストメッセージ（無料、24時間）。")),
+                    "In the United States and Canada: call or text 988, free, at any hour."),
             new Line(List.of("GB", "IE"), "Samaritans", "call 116 123", "any hour", true, "https://www.samaritans.org",
-                    Map.of("en", "In the United Kingdom and Ireland: call Samaritans on 116 123, free, at any hour.",
-                           "es", "En el Reino Unido e Irlanda: llama a Samaritans al 116 123, gratis, a cualquier hora.",
-                           "ja", "イギリスとアイルランド：Samaritans 116 123（無料、24時間）。")),
+                    "In the United Kingdom and Ireland: call Samaritans on 116 123, free, at any hour."),
             new Line(List.of("JP"), "よりそいホットライン / いのちの電話", "0120-279-338 / 0120-783-556",
                     "よりそいホットライン any hour; いのちの電話 every day 16:00-21:00", true, "https://www.mhlw.go.jp/mamorouyokokoro/soudan/tel/",
-                    Map.of("en", "In Japan: よりそいホットライン 0120-279-338, free, at any hour; or いのちの電話 0120-783-556, free, every day from 16:00 to 21:00.",
-                           "es", "En Japón: よりそいホットライン 0120-279-338, gratis, a cualquier hora; o いのちの電話 0120-783-556, gratis, todos los días de 16:00 a 21:00.",
-                           "ja", "日本：よりそいホットライン 0120-279-338（無料、24時間）、いのちの電話 0120-783-556（無料、毎日16時から21時）。")),
+                    "In Japan: よりそいホットライン 0120-279-338, free, at any hour; or いのちの電話 0120-783-556, free, every day from 16:00 to 21:00."),
             new Line(List.of("AU"), "Lifeline", "call 13 11 14", "any hour", false, "https://www.lifeline.org.au",
-                    Map.of("en", "In Australia: call Lifeline on 13 11 14, at any hour.",
-                           "es", "En Australia: llama a Lifeline al 13 11 14, a cualquier hora.",
-                           "ja", "オーストラリア：Lifeline 13 11 14（24時間）。")),
+                    "In Australia: call Lifeline on 13 11 14, at any hour."),
             new Line(List.of("DE"), "TelefonSeelsorge", "call 0800 111 0 111 or 0800 111 0 222", "day and night", true, "https://www.telefonseelsorge.de",
-                    Map.of("en", "In Germany: TelefonSeelsorge, 0800 111 0 111 or 0800 111 0 222, free, day and night.",
-                           "es", "En Alemania: TelefonSeelsorge, 0800 111 0 111 o 0800 111 0 222, gratis, de día y de noche.",
-                           "ja", "ドイツ：TelefonSeelsorge 0800 111 0 111 または 0800 111 0 222（無料、昼夜）。")),
+                    "In Germany: TelefonSeelsorge, 0800 111 0 111 or 0800 111 0 222, free, day and night."),
             new Line(List.of("ES"), "Línea 024", "call 024", "any hour", true, "https://www.sanidad.gob.es/linea024/home.htm",
-                    Map.of("en", "In Spain: call 024, free and confidential, at any hour.",
-                           "es", "En España: llama al 024, gratis y confidencial, a cualquier hora.",
-                           "ja", "スペイン：024（無料、秘密厳守、24時間）。")),
+                    "In Spain: call 024, free and confidential, at any hour."),
             new Line(List.of("AR"), "Centro de Asistencia al Suicida", "call 135 (free from Buenos Aires city and Greater Buenos Aires), or (011) 5275-1135 or 0800 345 1435 from anywhere in the country",
                     "every day 8:00-0:00", true, "https://www.asistenciaalsuicida.org.ar",
-                    Map.of("en", "In Argentina: call 135, free from Buenos Aires city and Greater Buenos Aires; from anywhere in the country, (011) 5275-1135 or 0800 345 1435; from 8:00 to midnight.",
-                           "es", "En Argentina: llama al 135, gratis desde la Ciudad y el Gran Buenos Aires; desde todo el país, al (011) 5275-1135 o al 0800 345 1435; de 8:00 a 24:00.",
-                           "ja", "アルゼンチン：135（ブエノスアイレス市と大ブエノスアイレス圏から無料）、国内のどこからでも (011) 5275-1135 または 0800 345 1435（8時から24時）。")));
+                    "In Argentina: call 135, free from Buenos Aires city and Greater Buenos Aires; from anywhere in the country, (011) 5275-1135 or 0800 345 1435; from 8:00 to midnight."));
 
-    static final Map<String, String> DIRECTORY = Map.of(
-            "en", "Anywhere in the world: findahelpline.com lists free helplines in more than 175 countries.",
-            "es", "En cualquier lugar del mundo: findahelpline.com reúne líneas de ayuda gratuitas de más de 175 países.",
-            "ja", "世界のどこからでも：findahelpline.com に175以上の国の無料相談窓口が載っています。");
+    static final String DIRECTORY = "Anywhere in the world: findahelpline.com lists free helplines in more than 175 countries.";
 
-    static final Map<String, String> OPENING = Map.of(
-            "en", "If you are thinking about harming yourself, you can talk to someone now, in confidence.",
-            "es", "Si estás pensando en hacerte daño, puedes hablar ahora mismo con alguien, de forma confidencial.",
-            "ja", "自分を傷つけることを考えているなら、今すぐ誰かに話を聞いてもらえます。秘密は守られます。");
+    static final String OPENING = "If you are thinking about harming yourself, you can talk to someone now, in confidence.";
 
-    static final Map<String, String> EMERGENCY = Map.of(
-            "en", "If you are in danger right now, call your local emergency number.",
-            "es", "Si estás en peligro ahora mismo, llama al número de emergencias de tu zona.",
-            "ja", "今まさに危険な状態なら、地域の緊急通報番号（日本では119または110）に電話してください。");
+    static final String EMERGENCY = "If you are in danger right now, call your local emergency number.";
 
-    /** The language the help is written in for {@code locale}: its language when the help has it, English otherwise. */
-    static String language(Locale locale) {
-        String l = locale == null ? "" : locale.getLanguage().toLowerCase(Locale.ROOT);
-        return LANGUAGES.contains(l) ? l : "en";
+    /** Every sentence of the help, in English: the keys each language's file must carry ({@code ChromeFilesTest} holds every file to them). */
+    static List<String> sentences() {
+        List<String> out = new ArrayList<>(List.of(OPENING, DIRECTORY, EMERGENCY));
+        for (Line l : LINES) out.add(l.text());
+        return out;
     }
+
+    /** The language the help is written in for {@code locale}: its language when the program has a file for it, English otherwise. */
+    static String language(Locale locale) {
+        String l = locale == null ? "" : Chrome.codeOf(locale.toLanguageTag());
+        return Chrome.available().contains(l) ? l : Chrome.EN;
+    }
+
+    /** A sentence of the help in a language. */
+    static String said(String english, String lang) { return Chrome.in(lang).t(english); }
 
     /** The lines in the order they are shown: the one for {@code locale}'s country first when there is one, then the others. */
     static List<Line> ordered(Locale locale) {
@@ -122,17 +107,20 @@ public final class CrisisHelp {
     /** The help, for the machine's own locale. */
     public static String text() { return text(Locale.getDefault()); }
 
+    /** The help in the language the chat speaks, with the machine's country first when the help has a line for it. */
+    public static String text(Chrome c) { return text(Locale.forLanguageTag(c.code + (Locale.getDefault().getCountry().isEmpty() ? "" : "-" + Locale.getDefault().getCountry()))); }
+
     /** The help in {@code locale}'s language: the line for its country first when there is one, then the directory, then the other lines. */
     public static String text(Locale locale) {
         String lang = language(locale);
         List<Line> lines = ordered(locale);
         boolean own = hasOwn(locale);
-        StringBuilder b = new StringBuilder(OPENING.get(lang));
+        StringBuilder b = new StringBuilder(said(OPENING, lang));
         for (int i = 0; i < lines.size(); i++) {
-            if (i == (own ? 1 : 0)) b.append("\n- ").append(DIRECTORY.get(lang));
-            b.append("\n- ").append(lines.get(i).text().get(lang));
+            if (i == (own ? 1 : 0)) b.append("\n- ").append(said(DIRECTORY, lang));
+            b.append("\n- ").append(said(lines.get(i).text(), lang));
         }
-        b.append("\n").append(EMERGENCY.get(lang));
+        b.append("\n").append(said(EMERGENCY, lang));
         return b.toString();
     }
 
@@ -152,16 +140,18 @@ public final class CrisisHelp {
             Line l = lines.get(i);
             ObjectNode o = out.addObject();
             ArrayNode c = o.putArray("countries"); l.countries().forEach(c::add);
-            o.put("name", l.name()).put("contact", l.contact()).put("hours", l.hours()).put("free", l.free()).put("url", l.url()).put("text", l.text().get(lang));
+            o.put("name", l.name()).put("contact", l.contact()).put("hours", l.hours()).put("free", l.free()).put("url", l.url()).put("text", said(l.text(), lang));
         }
         return d;
     }
 
     private static void directory(ObjectNode o, String lang) {
         o.putArray("countries").add("*");
-        o.put("name", "Find A Helpline").put("contact", "findahelpline.com").put("hours", "").put("free", true).put("url", "https://findahelpline.com").put("text", DIRECTORY.get(lang));
+        o.put("name", "Find A Helpline").put("contact", "findahelpline.com").put("hours", "").put("free", true).put("url", "https://findahelpline.com").put("text", said(DIRECTORY, lang));
     }
 
     /** The question after the help, where a person can answer; no is the answer Enter gives, and no means nothing is researched. */
-    public static final String QUESTION = "Do you want the library to research this question? (y/N)";
+    public static final String ASK = "Do you want the library to research this question?";
+    /** The same with its English hint, for the command line, which asks in English. */
+    public static final String QUESTION = ASK + " (y/N)";
 }

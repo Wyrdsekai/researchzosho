@@ -47,6 +47,6 @@ public final class ReadIn {
     /** A language's name for a person, from its code or its name: ja → Japanese; one the library has no name for, as given. */
     public static String name(String language) {
         String c = Translate.code(language);
-        return Translate.LANGUAGES.containsKey(c) ? Translate.LANGUAGES.get(c) : c.length() > 2 ? Character.toUpperCase(c.charAt(0)) + c.substring(1) : c;
+        return Translate.LANGUAGES.containsKey(c) ? Translate.LANGUAGES.get(c) : Languages.NAMES.containsKey(c) ? Languages.NAMES.get(c) : c.length() > 2 ? Character.toUpperCase(c.charAt(0)) + c.substring(1) : c;
     }
 }

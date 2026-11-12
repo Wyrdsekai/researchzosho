@@ -434,8 +434,35 @@ public final class WebFetchTool implements Tool {
         s = s.replaceAll("(?is)<!--.*?-->", " ");
         // the page's own content when it marks it: what is outside <main> is the site's menus, and so is a nav, a header or a footer inside it
         Matcher main = Pattern.compile("(?is)<main\\b[^>]*>(.*)</main>").matcher(s);
-        if (main.find() && main.group(1).replaceAll("(?s)<[^>]+>", "").strip().length() > 200) s = main.group(1);
-        return s.replaceAll("(?is)<(nav|footer)\\b[^>]*>.*?</\\1>", " ");
+        if (main.find() && main.group(1).replaceAll("(?s)<[^>]+>", "").strip().length() > 200) {
+            // the notes of the text stand outside <main> on some pages: kept after it
+            StringBuilder notes = new StringBuilder();
+            String outside = s.substring(0, main.start()) + " " + s.substring(main.end());
+            Matcher n = NOTES_START.matcher(outside);
+            while (n.find()) { String el = element(outside, n.start(), n.group(1)); notes.append(' ').append(el); }
+            s = main.group(1) + notes;
+        }
+        // a nav or a footer is the site's, except one that holds the text's notes (a footer of footnotes, an endnotes list)
+        Matcher f = Pattern.compile("(?is)<(nav|footer)\\b[^>]*>.*?</\\1>").matcher(s);
+        StringBuilder out = new StringBuilder();
+        while (f.find()) f.appendReplacement(out, Matcher.quoteReplacement(NOTES_START.matcher(f.group()).find() ? f.group() : " "));
+        f.appendTail(out);
+        return out.toString();
+    }
+
+    /** The start of an element that holds a text's notes: epub:type, role or class naming footnotes or endnotes. */
+    static final Pattern NOTES_START = Pattern.compile("(?is)<(section|aside|div|ol|ul|footer|nav)\\b[^>]*\\b(?:epub:type|role|class)\\s*=\\s*[\"'][^\"']*(?:footnote|endnote|rearnote|doc-notes)[^\"']*[\"'][^>]*>");
+
+    /** The element that starts at {@code start}, to its own closing tag (elements of the same name inside it counted). */
+    static String element(String html, int start, String tag) {
+        Matcher m = Pattern.compile("(?is)<(/?)" + Pattern.quote(tag) + "\\b[^>]*>").matcher(html);
+        int depth = 0;
+        m.region(start, html.length());
+        while (m.find()) {
+            if (m.group(1).isEmpty()) depth++; else depth--;
+            if (depth == 0) return html.substring(start, m.end());
+        }
+        return html.substring(start);
     }
 
     // ---- the pictures in a page ----

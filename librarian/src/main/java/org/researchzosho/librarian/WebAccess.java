@@ -37,5 +37,7 @@ public final class WebAccess {
 
     /** The line the home page and the installer show while the pages are open. */
     public static final String OPEN_NOTICE = "Access is open.";
-    public static final String OPEN_HOWTO = "To require sign-in, run: researchzosho web signin on";
+    /** The command that turns the sign-in on. */
+    public static final String OPEN_COMMAND = "researchzosho web signin on";
+    public static final String OPEN_HOWTO = "To require sign-in, run: " + OPEN_COMMAND;
 }

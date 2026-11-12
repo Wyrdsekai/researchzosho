@@ -54,9 +54,10 @@ public final class ModelEntries {
         public String pricesText() { return prices == null ? "" : trim(prices[0]) + "/" + trim(prices[1]) + (prices.length > 2 ? "/" + trim(prices[2]) : ""); }
         private static String trim(double d) { String s = String.format(Locale.ROOT, "%.4f", d); s = s.replaceAll("0+$", "").replaceAll("\\.$", ""); return s.isEmpty() ? "0" : s; }
         /** A line a person reads: "deepseek: deepseek/deepseek-v4.1-flash via openrouter.ai — $0.024/0.72 per M". */
-        public String line() {
-            return name + ": " + model + " via " + host() + (prices == null ? "" : " — $" + pricesText() + " per M") + (effort == null || effort.isBlank() ? "" : ", effort " + effort)
-                    + (cap > 0 ? ", cap $" + trim(cap) + " a month" : "") + ", tier " + tier() + (note == null || note.isBlank() ? "" : " (" + note + ")");
+        public String line() { return line(Chrome.ENGLISH); }
+        public String line(Chrome c) {
+            return name + ": " + c.t("{0} via {1}", model, host()) + (prices == null ? "" : " — " + c.t("${0} per M", pricesText())) + (effort == null || effort.isBlank() ? "" : ", " + c.t("effort {0}", effort))
+                    + (cap > 0 ? ", " + c.t("cap ${0} a month", trim(cap)) : "") + ", " + c.t("tier {0}", tier()) + (note == null || note.isBlank() ? "" : " (" + note + ")");
         }
     }
 
@@ -130,17 +131,28 @@ public final class ModelEntries {
         return best;
     }
 
+    /**
+     * The drive of the model that sees ({@link #seeing()}), for the readers of pictures that ask it themselves (a picture's writing, a
+     * video's frames, the safety check); null when the library has none. The one way the library finds it, the vision settings naming it
+     * first.
+     */
+    public static DriveClient seeingDrive() {
+        Entry e;
+        try { e = seeing(); } catch (RuntimeException x) { return null; }
+        return e == null ? null : new DriveClient(e.drive(), e.model());
+    }
+
     /** No model sees: what the library has, which entries might see but were not probed, and the lines that add one. */
-    public static String noEyes() {
+    public static String noEyes() { return noEyes(Chrome.ENGLISH); }
+    public static String noEyes(Chrome c) {
         List<String> have = new ArrayList<>(), unprobed = new ArrayList<>();
         for (Entry e : all().values()) {
-            have.add(e.name() + " (" + e.model() + ", " + e.seesText() + (e.hosted() && !keyKept(e) ? ", no key kept" : "") + ")");
+            have.add(e.name() + " (" + e.model() + ", " + c.t(e.seesText()) + (e.hosted() && !keyKept(e) ? ", " + c.t("no key kept") : "") + ")");
             if (e.sees() == null) unprobed.add(e.name());
         }
-        StringBuilder b = new StringBuilder("No model that sees pictures is set up. The library has: ").append(String.join(", ", have)).append(".");
-        if (!unprobed.isEmpty()) b.append(" Not yet probed for pictures: ").append(String.join(", ", unprobed)).append(" — researchzosho models test <name> asks each with a small picture (a hosted entry is one small paid call).");
-        b.append(" To add one that sees: a local model with its picture file, which researchzosho model install sets up (qwen3.8-27b, gemma-4-e4b and gemma-4-e2b come with theirs; Gemma 4 at every size reads pictures), or a server of your own started with the model's --mmproj file, named with researchzosho models add <name> <address> <model id>;")
-         .append(" a hosted one: researchzosho models add vision openrouter deepseek/deepseek-v4-flash-vision-exp, then researchzosho models key openrouter <key>; or set RESEARCHZOSHO_VISION_DRIVE and RESEARCHZOSHO_VISION_MODEL to a server that reads pictures.");
+        StringBuilder b = new StringBuilder(c.t("No model that sees pictures is set up. The library has: {0}.", String.join(", ", have)));
+        if (!unprobed.isEmpty()) b.append(" ").append(c.t("Not yet probed for pictures: {0} — researchzosho models test <name> asks each with a small picture (a hosted entry is one small paid call).", String.join(", ", unprobed)));
+        b.append(" ").append(c.t("To add one that sees: a local model with its picture file, which researchzosho model install sets up (qwen3.8-27b, gemma-4-e4b and gemma-4-e2b come with theirs; Gemma 4 at every size reads pictures), or a server of your own started with the model's --mmproj file, named with researchzosho models add <name> <address> <model id>; a hosted one: researchzosho models add vision openrouter deepseek/deepseek-v4-flash-vision-exp, then researchzosho models key openrouter <key>; or set RESEARCHZOSHO_VISION_DRIVE and RESEARCHZOSHO_VISION_MODEL to a server that reads pictures."));
         return b.toString();
     }
 
@@ -202,13 +214,15 @@ public final class ModelEntries {
     }
 
     /** Where an entry runs, as a person reads it: "qwen3.8-27b on homebox at http://homebox:8212". */
-    public static String where(Entry e) { return e.model() + " on " + e.host() + " at " + e.drive(); }
+    public static String where(Entry e) { return where(e, Chrome.ENGLISH); }
+    public static String where(Entry e, Chrome c) { return c.t("{0} on {1} at {2}", e.model(), e.host(), e.drive()); }
 
     /** The entry's key in one word for the protocol: {@code kept}, {@code missing}, or {@code not needed} for a local server. */
     public static String keyWord(Entry e) { return !e.hosted() ? "not needed" : keyKept(e) ? "kept" : "missing"; }
 
     /** The entry's key as a person reads it: "a local server, no key needed", "a key for openrouter.ai is kept", "no key is kept for openrouter.ai". */
-    public static String keyText(Entry e) { return !e.hosted() ? "a local server, no key needed" : keyKept(e) ? "a key for " + e.host() + " is kept" : "no key is kept for " + e.host(); }
+    public static String keyText(Entry e) { return keyText(e, Chrome.ENGLISH); }
+    public static String keyText(Entry e, Chrome c) { return !e.hosted() ? c.t("a local server, no key needed") : keyKept(e) ? c.t("a key for {0} is kept", e.host()) : c.t("no key is kept for {0}", e.host()); }
 
     /**
      * Makes an entry the default: the drive and model settings become its address and model, the one operation behind
@@ -279,21 +293,24 @@ public final class ModelEntries {
     }
 
     /** The line that keeps a host's key, with where the key comes from and the page that does the same. */
-    public static String keyLine(String host) {
-        return "researchzosho models key " + hostWord(host) + " <key> (a key from " + keySource(host) + "; --file <path> reads it from a file), or on the Settings page under Models";
+    public static String keyLine(String host) { return keyLine(host, Chrome.ENGLISH); }
+    public static String keyLine(String host, Chrome c) {
+        String source = keySource(host);
+        return c.t("researchzosho models key {0} <key> (a key from {1}; --file <path> reads it from a file), or on the Settings page under Models", hostWord(host), source.equals("the host's own console") ? c.t(source) : source);
     }
 
     /** The models that can run now, in one sentence: the local entries, the hosted ones whose key is kept, and the hosted ones still without one. */
-    public static String canRunNow() {
+    public static String canRunNow() { return canRunNow(Chrome.ENGLISH); }
+    public static String canRunNow(Chrome c) {
         List<String> local = new ArrayList<>(), keyed = new ArrayList<>(), keyless = new ArrayList<>();
         for (Entry e : all().values()) {
             String said = e.name() + " (" + e.model() + ")";
-            if (!e.hosted()) local.add(said); else if (keyKept(e)) keyed.add(said); else keyless.add(e.name() + " (" + e.model() + "; no key kept for " + e.host() + ")");
+            if (!e.hosted()) local.add(said); else if (keyKept(e)) keyed.add(said); else keyless.add(e.name() + " (" + e.model() + "; " + c.t("no key kept for {0}", e.host()) + ")");
         }
-        StringBuilder b = new StringBuilder("Models that can run now: ").append(local.isEmpty() ? "no local one" : String.join(", ", local));
-        if (!keyed.isEmpty()) b.append("; hosted, key kept: ").append(String.join(", ", keyed));
-        if (!keyless.isEmpty()) b.append("; hosted, no key yet: ").append(String.join(", ", keyless));
-        return b.append(".").toString();
+        List<String> parts = new ArrayList<>(List.of(local.isEmpty() ? c.t("no local one") : String.join(", ", local)));
+        if (!keyed.isEmpty()) parts.add(c.t("hosted, key kept: {0}", String.join(", ", keyed)));
+        if (!keyless.isEmpty()) parts.add(c.t("hosted, no key yet: {0}", String.join(", ", keyless)));
+        return c.t("Models that can run now: {0}.", String.join("; ", parts));
     }
 
     /** The add lines for a hosted model people name that no entry holds, from the families the library has measured; empty when the words name none. */
@@ -310,19 +327,22 @@ public final class ModelEntries {
     }
 
     /** No entry matches the words: what can run now, how the model named is added and keyed, and the way with what is here. */
-    public static String noMatch(String words) {
-        StringBuilder b = new StringBuilder("No model entry matches \"" + words + "\". " + canRunNow());
+    public static String noMatch(String words) { return noMatch(words, Chrome.ENGLISH); }
+    public static String noMatch(String words, Chrome c) {
+        StringBuilder b = new StringBuilder(c.t("No model entry matches \"{0}\".", words) + " " + canRunNow(c));
         List<String> adds = knownAddLines(words);
         if (!adds.isEmpty()) {
             String word = adds.get(0).split("\\s+")[4];
-            b.append(" To add the one named: ").append(adds.get(0)).append(" --prices in/out/cache (the provider's list has the prices)").append(adds.size() > 1 ? ", or " + adds.get(1) : "").append("; then ").append(keyLine(word)).append(".");
-        } else b.append(" One is added with: researchzosho models add <name> <openrouter | anthropic | openai | gemini | nebius | huggingface | an address> <model id> --prices in/out/cache, then researchzosho models key <that word> <key>, or on the Settings page under Models.");
-        return b.append(" Meanwhile auto picks among the models here (\"checked by the strongest other model\", in a translation's words).").toString();
+            b.append(" ").append(adds.size() > 1 ? c.t("To add the one named: {0} --prices in/out/cache (the provider's list has the prices), or {1}; then {2}.", adds.get(0), adds.get(1), keyLine(word, c))
+                    : c.t("To add the one named: {0} --prices in/out/cache (the provider's list has the prices); then {1}.", adds.get(0), keyLine(word, c)));
+        } else b.append(" ").append(c.t("One is added with: researchzosho models add <name> <openrouter | anthropic | openai | gemini | nebius | huggingface | an address> <model id> --prices in/out/cache, then researchzosho models key <that word> <key>, or on the Settings page under Models."));
+        return b.append(" ").append(c.t("Meanwhile auto picks among the models here (\"checked by the strongest other model\", in a translation's words).")).toString();
     }
 
     /** A hosted entry whose host has no key: the key line and what can run now. */
-    public static String noKey(Entry e) {
-        return e.name() + " runs on " + e.host() + " and no key is kept for it. Keep one: " + keyLine(e.host()) + ". " + canRunNow() + " Meanwhile auto picks among them (\"checked by the strongest other model\", in a translation's words).";
+    public static String noKey(Entry e) { return noKey(e, Chrome.ENGLISH); }
+    public static String noKey(Entry e, Chrome c) {
+        return c.t("{0} runs on {1} and no key is kept for it. Keep one: {2}.", e.name(), e.host(), keyLine(e.host(), c)) + " " + canRunNow(c) + " " + c.t("Meanwhile auto picks among them (\"checked by the strongest other model\", in a translation's words).");
     }
 
     private static String squash(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]", ""); }

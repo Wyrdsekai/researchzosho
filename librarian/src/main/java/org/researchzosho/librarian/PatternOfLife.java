@@ -66,12 +66,12 @@ public final class PatternOfLife {
         StringBuilder b = new StringBuilder();
         if (!p.byYear().isEmpty()) {
             int max = p.byYear().values().stream().max(Integer::compare).orElse(1);
-            b.append("<h3>By year</h3><ul class=\"bars\">");
+            b.append("<h3>").append(Pages.t("By year")).append("</h3><ul class=\"bars\">");
             for (var e : p.byYear().entrySet()) b.append("<li><span class=\"y\">").append(Pages.esc(e.getKey())).append("</span><span class=\"bar\" style=\"width:").append(Math.max(2, Math.round(e.getValue() * 100f / max))).append("%\"></span><span class=\"n\">").append(e.getValue()).append("</span></li>");
             b.append("</ul>");
         }
-        if (!p.places().isEmpty()) { b.append("<h3>Places named</h3><ul class=\"plain\">"); for (var e : p.places().entrySet()) b.append("<li>").append(Pages.esc(e.getKey())).append(" <span class=\"date\">").append(Pages.esc(String.join(", ", e.getValue()))).append("</span></li>"); b.append("</ul>"); }
-        if (!p.appearances().isEmpty()) { b.append("<h3>Appearances</h3><ul class=\"plain\">"); for (String a : p.appearances()) b.append("<li>").append(Pages.esc(a)).append("</li>"); b.append("</ul>"); }
+        if (!p.places().isEmpty()) { b.append("<h3>").append(Pages.t("Places named")).append("</h3><ul class=\"plain\">"); for (var e : p.places().entrySet()) b.append("<li>").append(Pages.esc(e.getKey())).append(" <span class=\"date\">").append(Pages.esc(String.join(Chrome.now().sep(), e.getValue().stream().map(y -> y.equals("undated") ? Pages.t("undated") : y).toList()))).append("</span></li>"); b.append("</ul>"); }
+        if (!p.appearances().isEmpty()) { b.append("<h3>").append(Pages.t("Appearances")).append("</h3><ul class=\"plain\">"); for (String a : p.appearances()) b.append("<li>").append(Pages.esc(a.startsWith("undated: ") ? Pages.t("undated") + ": " + a.substring(9) : a)).append("</li>"); b.append("</ul>"); }
         return b.toString();
     }
 }

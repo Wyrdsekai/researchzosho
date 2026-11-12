@@ -10,6 +10,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.researchzosho.Config;
+import org.researchzosho.librarian.ModelEntries;
 import org.researchzosho.Stopping;
 
 /**
@@ -70,12 +71,15 @@ public final class ContentJudge {
         return of(new DriveClient(Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200"), Config.get("RESEARCHZOSHO_MODEL", "local-model")).decisionTimeout(REQUEST_TIMEOUT));
     }
 
-    /** The judge on the model that reads pictures (RESEARCHZOSHO_VISION_DRIVE and RESEARCHZOSHO_VISION_MODEL, else the library's). */
+    /**
+     * The judge on the model that sees, found as the library finds it everywhere ({@link ModelEntries#seeingDrive()}: the vision settings
+     * first, then an entry found to see); the library's own when none is known to see, so that a picture is still asked about.
+     */
     public static ContentJudge vision() {
         ContentJudge o = override;
         if (o != null) return o;
-        return of(new DriveClient(Config.get("RESEARCHZOSHO_VISION_DRIVE", Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200")),
-                Config.get("RESEARCHZOSHO_VISION_MODEL", Config.get("RESEARCHZOSHO_MODEL", "local-model"))));
+        DriveClient eyes = ModelEntries.seeingDrive();
+        return of(eyes != null ? eyes : new DriveClient(Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200"), Config.get("RESEARCHZOSHO_MODEL", "local-model")));
     }
 
     /** {@code question} about {@code state} (the text the question is about, already cut to what it needs). */

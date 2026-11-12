@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.7.3
+
+What's new: the interface and the chat in ten languages, PDFs are read as a person reads them, a translation checks its names against each other, conversations can be deleted, and a translation's notes stay out of the document unless you ask for them.
+
+### Added
+
+- Eight more interface languages: Chinese, Korean, German, French, Spanish, Portuguese, Italian and Russian. A model translated them; no native speaker has read them.
+- The chat answers in your language and understands what you type in any of the ten.
+- Adding or translating a PDF says which pages read by their text and which are pictures of pages; those are read by the model that sees.
+- A translation compares how it wrote each name and term the document repeats. Where more than three in four paragraphs agree, the others are revised to match; a person's name written in more than one way is settled by the part most paragraphs share, usually the family name; and at the reviewed and thorough tiers the reader chooses among the forms the translation already writes. A name carries its original in parentheses where it first appears. The note says how each was settled and lists what was left to you.
+- `researchzosho translate scores` shows the record the checks' thresholds come from; `researchzosho translate scores withdraw J-…` takes a job's paragraphs off it.
+- Delete a conversation: Delete… on the Chat page, `/delete` in the chat, or `researchzosho chat --delete <id> --yes`. The reports, runs and files it started stay.
+- `--notes end` or the setting `translate_notes` numbers what a checked translation's checks still doubt at the end of the document.
+
+### Changed
+
+- A checked translation's document holds the translation alone; the doubts are in the note beside it.
+- The note beside a translation says what the program checked, with counts.
+- A translation does not start on a PDF it cannot read, and one whose reading or first checks went wrong adds nothing to the record.
+- The plan's cost for a hosted reader counts what the reviewed and thorough tiers really send and what the reader writes; it was several times too low.
+- A reviewed translation sets aside a reader's line that is no error (its correction is the words it flags, it says the translation is right, or it repeats a name the program already flags), and the note says how many.
+- A picture is read only by a model that passed `researchzosho models test` or is named by the vision settings.
+- `researchzosho translate scores accept` is gone: a pair's first checked translation of twenty paragraphs or more sets its thresholds.
+- The help, dossier, map, podcasts, books and sign-in pages are translated.
+
+### Fixed
+
+- A PDF set vertically (Japanese, Chinese), right to left (Arabic, Hebrew) or in columns came out as scrambled fragments and was translated into invented text.
+- A Japanese, Chinese or Korean document translated into English had nearly every paragraph flagged as too long and revised for nothing. Length is now judged by the language pair.
+- A checked translation flagged more good paragraphs by score each time it ran, because the record its thresholds come from took only the paragraphs nothing had flagged. Every paragraph now goes on it with its first scores; what earlier versions put there is kept and no longer measured from.
+- A document in German, French or another language written in Latin letters was taken for English and refused as "already in English". The program now works out a document's language from its text; when it is not sure, the plan says what it took, and you can name it: `--from German`, or "from German" in the chat.
+- A Word file lost its footnotes, endnotes and comments; an EPUB on the shelves lost its notes.
+- The spend record filed a translation's written tokens under the cached ones; the amounts were right.
+- An uploaded file whose name is not in Latin letters got a garbled name.
+- A translated or exported file whose name is not in Latin letters could not be downloaded: the library answered "Illegal character found in header".
+- A Japanese chat got a translation request's replies in English.
+- Answering "no thanks" before a long translation started it anyway.
+- Where ResearchZosho and CodeZaiku share a model folder, an unloaded model stayed in the graphics card's memory.
+- The Firecrawl credit check uses the v2 API; v1 shuts down on 10 December 2026.
+
 ## 0.7.2
 
 What's new: jobs survive a restart or an update, and an update installs beside the running version and restarts at once.

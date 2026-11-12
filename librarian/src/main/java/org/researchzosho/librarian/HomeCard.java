@@ -121,11 +121,19 @@ public final class HomeCard {
     }
 
     /** Where a card stands, in a few words: none, filed (running), landed, or failed. */
-    public static String state(ObjectNode c) {
+    public static String state(ObjectNode c) { return state(c, Chrome.ENGLISH); }
+
+    /** The same, as the card's line on a page says it in {@code lang}: "Card: landed 2026-11-05.", "Card: filed as J-0012, running." */
+    public static String state(ObjectNode c, Chrome lang) {
         if (c == null) return "";
-        if (!c.path("failed").asText("").isEmpty()) return "the run " + c.path("failed").asText();
-        if (!c.path("built").asText("").isEmpty()) return "landed " + c.path("built").asText();
-        return "filed as " + c.path("job_id").asText("") + ", running";
+        if (lang.english()) {
+            if (!c.path("failed").asText("").isEmpty()) return "the run " + c.path("failed").asText();
+            if (!c.path("built").asText("").isEmpty()) return "landed " + c.path("built").asText();
+            return "filed as " + c.path("job_id").asText("") + ", running";
+        }
+        if (!c.path("failed").asText("").isEmpty()) return lang.t("Card: its run {0}.", lang.t(c.path("failed").asText()));   // the run's state as its badge says it, in the person's language
+        if (!c.path("built").asText("").isEmpty()) return lang.t("Card: landed {0}.", lang.day(c.path("built").asText()));
+        return lang.t("Card: filed as {0}, running.", c.path("job_id").asText(""));
     }
 
     static String lower(String s) { return s == null ? "" : s.toLowerCase(Locale.ROOT); }

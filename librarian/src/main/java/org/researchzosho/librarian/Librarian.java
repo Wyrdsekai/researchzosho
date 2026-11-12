@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -211,7 +212,7 @@ public class Librarian {
     /** A waiting choice's question: the run's own, or the one the offers file kept for another thing. */
     static String choiceQuestion(LibraryStore store, String[] offer) {
         if (offer[0].startsWith("J-")) { try { ObjectNode j = new Jobs(store, x -> "").get(offer[0]); if (j != null) return j.path("offered_question").asText(t("Which of these is meant?")); } catch (IOException ignored) { } }
-        return offer.length > 2 ? offer[2] : "Which of these is meant?";
+        return offer.length > 2 ? offer[2] : t("Which of these is meant?");
     }
 
     /** A waiting choice's named choices, in order. */
@@ -240,7 +241,7 @@ public class Librarian {
         List<String> said = new ArrayList<>();
         if (notResearched) said.add(t("The question the library asked whether to research is not researched."));
         if (started) said.add(t("The research the library asked you about starts as ordinary research."));
-        if (notStarted) said.add("No second run was started. The run that already started goes on as ordinary research.");
+        if (notStarted) said.add(t("No second run was started. The run that already started goes on as ordinary research."));
         return String.join(" ", said);
     }
 
@@ -273,20 +274,18 @@ public class Librarian {
         return now;
     }
 
-    /** The answer words: yes in the languages the chat is spoken in, no, and an empty line (no). Width and case folded. */
-    static final List<String> YES = List.of("yes", "y", "はい", "ja", "oui", "sí", "si", "sim", "да", "是", "네", "예");
-    static final List<String> NO = List.of("no", "n", "nein", "non", "いいえ", "нет", "不", "아니요", "아니오");
+    /** The answer words: yes and no in every language the chat reads ({@link ChatWords}, "yes" and "no"), and an empty line (no). Width and case folded. */
+    static final List<String> YES = ChatWords.entries("yes");
+    static final List<String> NO = ChatWords.entries("no");
 
-    /** The yes-word the words begin with, or null: "yes", "Yes, and also …", "ｙ", "はい、お願いします". */
-    static String yesWord(String words) {
-        String w = Normalizer.normalize(words == null ? "" : words, Normalizer.Form.NFKC).strip().toLowerCase(Locale.ROOT);
-        for (String y : YES) if (w.equals(y) || (w.startsWith(y) && !Character.isLetterOrDigit(w.codePointAt(y.length())))) return y;
-        return null;
-    }
+    /** The yes-word the words begin with, or null: "yes", "Yes, and also …", "ｙ", "はい、お願いします", "oui". */
+    static String yesWord(String words) { return ChatWords.yesWord(words); }
 
-    static boolean isNo(String words) {
-        String w = Normalizer.normalize(words == null ? "" : words, Normalizer.Form.NFKC).strip().toLowerCase(Locale.ROOT).replaceAll("[.!。！]+$", "");
-        return w.isEmpty() || NO.contains(w);
+    static boolean isNo(String words) { return ChatWords.isNo(words); }
+
+    /** A choice's name as the person reads it: the tiers, yes, no, later, none of them in their language; any other name as it is. */
+    static String labelSaid(String label) {
+        return switch (label == null ? "" : label) { case Translation.QUICK, Translation.CHECKED, Translation.REVIEWED, Translation.THOROUGH, "yes", "no", "later", "none of them" -> t(label); default -> label; };
     }
 
     /**
@@ -296,14 +295,15 @@ public class Librarian {
      */
     static String offerLine(List<String[]> offers) {
         List<String[]> help = offers.stream().filter(Librarian::isHelp).toList();
-        if (!help.isEmpty()) return help.size() == 1 ? t(CrisisHelp.QUESTION) : t("Do you want the library to research these {0} questions? (y/N)", help.size());
+        Chrome lang = Chrome.now();
+        if (!help.isEmpty()) return lang.yesNo(help.size() == 1 ? t(CrisisHelp.ASK) : t("Do you want the library to research these {0} questions?", help.size()));
         offers = offers.stream().filter(o -> !isHelp(o)).toList();
         List<String[]> fields = offers.stream().filter(o -> !isContent(o) && !isChoice(o)).toList();
         if (fields.isEmpty()) {
             List<String[]> content = offers.stream().filter(Librarian::isContent).toList();
             if (content.isEmpty()) {   // a question with named choices: the question, then the choices numbered
                 String[] c = offers.get(0);
-                List<String> cs = new ArrayList<>(); int n = 0; for (String s : (c.length > 3 ? c[3] : "").split(" \\| ")) if (!s.isBlank()) cs.add(++n + " " + s);
+                List<String> cs = new ArrayList<>(); int n = 0; for (String s : (c.length > 3 ? c[3] : "").split(" \\| ")) if (!s.isBlank()) cs.add(++n + " " + labelSaid(s));
                 return c[2] + " " + t("Which: {0}? Say the number or the name.", String.join(", ", cs));
             }
             Set<String> needs = new LinkedHashSet<>();
@@ -312,9 +312,9 @@ public class Librarian {
         }
         offers = fields;
         String[] first = offers.get(0);
-        String offer = first[2];
-        if (offers.size() == 1) return offer + " " + t("Use {0} mode for this question? (y/N)", first[1]);
-        return offer + " " + t("Use {0} mode for these {1} questions? (y/N)", first[1], offers.size());
+        String offer = first[2] == null || first[2].isBlank() ? "" : t(first[2]);   // the field's own sentence, in the person's language
+        if (offers.size() == 1) return offer + " " + lang.yesNo(t("Use {0} mode for this question?", Fields.said(first[1])));
+        return offer + " " + lang.yesNo(t("Use {0} mode for these {1} questions?", Fields.said(first[1]), offers.size()));
     }
 
     /**
@@ -379,7 +379,7 @@ public class Librarian {
         String field = waiting.get(0)[1];
         StringBuilder reply = new StringBuilder();
         if (!answered.isEmpty())
-            reply.append(yes != null ? (answered.size() == 1 ? t("The question is researched in {0} mode.", field) : t("The questions are researched in {0} mode.", field)) : t("It is researched as ordinary research."));
+            reply.append(yes != null ? (answered.size() == 1 ? t("The question is researched in {0} mode.", Fields.said(field)) : t("The questions are researched in {0} mode.", Fields.said(field))) : t("It is researched as ordinary research."));
         if (!started.isEmpty()) reply.append(' ').append(runs(started, "Research run {0} has started; a run usually takes twenty to forty minutes, and this chat says when it is done.", "Research runs {0} have started; a run usually takes twenty to forty minutes, and this chat says when it is done."));
         if (!notStarted.isEmpty())
             reply.append(reply.isEmpty() ? "" : " ").append(t("No second run was started. The run that already started goes on as ordinary research."));
@@ -393,7 +393,7 @@ public class Librarian {
                 Fields.Suggestion s = new Fields.Suggestion(field, "");
                 String again = protocol.research(args, LibraryProtocol.Way.QUIET, s, System.currentTimeMillis() + OFFER_MINUTES * 60_000L, true).path("job_id").asText();
                 session.offer(again, field, args.path("question").asText(""), true);
-                reply.append(reply.isEmpty() ? "" : " ").append(t("Research run {0} had already started as ordinary research, because no answer came within {1} minutes. Start a second run of the same question in {2} mode? (y/N)", id, OFFER_MINUTES, field));
+                reply.append(reply.isEmpty() ? "" : " ").append(Chrome.now().yesNo(t("Research run {0} had already started as ordinary research, because no answer came within {1} minutes. Start a second run of the same question in {2} mode?", id, OFFER_MINUTES, Fields.said(field))));
             }
         }
         if (yes != null) {
@@ -440,24 +440,44 @@ public class Librarian {
     private Answered answerChoice(List<String[]> waiting, String said, String words) throws IOException {
         String[] o = waiting.get(0);
         List<String> labels = choiceLabels(store, o);
-        String s = said.replaceAll("[.!?,;:、。]+$", "").strip(), ls = s.toLowerCase(Locale.ROOT);
-        boolean none = isNo(s) || ls.equals("none") || ls.startsWith("none of") || ls.equals("neither") || ls.equals("nothing");
+        // a translation's question: what the answer says about the notes ("checked, with the notes at the end", "訳注なし") is read first and
+        // taken out, and the tier is understood in Japanese too ("確認付き")
+        ObjectNode asked = o[0].startsWith("J-") ? new Jobs(store, j -> "").get(o[0]) : null;
+        boolean translation = asked != null && Translation.JOB_KIND.equals(asked.path("kind").asText());
+        String notes = translation ? TranslateTurn.notesIn(said) : "";
+        if (!notes.isEmpty()) said = TranslateTurn.withoutNotes(said);
+        String s = said.replaceAll("[.!?,;:、。]+$", "").strip();
+        if (!notes.isEmpty() && s.isEmpty()) {   // only the notes: kept on the run, and the question asked again with them
+            boolean tiers = labels.contains(Translation.CHECKED);
+            if (!new Jobs(store, j -> "").amendOffered(o[0], "notes", notes, tiers ? TranslateTurn.tierQuestion(notes) : null)) return new Answered("", words, "");
+            return new Answered(t(Translation.NOTES_END.equals(notes) ? "Noted: what the checks still doubt will be numbered at the end of the document too." : "Noted: what the checks still doubt will be listed in the note beside the translation only."), null, nextQuestion());
+        }
+        boolean none = ChatWords.isNone(s);   // no, none, none of them, neither, nothing, いいえ, aucun …
         String choice = none ? null : Jobs.choiceAmong(labels, s);
+        // a name said in the person's language: the name as the question showed it (確認付き, あとで), a yes, a tier in their words (vérifié)
+        if (!none && choice == null) for (String l : labels) if (ChatWords.fold(labelSaid(l)).equals(ChatWords.fold(s))) { choice = l; break; }
+        if (!none && choice == null && labels.contains("yes") && yesWord(s) != null) choice = "yes";
+        if (!none && choice == null && translation && labels.contains(TranslateTurn.tierIn(s))) choice = TranslateTurn.tierIn(s);
         if (!none && choice == null) return new Answered("", words, "");
+        boolean declined = translation && (none || "no".equals(choice)) && labels.contains("no");   // a no to a long translation: it is not run, and nothing is filed for it
+        if (declined) choice = null;
         if (o[0].startsWith("J-")) {
             Jobs jobs = new Jobs(store, j -> "");
+            if (!notes.isEmpty() && choice != null) jobs.amendOffered(o[0], "notes", notes, null);   // with the choice: into the run before it is released
             boolean now = jobs.releaseChoice(o[0], choice);
             session.answer(o[0], CHOICE, now ? (choice == null ? "none" : choice) : "late", o[2]);
             if (!now) return new Answered(t("Research run {0} had stopped waiting: no choice came within {1} minutes, so it was not started.", o[0], OFFER_MINUTES), null, nextQuestion());
+            if (declined) return new Answered(t("Not started: the translation {0} is not run.", o[0]), null, nextQuestion());
             if (choice == null) return new Answered(t("Nothing started: no choice was made, so research run {0} is not run.", o[0]), null, nextQuestion());
             ObjectNode after = jobs.get(o[0]);
             boolean started = after != null && !Jobs.OFFERED.equals(after.path("state").asText());
             if (started) session.watch(o[0]);
             if (after != null && Translation.JOB_KIND.equals(after.path("kind").asText())) {   // a translation's question: the tier, or a yes to a long run
-                if (choice.equals("no")) return new Answered(t("Not started: the translation {0} is not run.", o[0]), null, nextQuestion());
-                return new Answered(t("Taken: {0}.", choice) + (started ? " " + t("The translation {0} runs now; this chat says when it is done, and the run's page has the file and its note.", o[0]) : ""), null, nextQuestion());
+                // where the doubts go, from what the run was filed with and what this answer changed: never the model's word
+                String filed = TranslateTurn.notesFiled(after.path("args").path("notes").asText(Translation.NOTES_OFF), Translation.tierOf(after.path("args")));
+                return new Answered(t("Taken: {0}.", labelSaid(choice)) + (started ? " " + t("The translation {0} runs now; this chat says when it is done, and the run's page has the file and its note.", o[0]) : "") + " " + filed, null, nextQuestion());
             }
-            return new Answered(t("Taken: {0}.", choice) + (started ? " " + t("Research run {0} has started; a run usually takes twenty to forty minutes, and this chat says when it is done.", o[0]) : ""), null, nextQuestion());
+            return new Answered(t("Taken: {0}.", labelSaid(choice)) + (started ? " " + t("Research run {0} has started; a run usually takes twenty to forty minutes, and this chat says when it is done.", o[0]) : ""), null, nextQuestion());
         }
         String reply = answerChoiceOf(o[0], choice, labels);
         session.answer(o[0], CHOICE, choice == null ? "none" : choice, o[2]);
@@ -467,7 +487,7 @@ public class Librarian {
     /** A choice made on another thing's question, by its key: the field whose question it is takes it, through its hook. */
     private String answerChoiceOf(String key, String choice, List<String> labels) throws IOException {
         for (Profile p : Fields.enabled(store)) { String r = p.answerChoice(store, key, choice); if (r != null) return r; }
-        return t("Taken: {0}.", choice == null ? t("none") : choice);
+        return t("Taken: {0}.", choice == null ? t("none") : labelSaid(choice));
     }
 
     private Answered answerContent(List<String[]> waiting, String said, String yes, boolean no, String words) throws IOException {
@@ -498,6 +518,10 @@ public class Librarian {
      * the words are a message like any other.
      */
     public String say(String words) throws IOException {
+        try (Closeable turning = session.turn()) { return sayMarked(words); }   // marked for its length: a conversation is not deleted while its reply is being written
+    }
+
+    private String sayMarked(String words) throws IOException {
         String ended = endedWaits();
         List<String[]> waiting = session.pending();
         if (waiting.isEmpty()) {
@@ -513,17 +537,19 @@ public class Librarian {
         }
         if (a.rest() == null) {
             if (!a.next().isEmpty()) said = said.isEmpty() ? a.next() : said + "\n\n" + a.next();   // the next question, one after the other
-            ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words);
+            long now = System.currentTimeMillis();
+            ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words); user.put("at", now);
             if (session.att != null) { user.set("att", session.att); session.att = null; }
             session.append(user);
-            ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", said);
+            // the answer to the library's own question is the library's reply, no model asked: its mark says so (it said "the model's own words" until 2026-11-10)
+            ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", said); reply.put("at", System.currentTimeMillis()); reply.put("by", "library");
             session.append(reply);
             record(words == null ? "" : words, List.of(), 0, 0);
             return said;
         }
         String reply = turn(a.rest());
         String out = said.isEmpty() ? reply : said + "\n\n" + reply;
-        return a.next().isEmpty() || reply.endsWith("(y/N)") ? out : out + "\n\n" + a.next();
+        return a.next().isEmpty() || askedThisTurn ? out : out + "\n\n" + a.next();   // the turn asked its own question: one question at a time, the waiting one after it
     }
 
     /**
@@ -536,7 +562,7 @@ public class Librarian {
         if (own == null) own = TranslateTurn.reply(store, session, patron, words);
         if (own == null) own = ImagesTurn.reply(store, session, patron, words);
         if (own == null) own = ModelsTurn.reply(store, session, patron, words);   // which model is the default, why a run used one, "make deepseek the default": the library's own state
-        if (own == null && ReadInTurn.parse(words) != null) own = ReadInTurn.UNRESOLVED;   // an ask to read something in a language that named nothing either turn could find
+        if (own == null && ReadInTurn.parse(words) != null) own = t(ReadInTurn.UNRESOLVED);   // an ask to read something in a language that named nothing either turn could find
         if (own == null) return null;
         ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words); user.put("at", System.currentTimeMillis());
         if (session.att != null) { user.set("att", session.att); session.att = null; }
@@ -557,7 +583,9 @@ public class Librarian {
     private String turnNoted(String words) throws IOException {
         long t0 = System.currentTimeMillis();
         offeredThisTurn.clear();
+        askedThisTurn = false;
         limitsThisTurn.clear();
+        translationsThisTurn.clear();
         helpThisTurn = false;
         partlyDeclined.clear();
         personWords = words == null ? "" : words;
@@ -660,10 +688,13 @@ public class Librarian {
         }
         // what the person's own words set for the runs of this turn, said back once, before the library's question
         if (!limitsThisTurn.isEmpty()) reply = reply + "\n\n" + limitsLine();
+        // where each translation this turn filed puts what its checks still doubt, as the run was filed
+        if (!translationsThisTurn.isEmpty()) reply = reply + "\n\n" + String.join("\n", translationsThisTurn);
         // the library's own question, once, under the reply: every run of this turn that waits for the person's answer
         if (!offeredThisTurn.isEmpty()) reply = reply + "\n\n" + offerLine(offeredThisTurn);
+        askedThisTurn = !offeredThisTurn.isEmpty();   // known from the turn itself, never read off the end of a sentence in the person's language
         // where to find help comes first, before the model's words and the question whether to research it
-        if (helpThisTurn) reply = CrisisHelp.text() + "\n\n" + reply;
+        if (helpThisTurn) reply = CrisisHelp.text(Chrome.now()) + "\n\n" + reply;
         // a tool that did its own part and whose model declined the rest: the library's statement under the reply, in its own words
         if (declinedThisTurn == null && !partlyDeclined.isEmpty()) reply = reply + "\n\n" + String.join("\n\n", partlyDeclined);
         // a picture under the reply when the words ask about a thing a picture can show (0.7.0): one, the shelves first, judged in the words' connection
@@ -846,7 +877,7 @@ public class Librarian {
             Map.entry("library_sharpen", "Turn a vague question into precise ones the shelves and the web can answer."),
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
             Map.entry("library_help", "Questions about ResearchZosho itself: what it is, which version runs, what it can and cannot do, how to do something in it, why something does not work. From the program's own documentation and its live state; the question in English words."),
-            Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists. The answer is the plan with the time and any cost; the run's result has the file."),
+            Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists; notes=end when the person asks for what the checks doubt (the notes) at the end of the document, notes=off when they ask for no notes, and no notes argument when they say neither. The answer is the plan with the time and any cost; the library says under your reply where the doubts go; the run's result has the file."),
             Map.entry("library_images", "Pictures: op=find words=… returns candidates from the web (each with its page, title, engine and a small copy); keep=true puts them on the shelves (/images/<file>); criteria=… has the seeing model judge each (yes, no, unsure, one sentence why). op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
@@ -923,6 +954,9 @@ public class Librarian {
         return s;
     }
 
+    /** Whether the last turn ended with the library's own question to the person. */
+    private boolean askedThisTurn = false;
+
     /** The runs this turn filed waiting for the person's answer, and the field each was offered for. */
     private final List<String[]> offeredThisTurn = new ArrayList<>();
 
@@ -953,7 +987,7 @@ public class Librarian {
         // what the model passed, said back under the reply, and on the job. A bare yes to the run the model offered carries the settings
         // the person said the turn before ("what is X? don't exceed 5 minutes, from the shelves only" — "I can go and find out" — "yes").
         RunLimits limits = RunLimits.fromWords(personWords);
-        if (limits.isEmpty() && ASSENT.matcher(Normalizer.normalize(personWords, Normalizer.Form.NFKC)).matches()) limits = RunLimits.fromWords(previousPersonWords());
+        if (limits.isEmpty() && assent(personWords)) limits = RunLimits.fromWords(previousPersonWords());
         limits.put(args);
         String question = args.path("question").asText("").strip();
         Fields.Suggestion s = Fields.suggest(store, question);
@@ -997,6 +1031,14 @@ public class Librarian {
     static final Pattern ASSENT = Pattern.compile("(?iu)^\\s*(?:(?:yes|yes please|yeah|yep|y|ok|okay|sure|please|please do|do it|do that|do so|go ahead|go|go on|file it|start it|run it|say the word|the word|fine|alright|all right|absolutely|of course)[\\s,.!]*)+$"
             + "|^\\s*(?:はい|ええ|うん|お願いします|お願い|やって|やってください|進めて|進めてください|始めて|始めてください|それで|そうして|そうしてください)[、。！\\s]*$");
 
+    /** Whether the words are only a yes: one of {@link #ASSENT}, or a yes of any language's with nothing after it ("oui", "ja!", "да"). */
+    static boolean assent(String words) {
+        String w = Normalizer.normalize(words == null ? "" : words, Normalizer.Form.NFKC);
+        if (ASSENT.matcher(w).matches()) return true;
+        String y = yesWord(w);
+        return y != null && ChatWords.fold(w).substring(y.length()).replaceAll("[\\s,.!。！、]+", "").isEmpty();
+    }
+
     /** What the person said the turn before this one, skipping the library's own lines; "" when there was none. */
     private String previousPersonWords() {
         int seen = 0;
@@ -1019,6 +1061,17 @@ public class Librarian {
         if (limits.isEmpty()) return;
         limitsThisTurn.add(new Said(r.path("job_id").asText(""), limits));
         r.put("limits", "The person's own words set this run: " + limits.described(Chrome.ENGLISH) + ". The library says so under your reply.");
+    }
+
+    /** The translations this turn filed through the tool, each with where what its checks still doubt goes, as filed: said under the reply. */
+    private final List<String> translationsThisTurn = new ArrayList<>();
+
+    /** A translation the model filed: where its doubts go is taken from the run as filed and said by the library under the reply, never left to the model's words. */
+    private ObjectNode translated(ObjectNode r) {
+        if (!r.hasNonNull("job_id")) return r;   // the glossary, or nothing filed
+        translationsThisTurn.add(t("Translation {0}:", r.path("job_id").asText()) + " " + TranslateTurn.notesFiled(r.path("notes").asText(Translation.NOTES_OFF), r.path("quality").asText("")));
+        r.put("notes_said", "The library says under your reply where the passages the checks still doubt are listed.");
+        return r;
     }
 
     /** The line under the reply that says back what the person's words set for each run of this turn: "Research run J-0012, as you asked: up to 30 minutes, from the shelves only." */
@@ -1113,7 +1166,7 @@ public class Librarian {
                 case "library_settings" -> protocol.settings(args);
                 case "library_sources" -> protocol.sources(args);
                 case "library_models" -> protocol.models(args);
-                case "library_translate" -> protocol.translate(args);
+                case "library_translate" -> translated(protocol.translate(args, "chat"));
                 case "library_images" -> protocol.images(args);
                 case "library_share" -> protocol.share(args);
                 case "library_owned" -> protocol.owned(args);
@@ -1182,7 +1235,7 @@ public class Librarian {
         List<String> labels = new ArrayList<>();
         for (JsonNode e : q.path("entries")) labels.add(e.path("number").asText() + " " + Acquisitions.compress(e.path("who").asText(""), 60));
         labels.add("none of them"); labels.add("later");
-        String question = "Which of the people the web shows under the name of " + person + " is your relative?";
+        String question = t("Which of the people the web shows under the name of {0} is your relative?", person);
         session.offerChoice("who:" + person, question, labels);
         offeredThisTurn.add(new String[]{"who:" + person, CHOICE, question, String.join(" | ", labels)});
     }
@@ -1256,7 +1309,7 @@ public class Librarian {
     /** {@code declined}: the model declined the turn, or a step a tool asked of it. */
     void record(String words, List<String> toolsCalled, int unbacked, long ms, boolean declined) {
         try {
-            Path f = store.root().resolve("catalog").resolve("chat-turns.jsonl");
+            Path f = turnsFile(store);
             Files.createDirectories(f.getParent());
             ObjectNode o = M.createObjectNode();
             o.put("at", Instant.now().toString()); o.put("session", session.id); o.put("patron", patron.did());
@@ -1264,11 +1317,18 @@ public class Librarian {
             o.put("unbacked", unbacked); o.put("ms", ms);
             if (declined) o.put("declined", true);
             if (!unsureThisTurn.isEmpty()) { ArrayNode u = o.putArray("decline_unsure"); unsureThisTurn.forEach(u::add); }   // replies the judge was not sure were declines
-            Files.writeString(f, o.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            if (session.gone()) return;   // the conversation was deleted while it was held: no words of it are kept
+            store.locked("chat-turns", () -> { Files.writeString(f, o.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND); return null; });   // under the lock a deletion takes the words out under
         } catch (IOException ignored) { }
     }
 
+    /** The chat's turn log: a line a turn, with its conversation, its first words, the tools called, the unbacked numbers and the time. */
+    static Path turnsFile(LibraryStore store) { return store.root().resolve("catalog").resolve("chat-turns.jsonl"); }
+
     // ---- sessions ----
+
+    /** What deleting a conversation means, said before it is done: on the page under Delete…, at the terminal and at the command line before --yes. */
+    public static final String DELETE_MEANS = "Deleting it removes its messages for good; this cannot be undone. The reports, research runs and translations it started stay in the library, and a file attached in it stays on the shelves.";
 
     /** A conversation: its messages, on disk as one JSON line each under catalog/chat/. */
     public static final class Session {
@@ -1277,7 +1337,16 @@ public class Librarian {
         final List<ObjectNode> messages = new ArrayList<>();
         /** A file the next turn carries (name, the entry it is shelved as, its title): set by the page that shelved it, put on the turn's words once, never kept beyond. */
         public ObjectNode att;
-        Session(String id, Path file) { this.id = id; this.file = file; }
+        /** Whether the conversation had its file when this object was made, or has written it since: a file gone after that was deleted ({@link #gone}). */
+        private boolean kept;
+        Session(String id, Path file) { this.id = id; this.file = file; this.kept = Files.exists(file); }
+
+        /**
+         * Whether the conversation was deleted while this object still held it: the page deleted the one the terminal is in, or another tab
+         * did. Nothing writes a deleted conversation again, so neither its messages nor the files beside it come back under its id; what
+         * would have gone into it goes nowhere.
+         */
+        public boolean gone() { return kept && !Files.exists(file); }
 
         static Path dir(LibraryStore store) { return store.root().resolve("catalog").resolve("chat"); }
 
@@ -1299,6 +1368,7 @@ public class Librarian {
             try { Path m = file.resolveSibling(file.getFileName().toString() + ".model"); return Files.exists(m) ? Files.readString(m).strip() : ""; } catch (IOException e) { return ""; }
         }
         public void model(String name) throws IOException {
+            if (gone()) return;
             Path m = file.resolveSibling(file.getFileName().toString() + ".model");
             if (name == null || name.isBlank() || name.strip().equalsIgnoreCase(ModelEntries.DEFAULT)) Files.deleteIfExists(m);
             else { Files.createDirectories(m.getParent()); Files.writeString(m, name.strip()); }
@@ -1310,15 +1380,16 @@ public class Librarian {
                 Path m = file.resolveSibling(file.getFileName().toString() + ".translate");
                 if (!Files.exists(m)) return null;
                 JsonNode n = M.readTree(Files.readString(m));
-                return new TranslateTurn.Ask(n.path("what").asText(), n.path("lang").asText(), n.path("as").asText(), n.path("quality").asText(), n.path("translator").asText(), n.path("judge").asText());
+                return new TranslateTurn.Ask(n.path("what").asText(), n.path("lang").asText(), n.path("as").asText(), n.path("quality").asText(), n.path("translator").asText(), n.path("judge").asText(), n.path("notes").asText(""));
             } catch (IOException e) { return null; }
         }
         public void translateAsk(TranslateTurn.Ask ask) throws IOException {
+            if (gone()) return;
             Path m = file.resolveSibling(file.getFileName().toString() + ".translate");
             if (ask == null) { Files.deleteIfExists(m); return; }
             Files.createDirectories(m.getParent());
             ObjectNode n = M.createObjectNode();
-            n.put("what", ask.what()).put("lang", ask.lang()).put("as", ask.as()).put("quality", ask.quality()).put("translator", ask.translator()).put("judge", ask.judge());
+            n.put("what", ask.what()).put("lang", ask.lang()).put("as", ask.as()).put("quality", ask.quality()).put("translator", ask.translator()).put("judge", ask.judge()).put("notes", ask.notes());
             Files.writeString(m, n.toString());
         }
 
@@ -1333,6 +1404,7 @@ public class Librarian {
             } catch (IOException e) { return List.of(); }
         }
         public void imagesFound(List<Images.Found> found) throws IOException {
+            if (gone()) return;
             Path m = file.resolveSibling(file.getFileName().toString() + ".images");
             if (found == null || found.isEmpty()) { Files.deleteIfExists(m); return; }
             Files.createDirectories(m.getParent());
@@ -1357,6 +1429,9 @@ public class Librarian {
             return new Session(f.getFileName().toString().replace(".jsonl", ""), f);
         }
 
+        /** A conversation's whole id: C- and the moment it began, and -1, -2 … for one begun in the same second as another. */
+        static final Pattern WHOLE_ID = Pattern.compile("C-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}(-\\d+)?");
+
         /** An earlier session by id (a prefix will do when it is unique), or null. */
         public static Session resume(LibraryStore store, String id) throws IOException { return resume(dir(store), id); }
 
@@ -1368,12 +1443,13 @@ public class Librarian {
 
         private static Session resume(Path dir, String id) throws IOException {
             if (id == null || !Files.isDirectory(dir)) return null;
+            boolean whole = WHOLE_ID.matcher(id).matches();   // a whole id names that conversation alone: once it is deleted it is not the start of another's (…-28 of …-28-1)
             Path hit = null; int hits = 0;
             try (var l = Files.list(dir)) {
                 for (Path p : l.filter(p -> p.getFileName().toString().endsWith(".jsonl")).toList()) {
                     String n = p.getFileName().toString().replace(".jsonl", "");
                     if (n.equals(id)) { hit = p; hits = 1; break; }
-                    if (n.startsWith(id)) { hit = p; hits++; }
+                    if (!whole && n.startsWith(id)) { hit = p; hits++; }
                 }
             }
             if (hit == null || hits != 1) return null;
@@ -1412,6 +1488,125 @@ public class Librarian {
             return out;
         }
 
+        /** The conversation's name for a person: the first thing they said in it, cut short; "A new conversation" when they have said nothing yet. */
+        public String named() {
+            for (JsonNode m : messages) if ("user".equals(m.path("role").asText()) && !"library".equals(m.path("by").asText(""))) return Acquisitions.compress(m.path("content").asText(""), 70);
+            return t("A new conversation");
+        }
+
+        // ---- deleting a conversation: its messages and the files kept beside them; what it started is the library's and stays ----
+
+        /** How a delete ended. */
+        public enum Outcome { DELETED, NOT_FOUND, TURN_RUNNING }
+
+        /**
+         * What a delete did. {@code asked}: the id as it was given; {@code id} and {@code title}: the conversation's, "" when none was found;
+         * {@code started} and {@code notStarted}: the runs that waited in it for the person's answer, released as the end of their wait
+         * releases them.
+         */
+        public record Deleted(Outcome outcome, String asked, String id, String title, List<String> started, List<String> notStarted) {
+            /** What the person is told, in their language. */
+            public String said() {
+                return switch (outcome) {
+                    case NOT_FOUND -> t("No conversation of yours has the id {0}, so nothing was deleted.", asked);
+                    case TURN_RUNNING -> t("A reply is still being written in the conversation “{0}”, so it was not deleted. Delete it once the reply has come.", title);
+                    case DELETED -> {
+                        StringBuilder b = new StringBuilder(t("The conversation “{0}” is deleted, and its messages are gone for good. The reports, research runs and translations it started stay in the library, and the files attached in it stay on the shelves.", title));
+                        if (!started.isEmpty()) b.append(' ').append(started.size() == 1 ? t("Research run {0} was waiting for your answer there; it starts now as ordinary research, as when no answer comes.", started.get(0)) : t("Research runs {0} were waiting for your answer there; they start now as ordinary research, as when no answer comes.", Chrome.now().and(started)));
+                        if (!notStarted.isEmpty()) b.append(' ').append(notStarted.size() == 1 ? t("Research run {0} was waiting for your answer there; it is not started, as when no answer comes.", notStarted.get(0)) : t("Research runs {0} were waiting for your answer there; they are not started, as when no answer comes.", Chrome.now().and(notStarted)));
+                        yield b.toString();
+                    }
+                };
+            }
+        }
+
+        /**
+         * Deletes one of this caller's conversations, by its whole id, from the folder their list comes from ({@link #dir(LibraryStore,
+         * Patrons.Patron)}): a reader deletes only their own, and the keeper only what the keeper's list holds, never a reader's. Refused while
+         * a reply is being written in it ({@link #turnRunning}), here or in another program: the turn would write it again as it ends. A
+         * question of the library's that still waits in it for an answer is released as no answer, exactly as the end of its ten minutes
+         * releases it: a run asked about starts as it was filed, one that needed a yes or a choice is not started. Then every file of the
+         * conversation goes: its messages, and beside them its model, the runs it follows, the questions it asked, a translation waiting
+         * for its file, the pictures last found and the mark of a turn; and the chat's turn log keeps no words of it. What the conversation
+         * started or added is the library's and stays: reports, runs and their records, translations, files put on the shelves.
+         */
+        public static Deleted delete(LibraryStore store, String id, Patrons.Patron patron) throws IOException {
+            String asked = id == null ? "" : id.strip();
+            Path d = dir(store, patron);
+            if (d == null || asked.isEmpty() || !list(d).contains(asked)) return new Deleted(Outcome.NOT_FOUND, asked, "", "", List.of(), List.of());
+            Session s = resume(d, asked);
+            if (s == null) return new Deleted(Outcome.NOT_FOUND, asked, "", "", List.of(), List.of());
+            String title = s.named();
+            if (s.turnRunning()) return new Deleted(Outcome.TURN_RUNNING, asked, s.id, title, List.of(), List.of());
+            List<String> started = new ArrayList<>(), notStarted = new ArrayList<>();
+            s.releaseWaiting(store, started, notStarted);
+            try (var l = Files.list(d)) {
+                for (Path p : l.filter(p -> p.getFileName().toString().startsWith(s.id + ".") && Files.isRegularFile(p)).toList()) Files.deleteIfExists(p);   // <id>.jsonl and everything named <id>.… beside it
+            }
+            forgetWords(store, s.id, d.equals(dir(store)) ? null : patron.did());   // a reader's own folder: their lines alone, should another person's conversation have begun in the same second
+            return new Deleted(Outcome.DELETED, asked, s.id, title, started, notStarted);
+        }
+
+        /** The waiting questions of this conversation, released as the end of their wait releases them; the runs that moved, sorted by whether they started. */
+        private void releaseWaiting(LibraryStore store, List<String> started, List<String> notStarted) throws IOException {
+            Jobs jobs = new Jobs(store, j -> "");
+            Set<String> seen = new HashSet<>();
+            for (String[] o : pending()) {
+                if (!o[0].startsWith("J-") || !seen.add(o[0])) continue;   // another thing's question (who is who, by its key): asked again another time, as when its ten minutes pass
+                ObjectNode j = jobs.get(o[0]);
+                if (j == null || !Jobs.OFFERED.equals(j.path("state").asText()) || !jobs.expire(j)) continue;   // no longer waiting: its wait ended already, or it was answered elsewhere
+                for (String[] q : pending()) if (q[0].equals(o[0]) && !isContent(q) && !isHelp(q) && !isChoice(q)) Fields.note(store, q[2], q[1], "asked", "none", "chat");   // the field's ledger, as when the wait ends
+                ObjectNode now = jobs.get(o[0]);
+                (now != null && "stopped".equals(now.path("state").asText()) ? notStarted : started).add(o[0]);
+            }
+        }
+
+        /** The chat's turn log keeps the first words of each turn: a deleted conversation's lines keep their counts and times, and lose the words. {@code did}: only that person's lines; null for any. */
+        static void forgetWords(LibraryStore store, String id, String did) throws IOException {
+            Path f = turnsFile(store);
+            if (!Files.exists(f)) return;
+            store.locked("chat-turns", () -> {
+                List<String> out = new ArrayList<>();
+                boolean changed = false;
+                for (String line : Files.readAllLines(f, StandardCharsets.UTF_8)) {
+                    if (line.contains("\"" + id + "\"")) {
+                        try {
+                            JsonNode j = M.readTree(line);
+                            if (j instanceof ObjectNode o && id.equals(o.path("session").asText()) && (did == null || did.equals(o.path("patron").asText())) && (o.has("words") || o.has("decline_unsure"))) { o.remove("words"); o.remove("decline_unsure"); out.add(o.toString()); changed = true; continue; }
+                        } catch (IOException ignored) { }
+                    }
+                    out.add(line);
+                }
+                if (changed) AtomicWrite.lines(f, out);
+                return null;
+            });
+        }
+
+        // ---- a turn being answered: marked beside the conversation for its length, so that another program sees it ----
+
+        /** A turn's mark counts for this long at most: one older was left by a program stopped in the middle of a turn. */
+        static final long TURN_MS = 60L * 60 * 1000;
+
+        Path turnFile() { return file.resolveSibling(id + ".turn"); }
+
+        /** The mark of a turn being answered, from now until the turn ends: the program's process and the moment. */
+        Closeable turn() throws IOException {
+            if (gone()) return () -> { };
+            Files.createDirectories(turnFile().getParent());
+            Files.writeString(turnFile(), ProcessHandle.current().pid() + "\t" + System.currentTimeMillis(), StandardCharsets.UTF_8);
+            return () -> Files.deleteIfExists(turnFile());
+        }
+
+        /** Whether a reply is being written in this conversation now, by this program or another: its mark is there, younger than an hour, and its program still runs. */
+        public boolean turnRunning() {
+            try {
+                if (!Files.exists(turnFile())) return false;
+                String[] p = Files.readString(turnFile(), StandardCharsets.UTF_8).strip().split("\t");
+                if (p.length < 2 || System.currentTimeMillis() - Long.parseLong(p[1]) > TURN_MS) return false;
+                return ProcessHandle.of(Long.parseLong(p[0])).map(ProcessHandle::isAlive).orElse(false);
+            } catch (IOException | RuntimeException e) { return false; }
+        }
+
         // ---- the research runs this conversation started: watched until each is done and the person has been told ----
 
         Path runsFile() { return file.resolveSibling(id + ".runs"); }
@@ -1421,8 +1616,9 @@ public class Librarian {
 
         /** Start watching a run. */
         public void watch(String jobId) throws IOException {
+            if (gone()) return;
             for (String l : runLines()) if (l.replace("!", "").strip().equals(jobId)) return;
-            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); }   // a conversation that follows a run can be resumed, even before anything is said in it
+            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); kept = true; }   // a conversation that follows a run can be resumed, even before anything is said in it
             Files.writeString(runsFile(), jobId + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
 
@@ -1452,6 +1648,7 @@ public class Librarian {
                       + " " + t("Say \"what happened\" and I will look.")
                     : t("Research run {0} ended as {1} after {2}. Say \"what happened\" and I will look.", jobId, t(v.state()), RunProgress.elapsed(v.elapsedSeconds()));
             ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", notice);
+            if (gone()) return notice;   // its conversation was deleted while this object held it: announced nowhere, and nothing written back
             append(a);
             List<String> lines = new ArrayList<>();
             for (String l : runLines()) lines.add(l.strip().equals(jobId) ? "!" + jobId : l);
@@ -1475,18 +1672,21 @@ public class Librarian {
 
         /** The same; {@code again}: a second run of a question that already runs, which starts only on a yes. */
         void offer(String job, String field, String question, boolean again) throws IOException {
-            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); }
+            if (gone()) return;
+            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); kept = true; }
             Files.writeString(offersFile(), "asked\t" + job + "\t" + field + "\t" + (again ? "again" : "") + "\t" + question.replaceAll("[\t\r\n]+", " ") + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
 
         /** A question with named choices that is no run's, by its key: the labels and the moment it was asked go with it, for the ten minutes. */
         void offerChoice(String key, String question, List<String> labels) throws IOException {
-            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); }
+            if (gone()) return;
+            if (!Files.exists(file)) { Files.createDirectories(file.getParent()); Files.writeString(file, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE); kept = true; }
             Files.writeString(offersFile(), "asked\t" + key + "\t" + CHOICE + "\t" + String.join(" | ", labels).replaceAll("[\t\r\n]+", " ") + "\t" + question.replaceAll("[\t\r\n]+", " ") + "\t" + System.currentTimeMillis() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
 
         /** The person's answer for a waiting run: yes, no, or late (the wait had ended). */
         void answer(String job, String field, String said, String question) throws IOException {
+            if (gone()) return;
             Files.writeString(offersFile(), "answered\t" + job + "\t" + field + "\t" + said + "\t" + question.replaceAll("[\t\r\n]+", " ") + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         }
 
@@ -1538,7 +1738,9 @@ public class Librarian {
         void append(ObjectNode m) throws IOException {
             if (opening != null && "assistant".equals(m.path("role").asText()) && m.has("at") && !m.has("tool_calls")) { m.put("content", opening + "\n\n" + m.path("content").asText("")); opening = null; }   // the first reply begins with the line
             messages.add(m);
+            if (gone()) return;   // deleted while held: the turn that is ending keeps it in memory, and nothing is written
             Files.writeString(file, m.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+            kept = true;
         }
 
         public List<ObjectNode> messages() { return List.copyOf(messages); }

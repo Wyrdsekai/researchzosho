@@ -167,6 +167,27 @@ class Librarian:
     def run_crews(self) -> Dict[str, Any]:
         return self._post("crews/run", {})
 
+    # ---- a document translated (library_translate) ----
+
+    def translate(self, raw: str, to: str, as_: Optional[str] = None, quality: Optional[str] = None,
+                  notes: Optional[str] = None) -> Dict[str, Any]:
+        """A document on the shelves (raw, its entry) translated into a language (to: a name or a code) and
+        written out, as a job: the plan at once ({job_id, ..., notes, ...}); wait(job_id) follows the run,
+        whose result names the file. as_: md | txt | pdf | docx | epub (default: the input's format).
+        quality: checked (the default) | quick | reviewed | thorough. notes: where what the checks still
+        doubt goes: "end" numbers each such passage in the document and lists them in a last section, "off"
+        leaves the document to the translation alone; the note beside it lists them either way. Left out,
+        the library's setting translate_notes decides; the result's notes says which the run was filed with.
+        A word that is neither is refused (LibraryError, code invalid_args)."""
+        body: Dict[str, Any] = {"raw": raw, "to": to}
+        if as_:
+            body["as"] = as_
+        if quality:
+            body["quality"] = quality
+        if notes:
+            body["notes"] = notes
+        return self._post("translate", body)
+
     # ---- plumbing ----
 
     def _headers(self) -> Dict[str, str]:

@@ -306,6 +306,23 @@ public final class Jobs {
         });
     }
 
+    /**
+     * One of the arguments of a job that still waits for the person's answer, changed by what they said with the answer (a translation's
+     * notes), and its question put again in the words that go with it when {@code question} is not null. False when it waits no more.
+     */
+    public boolean amendOffered(String id, String key, String value, String question) throws IOException {
+        return store.locked("job-" + id, () -> {
+            synchronized (this) {
+                ObjectNode j = get(id);
+                if (j == null || !OFFERED.equals(j.path("state").asText()) || !j.path("args").isObject()) return false;
+                ((ObjectNode) j.get("args")).put(key, value);
+                if (question != null && j.has("offered_question")) j.put("offered_question", question);
+                writeActive(j);
+                return true;
+            }
+        });
+    }
+
     /** The choice {@code words} name among a job's offered choices, or null. */
     public static String choiceOf(JsonNode j, String words) {
         List<String> labels = new ArrayList<>(); for (JsonNode c : j.path("offered_choices")) labels.add(c.asText());
@@ -850,7 +867,14 @@ public final class Jobs {
         Checkpoint.sweep(store, active);   // the kept work of a job that ended in a process that did not live to tidy it
     }
 
+    /** Set by {@link #stop()}: the loops take no further job. */
+    private volatile boolean stopped;
+
+    /** Whether every thread of this queue has ended: after {@link #stop()}, once a run in the middle of a step has let go of it. */
+    boolean quiet() { for (Thread t : threads) if (t.isAlive()) return false; return true; }
+
     public void stop() {
+        stopped = true;   // a run that took the interrupt for itself (a wait it was in ended on it) gives the thread back uninterrupted: the loop ends on this
         for (Thread t : threads) t.interrupt();
         for (Thread t : threads) { try { t.join(3_000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
     }
@@ -970,7 +994,7 @@ public final class Jobs {
      * themselves (two nights' crews had sat queued behind a released GPU with no backup taken).
      */
     private void loop(int index) {
-        while (!Thread.currentThread().isInterrupted()) {
+        while (!stopped && !Thread.currentThread().isInterrupted()) {
             String id;
             try {
                 id = queue.poll(10, TimeUnit.SECONDS);
@@ -1112,6 +1136,7 @@ public final class Jobs {
         if (j.hasNonNull("waiting")) r.put("waiting", j.get("waiting").asText());
         JsonNode ja = j.path("args");
         if (ja.hasNonNull("title")) r.put("title", ja.get("title").asText());
+        if (Translation.JOB_KIND.equals(j.path("kind").asText()) && ja.hasNonNull("notes")) r.put("notes", ja.get("notes").asText());   // a document's translation: where what its checks still doubt goes, as filed
         if (ja.path("priority").asBoolean(false)) r.put("priority", true);
         if (ja.hasNonNull("delta_of")) r.put("delta_of", ja.get("delta_of").asText());
         if (ja.hasNonNull("content_check")) r.put("content_check", ja.get("content_check").asText());

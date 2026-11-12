@@ -74,7 +74,7 @@ class PagesTest {
             assertTrue(home.headers().firstValue("content-type").orElse("").startsWith("text/html"));
             assertTrue(home.body().contains("id=\"chat-say\"") && home.body().contains("sign in"), "the home is the chat: " + home.body());
             var past = get(c, base + "/past", null);
-            assertTrue(past.body().contains("2 claims") && past.body().contains("Open questions"), "Past holds the counts and the open questions: " + past.body());
+            assertTrue(past.body().contains("Claims: 2 (") && past.body().contains("Open questions"), "Past holds the counts and the open questions: " + past.body());
             assertFalse(home.body().contains("/tree"), "a library with no family shows no family pages");
             // the header says which version this is, next to the library's name; the footer says it in full
             String v = Version.number();

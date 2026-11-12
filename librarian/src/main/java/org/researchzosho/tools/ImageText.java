@@ -23,6 +23,7 @@ import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
 import org.researchzosho.drive.DeclineJudge;
 import org.researchzosho.drive.Declined;
+import org.researchzosho.librarian.ModelEntries;
 /**
  * The writing in a picture, read by the model: a photographed register page, a scanned letter, a headstone. The
  * library's own model does it when it reads images (a llama.cpp server started with the model's mmproj file, or any
@@ -53,8 +54,15 @@ public final class ImageText {
 
     static Reader current() { Reader r = reader; return r != null ? r : LIVE; }
 
-    static final Reader LIVE = (png, hint) -> live(new DriveClient(Config.get("RESEARCHZOSHO_VISION_DRIVE", Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200")),
-                Config.get("RESEARCHZOSHO_VISION_MODEL", Config.get("RESEARCHZOSHO_MODEL", "local-model")))).read(png, hint);
+    /** The model that sees, found the one way the library finds it ({@link ModelEntries#seeing()}: the vision settings first, then an entry probed and found to see). */
+    static final Reader LIVE = (png, hint) -> {
+        DriveClient d = ModelEntries.seeingDrive();
+        if (d == null) throw new NoEyes();
+        return live(d).read(png, hint);
+    };
+
+    /** No model that sees is set: the picture is not sent to one that may not see it, where it would be made up. */
+    static final class NoEyes extends RuntimeException { NoEyes() { super(null, null, false, false); } }
 
     /** The reader on {@code drive}. */
     public static Reader live(DriveClient drive) {
@@ -193,6 +201,7 @@ public final class ImageText {
         } catch (Exception e) { why.append("the picture could not be opened (").append(e.getMessage()).append(")"); return ""; }
         String text;
         try { text = current().read(png, hint); }
+        catch (NoEyes n) { why.append(ModelEntries.noEyes()); return ""; }
         catch (Declined d) { declined[0] = d; why.append(d.statement("to read the writing in this picture")); return ""; }   // said, not asked again
         catch (Exception e) { text = ""; }
         if (text == null || text.isBlank()) { why.append("the model did not read the picture. It needs a model that reads images: a llama.cpp server started with the model's --mmproj file, or a hosted model that takes pictures (RESEARCHZOSHO_VISION_DRIVE and RESEARCHZOSHO_VISION_MODEL name a separate one)"); return ""; }

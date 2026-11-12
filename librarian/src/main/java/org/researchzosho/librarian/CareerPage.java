@@ -35,7 +35,7 @@ public final class CareerPage {
              .append("<form method=\"post\" action=\"/career\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"board\"><input name=\"employer\" size=\"40\" placeholder=\"").append(Pages.esc(t("an employer's or institution's name"))).append("\" aria-label=\"").append(Pages.esc(t("the employer"))).append("\"> <input name=\"towns\" size=\"24\" placeholder=\"").append(Pages.esc(t("towns, comma-separated (optional)"))).append("\" aria-label=\"").append(Pages.esc(t("towns"))).append("\"> <button>").append(t("Read its board")).append("</button></form>");
             if (all.isEmpty()) b.append("<p>").append(writer ? t("Nobody's working life is kept here yet. Start one below.") : t("Nobody's working life is kept here yet.")).append("</p>");
             else {
-                b.append("<h2 id=\"all\">").append(t("The people on the shelves")).append("</h2><table><tr><th>").append(t("Person")).append("</th><th>").append(t("Facts")).append("</th><th>").append(t("Reading")).append("</th><th>").append(t("Decided")).append("</th><th>").append(t("Last search")).append("</th></tr>");
+                b.append("<h2 id=\"all\">").append(t("The people on the shelves")).append("</h2><table><tr><th>").append(t("Person")).append("</th><th>").append(t("Facts")).append("</th><th>").append(Chrome.now().tc("Reading", "a column of the table of people: whether the library has written its reading of the person")).append("</th><th>").append(t("Decided")).append("</th><th>").append(t("Last search")).append("</th></tr>");
                 for (Career.Seeker x : all) {
                     int facts = Career.evidence(store, x).size(), decided = 0;
                     for (JsonNode d : Career.wantsKept(store, x).path("dimensions")) if (d.path("state").asText("").equals("decided")) decided++;
@@ -114,7 +114,7 @@ public final class CareerPage {
         CareerShape.Shape shape = CareerShape.kept(store, s);
         b.append("<h2 id=\"filled\">").append(t("How jobs like yours are filled")).append("</h2>").append(CareerShape.html(shape));
         if (writer) b.append("<form method=\"post\" action=\"/career\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"shape\"><input type=\"hidden\" name=\"seeker\" value=\"").append(Pages.esc(s.slug()))
-                .append("\"><input name=\"words\" value=\"").append(Pages.esc(shape == null ? "" : shape.told())).append("\" placeholder=\"").append(Pages.esc(t("how jobs like yours are filled, in your own words"))).append("\" size=\"60\" aria-label=\"").append(Pages.esc(t("how jobs like yours are filled"))).append("\"> <button>").append(t("Keep")).append("</button></form>")
+                .append("\"><input name=\"words\" value=\"").append(Pages.esc(shape == null ? "" : shape.told())).append("\" placeholder=\"").append(Pages.esc(t("how jobs like yours are filled, in your own words"))).append("\" size=\"60\" aria-label=\"").append(Pages.esc(t("how jobs like yours are filled"))).append("\"> <button>").append(Chrome.now().tc("Keep", "a button that saves the thing beside it")).append("</button></form>")
                 .append("<p class=\"k\">").append(t("Your own word outranks what the library drew; the next search follows it.")).append("</p>");
             b.append("<h2 id=\"tell\">").append(t("Tell the library more")).append("</h2><p>").append(t("Write here what you want next, what you would refuse, anything at all, or hand over a file, such as a resume or a LinkedIn file. What you write that settles a topic, a role, a place, remote or not, an industry you want or rule out, a company to look at, is taken as decided at once, and the next search starts from it.")).append("</p>").append(provideForm(s));
         }
@@ -183,8 +183,7 @@ public final class CareerPage {
                 CareerInterview.Round r = rounds.get(i);
                 if (!q.main() || CareerInterview.number(q.n()) != r.from()) continue;
                 b.append("<h3>").append(t("From {0}", Pages.esc(r.label()))).append("</h3>");
-                if (i > 0) b.append("<p class=\"k\">").append(t("Written with your answers so far:")).append(" ").append(r.count() - r.deeper() > 0 ? t("{0} about the search, then", r.count() - r.deeper()) + " " : "")
-                        .append(t("{0} that go deeper into what you said.", r.deeper())).append(" ").append(t("Answer any, or none; the search needs no more than you have given.")).append("</p>");
+                if (i > 0) b.append("<p class=\"k\">").append(t("Written with your answers so far:")).append(" ").append(r.count() - r.deeper() > 0 ? t("{0} about the search, then {1} that go deeper into what you said.", r.count() - r.deeper(), r.deeper()) : t("{0} that go deeper into what you said.", r.deeper())).append(" ").append(t("Answer any, or none; the search needs no more than you have given.")).append("</p>");
             }
             String a = CareerInterview.answerOf(o, q.n()), taken = CareerInterview.takenOf(o, q.n());
             b.append("<div class=\"q\"><p>").append(q.main() ? "<b>" + Pages.esc(q.n()) + ".</b> " : "<b>" + t("A follow-up to question {0}:", Pages.esc(q.followupTo())) + "</b> ").append(Pages.esc(q.text())).append("</p>");
@@ -250,7 +249,7 @@ public final class CareerPage {
         if (files.isEmpty()) return "";
         files.sort(Comparator.comparing((Path p) -> p.getFileName().toString()).reversed());
         StringBuilder b = new StringBuilder("<h2 id=\"searches\">").append(t("Searches")).append("</h2><p class=\"k\">").append(t("Every search run for you, newest first, with what it used and what it found; the date opens what that search found, as it stands now. Nothing a search found is thrown away by the next: the openings stay with the days they were seen, and the lists above show the present state.")).append("</p>");
-        b.append("<table><tr><th>").append(t("When")).append("</th><th>").append(t("This time")).append("</th><th>").append(t("Employers looked at")).append("</th><th>").append(t("Could read")).append("</th><th>").append(t("Openings that passed")).append("</th><th>").append(t("Read")).append("</th><th>").append(t("What counted as a fit")).append("</th></tr>");
+        b.append("<table><tr><th>").append(t("When")).append("</th><th>").append(t("This time")).append("</th><th>").append(t("Employers looked at")).append("</th><th>").append(t("Could read")).append("</th><th>").append(t("Openings that passed")).append("</th><th>").append(Chrome.now().tc("Read", "a column of the table of searches: how many openings the search read in full")).append("</th><th>").append(t("What counted as a fit")).append("</th></tr>");
         int shown = 0;
         for (Path p : files) {
             if (shown++ >= 20) { b.append("<tr><td colspan=\"7\" class=\"k\">").append(t("and {0} earlier", files.size() - 20)).append("</td></tr>"); break; }
@@ -338,7 +337,7 @@ public final class CareerPage {
     private static String provideForm(Career.Seeker s) {
         return "<form method=\"post\" action=\"/career\" enctype=\"multipart/form-data\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"provide\">" + (s == null ? "" : "<input type=\"hidden\" name=\"seeker\" value=\"" + Pages.esc(s.slug()) + "\">")
                 + "<textarea name=\"text\" rows=\"4\" placeholder=\"" + Pages.esc(t("what you want next, what you would refuse, where, how much")) + "\" aria-label=\"" + Pages.esc(t("what you want next")) + "\"></textarea>"
-                + "<label>" + t("A resume, or a LinkedIn file:") + " <input type=\"file\" name=\"file\" accept=\".pdf,.docx,.pptx,.odt,.epub,.html,.htm,.txt,.md,.json\"></label> <button>" + t("Keep") + "</button></form>";
+                + "<label>" + t("A resume, or a LinkedIn file:") + " <input type=\"file\" name=\"file\" accept=\".pdf,.docx,.pptx,.odt,.epub,.html,.htm,.txt,.md,.json\"></label> <button>" + Chrome.now().tc("Keep", "a button that saves the thing beside it") + "</button></form>";
     }
 
     private static String readingForm(Career.Seeker s, String label) {

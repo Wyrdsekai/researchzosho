@@ -23,52 +23,33 @@ import java.util.regex.Pattern;
 final class ModelsTurn {
     private ModelsTurn() { }
 
-    /** The words of the domain: a model, the default, a host or a key, the library as the subject, a run's id. */
-    static final Pattern MODEL = Pattern.compile("(?i)\\b(?:models?|llms?)\\b|モデル");
-    static final Pattern DEFAULT = Pattern.compile("(?i)\\bdefault\\b|\\b(?:main|primary) model\\b|既定|デフォルト");
-    static final Pattern HOSTED = Pattern.compile("(?i)\\b(?:openrouter|anthropic|openai|gemini|nebius|huggingface|hosted|local(?:ly)?|server)\\b|ローカル|サーバ");
-    static final Pattern KEY = Pattern.compile("(?i)\\b(?:api )?keys?\\b|キー");
-    static final Pattern OURS = Pattern.compile("(?i)\\b(?:we|you|us|our|the library|this (?:chat|library|conversation)|the (?:chat|run|runs))\\b|\\bJ-\\d{3,5}\\b|使|利用");
-    static final Pattern USING = Pattern.compile("(?i)\\b(?:use|uses|using|used|run|runs|running|ran|talk|talks|talking|set|switch|switched|pick|picked|chose|chosen|have|has|got|available|installed|configured|set up|there)\\b|使|設定|ある|あります");
-    /** A research ask that names a model for its run ("find out …, with deepseek") is the model's, with the run's settings read from the words. */
-    static final Pattern RESEARCH = Pattern.compile("(?i)\\b(?:find out|research|investigate|look into|dig into|follow up)\\b|調べて|研究");
-    /** "is kimi set up", "does gemma26 answer", "is deepseek available": an entry asked about by its state. */
-    static final Pattern SETUP = Pattern.compile("(?i)\\b(?:set up|setup|configured|installed|available|ready|working|answers?|answering|there)\\b|設定|使える|動いて");
+    /**
+     * The words of the domain, in every language ({@link ChatWords}): a model ("models.model"), the default, a host, a key, the library
+     * as the subject, a use, a research ask (which names a model for its run and is the model's: "find out …, with deepseek"), the state of
+     * an entry ("is kimi set up"), a thing's model ("the standard model"), and a change asked for ("make X the default", "mets X par défaut").
+     */
     static final Pattern JOB = Pattern.compile("\\bJ-\\d{3,5}\\b");
     static final Pattern ADDRESS = Pattern.compile("(?i)https?://[^\\s\"'」]+");
-    /** A thing's model ("a model of telescope", "the standard model"), not a model the library runs on. */
-    static final Pattern THING = Pattern.compile("(?i)\\bmodels? of\\b|\\bstandard model\\b|\\bbusiness model\\b|\\bscale model\\b|\\brole model\\b");
-
-    /** A change asked for: "the default (model) should be X", "use X as the default", "switch the default to X", "make X the default", and the Japanese forms. */
-    static final Pattern[] CHANGE = {
-        Pattern.compile("(?i)^(?:the |our )?(?:default|main|primary)(?: model| entry)? (?:should|must|ought to|needs to|has to) (?:be|become) (?<x>.+)$"),
-        Pattern.compile("(?i)^(?:please |can you |could you |would you )?(?:use|take) (?<x>.+?) (?:as|for) (?:the |our )?(?:default|main|primary)(?: model| entry)?(?: from now on)?$"),
-        Pattern.compile("(?i)^(?:please |can you |could you |would you )?(?:switch|change|move|set|point) (?:the |our )?(?:default|main|primary)(?: model| entry)? (?:to|over to|at) (?<x>.+)$"),
-        Pattern.compile("(?i)^(?:please |can you |could you |would you )?make (?<x>.+?) (?:the |our )?(?:default|main|primary)(?: model| entry)?(?: from now on)?$"),
-        Pattern.compile("^(?:既定|デフォルト|メイン)の?モデル(?:は|を)(?<x>.+?)(?:にして|にする|に変えて|に切り替えて|に設定して|であるべき|がいい|にしよう)(?:ください)?$"),
-        Pattern.compile("^(?<x>.+?)を(?:既定|デフォルト)(?:の?モデル)?(?:にして|にする|に設定して|に変えて|に切り替えて)(?:ください)?$"),
-        Pattern.compile("^(?:既定|デフォルト)(?:の?モデル)?を(?<x>.+?)に(?:して|変えて|切り替えて|設定して)(?:ください)?$"),
-    };
 
     /** Whether the words are about the models the library runs on: a model word with the default, a host, a key, an entry or the library as the subject; the default with an entry or a host; an entry with a key, a run or a use. */
     static boolean about(String words) {
         if (words == null) return false;
         String w = TranslateTurn.withoutAttachment(words).strip();
-        if (w.isEmpty() || w.startsWith("/") || RESEARCH.matcher(w).find()) return false;   // a command (/model kimi) is the chat's own, taken before any turn
+        if (w.isEmpty() || w.startsWith("/") || ChatWords.has("models.research", w)) return false;   // a command (/model kimi) is the chat's own, taken before any turn
         if (changeTarget(w.replaceAll("[\\s.!?。！？]+$", "")) != null) return true;   // "make X the default" is this turn's whatever X is: it resolves X or asks
-        boolean model = MODEL.matcher(w).find(), dflt = DEFAULT.matcher(w).find(), hosted = HOSTED.matcher(w).find(), key = KEY.matcher(w).find();
+        boolean model = ChatWords.has("models.model", w), dflt = ChatWords.has("models.default", w), hosted = ChatWords.has("models.hosted", w), key = ChatWords.has("models.key", w);
         boolean named = !namedEntries(w).isEmpty() || !namedHosts(w).isEmpty();
-        boolean ours = OURS.matcher(w).find(), using = USING.matcher(w).find(), job = JOB.matcher(w).find();
-        if (THING.matcher(w).find() && !dflt && !named) return false;
+        boolean ours = ChatWords.has("models.ours", w), using = ChatWords.has("models.using", w), job = JOB.matcher(w).find();
+        if (ChatWords.has("models.thing", w) && !dflt && !named) return false;
         if (model && (dflt || hosted || key || named || (ours && using))) return true;
         if (dflt && (named || hosted || model)) return true;
-        return named && (key || job || SETUP.matcher(w).find() || (ours && using));
+        return named && (key || job || ChatWords.has("models.setup", w) || (ours && using));
     }
 
     /** The entry the words ask to make the default, as they put it, or null when the words ask for no change. */
     static String changeTarget(String w) {
-        for (Pattern p : CHANGE) { Matcher m = p.matcher(w); if (m.matches()) return m.group("x").strip(); }
-        return null;
+        Map<String, String> m = ChatWords.ask("models.change", w, Map.of("x", ".+?"));
+        return m == null || m.get("x") == null ? null : m.get("x").strip();
     }
 
     /** The entries the words name outright: an entry's name, its model id or the id's last part, as a word of the words. */
@@ -107,53 +88,53 @@ final class ModelsTurn {
         String w = TranslateTurn.withoutAttachment(words).strip().replaceAll("[\\s.!?。！？]+$", "");
         String x = changeTarget(w);
         if (x != null) return change(store, patron, x);
+        Chrome c = Chrome.now();
         StringBuilder b = new StringBuilder();
         Set<String> jobs = new LinkedHashSet<>();
         Matcher j = JOB.matcher(w); while (j.find()) jobs.add(j.group());
         for (String id : jobs) b.append(run(store, id, w)).append("\n\n");   // "why did J-0309 use openrouter": the run's own record first
         for (ModelEntries.Entry e : namedEntries(w)) {   // "is kimi set up", "does deepseek have a key": that entry first
             if (e.name().equals(ModelEntries.DEFAULT)) continue;
-            b.append(e.name()).append(" is set up: ").append(ModelEntries.where(e)).append("; ").append(ModelEntries.keyText(e)).append('.')
-             .append(ModelEntries.isDefault(e) ? " It is the default." : " It is not the default; say \"make " + e.name() + " the default\" to make it so, or /model " + e.name() + " for this chat alone.").append("\n\n");
+            b.append(c.t("{0} is set up: {1}; {2}.", e.name(), ModelEntries.where(e, c), ModelEntries.keyText(e, c))).append(' ')
+             .append(ModelEntries.isDefault(e) ? c.t("It is the default.") : c.t("It is not the default; say \"make {0} the default\" to make it so, or /model {0} for this chat alone.", e.name())).append("\n\n");
         }
         return b.append(state()).toString();
     }
 
     /** The models as they stand: the default by name with its model, host and address; the other entries one a line, each with its key. */
     static String state() {
+        Chrome c = Chrome.now();
         Map<String, ModelEntries.Entry> all = ModelEntries.all();
         ModelEntries.Entry d = all.get(ModelEntries.DEFAULT);
-        StringBuilder b = new StringBuilder("The default is the entry named default: ").append(ModelEntries.where(d)).append(". A run or a chat that names no model uses it.");
+        StringBuilder b = new StringBuilder(c.t("The default is the entry named default: {0}. A run or a chat that names no model uses it.", ModelEntries.where(d, c)));
         List<ModelEntries.Entry> others = new ArrayList<>();
         for (ModelEntries.Entry e : all.values()) if (!e.name().equals(ModelEntries.DEFAULT)) others.add(e);
-        if (others.isEmpty()) return b.append(" It is the only entry. Another is added with: researchzosho models add deepseek openrouter deepseek/deepseek-v4.1-flash, then researchzosho models key openrouter <key>; or on the Settings page under Models.").toString();
-        b.append("\nThe other entries:");
-        for (ModelEntries.Entry e : others) b.append('\n').append(e.name()).append(": ").append(ModelEntries.where(e)).append("; ").append(ModelEntries.keyText(e)).append(ModelEntries.isDefault(e) ? "; the same model and address as the default" : "").append('.');
-        b.append("\nTo change the default, say \"make ").append(others.get(0).name()).append(" the default\" with the name of the entry you mean; /model and a name switches this chat alone.");
+        if (others.isEmpty()) return b.append(" ").append(c.t("It is the only entry. Another is added with: researchzosho models add deepseek openrouter deepseek/deepseek-v4.1-flash, then researchzosho models key openrouter <key>; or on the Settings page under Models.")).toString();
+        b.append("\n").append(c.t("The other entries:"));
+        for (ModelEntries.Entry e : others) b.append('\n').append(ModelEntries.isDefault(e) ? c.t("{0}: {1}; {2}; the same model and address as the default.", e.name(), ModelEntries.where(e, c), ModelEntries.keyText(e, c)) : c.t("{0}: {1}; {2}.", e.name(), ModelEntries.where(e, c), ModelEntries.keyText(e, c)));
+        b.append("\n").append(c.t("To change the default, say \"make {0} the default\" with the name of the entry you mean; /model and a name switches this chat alone.", others.get(0).name()));
         return b.toString();
     }
 
     /** A run's record: the entry and address it ran on, how it ended and, when it failed, the error's first line as it stands. */
     static String run(LibraryStore store, String id, String words) throws IOException {
+        Chrome c = Chrome.now();
         ObjectNode j = new Jobs(store, x -> "").get(id);
-        if (j == null) return "The library has no research run " + id + ".";
+        if (j == null) return c.t("The library has no research run {0}.", id);
         RunProgress.View v = RunProgress.of(Jobs.view(j));
         ModelEntries.Entry e = ranOn(v.model(), v.drive());
-        StringBuilder b = new StringBuilder("Research run ").append(id);
-        if (e != null) b.append(" ran on the entry ").append(e.name()).append(": ").append(ModelEntries.where(e));
-        else if (!v.drive().isEmpty()) b.append(" ran on the model server at ").append(v.drive()).append(", which no entry names now");
-        else b.append(" has not started on any model yet");
-        b.append(". ");
+        StringBuilder b = new StringBuilder(e != null ? c.t("Research run {0} ran on the entry {1}: {2}.", id, e.name(), ModelEntries.where(e, c))
+                : !v.drive().isEmpty() ? c.t("Research run {0} ran on the model server at {1}, which no entry names now.", id, v.drive()) : c.t("Research run {0} has not started on any model yet.", id)).append(' ');
         String elapsed = RunProgress.elapsed(v.elapsedSeconds());
         switch (v.state()) {
-            case "done" -> b.append("It is done after ").append(elapsed).append(v.report().isEmpty() ? "." : "; its report is [" + v.report() + "].");
-            case "failed" -> b.append("It ended as failed after ").append(elapsed).append(v.result().isBlank() ? "." : " with this error: \"" + firstLine(v.result()) + "\".");
-            case "stopped" -> b.append("It was stopped after ").append(elapsed).append(v.result().isBlank() ? "." : ": \"" + firstLine(v.result()) + "\".");
-            case "queued" -> b.append("It is waiting to start.");
-            case Jobs.OFFERED -> b.append("It is waiting for your answer.");
-            default -> b.append("It is running, ").append(elapsed).append(" so far.");
+            case "done" -> b.append(v.report().isEmpty() ? c.t("It is done after {0}.", elapsed) : c.t("It is done after {0}; its report is [{1}].", elapsed, v.report()));
+            case "failed" -> b.append(v.result().isBlank() ? c.t("It ended as failed after {0}.", elapsed) : c.t("It ended as failed after {0} with this error: \"{1}\".", elapsed, firstLine(v.result())));
+            case "stopped" -> b.append(v.result().isBlank() ? c.t("It was stopped after {0}.", elapsed) : c.t("It was stopped after {0}: \"{1}\".", elapsed, firstLine(v.result())));
+            case "queued" -> b.append(c.t("It is waiting to start."));
+            case Jobs.OFFERED -> b.append(c.t("It is waiting for your answer."));
+            default -> b.append(c.t("It is running, {0} so far.", elapsed));
         }
-        for (String h : namedHosts(words)) if (e == null || !h.equalsIgnoreCase(e.host())) b.append(" It did not run on ").append(h).append('.');   // "why are we using openrouter": it was not
+        for (String h : namedHosts(words)) if (e == null || !h.equalsIgnoreCase(e.host())) b.append(' ').append(c.t("It did not run on {0}.", h));   // "why are we using openrouter": it was not
         return b.toString();
     }
 
@@ -173,24 +154,26 @@ final class ModelsTurn {
 
     /** The change: one entry named makes it the default; several or none are asked about and nothing changes. */
     static String change(LibraryStore store, Patrons.Patron patron, String x) throws IOException {
+        Chrome c = Chrome.now();
         String clean = x.strip().replaceAll("(?i)^(?:the |our |to |a |an )+", "").replaceAll("(?i)\\s+(?:model|entry|one|please)$", "").replaceAll("^[\"“「]|[\"”」]$", "").strip();
         List<ModelEntries.Entry> hits = ModelEntries.resolveAll(clean);
         if (hits.isEmpty()) { Matcher a = ADDRESS.matcher(clean); if (a.find()) { ModelEntries.Entry e = ModelEntries.onDrive(a.group()); if (e != null) hits = List.of(e); } }
         if (hits.size() == 1) return makeDefault(store, patron, hits.get(0));
-        if (hits.size() > 1) return "\"" + clean + "\" could be any of these: " + listed(hits) + ". Which one? Say \"make " + suggest(hits) + " the default\" with the name of the one you mean. Nothing was changed.";
+        if (hits.size() > 1) return c.t("\"{0}\" could be any of these: {1}. Which one? Say \"make {2} the default\" with the name of the one you mean. Nothing was changed.", clean, listed(hits), suggest(hits));
         List<String> hosts = namedHosts(clean);
         if (!hosts.isEmpty()) {
             List<ModelEntries.Entry> on = ModelEntries.onHost(hosts.get(0));
-            if (on.size() == 1 && ModelEntries.isDefault(on.get(0))) return "No model entry is named \"" + clean + "\". " + on.get(0).name() + " is the only entry on " + hosts.get(0) + " and it is the default already. Nothing was changed.";
-            return "No model entry is named \"" + clean + "\". On " + hosts.get(0) + ": " + listed(on) + ". Which one? Say \"make " + suggest(on) + " the default\" with the name of the one you mean. Nothing was changed.";
+            if (on.size() == 1 && ModelEntries.isDefault(on.get(0))) return c.t("No model entry is named \"{0}\". {1} is the only entry on {2} and it is the default already. Nothing was changed.", clean, on.get(0).name(), hosts.get(0));
+            return c.t("No model entry is named \"{0}\". On {1}: {2}. Which one? Say \"make {3} the default\" with the name of the one you mean. Nothing was changed.", clean, hosts.get(0), listed(on), suggest(on));
         }
-        return ModelEntries.noMatch(clean) + " Nothing was changed.";
+        return ModelEntries.noMatch(clean, c) + " " + c.t("Nothing was changed.");
     }
 
     /** "default (qwen3.8-27b at http://homebox:8212; the default now), 27b-gpu1 (qwen3.8-27b at http://homebox:8213), kimi (moonshotai/kimi-k3 on openrouter.ai)". */
     static String listed(List<ModelEntries.Entry> entries) {
         List<String> parts = new ArrayList<>();
-        for (ModelEntries.Entry e : entries) parts.add(e.name() + " (" + e.model() + (e.hosted() ? " on " + e.host() : " at " + e.drive()) + (ModelEntries.isDefault(e) ? "; the default now" : "") + ")");
+        Chrome c = Chrome.now();
+        for (ModelEntries.Entry e : entries) parts.add(e.name() + " (" + (e.hosted() ? c.t("{0} on {1}", e.model(), e.host()) : c.t("{0} at {1}", e.model(), e.drive())) + (ModelEntries.isDefault(e) ? "; " + c.t("the default now") : "") + ")");
         return String.join(", ", parts);
     }
 
@@ -201,13 +184,14 @@ final class ModelsTurn {
     }
 
     static String makeDefault(LibraryStore store, Patrons.Patron patron, ModelEntries.Entry e) throws IOException {
+        Chrome c = Chrome.now();
         ModelEntries.Entry d = ModelEntries.defaultEntry();
-        if (ModelEntries.isDefault(e)) return (e.name().equals(ModelEntries.DEFAULT) ? "The entry named default" : e.name()) + " is the default already: " + ModelEntries.where(d) + ". Nothing changed.";
-        if (!Patrons.mayWrite(store, patron)) return "Only the person who keeps this library and those who may write to it change the default. The keeper would run: researchzosho model use " + e.drive() + " " + e.model();
-        if (e.hosted() && !ModelEntries.keyKept(e)) return ModelEntries.noKey(e) + " Nothing was changed.";
-        String before = ModelEntries.where(d);
+        if (ModelEntries.isDefault(e)) return e.name().equals(ModelEntries.DEFAULT) ? c.t("The entry named default is the default already: {0}. Nothing changed.", ModelEntries.where(d, c)) : c.t("{0} is the default already: {1}. Nothing changed.", e.name(), ModelEntries.where(d, c));
+        if (!Patrons.mayWrite(store, patron)) return c.t("Only the person who keeps this library and those who may write to it change the default. The keeper would run: {0}", "researchzosho model use " + e.drive() + " " + e.model());
+        if (e.hosted() && !ModelEntries.keyKept(e)) return ModelEntries.noKey(e, c) + " " + c.t("Nothing was changed.");
+        String before = ModelEntries.where(d, c);
         ModelEntries.useAsDefault(e);
         synchronized (Pages.DRIVE_UP) { Pages.DRIVE_UP[1] = 0; }   // the pages ask the new server whether it answers, not the old one's cached answer
-        return "The default is now " + e.name() + ": " + ModelEntries.where(e) + ". It was " + before + ". Runs and chats that name no model use it from now on; a run going now finishes on the model it started with.";
+        return c.t("The default is now {0}: {1}. It was {2}. Runs and chats that name no model use it from now on; a run going now finishes on the model it started with.", e.name(), ModelEntries.where(e, c), before);
     }
 }

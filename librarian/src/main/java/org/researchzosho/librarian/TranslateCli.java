@@ -17,7 +17,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * {@code researchzosho translate <file> --to <lang> [--as md|txt|pdf|docx|epub] [--quality quick|checked] [--out <path>] [--no-wait]} and
+ * {@code researchzosho translate <file> --to <lang> [--as md|txt|pdf|docx|epub] [--quality quick|checked] [--notes end|off] [--out <path>] [--no-wait]} and
  * {@code researchzosho glossary …}: a document translated from the command line. The time is printed first, from the unit count and the
  * speed measured on the model. With the library's service running the translation is filed as a job the service runs, and the command
  * waits on it, printing its progress, or returns the job id with {@code --no-wait}; with no service it runs here, in this terminal.
@@ -25,9 +25,9 @@ import java.util.regex.Pattern;
 final class TranslateCli {
     private TranslateCli() { }
 
-    static final String USAGE = "usage: researchzosho translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality checked|quick|reviewed|thorough] [--model <entry>] [--judge <entry>|auto] [--back-translate on|off] [--out <path>] [--collection <name>] [--no-wait]\n       researchzosho translate scorers [status|install [--cpu]|stop]   ·   researchzosho translate scores accept <translation note> [--units 1,3-5]\n"
+    static final String USAGE = "usage: researchzosho translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality checked|quick|reviewed|thorough] [--model <entry>] [--judge <entry>|auto] [--back-translate on|off] [--notes end|off] [--from <language>] [--out <path>] [--collection <name>] [--no-wait]\n       researchzosho translate scorers [status|install [--cpu]|stop]   ·   researchzosho translate scores [list | withdraw <job id | translation note> | withdraw --unnamed <from> <to>]\n"
             + "  Translates a txt, md, pdf, docx or epub file into the language (" + Translation.languagesSaid() + ") and writes it beside the original, in the same format unless --as says another.\n"
-            + "  checked, the default, is one pass with the program's checks and scores (LaBSE, and MetricX-24 when installed) and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading by the judge seat of the flagged units and a sample of the rest; thorough reads every unit. --model names the entry that translates; --judge the entry that reads, or auto for the strongest other one; a hosted entry is a paid call, its cost said first, within the entry's monthly cap. A note beside the output says what was done.\n"
+            + "  checked, the default, is one pass with the program's checks and scores (LaBSE, and MetricX-24 when installed) and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading by the judge seat of the flagged units and a sample of the rest; thorough reads every unit. --model names the entry that translates; --judge the entry that reads, or auto for the strongest other one; a hosted entry is a paid call, its cost said first, within the entry's monthly cap. A note beside the output says what was done and lists what the checks still doubt; the document holds the translation alone, and --notes end numbers those passages and lists them at its end too (the setting translate_notes makes either the default).\n"
             + "  Both files go onto the shelves. The time is said first, from the number of units and the model's measured speed.";
 
     static int translate(LibraryStore store, String[] args) throws Exception {
@@ -35,7 +35,7 @@ final class TranslateCli {
         Path file = Path.of(args[2]).toAbsolutePath().normalize();
         if (args[2].equals("scorers") && !Files.isRegularFile(Path.of(args[2]))) return scorers(store, args);
         if (args[2].equals("scores") && !Files.isRegularFile(Path.of(args[2]))) return scores(store, args);
-        String to = "", as = "", quality = Translation.DEFAULT, collection = "", judge = "", modelEntry = "", back = ""; Path out = null; boolean wait = true;
+        String to = "", as = "", quality = Translation.DEFAULT, collection = "", judge = "", modelEntry = "", back = "", notes = "", from = ""; Path out = null; boolean wait = true;
         try {
             for (int i = 3; i < args.length; i++) {
                 switch (args[i]) {
@@ -52,22 +52,28 @@ final class TranslateCli {
                     case "--model" -> modelEntry = LibrarianCli.flagValue(args, i++);
                     case "--back-translate" -> back = LibrarianCli.flagValue(args, i++);
                     case "--no-back-translate" -> back = "off";
+                    case "--notes" -> notes = LibrarianCli.flagValue(args, i++);
+                    case "--from" -> from = LibrarianCli.flagValue(args, i++);
                     case "--no-wait" -> wait = false;
                     default -> { System.err.println(USAGE); return 2; }
                 }
             }
         } catch (IllegalArgumentException e) { System.err.println(USAGE); return 2; }
+        if (Translation.notes(notes) == null) { System.err.println(Translation.NOTES_SAID); return 2; }
+        notes = Translation.notes(notes);
         if (to.isEmpty()) { System.err.println("Which language? --to Japanese, --to ja, or any of: " + Translation.languagesSaid() + "."); return 2; }
         if (!Files.isRegularFile(file)) { System.err.println("No file is at " + file + "."); return 1; }
         String[] seat = Translation.configuredSeat();
         if (!modelEntry.isEmpty() && !modelEntry.equalsIgnoreCase(Auto.NAME)) { ModelEntries.Entry e = ModelEntries.get(modelEntry); if (e == null) { e = ModelEntries.resolve(modelEntry); } if (e == null) { System.err.println(ModelEntries.noMatch(modelEntry)); return 2; } seat = new String[]{e.drive(), e.model()}; }
         Translation.Plan plan;
-        try { plan = Translation.plan(store, file, to, as, quality, seat[1], modelEntry, judge); }
+        try { plan = Translation.plan(store, file, to, as, quality, seat[1], modelEntry, judge, from); }
         catch (IOException e) { System.err.println(e.getMessage()); return 1; }
         String name = ReadIn.name(plan.to());
+        if (!plan.readingSaid(Chrome.now()).isEmpty()) System.out.println(plan.readingSaid(Chrome.now()));   // a PDF: how its pages are read, before anything else
         System.out.println("\"" + file.getFileName() + "\": " + plan.units() + (plan.units() == 1 ? " unit" : " units") + " with words, " + String.format(Locale.ROOT, "%,d", plan.chars()) + " characters, written in " + ReadIn.name(plan.from()) + ". Into " + name + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
         System.out.println("  (" + plan.said() + ")");
-        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, collection, "cli", judge, modelEntry, back);
+        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, collection, "cli", judge, modelEntry, back, notes, from);
+        if (plan.reading() != null) a.set("pdf_preflight", plan.reading().json());   // the job's page says what the reader found
         Jobs jobs = new Jobs(store, j -> "");
         boolean served = servedByADaemon(store);
         if (served) {
@@ -96,7 +102,7 @@ final class TranslateCli {
         try { seats = Translation.SEATS.make(seat[0], seat[1], judge, back).translatorNamed(modelEntry.isEmpty() ? null : ModelEntries.get(modelEntry)); } catch (Jobs.Failure e) { System.err.println(e.getMessage()); return 1; }
         String[] lastSaid = {""};
         try {
-            Translation.Outcome o = Translation.run(store, file, plan.to(), plan.as(), plan.quality(), out, collection, seats, p -> { String said = progressWords(p); if (!said.equals(lastSaid[0])) { System.out.println("  " + said); lastSaid[0] = said; } }, () -> false);
+            Translation.Outcome o = Translation.run(store, file, plan.to(), plan.as(), plan.quality(), out, collection, seats, p -> { String said = progressWords(p); if (!said.equals(lastSaid[0])) { System.out.println("  " + said); lastSaid[0] = said; } }, () -> false, Checkpoint.NONE, notes, "", from);
             Translation.tally(store, "", seats, o.seconds());
             System.out.println(Translation.result(store, o, false));
             return 0;
@@ -117,6 +123,7 @@ final class TranslateCli {
         if (p == null || !p.isObject()) return "";
         String phase = p.path("phase").asText(""); int done = p.path("units_done").asInt(), total = p.path("units_total").asInt();
         return switch (phase) {
+            case "reading" -> "reading the PDF's pages by eye, " + done + " of " + total;
             case "translating" -> "translating, " + done + " of " + total + " units";
             case "scoring" -> "scoring, " + done + " of " + total + " units";
             case "checking" -> "checking, " + done + " of " + total + " units read side by side";
@@ -157,33 +164,62 @@ final class TranslateCli {
         }
     }
 
-    /** {@code translate scores accept <note> [--units 1,3-5]}: the scores of units read by hand and found right go on the pair's record, from a translation note's Scores table. */
+    static final String SCORES_USAGE = "usage: researchzosho translate scores [list]   ·   withdraw <job id | translation note>   ·   withdraw --unnamed <from> <to>   (the entries an earlier version put there, which name no job)";
+
+    /**
+     * {@code translate scores}: the record the checks' thresholds and the length band are measured from. {@code list} (the default) says
+     * what it holds by pair and by job, and apart from it the entries of earlier versions, which nothing is measured from; {@code withdraw
+     * <job>} takes a job's units off (a translation note's path for a run with no job), {@code withdraw --unnamed <from> <to>} the entries
+     * of a pair that name no job. {@code accept}, which put units a person chose as right on the record, is no more: the record takes every
+     * paragraph a checked translation scored, and a choice of the right ones would cut that sample as the record of earlier versions was cut.
+     */
     static int scores(LibraryStore store, String[] args) throws Exception {
-        if (args.length < 5 || !args[3].equals("accept")) { System.err.println("usage: researchzosho translate scores accept <translation note> [--units 1,3-5]   (every scored unit of the note when --units is not given)"); return 2; }
-        Path note = Path.of(args[4]).toAbsolutePath().normalize();
-        if (!Files.isRegularFile(note)) { System.err.println("No file is at " + note + "."); return 1; }
-        Set<Integer> only = new TreeSet<>();
-        for (int i = 5; i < args.length; i++) if (args[i].equals("--units") && i + 1 < args.length) for (String part : args[++i].split(",")) { String[] r = part.strip().split("-"); try { int a = Integer.parseInt(r[0].strip()), b = r.length > 1 ? Integer.parseInt(r[1].strip()) : a; for (int k = a; k <= b; k++) only.add(k); } catch (NumberFormatException e) { System.err.println("--units takes numbers and ranges, such as 1,3-5"); return 2; } }
-        String text = Files.readString(note, StandardCharsets.UTF_8);
-        Matcher pair = Pattern.compile("written in ([A-Za-z]+)\\)\\n- To: .*?\\(\\w+, ([A-Za-z]+)\\)").matcher(text);
-        if (!pair.find()) { System.err.println("The note does not say its languages (From … written in X; To … (format, Y))."); return 1; }
-        String from = Translate.code(pair.group(1)), to = Translate.code(pair.group(2));
-        List<Double> labse = new ArrayList<>(), metricx = new ArrayList<>();
-        int taken = 0;
-        for (String line : text.split("\n")) {
-            Matcher row = Pattern.compile("^\\| (\\d+) \\| ([0-9.]+|—) \\| ([0-9.]+|—) \\| ?(\\d*) ?\\|$").matcher(line.strip());
-            if (!row.matches()) continue;
-            int unit = Integer.parseInt(row.group(1));
-            if (!only.isEmpty() && !only.contains(unit)) continue;
-            if (!row.group(2).equals("—")) labse.add(Double.parseDouble(row.group(2)));
-            if (!row.group(3).equals("—")) metricx.add(Double.parseDouble(row.group(3)));
-            taken++;
+        Chrome c = Chrome.now();
+        String op = args.length > 3 ? args[3] : "list";
+        if (op.equals("list")) { System.out.println(holdingsSaid(store, c)); return 0; }
+        if (op.equals("withdraw")) {
+            if (args.length > 6 && args[4].equals("--unnamed")) {
+                String from = Translate.code(args[5]), to = Translate.code(args[6]);
+                int n = TranslationScores.withdrawUnnamed(store, from, to);
+                TranslationScores.Thresholds t = TranslationScores.thresholds(store, from, to);
+                System.out.println(c.t(n == 1 ? "{0} unit that named no job left the record of {1} into {2}." : "{0} units that named no job left the record of {1} into {2}.", n, c.languageName(from), c.languageName(to)) + " "
+                        + c.t("The record of {0} into {1} now: {2}; {3}.", c.languageName(from), c.languageName(to), t.said(c), TranslationLengths.shortSaid(TranslationLengths.band(store, from, to, null, null), c)));
+                return 0;
+            }
+            if (args.length < 5) { System.err.println(SCORES_USAGE); return 2; }
+            System.out.println(TranslationScores.withdrawnSaid(store, TranslationScores.withdraw(store, args[4]), c));
+            return 0;
         }
-        if (taken == 0) { System.err.println("The note has no Scores table" + (only.isEmpty() ? "" : " rows for the units named") + "."); return 1; }
-        TranslationScores.accept(store, from, to, labse, metricx);
-        TranslationScores.Thresholds t = TranslationScores.thresholds(store, from, to);
-        System.out.println(taken + (taken == 1 ? " unit" : " units") + " of " + ReadIn.name(from) + "→" + ReadIn.name(to) + " accepted onto the record (" + labse.size() + " LaBSE, " + metricx.size() + " MetricX-24). Now: " + t.said() + ".");
-        return 0;
+        if (op.equals("accept")) {
+            System.err.println("Units are no longer put on the record by hand: every paragraph a checked translation scores goes on it, flagged or not, and a choice of the right ones would cut that sample as the record of earlier versions was cut, tightening the thresholds at every run. A translation whose paragraphs did not go on runs again to put them there.");
+            return 2;
+        }
+        System.err.println(SCORES_USAGE);
+        return 2;
+    }
+
+    /** What the record holds, pair by pair and by the job or note each unit came from; apart from it, the entries of earlier versions, which nothing is measured from, and why. */
+    static String holdingsSaid(LibraryStore store, Chrome c) {
+        var all = TranslationScores.holdings(store);
+        var earlier = TranslationScores.earlier(store);
+        if (all.isEmpty() && earlier.isEmpty()) return c.t("The record the checks' thresholds and the length band are measured from is empty: no translation has put units on it yet.");
+        StringBuilder b = new StringBuilder(c.t("The record the checks' thresholds and the length band are measured from, by language pair:"));
+        for (var e : all.entrySet()) {
+            String[] l = TranslationScores.languages(e.getKey());
+            int total = 0; List<String> parts = new ArrayList<>();
+            for (var by : e.getValue().entrySet()) { total += by.getValue(); parts.add(by.getKey().isEmpty() ? c.t("no job named: {0}", by.getValue()) : c.tc("{1}: {0}", "a job's id or a translation note, then how many of its units are on the record, in the list of what the record holds", by.getValue(), by.getKey())); }
+            b.append("\n  ").append(c.t("{0} into {1}, units on the record: {2} ({3})", c.languageName(l[0]), c.languageName(l[1]), total, String.join(c.sep(), parts)));
+        }
+        if (!earlier.isEmpty()) {
+            for (var e : earlier.entrySet()) {
+                String[] l = TranslationScores.languages(e.getKey());
+                int total = 0; List<String> parts = new ArrayList<>();
+                for (var by : e.getValue().entrySet()) { total += by.getValue(); parts.add(by.getKey().isEmpty() ? c.t("no job named: {0}", by.getValue()) : c.tc("{1}: {0}", "a job's id or a translation note, then how many of its units are on the record, in the list of what the record holds", by.getValue(), by.getKey())); }
+                b.append("\n  ").append(c.t("{0} into {1}, entries of earlier versions, not measured from: {2} ({3})", c.languageName(l[0]), c.languageName(l[1]), total, String.join(c.sep(), parts)));
+            }
+            b.append("\n").append(TranslationScores.earlierWhy(c));
+        }
+        return b.toString();
     }
 
     static int glossary(LibraryStore store, String[] args) throws Exception {

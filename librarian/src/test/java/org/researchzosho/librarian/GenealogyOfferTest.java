@@ -468,7 +468,7 @@ class GenealogyOfferTest {
             assertTrue(ticked.contains("in genealogy mode"), ticked);
             assertEquals("genealogy", job(store, ticked).path("args").path("field").asText());
             assertEquals("web-box", job(store, ticked).path("args").path("field_how").asText());
-        } finally { d.stop(); model.stop(0); quiet(store); }
+        } finally { d.stop(); model.stop(0); quiet(d); }
     }
 
     @Test
@@ -488,7 +488,7 @@ class GenealogyOfferTest {
             String runs = PagesTest.get(c, base + to, null).body();
             assertTrue(runs.contains("This looks like family history.") && runs.contains("was sent as ordinary research") && runs.contains("/research?q=" + Pages.enc(FAMILY) + "&field=genealogy"), runs);
             assertFalse(filed(store).path("args").has("field"), "the run itself is ordinary");
-        } finally { d.stop(); model.stop(0); quiet(store); }
+        } finally { d.stop(); model.stop(0); quiet(d); }
     }
 
     @Test
@@ -569,7 +569,8 @@ class GenealogyOfferTest {
     }
 
     /** Waits until no run the daemon started is still writing into the library, so the temporary folder can be deleted after the test. */
-    static void quiet(LibraryStore store) throws Exception {
-        for (int i = 0; i < 200 && !new Jobs(store, j -> "").active().isEmpty(); i++) Thread.sleep(100);
+    /** Waits until a stopped daemon's job threads have ended, so nothing writes into the test's folder while it is removed. A run the stop interrupted stays in the queue, to be picked up at the next start, so the queue being empty is not the sign. */
+    static void quiet(LibrarianDaemon d) throws Exception {
+        for (int i = 0; i < 200 && !d.jobs().quiet(); i++) Thread.sleep(100);
     }
 }

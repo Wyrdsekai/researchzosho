@@ -37,6 +37,22 @@ class OutsideServicesTest {
         assertNull(OutsideServices.of("RESEARCHZOSHO_MODEL"));
     }
 
+    @Test void firecrawlsCreditsAreAskedOfTheSecondVersionOfItsApi(@TempDir Path tmp) throws Exception {
+        Config.set("RESEARCHZOSHO_FIRECRAWL_KEY", "fc-test"); Config.invalidate();
+        List<String> asked = new ArrayList<>(); String[] body = {"{\"success\":true,\"data\":{\"remainingCredits\":412,\"planCredits\":500}}"};
+        OutsideServices.HTTP = r -> {
+            asked.add(r.url());
+            assertEquals("Bearer fc-test", r.headers().get("Authorization"));
+            return new OutsideServices.Res(200, Map.of(), body[0]);
+        };
+        OutsideServices.Result r = OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_FIRECRAWL_KEY"));
+        assertEquals(List.of("https://api.firecrawl.dev/v2/team/credit-usage"), asked, "the first version answers 410 from 10 December 2026");
+        assertEquals("accepted, 412 credits left", r.said()); assertEquals(Boolean.TRUE, r.accepted());
+        // an answer in the first version's form is still read
+        body[0] = "{\"success\":true,\"data\":{\"remaining_credits\":7}}";
+        assertEquals("accepted, 7 credits left", OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_FIRECRAWL_KEY")).said());
+    }
+
     @Test void theCheckAsksEachServiceWithAKeyAndSaysWhatCameBack(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Config.set("RESEARCHZOSHO_SERPAPI_KEY", "serp-test"); Config.set("RESEARCHZOSHO_FIRECRAWL_KEY", "fc-test"); Config.set("RESEARCHZOSHO_STACKEXCHANGE_KEY", "se-test");

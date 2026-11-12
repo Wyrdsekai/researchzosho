@@ -42,14 +42,14 @@ final class McpPage {
             McpServers.Preset p = McpServers.presetOf(s);
             List<String> on = new ArrayList<>(), off = new ArrayList<>();
             for (McpClient.Tool tool : s.tools) { String why = McpSources.offBecause(s, tool); if (why.isEmpty()) on.add(tool.name()); else off.add(tool.name() + " (" + why + ")"); }
-            b.append("<div class=\"card\"><h3>").append(esc(s.name)).append(" <span class=\"k\">").append(esc(p != null ? p.title() : s.stdio() ? t("a program this computer starts") : t("a server at an address"))).append("</span></h3>");
+            b.append("<div class=\"card\"><h3>").append(esc(s.name)).append(" <span class=\"k\">").append(esc(p != null ? t(p.title()) : s.stdio() ? t("a program this computer starts") : t("a server at an address"))).append("</span></h3>");
             b.append("<p class=\"small\"><code>").append(esc(s.where())).append("</code></p>");
             if (s.tools.isEmpty()) b.append("<p>").append(t("It has listed no tools yet. Test it to ask it.")).append("</p>");
             else b.append("<p>").append(on.isEmpty() ? t("Research may call none of its tools.") : t("Research may call {0} of its {1}: {2}.", on.size(), s.tools.size(), esc(String.join(", ", on))))
                     .append(off.isEmpty() ? "" : " " + t("Kept off, because research reads and does not act: {0}.", esc(String.join("; ", off))) + " " + t("{0} lets one on.", "<code>researchzosho mcp allow " + esc(s.name) + " &lt;tool&gt;</code>")).append("</p>");
             int used = McpSources.used(s), cap = McpSources.cap(s);
             b.append("<p class=\"k\">").append(s.lastError.isBlank() ? (s.listedAt.isBlank() ? t("Not asked yet.") : t("It answered at {0}.", esc(s.listedAt.replace("T", " ").replace("Z", " UTC")) + (s.protocol.isBlank() ? "" : " (MCP " + esc(s.protocol) + ")"))) : t("The last time it was asked, it did not answer: {0}", esc(s.lastError)))
-             .append(" ").append(t("This month research has called it {0}{1}", n(used, "{0} time", "{0} times"), esc(McpSources.sharedWith(s)))).append(cap > 0 ? ", " + t("of the {0} it may.", cap) : "; " + t("there is no monthly cap."))
+             .append(" ").append(McpSources.callsSaid(s, used, cap, Chrome.now()))
              .append(!s.stdio() && !s.keySetting.isBlank() ? " " + esc(McpSetup.keyLine(s)) : "").append(s.readers ? " " + t("Readers use it too.") : "").append("</p>");
             b.append(button("mcp-test", s.name, "", t("Test it"), "btn")).append(' ')
              .append(button("mcp-readers", s.name, s.readers ? "off" : "on", s.readers ? t("Keep it to you and the writers") : t("Let readers use it too"), "btn")).append(' ')
@@ -70,7 +70,7 @@ final class McpPage {
         for (McpServers.Preset p : McpServers.presets()) {
             if (all.stream().anyMatch(s -> p.name().equals(s.preset) || p.name().equals(s.name))) continue;
             b.append("<p>").append(button("mcp-preset", p.name(), "", t("Add {0}", p.name().substring(0, 1).toUpperCase() + p.name().substring(1)), "btn")).append(" <span class=\"k\">")
-             .append(esc(p.title())).append(": ").append(t("it works without a key, slower and limited, and uses yours once the setting {0} holds one.", esc(McpSetup.shortName(p.keySetting())))).append("</span></p>");
+             .append(t("{0}: it works without a key, slower and limited, and uses yours once the setting {1} holds one.", esc(t(p.title())), esc(McpSetup.shortName(p.keySetting())))).append("</span></p>");   // one sentence, the server's own words in its place
         }
         b.append("<h3>").append(t("Add a server")).append("</h3><form method=\"post\" action=\"/keep\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"mcp-add\">")
          .append("<label>").append(t("A short name")).append(" <input name=\"name\" placeholder=\"docs\" size=\"16\" required></label>")

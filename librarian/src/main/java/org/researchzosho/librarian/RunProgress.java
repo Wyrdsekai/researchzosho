@@ -72,12 +72,46 @@ public final class RunProgress {
             case "synthesis" -> c.t("Writing the report");
             case "cite-check" -> c.t("Checking citations");
             case "filing" -> c.t("Saving the report and its claims");
+            case "reading" -> c.t("Reading the PDF's pages by eye, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "translating" -> c.t("Translating, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "scoring" -> c.t("Scoring the translation, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "checking" -> c.t("Checking the translation, {0} of {1} units read side by side", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "revising" -> c.t("Revising the flagged units, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "writing" -> c.t("Writing the file");
             case "" -> c.t("Starting");
+            default -> phase;
+        };
+    }
+
+    /** What can interrupt a job, as the sentences of {@link #resumed} name it after "after". */
+    static final List<String> INTERRUPTIONS = List.of("a restart", "an update", "an update to {0}", "a stop the service did not finish (a crash, or the computer went off)");
+
+    /** Every sentence {@link #resumed} can say, for the test that holds each language file to them. */
+    static List<String> resumedSentences() {
+        List<String> out = new ArrayList<>();
+        for (String why : INTERRUPTIONS) out.addAll(List.of("Started again after " + why + ".", "Starts again after " + why + "; nothing had been kept yet.", "Started again after " + why + "; nothing had been kept yet.", "Resumes after " + why + ", at {1}.", "Resumed after " + why + ", at {1}."));
+        return out;
+    }
+
+    /** The stage of a running job as a sentence carries it after a comma ("Still being made: reading, 2 of 5 parts done, …"): its own words, never the heading's form lower-cased. */
+    public static String stageInSentence(JsonNode p) {
+        String phase = p.path("phase").asText("");
+        int done = p.path("workers_done").asInt(), total = p.path("workers_total").asInt(), round = p.path("round").asInt();
+        Chrome c = Chrome.now();
+        return switch (phase) {
+            case "planning" -> c.t("planning");
+            case "workers" -> total > 0 ? (round > 1 ? c.t("reading, {0} of {1} parts done (second pass)", done, total) : c.t("reading, {0} of {1} parts done", done, total)) : round > 1 ? c.t("reading (second pass)") : c.t("reading");
+            case "critic" -> c.t("checking what is still missing");
+            case "synthesis" -> c.t("writing the report");
+            case "cite-check" -> c.t("checking citations");
+            case "filing" -> c.t("saving the report and its claims");
+            case "reading" -> c.t("reading the PDF's pages by eye, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "translating" -> c.t("translating, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "scoring" -> c.t("scoring the translation, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "checking" -> c.t("checking the translation, {0} of {1} units read side by side", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "revising" -> c.t("revising the flagged units, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "writing" -> c.t("writing the file");
+            case "" -> c.t("starting");
             default -> phase;
         };
     }
@@ -94,6 +128,7 @@ public final class RunProgress {
         boolean readTier = tier.equals("reviewed") || tier.equals("thorough"), quickTier = tier.equals("quick");
         double byStage = switch (p.path("phase").asText("")) {
             case "planning" -> 3;
+            case "reading" -> 1 + uf;
             case "translating" -> 2 + (quickTier ? 92 : readTier ? 40 : 60) * uf;
             case "scoring" -> (readTier ? 42 : 62) + 8 * uf;
             case "checking" -> (readTier ? 55 : 75) + (readTier ? 25 : 10) * uf;
@@ -145,16 +180,17 @@ public final class RunProgress {
         Chrome c = Chrome.now();
         if (c.english() || !r.isObject()) return v.path("resumed").asText("");
         String to = r.path("to").asText("");
+        // each sentence whole, per what interrupted it: the words after "after" take the form the sentence needs ({0} the version, {1} where it was)
         String why = switch (r.path("why").asText("")) {
-            case Jobs.RESTART -> c.t("a restart");
-            case Jobs.UPDATE -> to.isEmpty() ? c.t("an update") : c.t("an update to {0}", to);
-            default -> c.t("a stop the service did not finish (a crash, or the computer went off)");
+            case Jobs.RESTART -> "a restart";
+            case Jobs.UPDATE -> to.isEmpty() ? "an update" : "an update to {0}";
+            default -> "a stop the service did not finish (a crash, or the computer went off)";
         };
         boolean queued = "queued".equals(v.path("state").asText(""));
         String said = r.path("said").asText("");
-        if (r.hasNonNull("started_over")) return c.t("Started again after {0}.", why) + " " + r.path("started_over").asText("");
-        if (said.isEmpty()) return queued ? c.t("Starts again after {0}; nothing had been kept yet.", why) : c.t("Started again after {0}; nothing had been kept yet.", why);
-        return queued ? c.t("Resumes after {0}, at {1}.", why, said) : c.t("Resumed after {0}, at {1}.", why, said);
+        if (r.hasNonNull("started_over")) return c.t("Started again after " + why + ".", to) + " " + r.path("started_over").asText("");
+        if (said.isEmpty()) return queued ? c.t("Starts again after " + why + "; nothing had been kept yet.", to) : c.t("Started again after " + why + "; nothing had been kept yet.", to);
+        return queued ? c.t("Resumes after " + why + ", at {1}.", to, said) : c.t("Resumed after " + why + ", at {1}.", to, said);
     }
 
     /** "1 hour 4 min", "12 min", "40 sec". */

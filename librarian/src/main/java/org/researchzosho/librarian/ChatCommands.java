@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -58,7 +59,7 @@ final class ChatCommands {
         if (words.isEmpty()) return null;
         String first = words.split("\\s+", 2)[0], rest = words.length() > first.length() ? words.substring(first.length()).strip() : "";
         switch (first) {
-            case "/help" -> { return rest.isEmpty() ? help(store, front) : Help.lookup(store, rest); }
+            case "/help" -> { return rest.isEmpty() ? help(store, front) : Help.lookup(store, rest, Chrome.now()); }
             case "/new" -> { String id = front.open(); return t("A fresh conversation, {0}.", id); }
             case "/sessions" -> { return sessions(store, patron, front.session()); }
             case "/resume" -> {
@@ -66,6 +67,7 @@ final class ChatCommands {
                 Librarian.Session s = front.resume(rest);
                 return s == null ? t("No conversation of yours has the id {0}. /sessions lists them.", rest) : t("Continuing {0}: {1}", s.id, s.title());
             }
+            case "/delete" -> { return delete(store, patron, rest, front); }
             case "/runs" -> { return runs(store, patron, front.session()); }
             case "/model" -> { return model(store, front.session(), rest, front); }
             case "/share" -> { return share(store, patron, rest, front); }
@@ -92,20 +94,21 @@ final class ChatCommands {
         StringBuilder b = new StringBuilder(t("Ask anything about what the library holds; it answers from its shelves, with the sources. These commands the library answers itself:")).append("\n");
         b.append("- ").append(t("/help and some words, to look them up in the program's own documentation; the Help page does the same")).append("\n");
         b.append("- ").append(t("/new, a fresh conversation; /sessions, the earlier ones; /resume and an id, to continue one")).append("\n");
+        b.append("- ").append(t("/delete, to delete this conversation, or /delete and an id for another of yours: it says first what goes, and the same with --yes deletes it")).append("\n");
         b.append("- ").append(t("/runs, the research runs this conversation follows")).append("\n");
         b.append("- ").append(t("/model, to see the models this chat can talk to; /model and a name switches to one")).append("\n");
         b.append("- ").append(t("/interview and a name, to have the library ask you what it does not know about someone")).append("\n");
         b.append("- ").append(t("/suggest, for what the library suggests you do next")).append("\n");
-        b.append("- ").append(t("\"translate this file into Japanese\" with a file attached, or naming a document on the shelves; \"checked\" in the words for the checked tier; \"using deepseek\" or \"translated by kimi\" names the translator and \"checked by kimi\" or \"have kimi k3 do a thorough check\" the reader, by an entry's name or its model; \"checked by the strongest other model\" lets the library choose; without a word the chat's /model translates; \"render Acme Corp as アクメ社 in Japanese\" for the glossary")).append("\n");
+        b.append("- ").append(t("\"translate this file into Japanese\" with a file attached, or naming a document on the shelves; \"checked\" in the words for the checked tier; \"using deepseek\" or \"translated by kimi\" names the translator and \"checked by kimi\" or \"have kimi k3 do a thorough check\" the reader, by an entry's name or its model; \"checked by the strongest other model\" lets the library choose; without a word the chat's /model translates; \"with the notes at the end\" numbers what the checks still doubt and lists it at the end of the document, \"no notes\" keeps it to the note beside the translation; \"render Acme Corp as アクメ社 in Japanese\" for the glossary")).append("\n");
         b.append("- ").append(t("/sources, the places the library mines; /sources add, remove, restore or show one")).append("\n");
         b.append("- ").append(t("/share, the library reached from outside your home: status, off, --tailscale, --tailnet, --cloudflare")).append("\n");
         b.append("- ").append(t("/explain <id or a term> [--beginner|--familiar|--written]; /perspectives <question>; /established <claim>; /read <id or address> [--in <language>]")).append("\n");
         b.append("- ").append(t("/subjects [proposed | accept <n…> | drop <n…>]; /serials [add|remove|park|unpark|every]; /export <id or subject> [--pdf|--docx|--md]; /remove <id> [--yes]")).append("\n");
         b.append("- ").append(t("/story <subject>; /forecasts [<subject>]; /forecast <P-…> happened|did-not|void; /dna; /prefs; /react like|dislike|seen|own <title>")).append("\n");
         b.append("- ").append(t("for the keeper: /mcp, /readers, /invite <name>, /keys, /crews tonight|now, /tonight, /spend, /update")).append("\n");
-        for (Profile p : Fields.enabled(store)) if (!p.chatCommandHelp().isBlank()) b.append("- ").append(p.chatCommandHelp().strip()).append('\n');
+        for (Profile p : Fields.enabled(store)) if (!p.chatCommandHelp().isBlank()) b.append("- ").append(t(p.chatCommandHelp().strip())).append('\n');   // a field's own line, in the person's language
         b.append("- ").append(t("/quit leaves the terminal chat; the page is left by closing it")).append("\n");
-        b.append(t("Say \"find out …\" to start a research run; \"yes\" accepts what the Librarian offers. When it asks a question ending in (y/N), y or yes says yes; Enter or anything else says no."));
+        b.append(t("Say \"find out …\" to start a research run; \"yes\" accepts what the Librarian offers. When it asks a question ending in {0}, y or yes says yes; Enter or anything else says no.", ChatWords.hint(Chrome.now().code)));
         String extra = front == null ? "" : front.helpExtra();
         if (!extra.isBlank()) b.append('\n').append(extra.strip());
         return b.toString().strip();
@@ -123,6 +126,26 @@ final class ChatCommands {
             b.append('\n').append(id).append("  ").append(s == null ? "" : s.title()).append(current != null && id.equals(current.id) ? "  " + t("(this one)") : "");
         }
         return b.toString();
+    }
+
+    /**
+     * {@code /delete [id] [--yes]}: one of this person's conversations, this one when no id is said, a unique start of an id as /resume takes
+     * it. Without --yes it says what deleting means and the line that does it; with --yes it is deleted ({@link Librarian.Session#delete}).
+     * When it is the one the person is in, a fresh one is opened, as /new opens one, and the front goes there.
+     */
+    static String delete(LibraryStore store, Patrons.Patron patron, String rest, Front front) throws IOException {
+        List<String> words = wordsOf(rest);
+        boolean yes = words.remove("--yes");
+        Librarian.Session current = front.session();
+        if (words.isEmpty() && (current == null || !Files.exists(current.file))) return t("This conversation has nothing in it yet, so there is nothing to delete.");
+        String named = words.isEmpty() ? current.id : words.get(0);
+        Librarian.Session s = Librarian.Session.resume(store, named, patron);
+        if (s == null) return t("No conversation of yours has the id {0}, so nothing was deleted. /sessions lists them.", named);
+        if (!yes) return t("Delete the conversation “{0}” ({1})?", s.named(), s.id) + " " + t(Librarian.DELETE_MEANS) + "\n" + t("To go ahead: {0}", "/delete " + s.id + " --yes");
+        boolean here = current != null && s.id.equals(current.id);
+        Librarian.Session.Deleted d = Librarian.Session.delete(store, s.id, patron);
+        if (d.outcome() != Librarian.Session.Outcome.DELETED || !here) return d.said();
+        return d.said() + "\n" + t("A fresh conversation, {0}.", front.open());
     }
 
     /** {@code /runs}: the research runs this conversation follows, each with its stage line. */
@@ -144,7 +167,7 @@ final class ChatCommands {
     static String model(LibraryStore store, Librarian.Session s, String name, Front front) throws IOException {
         if (name.isEmpty()) {
             StringBuilder b = new StringBuilder(s == null || s.model().isEmpty() ? t("The models this library can talk to:") : t("The models this library can talk to (this chat uses {0}):", s.model()));
-            for (ModelEntries.Entry e : ModelEntries.all().values()) b.append("\n").append(e.line());
+            for (ModelEntries.Entry e : ModelEntries.all().values()) b.append("\n").append(e.line(Chrome.now()));
             return b.append("\n").append(t("/model <name> switches this chat to one.")).toString();
         }
         if (name.equalsIgnoreCase(Auto.NAME)) {
@@ -155,10 +178,10 @@ final class ChatCommands {
         }
         ModelEntries.Entry e = ModelEntries.get(name);
         if (e == null) e = ModelEntries.resolve(name);   // "Kimi K3" is kimi
-        if (e == null) return ModelEntries.noMatch(name);
+        if (e == null) return ModelEntries.noMatch(name, Chrome.now());
         if (s != null) s.model(e.name());
         front.modelChanged(e);
-        return t("This chat now uses {0}.", e.line());
+        return t("This chat now uses {0}.", e.line(Chrome.now()));
     }
 
     /**
@@ -244,7 +267,7 @@ final class ChatCommands {
                         ObjectNode got = p.get(a);
                         JsonNode r = got.path("entry").isObject() ? got.path("entry") : got;   // the entry rides under entry, as the command line's get reads it
                         String body = r.path("body").asText(r.path("text").asText("")); if (body.length() > 6000) body = body.substring(0, 6000) + " …";
-                        String head = r.path("title").asText("") + "  [" + r.path("id").asText(what) + "]" + (r.path("read_in").asText("").isEmpty() ? "" : "  " + t("read in {0}", ReadIn.name(r.path("read_in").asText())));
+                        String head = r.path("title").asText("") + "  [" + r.path("id").asText(what) + "]" + (r.path("read_in").asText("").isEmpty() ? "" : "  " + t("read in {0}", Chrome.now().languageName(r.path("read_in").asText())));
                         return head + "\n\n" + body;
                     }
                     ObjectNode r = p.read(args(patron).put("locator", what).put("max_chars", 6000));
@@ -265,7 +288,7 @@ final class ChatCommands {
                             ObjectNode r = p.serials(a.put("op", "list"));
                             if (r.path("searches").isEmpty()) return t("No saved search yet. /serials add <name> <the search words> [days] keeps one; the housekeeping runs it again.");
                             StringBuilder b = new StringBuilder(t("The saved searches the housekeeping runs again:"));
-                            for (JsonNode s : r.path("searches")) b.append("\n- ").append(s.path("name").asText()).append(": ").append(s.path("query").asText()).append(" · ").append(t("every {0} days", s.path("every_days").asInt())).append(s.path("parked").asBoolean() ? " · " + t("parked") : "").append(s.path("due").asBoolean() ? " · " + t("due") : "");
+                            for (JsonNode s : r.path("searches")) b.append("\n- ").append(s.path("name").asText()).append(": ").append(s.path("query").asText()).append(" · ").append(Chrome.now().n(s.path("every_days").asInt(), "every day", "every {0} days")).append(s.path("parked").asBoolean() ? " · " + t("parked") : "").append(s.path("due").asBoolean() ? " · " + t("due") : "");
                             return b.toString();
                         }
                         case "add" -> {
@@ -364,7 +387,7 @@ final class ChatCommands {
                     if (words.size() < 2) return t("Type /forecast, the forecast's id (P-…) and happened, did-not or void, then a note if you like.");
                     if (!Patrons.mayWrite(store, patron)) return t("Scoring a forecast is for those who may write to this library.");
                     ObjectNode r = p.dossier(args(patron).put("op", "score").put("id", words.get(0)).put("outcome", words.get(1)).put("note", String.join(" ", words.subList(2, words.size()))));
-                    return r.path("summary").asText() + (r.has("brier") ? " " + t("Brier score over the scored forecasts on {0}: {1} (0 is perfect, 0.25 is coin-tossing).", r.path("subject").asText(), String.format(Locale.ROOT, "%.3f", r.path("brier").asDouble())) : "");
+                    return r.path("summary").asText() + (r.has("brier") ? " " + t("Brier score over the scored forecasts on {0}: {1} (0 is perfect, 0.25 is coin-tossing).", r.path("subject").asText(), Chrome.now().decimal(r.path("brier").asDouble(), 3)) : "");
                 }
                 case "/tonight" -> { return Tonight.text(Tonight.plan(store)).strip(); }
                 case "/crews" -> {
@@ -432,7 +455,7 @@ final class ChatCommands {
                 StringBuilder b = new StringBuilder(t("Anyone not listed may {0}.", t(String.valueOf(pol.dflt()))));
                 for (Patrons.Entry e : pol.listed()) {
                     Accounts.Account acc = Accounts.byDid(store, e.did());
-                    String ways = acc == null ? (e.tokenHash() == null ? t("nothing yet") : t("a token (a program)")) : acc.ways();
+                    String ways = acc == null ? (e.tokenHash() == null ? t("nothing yet") : t("a token (a program)")) : acc.ways(Chrome.now());
                     b.append("\n- ").append(e.name().isEmpty() ? e.did() : e.name() + " (" + e.did() + ")").append(" — ").append(t("may {0}", t(String.valueOf(e.level())))).append(" — ").append(t("signs in with {0}", ways));
                 }
                 if (pol.listed().isEmpty()) b.append("\n").append(t("Nobody is listed yet. /invite <name> [read|write] invites a person; /readers allow <did> <read|write> lists a program's id."));

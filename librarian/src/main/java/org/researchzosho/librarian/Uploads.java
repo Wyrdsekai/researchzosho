@@ -1,6 +1,12 @@
 package org.researchzosho.librarian;
 
 import java.io.IOException;
+import java.net.URLDecoder;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -53,7 +59,7 @@ public final class Uploads {
             if (start + 1 < body.length && body[start] == '-' && body[start + 1] == '-') break;   // the closing delimiter
             if (start + 1 < body.length && body[start] == '\r' && body[start + 1] == '\n') start += 2;
             int hdrEnd = indexOf(body, blank, start); if (hdrEnd < 0) break;
-            String headers = new String(body, start, hdrEnd - start, StandardCharsets.ISO_8859_1);
+            String headers = headers(body, start, hdrEnd - start);
             int dataStart = hdrEnd + 4, next = indexOf(body, close, dataStart); if (next < 0) break;
             String name = param(headers, "name"), filename = param(headers, "filename");
             if (name != null) {
@@ -115,10 +121,26 @@ public final class Uploads {
         return out;
     }
 
-    /** A parameter of the part's Content-Disposition line: name="…" or filename="…"; null when absent. */
+    /**
+     * A part's headers as text: browsers write a file's name in them as UTF-8 (a Japanese name arrived as mojibake while they were read
+     * as ISO-8859-1); a header that is not UTF-8, from an old client, is read as ISO-8859-1.
+     */
+    static String headers(byte[] body, int start, int length) {
+        CharsetDecoder d = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT);
+        try { return d.decode(ByteBuffer.wrap(body, start, length)).toString(); }
+        catch (CharacterCodingException e) { return new String(body, start, length, StandardCharsets.ISO_8859_1); }
+    }
+
+    /**
+     * A parameter of the part's Content-Disposition line: name="…" or filename="…" (the quote and the line breaks a browser writes as
+     * %22, %0D and %0A given back), else filename*=UTF-8''… as RFC 5987 writes it; null when absent. "name" is not read out of "filename".
+     */
     static String param(String headers, String key) {
-        var mm = Pattern.compile("(?i)" + key + "=\"([^\"]*)\"").matcher(headers);
-        return mm.find() ? mm.group(1) : null;
+        var mm = Pattern.compile("(?i)(?<![\\w*])" + key + "=\"([^\"]*)\"").matcher(headers);
+        if (mm.find()) return mm.group(1).replace("%22", "\"").replace("%0D", "\r").replace("%0A", "\n");
+        var ext = Pattern.compile("(?i)(?<![\\w*])" + key + "\\*=([A-Za-z0-9_-]+)'[^']*'([^;\\r\\n]+)").matcher(headers);
+        if (ext.find()) { try { return URLDecoder.decode(ext.group(2).replace("+", "%2B"), Charset.forName(ext.group(1))); } catch (RuntimeException e) { return null; } }
+        return null;
     }
 
     static int indexOf(byte[] hay, byte[] needle, int from) {

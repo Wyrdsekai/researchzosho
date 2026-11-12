@@ -495,6 +495,12 @@ public final class Fields {
      * The field whose mode the words ask for by name ("in genealogy mode", "genealogy-mode"): an enabled field that joins only when asked.
      * The person's own choice, read from their words, which the person is still asked to confirm. Null when the words name no such mode.
      */
+    /** What a field's name means where a sentence carries it ("Use {0} mode for this question?"): the key beside its English. */
+    static final String NAME_MEANING = "the name of a field of research, inside a sentence that asks whether to use its mode";
+
+    /** A field's name as the person's language says it inside a sentence: genealogy, 系譜; its own name in English. */
+    static String said(String field) { return field == null || field.isBlank() ? "" : Chrome.now().tc(field, NAME_MEANING); }
+
     public static Suggestion modeAskedFor(LibraryStore store, String words) {
         if (words == null || words.isBlank()) return null;
         String w = words.toLowerCase(Locale.ROOT);

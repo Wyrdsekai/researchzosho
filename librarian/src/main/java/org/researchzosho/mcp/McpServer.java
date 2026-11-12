@@ -226,9 +226,11 @@ public final class McpServer {
         tools.add(tool("library_translate",
                 "Translate a document the person has (txt, md, pdf, docx or epub) into a language and write it out in the same format or another, as a job. "
                 + "The document is cut into its units (headings, paragraphs, list items, table cells, captions) and each is translated in order with the library's glossary; "
-                + "the structure is kept, the layout is not. quality=quick (default) is one pass; quality=checked adds the program's checks (every number, address, citation "
-                + "and glossary term on both sides, a length band, no unit dropped), a second reading of every unit by the judge's model when two are set, a revision of what "
-                + "was flagged, and a mark on what still stands. The answer is the plan: the units, the characters and the time; library_job follows the run, whose result "
+                + "the structure is kept, the layout is not. quality=checked (default) is one pass with the program's checks (every number, address, citation "
+                + "and glossary term on both sides, a length band, no unit dropped), the scores and a revision of what was flagged; quick is the one pass alone; reviewed and thorough add a second reading. "
+                + "What the checks still doubt after the revision is listed in the translation note, and the document holds the translation alone; notes=end numbers those passages and lists them at the end of the document too. "
+                + "Pass notes=end when the person asks for the doubts (the notes) at the end of the document and notes=off when they ask for none; without it the library's setting translate_notes decides, and the answer's notes says which the run was filed with. "
+                + "The answer is the plan: the units, the characters and the time; library_job follows the run, whose result "
                 + "names the file, the translation note beside it and both documents on the shelves. op=glossary lists the glossary, or with term and rendering adds to it. "
                 + "Paths are only accepted from the keeper (the terminal, the pages); raw names a document on the shelves.",
                 schema(new String[]{},
@@ -241,6 +243,7 @@ public final class McpServer {
                         prop("model", "string", "The model entry that translates (researchzosho models names them); default the library's model. A hosted entry is a paid call: the answer says its cost first (model_cost_dollars), and the run stays inside the entry's monthly cap."),
                         prop("judge", "string", "For checked: the model entry that reads source and translation side by side, or auto for the strongest other entry, local before hosted; default the library's judge seat, else the translator's model in fresh calls with a sample translated back and compared. A hosted entry is a paid call: the answer says its cost first (judge_cost_dollars)."),
                         prop("back_translation", "boolean", "For checked: translate a sample of units back and compare them with the source; on by itself when the same model checks its own work, off otherwise."),
+                        enumProp("notes", "Where what the checks still doubt is written: off (the document holds the translation alone; the translation note lists the doubts) | end (besides, each such passage numbered in brackets and listed at the end of the document). Default: the setting translate_notes, else off.", "off", "end"),
                         prop("collection", "string", "The collection the translation is shelved under (default: the original's)."),
                         prop("term", "string", "For op=glossary: the term as it stands in a source."),
                         prop("rendering", "string", "For op=glossary: the rendering chosen for the term in the language (to)."),

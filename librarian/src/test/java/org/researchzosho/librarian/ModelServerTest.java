@@ -249,6 +249,81 @@ class ModelServerTest {
         }
     }
 
+    /** A model folder that two programs' installers write (a home they share): the other one's start script, unit and config, as it left them. */
+    private Path sharedFolder(Path home, boolean withEmbed) throws Exception {
+        Path dir = ModelServer.dir(); Files.createDirectories(dir);
+        Path model = ModelServer.modelsDir().resolve("gpt-oss-20b-F16.gguf");
+        Path unit = home.resolve(".config/systemd/user/other-model.service");
+        var theirs = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16, 16), model, dir, unit, "all", 20, false, withEmbed ? "1.9" : null);
+        // their start script starts a container under their name, and their config stops that one
+        Files.writeString(dir.resolve("run.sh"), theirs.runScript().replace("--name " + ModelServer.CONTAINER, "--name other-model"));
+        Files.writeString(dir.resolve("config.yaml"), withEmbed ? theirs.configYaml() : theirs.configYaml().replace("docker stop " + ModelServer.CONTAINER, "docker stop other-model"));
+        if (withEmbed) Files.writeString(dir.resolve("run-embed.sh"), theirs.embedScript());
+        Files.writeString(dir.resolve("plan.properties"), ModelServer.planProperties(ModelServer.rowFor(16, 16), model, "all", 20, false) + "chosen=suggested\n");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, "[Service]\nExecStart=" + dir.resolve("llama-swap") + " --config " + dir.resolve("config.yaml") + " --listen 127.0.0.1:8211\n");
+        Files.writeString(dir.resolve("previous"), "\n\n");
+        return dir;
+    }
+
+    @Test
+    void addingTheEmbedderToAFolderAnotherInstallerWroteKeepsTheStopCommandOnItsContainer(@TempDir Path home) throws Exception {
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+        Config.invalidate();
+        try {
+            List<List<String>> ran = fakeMachine(ModelServer.Os.linux, new boolean[1], new ArrayList<>());
+            Path dir = sharedFolder(home, false);
+            assertEquals("gpt-oss-20b", ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream(), true)));
+            String y = Files.readString(dir.resolve("config.yaml"));
+            assertTrue(y.contains("\"embed\":"), "the embedder is added: " + y);
+            assertTrue(y.contains("cmdStop: docker stop other-model\n"), "the model's stop command names the container the kept start script starts: " + y);
+            assertFalse(y.contains("docker stop " + ModelServer.CONTAINER + "\n"), "and not a container that script never starts: " + y);
+            assertTrue(y.contains("cmdStop: docker stop " + ModelServer.EMBED_CONTAINER + "\n"), "the embedder's script is this program's own, and so is its stop command");
+            assertTrue(Files.readString(dir.resolve("run.sh")).contains("--name other-model"), "the start script is left as it was");
+            assertTrue(ran.contains(List.of("systemctl", "--user", "restart", "other-model")), "the unit that runs this folder's proxy is the one restarted: " + ran);
+            assertFalse(ran.contains(List.of("systemctl", "--user", "restart", ModelServer.UNIT)), "a unit that is not there is not: " + ran);
+            assertEquals("", ModelServer.repairStop(), "nothing to put right after it");
+        } finally {
+            System.setProperty("user.home", realHome);
+            Config.invalidate();
+        }
+    }
+
+    @Test
+    void anInstallSavedWithAStopCommandThatStopsNothingIsPutRightOnce(@TempDir Path home) throws Exception {
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", home.toString());
+        Config.invalidate();
+        try {
+            List<List<String>> ran = fakeMachine(ModelServer.Os.linux, new boolean[1], new ArrayList<>());
+            Path dir = sharedFolder(home, true);   // as an earlier release left it: the embedder added, the model's stop command under this program's name
+            String before = Files.readString(dir.resolve("config.yaml"));
+            assertTrue(before.contains("cmdStop: docker stop " + ModelServer.CONTAINER + "\n") && Files.readString(dir.resolve("run.sh")).contains("--name other-model"), "the fault as found");
+            String said = ModelServer.repairStop();
+            assertTrue(said.contains("was never stopped") && !said.startsWith("!"), said);
+            String y = Files.readString(dir.resolve("config.yaml"));
+            assertEquals(before.replace("docker stop " + ModelServer.CONTAINER + "\n", "docker stop other-model\n"), y, "that one line and nothing else");
+            assertTrue(ran.contains(List.of("systemctl", "--user", "restart", "other-model")), "the proxy rereads its config only on a restart: " + ran);
+            assertTrue(ran.contains(List.of("docker", "stop", "other-model")), "the model the old command left running is stopped: " + ran);
+            assertTrue(ran.indexOf(List.of("systemctl", "--user", "restart", "other-model")) < ran.indexOf(List.of("docker", "stop", "other-model")), "after the restart, so the fresh proxy starts it under its name");
+            ran.clear();
+            assertEquals("", ModelServer.repairStop(), "once");
+            assertTrue(ran.isEmpty(), "and nothing is run the second time: " + ran);
+            // an install that was never wrong is left alone, and so is a machine that is not Linux
+            Files.writeString(dir.resolve("run.sh"), Files.readString(dir.resolve("run.sh")).replace("--name other-model", "--name " + ModelServer.CONTAINER));
+            Files.writeString(dir.resolve("config.yaml"), before);
+            assertEquals("", ModelServer.repairStop());
+            Files.writeString(dir.resolve("run.sh"), Files.readString(dir.resolve("run.sh")).replace("--name " + ModelServer.CONTAINER, "--name other-model"));
+            ModelServer.os = ModelServer.Os.macos;
+            assertEquals("", ModelServer.repairStop());
+            assertEquals(before, Files.readString(dir.resolve("config.yaml")));
+        } finally {
+            System.setProperty("user.home", realHome);
+            Config.invalidate();
+        }
+    }
+
     /** A Linux box as the installer sees it: a card (total and free MiB), RAM, and the core map lscpu prints. */
     private void linuxBox(int cardMiB, int freeMiB, int ramGb, String lscpu) {
         ModelServer.os = ModelServer.Os.linux;

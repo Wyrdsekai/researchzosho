@@ -177,6 +177,30 @@ public final class LibrarianClient {
     }
     public JsonNode runCrews() { return post("crews/run", obj()); }
 
+    // ---- a document translated (library_translate) ----
+
+    /**
+     * A document on the shelves ({@code raw}, its entry) translated into {@code to} (a language name or a code) and written out, as a job, at
+     * the default tier, with the library's setting for the notes: the plan at once ({@code job_id}, the time, {@code notes}); {@link #await}
+     * follows the run, whose result names the file.
+     */
+    public JsonNode translate(String raw, String to) { return translate(raw, to, null, null, null); }
+
+    /**
+     * The same, with {@code as} the format written (md, txt, pdf, docx, epub; null for the input's), {@code quality} the tier (checked, the
+     * default, quick, reviewed, thorough; null for checked) and {@code notes} where what the checks still doubt goes: "end" numbers each such
+     * passage in the document and lists them in a last section, "off" leaves the document to the translation alone; the note beside it lists
+     * them either way; null for the library's setting translate_notes. The result's {@code notes} says which the run was filed with; a word
+     * that is neither is refused with {@code invalid_args}.
+     */
+    public JsonNode translate(String raw, String to, String as, String quality, String notes) {
+        ObjectNode a = obj().put("raw", raw).put("to", to);
+        if (as != null && !as.isBlank()) a.put("as", as.strip());
+        if (quality != null && !quality.isBlank()) a.put("quality", quality.strip());
+        if (notes != null && !notes.isBlank()) a.put("notes", notes.strip());
+        return post("translate", a);
+    }
+
     // ---- plumbing ----
 
     private static ObjectNode obj() { return M.createObjectNode(); }

@@ -10,6 +10,15 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /** The dossier page (0.6.6): the target package rendered from the shelves and the latest report, each claim with its class, the sections of the mock in order. */
 class DossierPageTest {
+    /** The page's own English, which a page in another language no longer shows. */
+    static final List<String> ENGLISH = List.of(">Identity<", ">How this was made<", ">Timeline<", ">Decisions<", ">In their own words<", ">Media<", ">Facets<", ">Pattern of life<", ">Relations<", ">Analysis<", ">Story<",
+            "Reports to dive into", "Looked for and not found", "Conflicts and uncertainty", "Linked subjects", "Shared with other dossiers", "Refresh and watch", "Not yet on this page", "Claims by the class of their source",
+            "\">public record</span>", "\">own publication</span>", "\">told</span>", "Question of the latest run", "How resolved", "Research in full", "claims on the shelves", "No report describes the work yet", "Written by the library from",
+            "Milestones, decisions, statements and media", "From 1 run", "No decision on record yet", "No statement on record yet", "No photograph, video or scan", "Computed from the claims", "No typed relation yet",
+            "File it as told", "The class is read from where each source lives", "No analysis layer yet", "Write the story", "chapter by chapter", "Chapter by chapter", "None open on this subject", "None recorded by the latest run",
+            "Mechanical: every cited sentence", "No linked subject yet", "Watched: a search", "a search for the subject every seven days", "Markdown: researchzosho", "The dossier is built from the shelves",
+            "The claims were recorded", "not searched: ", "holds nothing on", "Request the dossier", "start a dossier", ">Watch<", "Read in</b>", "(translated by the model", "1 run, ", "last run ");
+
     @Test
     void thePageCarriesTheIdentityTheReadingTheCoverageTheTimelineTheClassesTheStoryAndTheGaps(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
@@ -28,7 +37,7 @@ class DossierPageTest {
         assertTrue(html.contains("<h2 id=\"identity\">Identity</h2>") && html.contains("<b>Ada Example</b>") && html.contains("How resolved</b> Resolved by two handles."), html);
         assertTrue(html.contains("Question of the latest run</div>Who is Ada Example?"), html);
         assertTrue(html.contains("<details class=\"sec made\"><summary><h2>How this was made</h2> <span class=\"gist\">1 run, 2 claims, 1 site, 1 told, last run ") && !html.contains("class=\"sec made\" open"), "how it was made, behind a fold closed by default: " + html.substring(html.indexOf("How this was made") - 60, html.indexOf("How this was made") + 200));
-        assertTrue(html.contains("<dt>Runs</dt><dd><ul class=\"plain\"><li><a href=\"/entry/" + i1 + "\">Who is Ada Example?</a>") && html.contains("from 1 site (www.sec.gov); 1 told.") && html.contains("<dt>Dates</dt><dd>The claims were recorded on "), html.substring(html.indexOf("<dl class=\"made\">"), html.indexOf("<dl class=\"made\">") + 700));
+        assertTrue(html.contains("<dt>Runs</dt><dd><ul class=\"plain\"><li><a href=\"/entry/" + i1 + "\">Who is Ada Example?</a>") && html.contains("Claims: 2. By the class of their source: public record 1, told 1. Sites: 1 (www.sec.gov). Told: 1.") && html.contains("<dt>Dates</dt><dd>The claims were recorded on "), html.substring(html.indexOf("<dl class=\"made\">"), html.indexOf("<dl class=\"made\">") + 700));
         assertTrue(html.contains("<h2 id=\"reading\">") && html.contains("Ada Example is an engineer"), html);
         assertTrue(html.contains("<h2 id=\"work\">What they do</h2>") && html.contains("No report describes the work yet"), "a report without The work or Material says so: " + html.substring(html.indexOf("id=\"work\""), html.indexOf("id=\"work\"") + 300));
         String i2 = store.nextInvestigationId("Who is Ada Example? Her work.");
@@ -74,6 +83,16 @@ class DossierPageTest {
         assertTrue(html.contains("Her title differs between sources."), html);
         assertTrue(html.contains("<b>cite-check</b> 3 cited sentence(s)") && html.contains("<b>references by class</b> 1 public record"), html);
         assertTrue(html.contains("Not yet on this page"), html);
+        // the same page in Japanese: every label, heading, note and button in the person's language, the claims, the names and the reports' words as they are
+        Chrome.MISSING.clear();
+        Chrome.here("ja");
+        String ja, jaNone, jaAcme;
+        try { ja = DossierPage.render(store, "Ada Example", true); jaNone = DossierPage.render(store, "Nobody Known"); jaAcme = DossierPage.render(store, "Acme Corp"); } finally { Chrome.clear(); }
+        assertTrue(ja.contains("<h2 id=\"identity\">基本情報</h2>") && ja.contains("<h2>作成の経緯</h2>") && ja.contains("cls c-public\">公的記録</span>") && ja.contains("<h2 id=\"timeline\">年表</h2>") && ja.contains("Leads routing at Acme") && ja.contains("5件の調査、2件の主張、1件のサイト"), ja);
+        assertTrue(jaNone.contains("ライブラリには<b>Nobody Known</b>についてまだ何もありません。") && jaNone.contains(">資料集を依頼する</button>"), jaNone);
+        assertTrue(jaAcme.contains("<h3>関係者</h3>") && jaAcme.contains(">資料集を始める</a>"), jaAcme);
+        for (String page : List.of(ja, jaNone, jaAcme)) for (String en : ENGLISH) assertFalse(page.contains(en), "\"" + en + "\" in the Japanese page: " + page);
+        assertTrue(Chrome.MISSING.stream().noneMatch(m -> m.startsWith("ja\t")), "the Japanese file has every text the page asks for: " + Chrome.MISSING);
         String none = DossierPage.render(store, "Nobody Known");
         assertTrue(none.contains("holds nothing on <b>Nobody Known</b> yet") && none.contains("<button name=\"request\" value=\"1\">Request the dossier</button>"), "one button files the research: " + none);
     }

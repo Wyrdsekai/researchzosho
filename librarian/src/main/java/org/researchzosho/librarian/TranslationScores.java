@@ -14,20 +14,27 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Consumer;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -39,10 +46,10 @@ import java.util.function.Supplier;
  * video helper is. The LaBSE server starts on demand through Docker, the model fetched once (about 1.9 GB); without Docker an address in
  * {@code RESEARCHZOSHO_LABSE} serves. Without MetricX a checked translation runs on LaBSE alone and the note says so.
  *
- * <p>What counts as a bad score is never a fixed number: the thresholds are measured per language pair from the scores of the units
- * accepted so far (catalog/translate-scores.json), the lowest tenth of LaBSE and the highest tenth of MetricX, once twenty are on
- * record; before that the scores are shown and nothing is flagged by them. The first units of a pair come from a translation read by hand
- * ({@code researchzosho translate scores accept}).
+ * <p>What counts as a bad score is never a fixed number: the thresholds are measured per language pair from the first-pass scores of
+ * every paragraph checked translations put on the record (catalog/translate-scores.json), flagged or not, the lowest tenth of LaBSE and
+ * the highest tenth of MetricX, once twenty are on it; before that the scores are shown and nothing is flagged by them. A fair sample,
+ * so the thresholds flag about one paragraph in ten per scorer run after run ({@link #accepted}).
  */
 public final class TranslationScores {
     private static final Logger log = LoggerFactory.getLogger(TranslationScores.class);
@@ -117,13 +124,35 @@ public final class TranslationScores {
         catch (Exception e) { return "absent"; }
     }
 
+    /** What the scorers need before a checked run, each a sentence of its own, in English; {@link #setupIn} says them in another language. */
+    static final String LABSE_OFF_SAID = "LaBSE is off (RESEARCHZOSHO_LABSE=off): no score by meaning",
+            LABSE_STOPPED_SAID = "the LaBSE server is stopped; the run starts it",
+            LABSE_FETCH_SAID = "LaBSE is not set up yet: the run starts it through Docker, and the model is fetched once (" + LABSE_MODEL + ", " + LABSE_SIZE + ")",
+            LABSE_NO_DOCKER_SAID = "LaBSE is not set up and Docker is not on this machine: no score by meaning (RESEARCHZOSHO_LABSE names a server elsewhere)",
+            METRICX_MISSING_SAID = "MetricX-24 is not installed, so the tier runs on LaBSE alone; researchzosho translate scorers install sets it up (" + METRICX_SIZE + ")";
+    static final List<String> SETUP_SENTENCES = List.of(LABSE_OFF_SAID, LABSE_STOPPED_SAID, LABSE_FETCH_SAID, LABSE_NO_DOCKER_SAID, METRICX_MISSING_SAID);
+
+    /** What the scorers need, as a plan said it in English, in another language: each of its sentences put into the person's words. */
+    static String setupIn(String english, Chrome c) {
+        if (english == null || english.isEmpty() || c.english()) return english == null ? "" : english;
+        TreeMap<Integer, String> at = new TreeMap<>();   // the sentences it holds, in their order
+        for (String s : SETUP_SENTENCES) { int i = english.indexOf(s); if (i >= 0) at.put(i, s); }
+        if (String.join("; ", at.values()).equals(english)) {   // each in the person's words, joined as their language joins two clauses
+            List<String> said = new ArrayList<>(); for (String s : at.values()) said.add(c.t(s));
+            return Translation.clauses(c, said.toArray(new String[0]));
+        }
+        String out = english;
+        for (String s : SETUP_SENTENCES) out = out.replace(s, c.t(s));
+        return out;
+    }
+
     /** What setting LaBSE up would take, for a plan that says it first; "" when it is already there. */
     public static String labseSetupSaid() {
         String set = Config.get("RESEARCHZOSHO_LABSE", "").strip();
-        if (set.equalsIgnoreCase("off")) return "LaBSE is off (RESEARCHZOSHO_LABSE=off): no score by meaning";
-        if (!set.isEmpty() || Embed.answers("http://127.0.0.1:" + LABSE_PORT) || labseState().equals("running")) return "";
-        if (!labseState().equals("absent")) return "the LaBSE server is stopped; the run starts it";
-        return Searx.haveDocker() ? "LaBSE is not set up yet: the run starts it through Docker, and the model is fetched once (" + LABSE_MODEL + ", " + LABSE_SIZE + ")" : "LaBSE is not set up and Docker is not on this machine: no score by meaning (RESEARCHZOSHO_LABSE names a server elsewhere)";
+        if (set.equalsIgnoreCase("off")) return LABSE_OFF_SAID;
+        if (!set.isEmpty() || LABSE_UP.getAsBoolean()) return "";
+        if (!labseState().equals("absent")) return LABSE_STOPPED_SAID;
+        return Searx.haveDocker() ? LABSE_FETCH_SAID : LABSE_NO_DOCKER_SAID;
     }
 
     /** Starts the LaBSE container, fetching the model the first time; the address, or "!" and what stopped it. */
@@ -202,6 +231,8 @@ public final class TranslationScores {
     public static final long NEEDS_BYTES = 16L << 30;
 
     /** The usable room on the disk under the library's home, or -1 when it cannot be read; a test stands it in. */
+    /** Whether a LaBSE server of this machine's own is up: one answers at its port, or its container runs. Stood in by tests, which must not read the machine they run on. */
+    static volatile BooleanSupplier LABSE_UP = () -> Embed.answers("http://127.0.0.1:" + LABSE_PORT) || labseState().equals("running");
     static volatile LongSupplier FREE = TranslationScores::freeBytesNow;
     public static long freeBytes() { return FREE.getAsLong(); }
     static long freeBytesNow() {
@@ -209,12 +240,18 @@ public final class TranslationScores {
     }
 
     /** What is missing of the two scorers, for a person: "LaBSE (about 1.9 GB) and MetricX-24 (…)"; "" when both are there. */
-    public static String missingSaid() {
+    public static String missingSaid() { return missingSaid(Chrome.ENGLISH); }
+
+    /** The same, in a language: each scorer and its size in its words, listed as the language lists. */
+    public static String missingSaid(Chrome c) {
         List<String> parts = new ArrayList<>();
-        if (labseSetupSaid().startsWith("LaBSE is not set up")) parts.add("LaBSE (" + LABSE_SIZE + ")");
-        if (!metricxInstalled()) parts.add("MetricX-24 (" + METRICX_SIZE + ")");
-        return String.join(" and ", parts);
+        if (labseSetupSaid().startsWith("LaBSE is not set up")) parts.add(c.english() ? "LaBSE (" + LABSE_SIZE + ")" : c.t(LABSE_NEEDS));
+        if (!metricxInstalled()) parts.add(c.english() ? "MetricX-24 (" + METRICX_SIZE + ")" : c.t(METRICX_NEEDS));
+        return c.english() ? String.join(" and ", parts) : c.and(parts);
     }
+
+    /** The two scorers with what they take, each a key of the interface's words. */
+    static final String LABSE_NEEDS = "LaBSE (" + LABSE_SIZE + ")", METRICX_NEEDS = "MetricX-24 (" + METRICX_SIZE + ")";
 
     /** The two acts, stood in by tests: LaBSE's start through Docker, MetricX's install. Each answers the address or "ready", or "!" and the reason. */
     static volatile Supplier<String> LABSE_START = () -> startLabse(false), METRICX_INSTALL = TranslationScores::installMetricx;
@@ -297,7 +334,7 @@ public final class TranslationScores {
 
     /** What installing MetricX takes, for a plan that says it first; "" when it is installed. */
     public static String metricxSetupSaid() {
-        return metricxInstalled() ? "" : "MetricX-24 is not installed, so the tier runs on LaBSE alone; researchzosho translate scorers install sets it up (" + METRICX_SIZE + ")";
+        return metricxInstalled() ? "" : METRICX_MISSING_SAID;
     }
 
     /** Sets the helper up: a Python environment with torch's CPU build and transformers, the script, the model fetched on the first load; "ready", or "!" and what stopped it. */
@@ -491,56 +528,217 @@ public final class TranslationScores {
         @Override public boolean higherIsBetter() { return false; }
     }
 
-    // ---- the distribution of accepted units, per language pair ----
+    // ---- the distribution of a pair's paragraphs, the record ----
 
     public static Path file(LibraryStore store) { return store.root().resolve("catalog").resolve("translate-scores.json"); }
 
     static String pair(String from, String to) { return from + "→" + to; }
 
-    /** What flags a score for a pair: the lowest tenth of LaBSE and the highest tenth of MetricX among the accepted units, once twenty are on record. */
+    /** What flags a score for a pair: the lowest tenth of LaBSE and the highest tenth of MetricX among the paragraphs measured from, once twenty are on the record. */
     public record Thresholds(String pair, int labseAccepted, int metricxAccepted, Double labseLow, Double metricxHigh) {
         public boolean ready() { return labseLow != null || metricxHigh != null; }
         /** What the thresholds are, for the note. */
-        public String said() {
-            if (!ready()) return "no distribution yet for " + pair + ": nothing is flagged by score until " + MIN_ACCEPTED + " accepted units are on record (" + Math.max(labseAccepted, metricxAccepted) + " so far); the scores are shown";
-            StringBuilder b = new StringBuilder();
-            if (labseLow != null) b.append("LaBSE below ").append(labseLow).append(" flags (the lowest tenth of ").append(labseAccepted).append(" accepted units)");
-            if (metricxHigh != null) b.append(b.length() == 0 ? "" : "; ").append("MetricX-24 above ").append(metricxHigh).append(" flags (the highest tenth of ").append(metricxAccepted).append(" accepted units)");
-            return b.toString();
+        public String said() { return said(Chrome.ENGLISH); }
+        /** The same in a language. */
+        public String said(Chrome c) {
+            if (!ready()) return c.t("no distribution yet for {0}: nothing is flagged by score until {1} paragraphs are on the record ({2} so far); the scores are shown", pair, MIN_ACCEPTED, Math.max(labseAccepted, metricxAccepted));
+            return Translation.clauses(c, labseLow == null ? "" : c.t("LaBSE below {0} flags (the lowest tenth of {1} paragraphs on the record)", decimal(labseLow, c), labseAccepted),
+                    metricxHigh == null ? "" : c.t("MetricX-24 above {0} flags (the highest tenth of {1} paragraphs on the record)", decimal(metricxHigh, c), metricxAccepted));
         }
     }
+
+    /** A score as a person reads it in a sentence of their language, with the places it has (0.6312; 0,6312 in German). */
+    static String decimal(double d, Chrome c) { return c.decimal(d, Math.max(0, BigDecimal.valueOf(d).stripTrailingZeros().scale())); }
 
     public static Thresholds thresholds(LibraryStore store, String from, String to) {
         List<Double> labse = accepted(store, from, to, "labse"), metricx = accepted(store, from, to, "metricx");
         return new Thresholds(pair(from, to), labse.size(), metricx.size(), labse.size() >= MIN_ACCEPTED ? percentile(labse, 10) : null, metricx.size() >= MIN_ACCEPTED ? percentile(metricx, 90) : null);
     }
 
+    /**
+     * The record of a pair, the numbers the thresholds and the length band are measured from: every paragraph a translation scored, flagged
+     * or not, with the scores of its first pass and its length ratio, as a row of {@code units}: {@code {"job": "J-0042", "note": "<the
+     * translation note>", "unit": 12, "labse": 0.81, "metricx": 3.2, "length": 3.31, "whole": true}}, so that a job's units can be taken
+     * off again. Only rows marked {@code whole} are measured from. The record is a measurement and must be a fair sample: the rows of earlier
+     * versions held only the units nothing flagged, a sample cut off at the threshold it set, so each run measured a tighter one from
+     * translations of the same quality (about a tenth flagged per scorer on the second run, near three tenths after ten). Those rows, and
+     * the plain lists {@code labse} and {@code metricx} of the versions before them, stay in the file, are listed apart and are never
+     * measured from ({@link #earlier}).
+     */
     static List<Double> accepted(LibraryStore store, String from, String to, String scorer) {
         List<Double> out = new ArrayList<>();
-        try {
-            Path f = file(store);
-            if (!Files.isRegularFile(f)) return out;
-            for (JsonNode v : M.readTree(Files.readString(f, StandardCharsets.UTF_8)).path(pair(from, to)).path(scorer)) if (v.isNumber()) out.add(v.asDouble());
-        } catch (IOException ignored) { }
+        JsonNode p = record(store).path(pair(from, to));
+        for (JsonNode r : p.path("units")) if (r.path("whole").asBoolean(false) && r.path(scorer).isNumber()) out.add(r.path(scorer).asDouble());
         Collections.sort(out);
         return out;
     }
 
-    /** The scores of units accepted as right go on the record for their pair; a null score is skipped. */
-    public static synchronized void accept(LibraryStore store, String from, String to, List<Double> labse, List<Double> metricx) {
+    /** The length ratios (translation to source, in characters) of the pair's paragraphs measured from, sorted. */
+    static List<Double> lengths(LibraryStore store, String from, String to) { return accepted(store, from, to, "length"); }
+
+    /** The record as it stands; an empty object when there is none or it cannot be read. */
+    static JsonNode record(LibraryStore store) {
         try {
             Path f = file(store);
-            ObjectNode j = Files.isRegularFile(f) ? (ObjectNode) M.readTree(Files.readString(f, StandardCharsets.UTF_8)) : M.createObjectNode();
-            ObjectNode p = j.has(pair(from, to)) ? (ObjectNode) j.get(pair(from, to)) : j.putObject(pair(from, to));
-            for (String scorer : List.of("labse", "metricx")) {
-                List<Double> add = scorer.equals("labse") ? labse : metricx;
-                if (add == null) continue;
-                ArrayNode a = p.has(scorer) ? (ArrayNode) p.get(scorer) : p.putArray(scorer);
-                for (Double d : add) if (d != null) a.add(Math.round(d * 10000) / 10000.0);
+            if (!Files.isRegularFile(f)) return M.createObjectNode();
+            JsonNode j = M.readTree(Files.readString(f, StandardCharsets.UTF_8));
+            return j == null || !j.isObject() ? M.createObjectNode() : j;
+        } catch (IOException e) { return M.createObjectNode(); }
+    }
+
+    /**
+     * One paragraph on the record: where it came from (the job, the translation note), its number in the document, the scores of its first
+     * pass, its length ratio (null when not measured), and whether it is a row of a whole sample, measured from: every row written now is.
+     */
+    public record Row(String job, String note, int unit, Double labse, Double metricx, Double length, boolean whole) {
+        public Row(String job, String note, int unit, Double labse, Double metricx, Double length) { this(job, note, unit, labse, metricx, length, true); }
+    }
+
+    /** A sample of scores onto the record for their pair, naming no job, measured from; a null score is skipped. For a translation's own paragraphs, {@link #accept(LibraryStore, String, String, List)}. */
+    public static synchronized void accept(LibraryStore store, String from, String to, List<Double> labse, List<Double> metricx) {
+        List<Row> rows = new ArrayList<>();
+        int n = Math.max(labse == null ? 0 : labse.size(), metricx == null ? 0 : metricx.size());
+        for (int i = 0; i < n; i++) rows.add(new Row("", "", 0, labse != null && i < labse.size() ? labse.get(i) : null, metricx != null && i < metricx.size() ? metricx.get(i) : null, null));
+        accept(store, from, to, rows);
+    }
+
+    /**
+     * Units onto the pair's record, each a row with where it came from. The rows a job (or, with no job, a translation note) put there
+     * before are replaced, so a job that resumed after its units went on the record puts them there once.
+     */
+    public static synchronized void accept(LibraryStore store, String from, String to, List<Row> rows) {
+        if (rows.isEmpty()) return;
+        try {
+            Path f = file(store);
+            ObjectNode j = (ObjectNode) record(store).deepCopy();
+            ObjectNode p = j.has(pair(from, to)) && j.get(pair(from, to)).isObject() ? (ObjectNode) j.get(pair(from, to)) : j.putObject(pair(from, to));
+            ArrayNode units = p.has("units") && p.get("units").isArray() ? (ArrayNode) p.get("units") : p.putArray("units");
+            Set<String> sources = new HashSet<>(); for (Row r : rows) if (!source(r.job(), r.note()).isEmpty()) sources.add(source(r.job(), r.note()));
+            for (int i = units.size() - 1; i >= 0; i--) if (sources.contains(source(units.get(i).path("job").asText(""), units.get(i).path("note").asText("")))) units.remove(i);
+            for (Row r : rows) {
+                ObjectNode o = units.addObject();
+                if (!r.job().isEmpty()) o.put("job", r.job());
+                if (!r.note().isEmpty()) o.put("note", r.note());
+                if (r.unit() > 0) o.put("unit", r.unit());
+                if (r.labse() != null) o.put("labse", round4(r.labse()));
+                if (r.metricx() != null) o.put("metricx", round4(r.metricx()));
+                if (r.length() != null) o.put("length", round4(r.length()));
+                if (r.whole()) o.put("whole", true);
             }
             Files.createDirectories(f.getParent());
             AtomicWrite.text(f, M.writerWithDefaultPrettyPrinter().writeValueAsString(j) + "\n");
         } catch (IOException ignored) { /* the record only sharpens the next threshold */ }
+    }
+
+    /** What names a row's origin for its replacement and withdrawal: the job, else the note; "" for neither. */
+    private static String source(String job, String note) { return !job.isEmpty() ? "job:" + job : !note.isEmpty() ? "note:" + note : ""; }
+
+    static double round4(double d) { return Math.round(d * 10000) / 10000.0; }
+
+    /** What a withdrawal took off: the units by pair, and the units with no job named that stay. */
+    public record Withdrawn(String what, Map<String, Integer> byPair, Map<String, Integer> unnamedLeft) {
+        public int total() { int n = 0; for (int v : byPair.values()) n += v; return n; }
+    }
+
+    /**
+     * A job's units taken off the record: {@code what} is a job's id (J-0042) or a translation note's path, for a translation run with no
+     * job; every pair it put units on loses them. Units with no job named stay, and are counted for the sentence.
+     */
+    public static synchronized Withdrawn withdraw(LibraryStore store, String what) throws IOException {
+        String w = what == null ? "" : what.strip();
+        Map<String, Integer> by = new TreeMap<>(), unnamed = new TreeMap<>();
+        if (w.isEmpty()) return new Withdrawn(w, by, unnamed);
+        String key = w.matches("(?i)J-\\d+") ? "job:" + w.toUpperCase(Locale.ROOT) : "note:" + Path.of(w).toAbsolutePath().normalize();
+        ObjectNode j = (ObjectNode) record(store).deepCopy();
+        for (var e : iterable(j)) {
+            if (!e.getValue().isObject()) continue;
+            JsonNode units = e.getValue().path("units");
+            if (!units.isArray()) continue;
+            int n = 0;
+            for (int i = units.size() - 1; i >= 0; i--) if (key.equals(source(units.get(i).path("job").asText(""), units.get(i).path("note").asText("")))) { ((ArrayNode) units).remove(i); n++; }
+            if (n == 0) continue;
+            by.put(e.getKey(), n);
+            int left = Math.max(e.getValue().path("labse").size(), e.getValue().path("metricx").size());
+            for (JsonNode r : units) if (r.path("job").asText("").isEmpty() && r.path("note").asText("").isEmpty()) left++;
+            if (left > 0) unnamed.put(e.getKey(), left);
+        }
+        if (!by.isEmpty()) AtomicWrite.text(file(store), M.writerWithDefaultPrettyPrinter().writeValueAsString(j) + "\n");
+        return new Withdrawn(w, by, unnamed);
+    }
+
+    /** The units of a pair that name no job taken off the record (the plain lists of an earlier version, and rows with no origin): how many. */
+    public static synchronized int withdrawUnnamed(LibraryStore store, String from, String to) throws IOException {
+        ObjectNode j = (ObjectNode) record(store).deepCopy();
+        JsonNode p = j.path(pair(from, to));
+        if (!p.isObject()) return 0;
+        int n = 0;
+        for (String scorer : List.of("labse", "metricx")) { n = Math.max(n, p.path(scorer).size()); ((ObjectNode) p).remove(scorer); }
+        JsonNode units = p.path("units");
+        if (units.isArray()) for (int i = units.size() - 1; i >= 0; i--) if (units.get(i).path("job").asText("").isEmpty() && units.get(i).path("note").asText("").isEmpty()) { ((ArrayNode) units).remove(i); n++; }
+        if (n > 0) AtomicWrite.text(file(store), M.writerWithDefaultPrettyPrinter().writeValueAsString(j) + "\n");
+        return n;
+    }
+
+    /** How many units a job (its id) has on the record, by pair. */
+    public static Map<String, Integer> onRecord(LibraryStore store, String jobId) {
+        Map<String, Integer> out = new TreeMap<>();
+        if (jobId == null || jobId.isBlank()) return out;
+        for (var e : iterable(record(store))) for (JsonNode r : e.getValue().path("units")) if (r.path("job").asText("").equalsIgnoreCase(jobId.strip())) out.merge(e.getKey(), 1, Integer::sum);
+        return out;
+    }
+
+    /** What the record measures from, pair by pair: the paragraphs by the job or note they came from, "" for those that name none. */
+    public static Map<String, Map<String, Integer>> holdings(LibraryStore store) { return holdings(store, true); }
+
+    /** What earlier versions put on the record and nothing is measured from, pair by pair, the same way: their plain lists name none. */
+    public static Map<String, Map<String, Integer>> earlier(LibraryStore store) { return holdings(store, false); }
+
+    private static Map<String, Map<String, Integer>> holdings(LibraryStore store, boolean whole) {
+        Map<String, Map<String, Integer>> out = new TreeMap<>();
+        for (var e : iterable(record(store))) {
+            if (!e.getValue().isObject()) continue;
+            Map<String, Integer> m = new LinkedHashMap<>();
+            int plain = Math.max(e.getValue().path("labse").size(), e.getValue().path("metricx").size());
+            if (plain > 0 && !whole) m.put("", plain);
+            for (JsonNode r : e.getValue().path("units")) if (r.path("whole").asBoolean(false) == whole) m.merge(!r.path("job").asText("").isEmpty() ? r.path("job").asText() : r.path("note").asText(""), 1, Integer::sum);
+            if (!m.isEmpty()) out.put(e.getKey(), m);
+        }
+        return out;
+    }
+
+    /** How many entries of a pair earlier versions put on the record, which nothing is measured from. */
+    public static int earlierCount(LibraryStore store, String from, String to) {
+        int n = 0; for (int v : earlier(store).getOrDefault(pair(from, to), Map.of()).values()) n += v;
+        return n;
+    }
+
+    /** Why the entries of earlier versions are not measured from, in one sentence: for the note and the list. */
+    public static String earlierWhy(Chrome c) {
+        return c.t("Earlier versions put on the record only the units nothing flagged or a person chose as right, a sample cut off at the threshold it set, which made the threshold tighter at every run; those entries stay in the file and nothing is measured from them.");
+    }
+
+    /** The two languages of a pair as the record keys it ("ja→en"). */
+    static String[] languages(String pair) { String[] p = pair.split("→", 2); return p.length == 2 ? p : new String[]{pair, ""}; }
+
+    private static List<Map.Entry<String, JsonNode>> iterable(JsonNode j) { List<Map.Entry<String, JsonNode>> out = new ArrayList<>(); j.fields().forEachRemaining(out::add); return out; }
+
+    /**
+     * What a withdrawal did, for a person: how many units left the record of which pair, and the thresholds and the length band now; or
+     * that the record held none of it.
+     */
+    public static String withdrawnSaid(LibraryStore store, Withdrawn w, Chrome c) {
+        if (w.byPair().isEmpty()) return c.t("No unit of {0} is on the record the checks' thresholds are measured from.", w.what());
+        List<String> out = new ArrayList<>();
+        for (var e : w.byPair().entrySet()) {
+            String[] l = languages(e.getKey());
+            out.add(c.t(e.getValue() == 1 ? "{0} unit of {1} left the record of {2} into {3}." : "{0} units of {1} left the record of {2} into {3}.", e.getValue(), w.what(), c.languageName(l[0]), c.languageName(l[1])));
+            Thresholds t = thresholds(store, l[0], l[1]);
+            TranslationLengths.Band b = TranslationLengths.band(store, l[0], l[1], null, null);
+            out.add(c.t("The record of {0} into {1} now: {2}; {3}.", c.languageName(l[0]), c.languageName(l[1]), t.said(c), TranslationLengths.shortSaid(b, c)));
+            Integer left = w.unnamedLeft().get(e.getKey());
+            if (left != null) out.add(c.t(left == 1 ? "{0} unit on that record names no job (it was put there by an earlier version) and stays; researchzosho translate scores withdraw --unnamed {1} {2} takes such units off." : "{0} units on that record name no job (they were put there by an earlier version) and stay; researchzosho translate scores withdraw --unnamed {1} {2} takes such units off.", left, l[0], l[1]));
+        }
+        return PdfReading.sentences(c, out);
     }
 
     /** The value below which {@code p} per cent of a sorted list lies. */

@@ -1,5 +1,7 @@
 package org.researchzosho.librarian.dna;
 
+import org.researchzosho.librarian.Chrome;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpServer;
@@ -76,7 +78,8 @@ class PoolTest {
             assertEquals("The published pack of 2026-10-11 is already in.", Pool.refresh(Dna.BOOK));
             assertEquals("No pack is published yet for podcasts; the format is ready (" + Pool.FORMAT + ") and " + Pool.site + "podcasts.json will announce the first.", Pool.refresh(Dna.PODCAST));
         } finally { s.stop(0); }
-        assertTrue(Pool.status(Dna.BOOK).startsWith("The store holds 1 book document(s), 1 labelled. Sharing is off: nothing leaves this machine"), Pool.status(Dna.BOOK));
+        assertTrue(Pool.status(Dna.BOOK).startsWith("The store holds 1 book document, 1 labelled. Sharing is off: nothing leaves this machine"), Pool.status(Dna.BOOK));
+        assertTrue(Pool.status(Dna.BOOK, Chrome.in("ja")).startsWith("保存庫には本の文書が 1件あり、そのうち1件にラベルがあります。 共有は無効です。"), "the pages say it in the person's language: " + Pool.status(Dna.BOOK, Chrome.in("ja")));
         assertEquals("sharing is off (RESEARCHZOSHO_DNA_SHARE)", Pool.nightly(Dna.BOOK));
     }
 }

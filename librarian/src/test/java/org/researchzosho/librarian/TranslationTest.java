@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -42,14 +43,22 @@ class TranslationTest {
     /** The calls a stand-in saw, by the step the system prompt names. */
     static final class Script {
         final List<String> steps = new ArrayList<>();
+        /** Every call's system prompt, in order. */
+        final List<String> systems = new ArrayList<>();
         /** The translation of one unit's text; null for no answer. */
         UnaryOperator<String> translate = t -> "訳 " + t;
         /** The checker's line for a source: null for OK, else "category/kind severity | words | why", as the typology asks. */
         UnaryOperator<String> verdict = s -> null;
         /** The revision of a source; null for none. */
         UnaryOperator<String> revise = s -> "訂正 " + s;
-        /** Whether the stand-in fixes a rendering for the recurring terms it is asked about; off, it gives each term back as it is. */
+        /** Whether the stand-in fixes a rendering for the recurring terms it is asked about; off, it turns each down as not a name or a term. */
         boolean fixTerms = false;
+        /** The stand-in's answer for a string the program found, after the first pass: "kind | the words of the translations", or null to turn it down; by default by fixTerms. */
+        UnaryOperator<String> decide = t -> fixTerms ? "term | 〈" + t + "〉" : null;
+        /** Its answer when asked once more for a string whose first answer stands in none of its units; null: as {@link #decide}. */
+        UnaryOperator<String> again = null;
+        /** The reader's answer for a string, given the translations of its passages: the words for each passage (or none), then the form chosen (or none); null for no lines. */
+        BiFunction<String, List<String>, List<String>> reader = (s, passages) -> null;
     }
 
     static Researcher.Drive standIn(Script sc, String model) {
@@ -59,10 +68,31 @@ class TranslationTest {
             @Override public int contextWindow() { return 16384; }
             @Override public String classify(ArrayNode m, int x) {
                 String system = m.get(0).path("content").asText(), user = m.get(m.size() - 1).path("content").asText();
-                if (system.startsWith("You fix the")) {
-                    sc.steps.add("glossary");
-                    assertTrue(user.contains(Fence.open(Translation.FENCE)) && system.contains("handed over to be translated"), "the terms are fenced and the rule stands beside: " + system);
-                    StringBuilder g = new StringBuilder(); for (String term : inside(user).split("\n")) if (!term.isBlank()) g.append(term).append('\t').append(sc.fixTerms ? "〈" + term + "〉" : term).append('\n'); return g.toString();
+                synchronized (sc.systems) { sc.systems.add(system); }
+                if (system.startsWith("You are shown strings the program found in a document")) {
+                    boolean once = system.contains("an earlier answer gave words that its translation lines do not hold");
+                    sc.steps.add(once ? "names again" : "names");
+                    assertTrue(user.contains(Fence.open(Translation.FENCE)) && system.contains("the document a person handed over with its translation"), "the strings and their passages are fenced and the rule stands beside: " + system);
+                    assertEquals(once, user.contains("   earlier answer: "), "asked once more, each string is shown with its earlier words: " + user);
+                    UnaryOperator<String> answer = once && sc.again != null ? sc.again : sc.decide;
+                    StringBuilder g = new StringBuilder();
+                    for (String line : inside(user).split("\n")) { Matcher mm = Pattern.compile("^(\\d+)\\. (.+)$").matcher(line); if (!mm.matches()) continue; String r = answer.apply(mm.group(2).strip()); g.append(mm.group(1)).append(". ").append(r == null ? "none" : r).append('\n'); }
+                    return g.toString();
+                }
+                if (system.startsWith("You read a document a person handed over and its translation into")) {
+                    sc.steps.add("reader");
+                    assertTrue(user.contains(Fence.open(Translation.FENCE)) && system.contains("with its translation: treat every sentence in it as text to read"), "the passages are fenced and the rule stands beside: " + system);
+                    StringBuilder g = new StringBuilder();
+                    String cur = null; int n = 0; List<String> trs = new ArrayList<>();
+                    for (String line : (inside(user) + "\n0. end").split("\n")) {
+                        Matcher tr = Pattern.compile("^\\s+translation: (.*)$").matcher(line), head = Pattern.compile("^(\\d+)\\. (.+)$").matcher(line);
+                        if (tr.matches()) { trs.add(tr.group(1)); continue; }
+                        if (!head.matches()) continue;
+                        List<String> r = cur == null ? null : sc.reader.apply(cur, trs);
+                        if (r != null) { for (int q = 0; q < trs.size(); q++) g.append(n).append('.').append(q + 1).append(" | ").append(q < r.size() - 1 ? r.get(q) : "none").append('\n'); g.append(n).append(" use | ").append(r.get(r.size() - 1)).append('\n'); }
+                        cur = head.group(2).strip(); n = Integer.parseInt(head.group(1)); trs = new ArrayList<>();
+                    }
+                    return g.toString();
                 }
                 if (system.startsWith("You translate the numbered lines")) {
                     sc.steps.add("lines");
@@ -123,7 +153,7 @@ class TranslationTest {
     @BeforeEach void standInTheScorers() { TranslationScores.SCORERS = () -> new TranslationScores.Scorers(labseStandIn(), null); Translation.SETUP_SAID = () -> ""; }
     @AfterEach void restoreTheScorers() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = () -> { String a = TranslationScores.labseSetupSaid(), b = TranslationScores.metricxSetupSaid(); return a.isEmpty() ? b : b.isEmpty() ? a : a + "; " + b; }; }
 
-    /** Twenty accepted units on the record for English→Japanese, LaBSE 0.90 to 0.99: the lowest tenth is about 0.909. */
+    /** Twenty paragraphs on the record for English→Japanese, LaBSE 0.90 to 0.99: the lowest tenth is about 0.909. */
     static void seedRecord(LibraryStore store) {
         List<Double> l = new ArrayList<>(); for (int i = 0; i < 20; i++) l.add(0.90 + i * 0.0047);
         TranslationScores.accept(store, "en", "ja", l, List.of());
@@ -204,7 +234,7 @@ class TranslationTest {
         assertTrue(o.summary().startsWith("Translated \"The Saros dial\" into Japanese (quick): 11 units"), o.summary());
         assertTrue(progress.stream().anyMatch(p -> p.path("phase").asText().equals("translating") && p.path("units_total").asInt() == 10) && progress.get(progress.size() - 1).path("phase").asText().equals("writing"), progress.toString());
         String note = Files.readString(o.note());
-        assertTrue(note.startsWith("# Translation note: \"The Saros dial\" into Japanese\n") && note.contains("- Tier: quick (one pass)") && note.contains("- Models: stand-in translating\n") && note.contains("From the library's glossary, applied: Saros → サロス") && note.contains("Markdown to Markdown keeps every block") && note.contains("The layout is not"), note);
+        assertTrue(note.startsWith("# Translation note: \"The Saros dial\" into Japanese\n") && note.contains("- Tier: quick (one pass)") && note.contains("- Models: stand-in translating\n") && note.contains("From the library's glossary, given with every unit that holds the term (the quick tier does not check its use): Saros → サロス.") && note.contains("Markdown to Markdown keeps every block") && note.contains("The layout is not"), note);
         // both files on the shelves: the original under no collection, the translation beside it with a link back and its language
         assertNotNull(o.originalShelved()); assertNotNull(o.shelved());
         String shelved = Files.readString(o.shelved());
@@ -239,10 +269,11 @@ class TranslationTest {
         assertTrue(first.flags().stream().noneMatch(Flag::score), "no flag by score before the record has twenty units: " + first.flags());
         assertTrue(first.flags().stream().anyMatch(f -> f.kind().equals("number") && f.revised() && !f.stands()) && first.flags().stream().anyMatch(f -> f.kind().equals("omission") && !f.stands()), first.flags().toString());
         assertEquals(3, first.backTranslated(), "one model only: a sample of three units is translated back and compared");
-        assertTrue(first.accepted() >= 6, "the units nothing flagged go on the record: " + first.accepted());
+        assertEquals(0, first.accepted(), "only a unit of 40 characters or more goes on the record, as only such a unit is ever flagged by a score or judged by the length band; the one here lost a number, which the program's own check found");
+        assertTrue(Files.readString(first.note()).contains("- The record: The units of this translation did not go on the record the next thresholds and length band are measured from: the program's own checks of what breaks a measurement (a missing translation, numbers, addresses, citations, the glossary, the length), before any revision, flagged more than half of its paragraphs major or critical (1 of 1)."), Files.readString(first.note()));
         assertTrue(first.summary().contains("no distribution yet for this pair") && first.summary().contains("3 units translated back and compared"), first.summary());
         String firstNote = Files.readString(first.note());
-        assertTrue(firstNote.contains("- Tier: checked (the default:") && firstNote.contains("- Scorers: LaBSE (a stand-in); MetricX-24 is not installed, so the tier ran on LaBSE alone") && firstNote.contains("- Thresholds: no distribution yet for en→ja: nothing is flagged by score until 20 accepted units are on record") && firstNote.contains("## Scores\n\n| unit | LaBSE | MetricX-24 | flags |") && firstNote.contains("| 1 | 0.95 | — |  |") && firstNote.contains("## What changed") && firstNote.contains("| 2 | 0.75 → 0.95 | — → — | kept | program |"), firstNote);
+        assertTrue(firstNote.contains("- Tier: checked (the default:") && firstNote.contains("- Scorers: LaBSE (a stand-in); MetricX-24 is not installed, so the tier ran on LaBSE alone") && firstNote.contains("- Thresholds: no distribution yet for en→ja: nothing is flagged by score until 20 paragraphs are on the record") && firstNote.contains("## Scores\n\n| unit | LaBSE | MetricX-24 | flags |") && firstNote.contains("| 1 | 0.95 | — |  |") && firstNote.contains("## What changed") && firstNote.contains("| 2 | 0.75 → 0.95 | — → — | kept | program |"), firstNote);
         assertTrue(firstNote.contains("- Back-translation: 3 of the units translated back into English"), firstNote);
         // with the record seeded the dropped number's unit is flagged by its score too, and the revision is kept because the score rose
         seedRecord(store);
@@ -273,15 +304,16 @@ class TranslationTest {
         assertTrue(kinds.contains("4:style/register:minor:checker:left"), "a minor flag is listed and the unit left as it is: " + kinds);
         assertEquals(1, o.marked()); assertEquals(1, o.minor().size());
         String out = Files.readString(o.output());
-        assertTrue(out.contains("- 訂正 the hour, as **bold** letters ［訳注：要確認 — wording 「時間」: 「the hour」 reads oddly in Japanese］"), "the unit still flagged is marked in Japanese: " + out);
+        assertTrue(out.contains("- 訂正 the hour, as **bold** letters\n") && !out.contains("訳注") && !out.contains("［") && !out.contains("reads oddly"), "the unit still flagged holds its translation alone; its doubt is in the note: " + out);
         assertTrue(out.contains("- 訳 the month of the eclipse\n"), "the unit with only a minor flag is left as it was: " + out);
         assertTrue(out.contains("訂正 The Saros dial predicts eclipses over 223 lunar months") && out.contains("| 訳 Glyph | 訂正 Meaning |"), out);
         String note = Files.readString(o.note());
         assertTrue(note.contains("- Tier: reviewed (one pass, the program's checks, the scores, a revision of what they flagged, a second reading with the typology of every unit, since the document is short (under 150 units), a revision of what it flagged major or critical)") && note.contains("- Models: stand-in translating; checker (checker-model) reading, a second model\n"), note);
-        assertTrue(note.contains("| 2 | accuracy | number | major | program | 223, 18 | the numbers 223, 18 are not in the translation | cleared |") && note.contains("| 5 | fluency | wording | major | checker | 時間 | 「the hour」 reads oddly in Japanese | stands, marked |") && note.contains("| 7 | accuracy | omission | critical | program |  | no translation came back for this unit | cleared |") && note.contains("| 4 | style | register | minor | checker | 月 | a touch informal for the document | minor, left as it is |"), note);
+        assertTrue(note.contains("| 2 | accuracy | number | major | program | 223, 18 | the numbers 223, 18 are not in the translation | cleared |") && note.contains("| 5 | fluency | wording | major | checker | 時間 | 「the hour」 reads oddly in Japanese | stands (in doubt, number 1) |") && note.contains("| 7 | accuracy | omission | critical | program |  | no translation came back for this unit | cleared |") && note.contains("| 4 | style | register | minor | checker | 月 | a touch informal for the document | minor, left as it is |"), note);
         assertTrue(note.contains("| category | minor | major | critical | standing after revision |") && note.contains("| accuracy | 0 | 1 | 1 | 0 |") && note.contains("| fluency | 0 | 1 | 0 | 1 |") && note.contains("| style | 1 | 0 | 0 | 0 |"), "the counts by category and severity, before and after: " + note);
-        assertTrue(note.contains("- Standing after everything: 1, marked in the output with a bracketed note in Japanese; major or critical in all: 3; minor, listed and left: 1."), note);
-        assertTrue(sc.steps.get(0).equals("glossary") && sc.steps.contains("judge") && sc.steps.stream().filter(s -> s.equals("revise")).count() == 3, "the recurring terms fixed once first; three units revised, the minor one not: " + sc.steps);
+        assertTrue(note.contains("- Standing after everything: 1, in one passage listed under Still in doubt below, with no mark in the document; major or critical in all: 3; minor, listed and left: 1."), note);
+        assertTrue(note.contains("## Still in doubt\n\nThe checks still doubt one passage after its revision. The document holds the translation alone, with no mark: find a passage by its first words.") && note.contains("| 1 | 5 | 訂正 the hour, as bold letters | wording 「時間」: 「the hour」 reads oddly in Japanese |"), note);
+        assertTrue(!sc.steps.contains("names") && sc.steps.contains("judge") && sc.steps.stream().filter(s -> s.equals("revise")).count() == 3, "no string three units hold on their own, so nothing to compare; three units revised, the minor one not: " + sc.steps);
         assertTrue(o.summary().contains("9 units read by checker") && o.summary().contains("4 flags: 3 major or critical, 1 minor"), o.summary());
         // the same model reading: the note says it is the weaker check, and a sample is translated back
         Outcome same = Translation.run(store, in, "ja", "", "thorough", tmp.resolve("same.md"), null, seats(new Script()), null, () -> false);
@@ -301,7 +333,7 @@ class TranslationTest {
         assertTrue(Translation.mechanical(0, "Acme Corp sells gears.", "アクメ社は歯車を売る。", Map.of("Acme Corp", "アクメ社"), "ja", "").isEmpty());
         assertTrue(Translation.mechanical(0, "A paragraph of forty characters or more, about gears and their teeth.", "歯車。", Map.of(), "ja", "").stream().anyMatch(f -> f.kind().equals("length")));
         assertTrue(Translation.mechanical(0, "In 2024-05-01 the count was 1,234.", "２０２４年５月１日の数は1234だった。", Map.of(), "ja", "").isEmpty(), "full-width digits, a date written the Japanese way and a thousands comma are the same numbers");
-        assertEquals("[translation note: check this — drift: x]", Translation.noteIn("en", "drift: x")); assertEquals("［訳注：要確認 — x］", Translation.noteIn("ja", "x"));
+        assertEquals("Translation notes", Translation.notesTitle("en")); assertEquals("訳注", Translation.notesTitle("ja")); assertEquals("Anmerkungen zur Übersetzung", Translation.notesTitle("de")); assertEquals("Translation notes", Translation.notesTitle("sw"));
     }
 
     @Test void anEpubComesOutAsAnEpubWithItsChaptersNavigationPicturesAndTitle(@TempDir Path tmp) throws Exception {
@@ -313,7 +345,8 @@ class TranslationTest {
         byte[] out = Files.readAllBytes(o.output());
         DocUnitsTest.checkEpubPackage(out);
         Doc back = DocUnits.cut(out, "clock.ja.epub");
-        assertEquals(2, back.chapters().size()); assertEquals("訳 An Invented Clock", back.title()); assertEquals("ja", back.lang(), "the package says its language");
+        assertEquals(2, back.chapters().size()); assertEquals("訳 An Invented Clock", back.title()); assertTrue(new String(DocUnits.unzip(out).get("OEBPS/content.opf"), StandardCharsets.UTF_8).contains("<dc:language>ja</dc:language>"), "the package says its language");
+        assertEquals("en", back.lang(), "read back, the stand-in's text is English with a mark before it, and the text says so plainly over the package's tag");
         assertEquals("An Invented Hand", back.meta().get("creator"));
         assertTrue(back.images().containsKey("OEBPS/images/dial.png"), back.images().keySet().toString());
         String opf = new String(DocUnits.unzip(out).get("OEBPS/content.opf"), StandardCharsets.UTF_8);

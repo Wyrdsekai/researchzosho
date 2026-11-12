@@ -197,7 +197,7 @@ public final class Corpus {
                     String text = DocPictures.withPictures(store, bytes, f.getFileName().toString(), locator, title, doc.text(), collection).text();
                     // a linked capture is not "unchanged" for keep: the person now wants the text on the shelves
                     if (have != null && RawCapture.linkedFile(have) == null && RawCapture.read(have)[2].strip().equals(text.strip())) { unchanged++; continue; }
-                    p = RawCapture.capture(store, locator, text, title, "corpus:" + collection, collection);
+                    p = RawCapture.capture(store, locator, text, title, "corpus:" + collection, collection, "", readingHead(doc));
                 }
                 if (p == null) { skipped++; problems.add(f.getFileName() + ": not captured"); continue; }
                 added++;
@@ -253,9 +253,30 @@ public final class Corpus {
         // linked file's text is read from the file each time, so its pictures are kept and not placed in it
         DocPictures.Outcome pictures = DocPictures.withPictures(store, bytes, f.getFileName().toString(), "file://" + f, title, doc.text(), collection);
         LAST_PICTURES.set(pictures.said());
+        LAST_READING.set(doc.reading() == null ? "" : PdfReading.said(doc.reading().preflight(), Chrome.now()));
         return link ? RawCapture.link(store, f, doc.text(), title, by, collection)
-                : RawCapture.capture(store, "file://" + f, pictures.text(), title, by, collection);
+                : RawCapture.capture(store, "file://" + f, pictures.text(), title, by, collection, "", readingHead(doc));
     }
+
+    /**
+     * A PDF's reading kept on its record (0.7.3): one line of how its pages were read and the sensor's numbers page by page, so that every
+     * later reader of the document (research, a translation, its page) says the same without reading it again; empty for any other format.
+     */
+    static Map<String, String> readingHead(DocText.Doc doc) {
+        Map<String, String> more = new LinkedHashMap<>();
+        if (doc.reading() == null) return more;
+        PdfReading.Read r = doc.reading();
+        String line = r.preflight().line();
+        if (!r.byEye().isEmpty()) line += "; read by eye by " + r.eyes() + ": " + PdfReading.pages(r.byEye());
+        if (!r.unread().isEmpty()) line += "; not read: " + PdfReading.pages(new ArrayList<>(r.unread().keySet()));
+        more.put("pdf_reading", line);
+        more.put("pdf_sensor", r.preflight().json().toString());
+        return more;
+    }
+
+    /** How the last PDF this thread added was read, in one plain paragraph; "" when it was not a PDF. */
+    public static String lastReading() { String s = LAST_READING.get(); return s == null ? "" : s; }
+    private static final ThreadLocal<String> LAST_READING = new ThreadLocal<>();
 
     /** What came of the last added file's pictures on this thread, one sentence; "" when it had none worth keeping. */
     public static String lastPictures() { String s = LAST_PICTURES.get(); return s == null ? "" : s; }

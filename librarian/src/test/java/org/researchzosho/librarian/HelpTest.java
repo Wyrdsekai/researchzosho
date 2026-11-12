@@ -55,7 +55,7 @@ class HelpTest {
                 Instant.now().toString(), "2026-10-28", Finding.Volatility.stable, "", List.of(new Finding.Source("https://example.org/a", "n/a", "a page")), List.of(), null, "A claim the library holds.\n"));
         String st = Help.state(store);
         assertTrue(st.startsWith("ResearchZosho " + Version.string() + " is running here."), st);
-        assertTrue(st.contains("This library holds 1 claim,") && st.contains("The model it talks to by default is") && st.contains("Web search:")
+        assertTrue(st.contains("This library holds claims: 1,") && st.contains("The model it talks to by default is") && st.contains("Web search:")
                 && st.contains("Fields that are on:") && st.contains("career (") && st.contains("The chat's own commands:") && st.contains("/career (") && st.contains("The pages:"), st);
         assertTrue(st.contains("does not answer now"), "the test's drive is a closed port, and the state says so: " + st);
         assertTrue(st.contains("Web search: ") && (st.contains("answers searches") || st.contains("No SearXNG answers searches")), "the web search is said as runs meet it: " + st);
@@ -66,6 +66,39 @@ class HelpTest {
         String how = Help.answer(store, "how do I update");
         assertTrue(how.contains("From its own documentation:") && how.contains("## LIBRARIAN_HOWTOUSE: ") && how.contains(Help.ISSUES), how);
         assertTrue(Help.answer(store, "").contains("Its documentation: "), "asked nothing, it lists what it carries");
+    }
+
+    /** The state paragraph's English, which the Help page and the chat's /help no longer show in another language. */
+    static final List<String> HELP_ENGLISH = List.of("is running here", "This library holds", "Search by meaning is", "The model it talks to by default", "Named models it can also use", "Web search:", "SearXNG answers searches",
+            "Wikipedia's search is the last resort", "With only Wikipedia's search", "Fields that are on", "The chat's own commands", "The pages:", "The fields' own pages", "Its documentation:", "From its own documentation",
+            "What is running here", "If this does not answer it", "The model is ", "kinship relations", "citations from the record", "and words after it to look something up");
+
+    @Test
+    void theStateParagraphIsInThePersonsLanguageAndWhatAProgramReadsStaysEnglish(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Chrome ja = Chrome.in("ja");
+        Chrome.MISSING.clear();
+        String st = Help.state(store, ja), page = Help.lookup(store, "", ja), look = Help.lookup(store, "how do I update", ja);
+        assertTrue(st.startsWith("ResearchZosho " + Version.string() + " がここで動いています。") && st.contains("このライブラリにあるもの：主張 0件、レポート 0件、ウェブから保存したページ 0件。"), st);
+        assertTrue(st.contains("既定で話すモデルは") && st.contains("いまは応答しません") && st.contains("ウェブ検索：") && st.contains("有効な分野：") && st.contains("系譜（親族関係、GEDCOM の読み込みと書き出し）")
+                && st.contains("チャット自身のコマンド：") && st.contains("ページ：ホーム、質問、"), "each sentence of the state in Japanese, a field by its name and what it does: " + st);
+        for (String en : HELP_ENGLISH) assertFalse(st.contains(en) || page.contains(en), "\"" + en + "\" in the Japanese state: " + page);
+        assertTrue(page.contains("説明書：") && page.contains("中のことなら何でも聞いてください。"), page);
+        assertTrue(look.startsWith("説明書から：") && look.contains("ここで動いているもの：ResearchZosho " + Version.string() + " がここで動いています。") && look.contains("モデルは "), "the sections in their own words, the frame and the short state in Japanese: " + look);
+        assertTrue(Chrome.MISSING.stream().noneMatch(m -> m.startsWith("ja\t")), "the Japanese file has every sentence of the state: " + Chrome.MISSING);
+        // the page and the chat's own turn speak the person's language
+        Chrome.here("ja");
+        try {
+            String body = HelpPage.body(store, "", "");
+            assertTrue(body.contains("がここで動いています") && !body.contains("is running here"), body);
+            Librarian.Session session = Librarian.Session.open(store, Patrons.Patron.PERSON);
+            Pages.chatPost(null, store, Patrons.Patron.PERSON, Map.of("session", session.id, "say", "/help how do I update"));
+            String reply = CareerInterviewTest.lastReply(store, session.id);
+            assertTrue(reply.startsWith("説明書から：") && reply.contains("ここで動いているもの："), reply);
+        } finally { Chrome.clear(); }
+        // what a program reads (library_help, the A2A card) stays English
+        String wire = new LibraryProtocol(store).help(M.createObjectNode().put("question", "").set("patron", M.createObjectNode().put("did", "person").put("name", "tester").put("runtime", "test"))).path("summary").asText();
+        assertTrue(wire.startsWith("ResearchZosho " + Version.string() + " is running here. This library holds claims: 0, write-ups: 0, pages kept from the web: 0.") && wire.contains("Its documentation: "), wire);
     }
 
     @Test

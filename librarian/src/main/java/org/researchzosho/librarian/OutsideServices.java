@@ -235,8 +235,10 @@ public final class OutsideServices {
                     return refusedOrSilent(s, r, at);
                 }
                 case "Firecrawl" -> {
-                    Res r = call(s, new Req("GET", "https://api.firecrawl.dev/v1/team/credit-usage", Map.of("Authorization", "Bearer " + k), null));
-                    if (ok(r)) { JsonNode j = M.readTree(r.body()); return new Result(s.name(), true, "accepted, " + j.path("data").path("remaining_credits").asInt() + " credits left", at); }
+                    // the second version of the API, as the page reads go (Firecrawl.BASE): the first one answers 410 from 10 December 2026.
+                    // The count is remainingCredits there; the first version's remaining_credits is still read, for an answer in that form.
+                    Res r = call(s, new Req("GET", "https://api.firecrawl.dev/v2/team/credit-usage", Map.of("Authorization", "Bearer " + k), null));
+                    if (ok(r)) { JsonNode d = M.readTree(r.body()).path("data"); return new Result(s.name(), true, "accepted, " + d.path("remainingCredits").asInt(d.path("remaining_credits").asInt()) + " credits left", at); }
                     return refusedOrSilent(s, r, at);
                 }
                 case "Brave Search" -> {
@@ -390,12 +392,33 @@ public final class OutsideServices {
         return out;
     }
 
-    /** The use this month, in words: "21 calls" / "none"; the credits when charged, the dollars when the service says, and the monthly limit beside them when there is one. */
-    public static String use(Row r) {
-        String limit = r.limit() >= 0 ? " of the " + String.format(Locale.US, "%,d", r.limit()) + " a month the library stops at" : "";
-        if (r.calls() == 0) return r.limit() >= 0 ? "none" + limit : "none";
-        return r.calls() + (r.limit() >= 0 ? limit : r.calls() == 1 ? " call" : " calls") + (r.credits() > 0 ? ", " + r.credits() + (r.credits() == 1 ? " credit" : " credits") : "")
-                + (r.dollars() > 0 ? ", " + SearchTally.money(r.dollars()) : "");
+    /** The use this month, in English: what a program reads (use_this_month). */
+    public static String use(Row r) { return use(r, Chrome.ENGLISH); }
+
+    /**
+     * The use this month, in words, in {@code c}'s language: "21 calls" / "none"; the credits when charged, the dollars when the service
+     * says, and the monthly limit beside them when there is one, each a whole phrase of its own in a list.
+     */
+    public static String use(Row r, Chrome c) {
+        String limit = r.limit() >= 0 ? c.number(r.limit()) : null;
+        if (r.calls() == 0) return limit != null ? c.t("none of the {0} a month the library stops at", limit) : c.tc("none", NO_USE);
+        List<String> parts = new ArrayList<>();
+        parts.add(limit != null ? c.t("{0} of the {1} a month the library stops at", c.number(r.calls()), limit) : c.n(r.calls(), "{0} call", "{0} calls"));
+        if (r.credits() > 0) parts.add(c.n(r.credits(), "{0} credit", "{0} credits"));
+        if (r.dollars() > 0) parts.add(SearchTally.money(r.dollars()));
+        return String.join(c.sep(), parts);
+    }
+
+    /** The meaning beside "none" in the table's use column. */
+    static final String NO_USE = "this month's use of an outside service: no calls";
+
+    /** A service's name as the keeper's page shows it: the two named in plain words in the person's language, every other by its own name. */
+    public static String nameSaid(Service s, Chrome c) {
+        return switch (s.name()) {
+            case "The model server" -> c.t("The model server");
+            case "Your own search service" -> c.t("Your own search service");
+            default -> s.name();
+        };
     }
 
     /** The last check, in words with its day; "" when none. */
@@ -434,11 +457,17 @@ public final class OutsideServices {
         return b.toString();
     }
 
-    /** The keys that the last check refused, for a page's notice; "" when none. */
-    public static String refusedNotice(LibraryStore store) {
+    /** The keys that the last check refused, for a page's notice, in English; "" when none. */
+    public static String refusedNotice(LibraryStore store) { return refusedNotice(store, Chrome.ENGLISH); }
+
+    /** The same in {@code c}'s language: a whole sentence for one key and for several. */
+    public static String refusedNotice(LibraryStore store, Chrome c) {
         List<String> bad = new ArrayList<>();
         for (Result r : kept(store).values()) if (r.accepted() != null && !r.accepted()) bad.add(r.service());
         if (bad.isEmpty()) return "";
-        return "At the last check the key for " + String.join(", ", bad) + (bad.size() == 1 ? " was" : " were") + " refused: see Sources and keys below.";
+        List<String> named = new ArrayList<>(); for (Service s : KNOWN) if (bad.contains(s.name())) named.add(nameSaid(s, c));
+        for (String b : bad) if (KNOWN.stream().noneMatch(s -> s.name().equals(b))) named.add(b);
+        return bad.size() == 1 ? c.t("At the last check the key for {0} was refused: see Sources and keys below.", named.get(0))
+                : c.t("At the last check the keys for {0} were refused: see Sources and keys below.", c.and(named));
     }
 }

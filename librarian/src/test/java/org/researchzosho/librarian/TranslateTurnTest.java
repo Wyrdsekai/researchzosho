@@ -72,10 +72,36 @@ class TranslateTurnTest {
         String posted = "i would like this epub translated into english using DeepSeek V4.1 Flash and having kimi k3 do a thorough check\n\nI attached rekopis.epub; it is on the shelves as 2026-11-07-8ad9f9068287.md (Rękopis znaleziony w Saragossie).";
         assertEquals(new TranslateTurn.Ask("this epub", "en", "", "thorough", "DeepSeek V4.1 Flash", "kimi k3"), TranslateTurn.parse(posted));
         assertEquals("2026-11-07-8ad9f9068287.md", TranslateTurn.attachedId(posted)); assertNull(TranslateTurn.attachedId("translate it into French"));
-        for (String w : new String[]{"this epub", "this file", "the attached document", "this pdf", "my book", "that docx", "this one", "it", "attached", "この本"}) assertTrue(TranslateTurn.THIS.matcher(w).matches(), w + " is the file posted with the turn");
-        assertFalse(TranslateTurn.THIS.matcher("this epub is long").matches() || TranslateTurn.THIS.matcher("saros notes.md").matches());
-        assertTrue(TranslateTurn.BARE.matcher("this file").matches() && TranslateTurn.BARE.matcher("Here it is.").matches() && TranslateTurn.BARE.matcher("attached").matches() && !TranslateTurn.BARE.matcher("this file is long").matches());
+        for (String w : new String[]{"this epub", "this file", "the attached document", "this pdf", "my book", "that docx", "this one", "it", "attached", "この本"}) assertTrue(TranslateTurn.pointsAtTheFile(w), w + " is the file posted with the turn");
+        assertFalse(TranslateTurn.pointsAtTheFile("this epub is long") || TranslateTurn.pointsAtTheFile("saros notes.md"));
+        assertTrue(TranslateTurn.pointsAtTheFile("this file") && TranslateTurn.pointsAtTheFile("Here it is.") && TranslateTurn.pointsAtTheFile("attached") && !TranslateTurn.pointsAtTheFile("this file is long"));
         assertTrue(TranslateTurn.asksTranslation("translate this file into Japanese") && !TranslateTurn.asksTranslation("read this in Japanese"));
+    }
+
+    /** Where what the checks still doubt goes, in the person's words: the notes at the end, no notes, or nothing said (the setting decides). */
+    @Test void theWordsAreReadForTheNotes() {
+        assertEquals(new TranslateTurn.Ask("it", "ja", "", "", "", "", "end"), TranslateTurn.parse("translate it into Japanese, with the notes at the end"));
+        assertEquals(new TranslateTurn.Ask("this file", "de", "pdf", "checked", "", "", "off"), TranslateTurn.parse("translate this file into German as a PDF, checked, no notes"));
+        assertEquals(new TranslateTurn.Ask("this file", "ja", "", "", "", "", "end"), TranslateTurn.parse("translate this file with the notes at the end into Japanese"));
+        assertEquals(new TranslateTurn.Ask("saros notes.md", "fr", "", "reviewed", "", "kimi", "end"), TranslateTurn.parse("translate saros notes.md into French, reviewed by kimi, and list what the checks doubt at the end of the document"));
+        assertEquals(new TranslateTurn.Ask("this epub", "en", "", "", "", "", "end"), TranslateTurn.parse("I would like this epub translated into English with translator's notes"));
+        assertEquals(new TranslateTurn.Ask("このファイル", "ja", "", "checked", "", "", "end"), TranslateTurn.parse("このファイルを日本語に翻訳して、確認付きで、訳注は末尾に"));
+        assertEquals(new TranslateTurn.Ask("このファイル", "ja", "", "", "", "", "end"), TranslateTurn.parse("このファイルを日本語に訳注付きで翻訳して"));
+        assertEquals(new TranslateTurn.Ask("それ", "en", "", "", "", "", "off"), TranslateTurn.parse("それを英語に訳して、訳注なしで"));
+        // the word notes in a title or a name is not an ask for them
+        assertEquals(new TranslateTurn.Ask("my notes on the saros", "de", "", ""), TranslateTurn.parse("translate my notes on the saros into German"));
+        assertEquals(new TranslateTurn.Ask("the notes", "ja", "epub", "reviewed"), TranslateTurn.parse("translate the notes into Japanese as epub, reviewed"));
+        // an answer to the chat's question: the notes read and taken out, the tier left
+        assertEquals("end", TranslateTurn.notesIn("checked, with the notes at the end")); assertEquals("checked", TranslateTurn.withoutNotes("checked, with the notes at the end"));
+        assertEquals("off", TranslateTurn.notesIn("yes, no notes")); assertEquals("yes", TranslateTurn.withoutNotes("yes, no notes"));
+        assertEquals("end", TranslateTurn.notesIn("確認付き、訳注は末尾に")); assertEquals("確認付き", TranslateTurn.withoutNotes("確認付き、訳注は末尾に"));
+        assertEquals("off", TranslateTurn.notesIn("notes=off")); assertEquals("end", TranslateTurn.notesIn("notes: end")); assertEquals("", TranslateTurn.notesIn("thorough"));
+        assertEquals("checked", TranslateTurn.tierIn("確認付き")); assertEquals("thorough", TranslateTurn.tierIn("全文査読で"));
+        // the chat's own words for the choice are read back as it
+        assertTrue(TranslateTurn.NOTES_OFF_ASKED.contains("\"with the notes at the end\"") && TranslateTurn.notesIn("with the notes at the end").equals("end"));
+        assertTrue(TranslateTurn.NOTES_END_ASKED.contains("\"no notes\"") && TranslateTurn.notesIn("no notes").equals("off"));
+        assertEquals("end", TranslateTurn.notesIn(Chrome.in("ja").t(TranslateTurn.NOTES_OFF_ASKED).replaceAll(".*「([^」]+)」.*", "$1")), "the Japanese sentence's own words");
+        assertEquals("off", TranslateTurn.notesIn(Chrome.in("ja").t(TranslateTurn.NOTES_END_ASKED).replaceAll(".*「([^」]+)」.*", "$1")));
     }
 
     @Test void theChatSaysTheTimeFirstAsksTheTierAndRunsOnTheAnswer(@TempDir Path tmp) throws Exception {
@@ -173,7 +199,7 @@ class TranslateTurnTest {
             assertTrue(unread.startsWith("I read this as a translation ask but could not tell which language to translate into. Say it as \"translate this file into Japanese\"") && unread.contains("Models that can run now:"), unread);
             String unread2 = lib.say("I need the attached thing in Japanese, translation please\n\nI attached x.pdf; it is on the shelves as nothing.md (x).");
             assertTrue(unread2.startsWith("I read this as a translation ask but could not tell which document of the ones named."), unread2);
-            assertFalse(TranslateTurn.MENTIONS.matcher("who translated Eco's novels into English").find() && TranslateTurn.namesALanguage("who translated Eco's novels into English") && false, "a research question is not hijacked: no file, no 'this file'");
+            assertFalse(TranslateTurn.mentions("who translated Eco's novels into English") && TranslateTurn.namesALanguage("who translated Eco's novels into English") && false, "a research question is not hijacked: no file, no 'this file'");
         } finally { Translation.DRIVE_ANSWERS = Crews::driveAnswers; Translation.ANY_MODEL = Translation::anyModelNow; System.setProperty("user.home", home); Config.invalidate(); }
     }
 

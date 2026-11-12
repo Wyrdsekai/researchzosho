@@ -18,14 +18,12 @@ import java.util.regex.Pattern;
  */
 final class ReadInTurn {
     private static final ObjectMapper M = new ObjectMapper();
-    /** "read this in Japanese", "show me the report in English", "translate I-0012-… into French", "open the dossier on Ada Example in German". */
-    static final Pattern EN = Pattern.compile("(?i)^\\s*(?:please\\s+)?(?:read|show|give|open|translate)\\s+(?:me\\s+)?(?<what>.*?)\\s+(?:in|into)\\s+(?<lang>[\\p{L}-]+)\\s*[.!?]?\\s*$");
-    /** "これを日本語で読む", "この報告書を英語で", "I-0012-… を日本語でお願い". */
-    static final Pattern JA = Pattern.compile("^\\s*(?<what>.*?)\\s*を?\\s*(?<lang>日本語|英語|中国語|韓国語|ドイツ語|フランス語|スペイン語|ポルトガル語|イタリア語)で(?:読|見|訳|表示|お願い|ください|下さい|$).*$");
-    static final Map<String, String> JA_NAMES = Map.of("日本語", "ja", "英語", "en", "中国語", "zh", "韓国語", "ko", "ドイツ語", "de", "フランス語", "fr", "スペイン語", "es", "ポルトガル語", "pt", "イタリア語", "it");
+    /**
+     * The ask, in every language's words ({@link ChatWords}, "read_in.ask"): "read this in Japanese", "show me the report in English",
+     * "translate I-0012-… into French", "これを日本語で読む", "lis ce rapport en japonais"; "this report" ("this_report") and "the dossier on
+     * X" ("dossier.named") likewise.
+     */
     static final Pattern REPORT_ID = Pattern.compile("\\bI-\\d{4}[A-Za-z0-9-]*");
-    static final Pattern DOSSIER = Pattern.compile("(?i)^(?:the\\s+)?dossier\\s+(?:on|of|for)\\s+(?<subject>.+)$");
-    static final Pattern THIS = Pattern.compile("(?i)^(?:this|it|that|this one|the report|the last report|that report|the answer|the write-?up|これ|それ|この報告書|その報告書|報告書)?$");
 
     private ReadInTurn() { }
 
@@ -34,57 +32,59 @@ final class ReadInTurn {
     /** What is said when the words asked to read something in a language and nothing could be made of what. */
     static final String UNRESOLVED = "Which report? Name it by its id, or open it in this conversation first, and say again which language to read it in.";
 
+    /** The places an ask names: what to read (as little as will do), a language by any of its names, the subject of a dossier. */
+    static Map<String, String> places() { return Map.of("what", ".*?", "lang", ChatWords.languageNames(), "subject", ".+"); }
+
     /** The ask in the words, or null when they are not one: a language the library knows must close them. */
     static Ask parse(String words) {
         if (words == null) return null;
-        Matcher m = EN.matcher(words);
-        if (m.matches()) { String code = Translate.code(m.group("lang")); return Translate.LANGUAGES.containsKey(code) ? new Ask(m.group("what").strip(), code) : null; }
-        m = JA.matcher(words);
-        if (m.matches()) return new Ask(m.group("what").strip(), JA_NAMES.get(m.group("lang")));
-        return null;
+        Map<String, String> m = ChatWords.ask("read_in.ask", words, places(), false, g -> !ChatWords.language(g.getOrDefault("lang", "")).isEmpty() && g.get("what") != null);
+        return m == null ? null : new Ask(m.get("what").strip(), ChatWords.language(m.get("lang")));
     }
 
     /** The reply, or null when the words are not such an ask. */
     static String reply(LibraryStore store, Librarian.Session session, Patrons.Patron patron, String words) throws IOException {
         Ask ask = parse(words);
         if (ask == null) return null;
-        String name = ReadIn.name(ask.lang());
+        Chrome c = Chrome.now();
+        String name = c.languageName(ask.lang());
         Jobs jobs = new Jobs(store, j -> "");
         boolean writer = Patrons.mayWrite(store, patron);
-        Matcher d = DOSSIER.matcher(ask.what());
-        if (d.matches()) return dossier(store, jobs, patron, writer, d.group("subject").strip().replaceAll("[.!?]+$", ""), ask.lang(), name);
+        Map<String, String> d = ChatWords.ask("dossier.named", ask.what(), places());
+        if (d != null && d.get("subject") != null) return dossier(store, jobs, patron, writer, d.get("subject").strip().replaceAll("[.!?。！？]+$", ""), ask.lang(), name);
         Matcher id = REPORT_ID.matcher(ask.what());
-        String report = id.find() ? id.group() : THIS.matcher(ask.what()).matches() ? lastShown(session) : null;
+        String report = id.find() ? id.group() : ask.what().isBlank() || ChatWords.whole("this_report", ask.what()) ? lastShown(session) : null;
         if (report == null) return null;   // not a report this turn can name: the words may be a file's ("translate this file into Japanese"); {@link #UNRESOLVED} when nobody takes them
         Investigation inv;
         try { inv = store.investigation(report); } catch (Exception e) { inv = null; }
-        if (inv == null) return "The library holds no report " + report + ".";
+        if (inv == null) return c.t("The library holds no report {0}.", report);
         String written = Translate.writtenIn(inv);
         String link = "/entry/" + report + "?in=" + ask.lang();
-        if (ask.lang().equals(written)) return "\"" + inv.title() + "\" is written in " + name + " already: /entry/" + report + ".";
+        if (ask.lang().equals(written)) return c.t("\"{0}\" is written in {1} already: {2}.", inv.title(), name, "/entry/" + report);
         Translate.Translated tr = Translate.currentReport(store, inv, ask.lang());
         if (tr != null) {
             String title = tr.words() == null ? "" : tr.words().getOrDefault(inv.title(), "");
-            return "\"" + inv.title() + "\" in " + name + (title.isEmpty() ? "" : ": \"" + title + "\"") + " — " + link + ". The translation is kept; the cites, the claim ids and the dates stand as they are.";
+            return (title.isEmpty() ? c.t("\"{0}\" in {1} — {2}.", inv.title(), name, link) : c.t("\"{0}\" in {1}: \"{2}\" — {3}.", inv.title(), name, title, link)) + " " + c.t("The translation is kept; the cites, the claim ids and the dates stand as they are.");
         }
         String running = Translate.pendingReport(jobs, report, ask.lang());
-        if (running != null) return "\"" + inv.title() + "\" is being translated into " + name + " (" + running + "): a few minutes on the model. Then open " + link + ".";
-        if (!writer) return "No translation of \"" + inv.title() + "\" into " + name + " is kept yet; a writer's visit to " + link + " starts one.";
+        if (running != null) return c.t("\"{0}\" is being translated into {1} ({2}): a few minutes on the model. Then open {3}.", inv.title(), name, running, link);
+        if (!writer) return c.t("No translation of \"{0}\" into {1} is kept yet; a writer's visit to {2} starts one.", inv.title(), name, link);
         ObjectNode a = M.createObjectNode(); a.put("report", report); a.put("lang", ask.lang());
         String job = jobs.submit("translate", patron == null ? "" : patron.did(), a);
-        return "Translating \"" + inv.title() + "\" into " + name + " now (" + job + "): a few minutes on the model, section by section. Then open " + link + "; it is shown as written meanwhile.";
+        return c.t("Translating \"{0}\" into {1} now ({2}): a few minutes on the model, section by section. Then open {3}; it is shown as written meanwhile.", inv.title(), name, job, link);
     }
 
     static String dossier(LibraryStore store, Jobs jobs, Patrons.Patron patron, boolean writer, String subject, String lang, String name) throws IOException {
+        Chrome c = Chrome.now();
         String link = "/dossier?subject=" + Pages.enc(subject) + "&in=" + lang;
         Translate.Translated tr = Translate.current(store, subject, lang);
-        if (tr != null) return "The dossier on " + subject + " in " + name + ": " + link + ". The translation is kept; the cites, the claim ids, the dates and the badges stand as they are.";
+        if (tr != null) return c.t("The dossier on {0} in {1}: {2}. The translation is kept; the cites, the claim ids, the dates and the badges stand as they are.", subject, name, link);
         String running = Translate.pending(jobs, subject, lang);
-        if (running != null) return "The dossier on " + subject + " is being translated into " + name + " (" + running + "): a few minutes on the model. Then open " + link + ".";
-        if (!writer) return "No translation of the dossier on " + subject + " into " + name + " is kept yet; a writer's visit to " + link + " starts one.";
+        if (running != null) return c.t("The dossier on {0} is being translated into {1} ({2}): a few minutes on the model. Then open {3}.", subject, name, running, link);
+        if (!writer) return c.t("No translation of the dossier on {0} into {1} is kept yet; a writer's visit to {2} starts one.", subject, name, link);
         ObjectNode a = M.createObjectNode(); a.put("subject", subject); a.put("lang", lang);
         String job = jobs.submit("translate", patron == null ? "" : patron.did(), a);
-        return "Translating the dossier on " + subject + " into " + name + " now (" + job + "): a few minutes on the model, each piece of prose. Then open " + link + ".";
+        return c.t("Translating the dossier on {0} into {1} now ({2}): a few minutes on the model, each piece of prose. Then open {3}.", subject, name, job, link);
     }
 
     /** The report this conversation showed last: the newest tool answer or reply that carries a report's id. */

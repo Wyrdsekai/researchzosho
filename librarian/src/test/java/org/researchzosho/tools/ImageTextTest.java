@@ -3,10 +3,6 @@ package org.researchzosho.tools;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.junit.jupiter.api.io.TempDir;
-import org.researchzosho.drive.Declined;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -14,14 +10,9 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.CRC32;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /** A picture is a document when the model reads pictures, and says plainly why it is not when the model does not. */
 class ImageTextTest {
@@ -105,42 +96,14 @@ class ImageTextTest {
         assertFalse(ImageText.isImage("plain text, long enough".getBytes()));
     }
 
-    /** A reader that declines the second page it is shown and reads the others. */
-    private static ImageText.Reader decliningPageTwo(AtomicInteger shown) {
-        return (png, hint) -> {
-            if (shown.incrementAndGet() == 2) throw new Declined("placeholder-model", "I am not able to help with that request.", Declined.How.WORDS);
-            return "the writing of page " + shown.get();
-        };
-    }
-
     @Test
-    void aPageTheModelDeclinedIsSaidInTheTextAndThePagesAfterItAreRead(@TempDir Path tmp) throws Exception {
-        // M4: page two declined; pages one and three are read, and the saved text says at page two that the model declined it
-        List<Path> pages = List.of(tmp.resolve("p-1.png"), tmp.resolve("p-2.png"), tmp.resolve("p-3.png"));
-        for (Path p : pages) Files.write(p, picture("png", 40, 30));
-        ImageText.use(decliningPageTwo(new AtomicInteger()));
+    void withNoModelThatSeesAPictureIsNotSentAndThePersonIsToldHowToSetOne() throws Exception {
+        // the live reader finds the model that sees as everything else does (ModelEntries.seeing): here, in an empty library, none
+        ImageText.use(null);
         StringBuilder why = new StringBuilder();
-        String text = DocText.readPages(pages, "scan.pdf", why);
-        assertTrue(text.contains("[page 1]\nthe writing of page 1"), text);
-        assertTrue(text.contains("[page 3]\nthe writing of page 3"), "the pages after the declined one are read: " + text);
-        assertTrue(text.contains("[page 2]\n(The model this library uses (placeholder-model) declined to read the writing on this page. ResearchZosho did not try to get around it."), text);
-        // every page declined: no text, and why says so
-        ImageText.use((png, hint) -> { throw new Declined("placeholder-model", "", Declined.How.FILTERED); });
-        StringBuilder none = new StringBuilder();
-        assertEquals("", DocText.readPages(pages, "scan.pdf", none));
-        assertTrue(none.toString().startsWith("The model this library uses (placeholder-model) declined to read the writing on the pages of this document."), none.toString());
+        assertEquals("", ImageText.read(picture("png", 40, 30), "photo.png", why));
+        assertTrue(why.toString().startsWith("No model that sees pictures is set up.") && why.toString().contains("researchzosho models"), why.toString());
     }
 
-    @Test
-    void aScannedPdfIsNotCutShortAtAPageTheModelDeclined() throws Exception {
-        // M4, through the whole conversion: a PDF of three pages with no text in it is drawn page by page (poppler) and read as pictures
-        assumeTrue(DocText.pdftotext() != null, "poppler's pdftotext and pdftoppm draw the pages");
-        ByteArrayOutputStream pdf = new ByteArrayOutputStream();
-        try (PDDocument doc = new PDDocument()) { for (int i = 0; i < 3; i++) doc.addPage(new PDPage()); doc.save(pdf); }
-        ImageText.use(decliningPageTwo(new AtomicInteger()));
-        DocText.Doc d = DocText.convert(pdf.toByteArray(), "scan.pdf");
-        assertEquals("scanned pdf", d.kind(), d.kind());
-        assertTrue(d.text().contains("the writing of page 3"), "the document is not cut at page two: " + d.text());
-        assertTrue(d.text().contains("declined to read the writing on this page"), d.text());
-    }
+    // a PDF's pages read as pictures, a declined page among them: PdfReadingTest (the reader of PDFs, 0.7.3)
 }

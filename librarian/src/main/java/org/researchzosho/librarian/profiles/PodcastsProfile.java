@@ -5,6 +5,7 @@ import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
 import org.researchzosho.librarian.PodcastsPage;
+import org.researchzosho.librarian.Chrome;
 import org.researchzosho.librarian.Patrons;
 import org.researchzosho.librarian.LibraryStore;
 import java.util.Map;
@@ -31,7 +32,7 @@ public final class PodcastsProfile implements Profile {
     @Override public Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> query, Map<String, String> form) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
         if ("POST".equals(method)) return new Page("Podcasts", "", false, PodcastsPage.PATH + "?note=" + URLEncoder.encode(PodcastsPage.post(store, patron, form), StandardCharsets.UTF_8));
-        return new Page("Podcasts", PodcastsPage.body(store, patron, query), false, null);
+        return new Page(Chrome.now().t("Podcasts"), PodcastsPage.body(store, patron, query), false, null);
     }
 
     @Override public String description() { return "what people say on podcasts: the episodes' own words, with the time, before articles about them; shows found by fit, not by charts"; }

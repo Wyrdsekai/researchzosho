@@ -1,5 +1,11 @@
 package org.researchzosho.librarian;
 
+import java.util.List;
+
+import static org.researchzosho.librarian.Pages.js;
+import static org.researchzosho.librarian.Pages.t;
+import static org.researchzosho.librarian.Pages.tc;
+
 /**
  * The map, inside the site frame at {@code /map?focus=…}: no external scripts, no frameworks — a canvas, a force
  * layout in a hundred lines, and the JSON from {@code /v1/map}. Names are dots, subjects are squares joined to every
@@ -9,6 +15,25 @@ final class MapPage {
 
     private MapPage() { }
 
+    /** The kinds a name on the map has, in the order the legend shows them. */
+    static final List<String> KINDS = List.of("person", "place", "event", "document", "organisation", "work", "concept", "subject");
+    /** The meaning beside a kind's word: "person ⟦…⟧". */
+    static final String KIND_MEANING = "the kind of a name on the map of claims";
+
+    /** A kind's word in the person's language, for the legend and the side panel; a kind the map does not know, as it is. */
+    static String kindSaid(String kind) { return KINDS.contains(kind) ? tc(kind, KIND_MEANING) : kind; }
+
+    /** The script's words in the person's language: the sentences, the kinds' words and the claims' states, as JavaScript objects. */
+    static String words() {
+        StringBuilder k = new StringBuilder("{");
+        for (String kind : KINDS) k.append(k.length() > 1 ? "," : "").append(kind).append(':').append(js(kindSaid(kind)));
+        StringBuilder st = new StringBuilder("{");
+        for (String state : List.of("draft", "accepted", "superseded", "disputed", "retired")) st.append(st.length() > 1 ? "," : "").append(state).append(':').append(js(t(state)));
+        return "const KL=" + k + "},SL=" + st + "},T={err:" + js(t("The map hit an error:")) + ",line:" + js(t("(line {0})")) + ",none:" + js(t("No claim names \"{0}\" yet.")) + ",appears:" + js(t("A name appears here once a claim about it is on the shelves, spelled as the claims spell it."))
+                + ",type:" + js(t("Type a name: a person, a place, a work, a subject.")) + ",best:" + js(t("Names the map knows best:")) + ",empty:" + js(t("The map is empty: no claim has the shape someone · did · something yet."))
+                + ",nearest:" + js(t("no name is exactly \"{0}\"; showing the nearest:")) + ",open:" + js(tc("open", "a heading over the open questions about a name on the map")) + "};\n";
+    }
+
     /** The map's markup and script, for the site frame (the nav on top, the viewer's theme): a search bar, the canvas, the side panel. */
     static String body(String focus) {
         String f = focus == null ? "" : focus.replace("&", "&amp;").replace("<", "&lt;").replace("\"", "&quot;");
@@ -16,23 +41,23 @@ final class MapPage {
                 + ".mapwrap{display:flex;gap:0;align-items:stretch;border:1px solid var(--line);background:var(--card)}canvas#c{display:block;flex:1;min-width:0}"
                 + "#side{width:22em;flex:none;max-height:calc(100vh - 12em);overflow:auto;padding:.6em .9em;border-left:1px solid var(--line);font-size:.9em}#side b{color:var(--accent)}"
                 + "@media(max-width:800px){.mapwrap{flex-direction:column}#side{width:auto;border-left:0;border-top:1px solid var(--line)}}</style>"
-                + "<div class=\"mapbar\"><input id=\"q\" value=\"" + f + "\" placeholder=\"a person, a place, a work, a subject…\"> "
-                + "<button id=\"go\">Map</button> <span class=\"k\">depth <select id=\"d\" onchange=\"load(document.getElementById('q').value)\"><option>1</option><option selected>2</option><option>3</option></select></span></div>"
+                + "<div class=\"mapbar\"><input id=\"q\" value=\"" + f + "\" placeholder=\"" + Pages.esc(t("a person, a place, a work, a subject…")) + "\"> "
+                + "<button id=\"go\">" + t("Map") + "</button> <span class=\"k\">" + t("depth") + " <select id=\"d\" onchange=\"load(document.getElementById('q').value)\"><option>1</option><option selected>2</option><option>3</option></select></span></div>"
                 + "<div class=\"mapwrap\"><canvas id=\"c\"></canvas><div id=\"side\"></div></div>"
-                + "<p class=\"k\">Every line is a claim; a dashed line is a disputed one. Subjects are the shelf labels: a name is joined to every subject its claims are filed under. Click a dot to move to it.</p>"
-                + "<script>\n"
-                + "window.onerror=(msg,src,line,col)=>{const s=document.getElementById('side');if(s)s.innerHTML='<b>The map hit an error:</b> '+String(msg).replace(/</g,'&lt;')+' (line '+line+')<br>'+s.innerHTML;};\n"
+                + "<p class=\"k\">" + t("Every line is a claim; a dashed line is a disputed one. Subjects are the shelf labels: a name is joined to every subject its claims are filed under. Click a dot to move to it.") + "</p>"
+                + "<script>\n" + words()
+                + "window.onerror=(msg,src,line,col)=>{const s=document.getElementById('side');if(s)s.innerHTML='<b>'+esc(T.err)+'</b> '+String(msg).replace(/</g,'&lt;')+' '+esc(T.line.replace('{0}',line))+'<br>'+s.innerHTML;};\n"
                 + "const KIND={person:'#e8b04a',place:'#5aa7d6',event:'#9b6bd1',document:'#8fbf8f',organisation:'#d67c5a',work:'#c3402f',concept:'#9a948a',subject:'#e0654f'};\n"
                 + "const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();\n"
                 + "const c=document.getElementById('c'),ctx=c.getContext('2d');let W,H;function size(){const wrap=c.parentElement;W=c.width=Math.max(300,wrap.clientWidth-(innerWidth>800?document.getElementById('side').offsetWidth:0));H=c.height=Math.max(360,Math.min(innerHeight-190,720))}size();addEventListener('resize',()=>{size();draw()});\n"
                 + "let nodes=[],edges=[],focus=null;\n"
                 + "async function load(q){const r=await fetch('/v1/map',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({focus:q,depth:+document.getElementById('d').value,k:+document.getElementById('d').value>=3?150:60})});const j=await r.json();\n"
-                + " const side=document.getElementById('side');const tries=(j.suggestions||[]).map(s=>'<a href=\"#\" data-n=\"'+esc(s.label)+'\">'+esc(s.label)+'</a> <span class=k>'+s.kind+' · '+s.degree+'</span>').join('<br>');\n"
-                + " if(!j.node){nodes=[];edges=[];side.innerHTML=(q?'<b>No claim names \"'+esc(q)+'\"</b> yet. A name appears here once a claim about it is on the shelves, spelled as the claims spell it.':'<b>Type a name</b>: a person, a place, a work, a subject.')+(tries?'<br><br><span class=k>Names the map knows best:</span><br>'+tries:'<br><br><span class=k>The map is empty: no claim has the shape someone · did · something yet.</span>');bindTries();draw();return}\n"
+                + " const side=document.getElementById('side');const tries=(j.suggestions||[]).map(s=>'<a href=\"#\" data-n=\"'+esc(s.label)+'\">'+esc(s.label)+'</a> <span class=k>'+esc(KL[s.kind]||s.kind)+' · '+s.degree+'</span>').join('<br>');\n"
+                + " if(!j.node){nodes=[];edges=[];side.innerHTML=(q?'<b>'+esc(T.none.replace('{0}',q))+'</b> '+esc(T.appears):'<b>'+esc(T.type)+'</b>')+(tries?'<br><br><span class=k>'+esc(T.best)+'</span><br>'+tries:'<br><br><span class=k>'+esc(T.empty)+'</span>');bindTries();draw();return}\n"
                 + " const byId={};nodes=j.nodes.map((n,i)=>{const a=i/j.nodes.length*6.28;const o={...n,x:W/2+Math.cos(a)*Math.min(W,H)/3,y:H/2+Math.sin(a)*Math.min(W,H)/3,vx:0,vy:0};byId[n.id]=o;return o});focus=byId[j.node.id];if(focus){focus.x=W/2;focus.y=H/2}\n"
                 + " edges=j.edges.map(e=>({...e,a:byId[e.from],b:byId[e.to]})).filter(e=>e.a&&e.b);\n"
                 + " const link=n=>n.kind==='subject'?'<a href=\"/search?subject='+encodeURIComponent(n.also&&n.also[0]||n.label)+'\">'+esc(n.label)+'</a>':esc(n.label);\n"
-                + " side.innerHTML=(j.resolved_from?'<span class=k>no name is exactly \"'+esc(j.resolved_from)+'\"; showing the nearest:</span><br>':'')+'<b>'+link(j.node)+'</b> <span class=k>['+j.node.kind+']</span>'+(j.node.wikidata?' <span class=k>'+j.node.wikidata+'</span>':'')+'<br><br>'+edges.map(e=>esc(e.a.label)+' <span class=k>— '+esc(e.predicate)+' →</span> '+esc(e.b.label)+' <a class=k href=\"/entry/'+encodeURIComponent(e.finding)+'\">['+esc(e.finding.slice(0,6))+' '+e.state+']</a>').join('<br>')+(j.open&&j.open.length?'<br><br><b>open</b><br>'+j.open.map(esc).join('<br>'):'')+(tries?'<br><br><span class=k>Names the map knows best:</span><br>'+tries:'');bindTries();\n"
+                + " side.innerHTML=(j.resolved_from?'<span class=k>'+esc(T.nearest.replace('{0}',j.resolved_from))+'</span><br>':'')+'<b>'+link(j.node)+'</b> <span class=k>['+esc(KL[j.node.kind]||j.node.kind)+']</span>'+(j.node.wikidata?' <span class=k>'+j.node.wikidata+'</span>':'')+'<br><br>'+edges.map(e=>esc(e.a.label)+' <span class=k>— '+esc(e.predicate)+' →</span> '+esc(e.b.label)+' <a class=k href=\"/entry/'+encodeURIComponent(e.finding)+'\">['+esc(e.finding.slice(0,6))+' '+esc(SL[e.state]||e.state)+']</a>').join('<br>')+(j.open&&j.open.length?'<br><br><b>'+esc(T.open)+'</b><br>'+j.open.map(esc).join('<br>'):'')+(tries?'<br><br><span class=k>'+esc(T.best)+'</span><br>'+tries:'');bindTries();\n"
                 + " for(let i=0;i<300;i++)step();draw()}\n"
                 + "function bindTries(){document.querySelectorAll('#side a[data-n]').forEach(a=>a.onclick=ev=>{ev.preventDefault();document.getElementById('q').value=a.dataset.n;load(a.dataset.n)})}\n"
                 + "function esc(s){return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}\n"
@@ -41,7 +66,7 @@ final class MapPage {
                 + " for(const n of nodes){if(n===focus){n.x=W/2;n.y=H/2;continue}n.vx+=(W/2-n.x)*.002;n.vy+=(H/2-n.y)*.002;n.x=Math.max(20,Math.min(W-20,n.x+n.vx));n.y=Math.max(20,Math.min(H-20,n.y+n.vy))}}\n"
                 + "function draw(){const ink=css('--ink')||'#1e1b16',k=css('--k')||'#6b6459',line=css('--line')||'#e2dccd';ctx.clearRect(0,0,W,H);for(const e of edges){ctx.beginPath();ctx.setLineDash(e.disputed?[5,5]:e.predicate==='is filed under'?[2,4]:[]);ctx.strokeStyle=e.predicate==='is filed under'?'#e0654f':e.state==='accepted'?'#3f8a4f':k;ctx.lineWidth=e.predicate==='is filed under'?1:1.5;ctx.moveTo(e.a.x,e.a.y);ctx.lineTo(e.b.x,e.b.y);ctx.stroke();ctx.setLineDash([]);if(e.predicate!=='is filed under'){ctx.fillStyle=k;ctx.font='11px Georgia';ctx.fillText(e.predicate,(e.a.x+e.b.x)/2+4,(e.a.y+e.b.y)/2-4)}}\n"
                 + " for(const n of nodes){const r=n===focus?11:n.kind==='subject'?9:6+Math.min(6,n.degree);ctx.beginPath();if(n.kind==='subject'){ctx.rect(n.x-r,n.y-r,2*r,2*r)}else{ctx.arc(n.x,n.y,r,0,6.28)}ctx.fillStyle=KIND[n.kind]||'#9a948a';ctx.fill();ctx.fillStyle=ink;ctx.font=(n===focus?'bold 14px':'13px')+' Georgia';ctx.fillText(n.label,n.x+r+4,n.y+4)}\n"
-                + " let x=12;ctx.font='12px Georgia';for(const kk in KIND){ctx.fillStyle=KIND[kk];if(kk==='subject')ctx.fillRect(x,H-18,10,10);else{ctx.beginPath();ctx.arc(x+5,H-13,5,0,6.28);ctx.fill()}ctx.fillStyle=k;ctx.fillText(kk,x+14,H-9);x+=ctx.measureText(kk).width+30}}\n"
+                + " let x=12;ctx.font='12px Georgia';for(const kk in KIND){ctx.fillStyle=KIND[kk];if(kk==='subject')ctx.fillRect(x,H-18,10,10);else{ctx.beginPath();ctx.arc(x+5,H-13,5,0,6.28);ctx.fill()}ctx.fillStyle=k;ctx.fillText(KL[kk]||kk,x+14,H-9);x+=ctx.measureText(KL[kk]||kk).width+30}}\n"
                 + "c.addEventListener('click',ev=>{const x=ev.offsetX*(c.width/c.clientWidth),y=ev.offsetY*(c.height/c.clientHeight);for(const n of nodes)if(Math.hypot(n.x-x,n.y-y)<14){document.getElementById('q').value=n.label;load(n.label);return}});\n"
                 + "document.getElementById('go').onclick=()=>load(document.getElementById('q').value);document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load(e.target.value)});\n"
                 + "load(document.getElementById('q').value);\n"

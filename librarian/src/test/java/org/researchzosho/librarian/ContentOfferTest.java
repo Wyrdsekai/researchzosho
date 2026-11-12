@@ -344,7 +344,7 @@ class ContentOfferTest {
             assertEquals("[\"explicit\",\"howto\"]", j.path("args").path("allow").toString());
             assertEquals("web-box", j.path("args").path("allow_how").asText());
             assertFalse(j.path("args").has("field"), "the box is not a field");
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(store); }
+        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
     }
 
     // ---- the record ----

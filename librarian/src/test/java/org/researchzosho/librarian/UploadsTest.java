@@ -40,6 +40,25 @@ class UploadsTest {
         assertTrue(Files.exists(k), "only a folder the server made for an upload is removed");
     }
 
+    /** A file named in Japanese: browsers write the name as UTF-8 in the part's header, and it arrives as it was written, not as mojibake. */
+    @Test void aFileNamedInJapaneseKeepsItsName(@TempDir Path tmp) throws Exception {
+        String b = "----WebKitFormBoundaryjp1";
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        part(body, b, "file", "時計の本 第1巻.pdf", "%PDF-1.4");
+        part(body, b, "folder", "資料/古い時計/目録.txt", "目録");
+        body.writeBytes(("--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        Map<String, String> form = Uploads.multipart(body.toByteArray(), "multipart/form-data; boundary=" + b, tmp.resolve("researchzosho-upload-jp"));
+        assertEquals("時計の本 第1巻.pdf", form.get("file.name"));
+        assertTrue(form.get("file.path").endsWith("時計の本 第1巻.pdf"), form.get("file.path"));
+        assertEquals("資料/古い時計/目録.txt", form.get("folder.rel"));
+        // an old client's name that is not UTF-8 is read as ISO-8859-1; a name given as filename*=UTF-8'' is decoded
+        byte[] latin1 = "filename=\"caf\u00e9.pdf\"".getBytes(StandardCharsets.ISO_8859_1);
+        assertEquals("caf\u00e9.pdf", Uploads.param(Uploads.headers(latin1, 0, latin1.length), "filename"));
+        assertEquals("時計.pdf", Uploads.param("form-data; name=\"file\"; filename*=UTF-8''%E6%99%82%E8%A8%88.pdf", "filename"));
+        assertEquals("file", Uploads.param("form-data; filename=\"a.pdf\"; name=\"file\"", "name"), "name is not read out of filename");
+        Uploads.drop(form);
+    }
+
     static void part(ByteArrayOutputStream body, String b, String field, String filename, String text) {
         body.writeBytes(("--" + b + "\r\nContent-Disposition: form-data; name=\"" + field + "\"" + (filename == null ? "" : "; filename=\"" + filename + "\"\r\nContent-Type: application/octet-stream") + "\r\n\r\n" + text + "\r\n").getBytes(StandardCharsets.UTF_8));
     }

@@ -17,7 +17,7 @@ public final class HelpPage {
         }
         b.append("<form method=\"get\" action=\"/help\" class=\"inline\"><input name=\"q\" value=\"").append(Pages.esc(question == null ? "" : question))
                 .append("\" placeholder=\"").append(Pages.esc(t("what you want to do, or what is not working"))).append("\" size=\"60\" aria-label=\"").append(Pages.esc(t("look something up"))).append("\"> <button>").append(t("Look it up")).append("</button></form>");
-        String text = Help.lookup(store, question);
+        String text = Help.lookup(store, question, Chrome.now());   // the state and the framing in the person's language; the documents as they are written
         b.append("<div class=\"prose\">").append(Pages.md(text)).append("</div>");
         List<String> docs = Help.docs();
         if (!docs.isEmpty()) {

@@ -83,7 +83,7 @@ class ChatHomeTest {
             // Past: what the library holds and what changed
             HttpResponse<String> past = get(c, base + "/past");
             assertEquals(200, past.statusCode(), past.body());
-            assertTrue(past.body().contains("<h1>Past</h1>") && past.body().contains("This library has 2 claims (1 accepted") && past.body().contains("<a href=\"/past\" aria-current=\"page\">Past</a>"), past.body());
+            assertTrue(past.body().contains("<h1>Past</h1>") && past.body().contains("Claims: 2 (1 accepted") && past.body().contains("<a href=\"/past\" aria-current=\"page\">Past</a>"), past.body());
             String fragment = c.send(HttpRequest.newBuilder(URI.create(base + "/chat/runs?session=" + s.id)).build(), HttpResponse.BodyHandlers.ofString()).body();
             assertTrue(fragment.startsWith("<div class=\"striphead\" data-active=\"0\">") && !fragment.contains("<html"), "the strip alone, for the page's own refresh: " + fragment);
             // a fresh conversation has no file until its first message: its strip must still come back whole (the section emptied on the page, 2026-11-08)

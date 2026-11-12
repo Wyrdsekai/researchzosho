@@ -642,8 +642,8 @@ What happens then:
 - `library_absorb`, `library_meeting` and `library_check` save the text and file its questions
   before they ask the model for its claims. When the model declines to list the claims, the result
   says so in `declined` and in its summary, and for an export it says which conversations.
-- A scanned PDF: a page the model declined to read is marked in the saved text with the statement,
-  and the other pages are read.
+- A scanned PDF: a page the model declined to read is named in the saved text as not read, and the
+  other pages are read.
 - The genealogy commands: a decline for one person is written in the circulation log and said at the
   end. That person's search is not started, and the others go on.
 - The nightly review of a new report, the articles about subjects, the cataloger and the enrichment
@@ -726,8 +726,7 @@ To let the material in for one question:
   This question may need material the library leaves out of research by default: pornography, and gore: pictures or detailed descriptions of mutilated or dead bodies. A yes lets it into this question's research run only; every other run leaves it out as before. Let it in for this question? (y/N)
   ```
 
-  Only a clear yes lets it in: `y`, `yes`, `はい`, `ja`, `oui`, `sí`, `si`, `sim`, `да`, `是`, `네` or
-  `예`, alone or at the start of the answer ("yes, please"). Enter, `n` or anything else leaves it
+  Only a clear yes lets it in, in any of the chat's languages: `yes`, `はい`, `是`, `네`, `ja`, `oui`, `sí`, `sim`, `sì`, `да`, alone or at the start of the answer ("yes, please"). The chat's other words for yes, the letter of the hint (`y`, `j`, `o`, `s`, `д`) and words such as `claro`, `d'accord`, `gern` or `хорошо`, count only alone or before a comma, because they can also begin an ordinary sentence ("claro que no"). Enter, `n` or anything else leaves it
   out. You can also ask for it
   yourself: `--allow explicit`, `--allow howto`, or `--allow explicit,howto`. In a script nothing is
   asked, the run leaves the material out, and the command prints the line that lets it in.
@@ -1033,10 +1032,25 @@ Supported formats: PDF, Word, PowerPoint, OpenDocument, EPUB, HTML and plain tex
 the text, where it came from, when it was added, and the captions of figures and tables. If a paper
 prints its DOI, the library looks up its citation.
 
-PDFs read best when poppler's `pdftotext` is installed. On Debian and Ubuntu, run
-`apt install poppler-utils`. On a Mac, run `brew install poppler`. The library uses it when it is
-present, for fetched pages and added files. Otherwise it uses its built-in reader. A two-column report
-that the built-in reader garbles usually reads cleanly with `pdftotext`.
+A PDF is read page by page as a person reads it: paragraphs whole and in reading order, columns one after
+the other, running heads and page numbers left out, a word hyphenated at a line's end joined again. Japanese,
+Chinese and Korean set vertically are read column by column from the right, with ruby left out and note marks
+kept where they stand; Arabic and Hebrew come out in the order their readers read them.
+
+Before a PDF is read, each page is checked from the file alone, with no model: it reads by its text, or it is
+a picture of text (a scan, or a scan whose own recognised text reads badly), or its text is garbled, or the
+order of its words cannot be worked out, or it is blank. When it is added or attached, one paragraph says
+what was found: how many pages read by their text, which pages need reading by eye and about how long that
+takes. A page that needs it is drawn and transcribed by the model that sees, when the library has one
+(`researchzosho models` shows which entry sees pictures); without one, the other pages are read and these
+are named in the text as not read, never filled with the garbled text. At most 30 pages are read by eye when
+a document is added; a translation reads them all. What the check found is kept with the document on the
+shelves (`pdf_reading` and `pdf_sensor` in its record), and the document's page and a translation's run page
+say it in the same words.
+
+A Word file keeps its footnotes, endnotes and comments: each note's mark stays where the text has it, as
+`[^1]`, and the notes follow at the end of the text. A text box is read after the paragraph it is anchored to.
+The headers and footers of a Word file are left out, as a PDF's running heads are.
 
 Sometimes the runner cannot fetch a PDF at all, because a server never answers or a wall blocks it.
 Then use `researchzosho add <file> --for <url>`. Download the file yourself and add it. The shelves
@@ -1343,7 +1357,7 @@ A document of your own, translated into another language and written out as a fi
 same format (`--as md|txt|pdf|docx|epub` chooses another), and a note beside it, `<name>.<lang>.translation.md`, says
 what was done. Both the original and the translation go onto the shelves, the translation under the original's
 collection with a link to it. From the chat: "translate this file into Japanese" with a file attached, or naming a
-document on the shelves by its title ("translate saros notes into German as a PDF, reviewed"). "I would like this epub translated
+document on the shelves by its title ("translate saros notes into German as a PDF, reviewed, with the notes at the end"). "I would like this epub translated
 into English using DeepSeek V4.1 Flash and have Kimi K3 do a thorough check" names the translator and the reader by an
 entry's name or its model (`researchzosho models` lists them) and the tier by the check asked for; "checked by the
 strongest other model" lets the library choose; without a word, the model the chat talks to (`/model`) translates and
@@ -1356,8 +1370,14 @@ entry whose host has no key yet, is answered before anything runs: the models th
 entry named (DeepSeek, Kimi, Claude, GPT, Gemini, GLM and MiniMax are known) and the line that keeps the host's key, with
 where the key comes from; the Settings page does both under Models. A paid call refused during a run ends it with what
 the status means (the key, the credit, the rate limit, the model id) and the models the run can be sent again with. On the Keep page, the
-Translate fold takes a file, the language, the format and the tier and files the work as a run; the run's page has the
-file, the note and the download links. A program uses the tool `library_translate`.
+Translate fold takes a file, the language, the format, the tier and the box for the notes at the end, and files the work
+as a run; the run's page has the file, the note and the download links. A program uses the tool `library_translate`.
+
+A PDF's plan says first how its pages are read: by their text, by eye and by which model (about how long, or that
+it has not been timed yet), and which pages cannot be read and why. A PDF whose text cannot be read is not
+translated: nothing on it reads, or half its pages or more need a model that sees and none is set. The answer says
+why and how to set one. The pages read by eye are read first, each kept as it is read, so a run that is restarted
+does not read them again. The finished run's summary starts with the same facts.
 
 The document is cut into its units in order (headings, paragraphs, list items, table cells, captions; an EPUB chapter
 by chapter) and each unit is translated with the glossary and the kept words, then the document is rebuilt from the
@@ -1367,31 +1387,96 @@ of the original are never read.
 | in → out | what is kept |
 | --- | --- |
 | epub → epub | the chapters, the navigation, the pictures, the package's title, creator and language; the original title stays in the metadata |
-| docx → docx | headings, lists and tables, through the library's own writer with its styles, not the original's; pictures are not carried |
-| pdf → pdf | a new PDF laid out from the text; the pages, columns and pictures of the original are not carried; a short line on its own is read as a heading |
+| docx → docx | headings, lists and tables, through the library's own writer with its styles, not the original's; footnotes, endnotes and comments translated and set at the end, their marks raised in the text; pictures are not carried |
+| pdf → pdf | a new PDF laid out from the text, read as section 8 says (columns, vertical text, right-to-left text, pages read by eye); the pages, columns and pictures of the original are not carried |
 | md → md | every block, with code blocks and front matter as they were |
 | any → txt | the words alone |
 
-Kept as they stand: names (with the original in parentheses where they first appear), numbers, dates, addresses,
-citations in brackets, code blocks and front matter.
+The document's language is worked out from its text: its script, and among languages that share one, the words and
+letters each uses (English, German, French, Spanish, Portuguese, Italian, Dutch, Polish, Swedish, Danish, Norwegian,
+Finnish, Czech, Romanian, Hungarian, Turkish, Indonesian, Vietnamese, Croatian; Russian, Ukrainian, Bulgarian, Serbian;
+Japanese, Chinese, Korean, Arabic, Persian, Hebrew, Thai, Greek, Hindi and the other scripts of India). A file that names
+its language (an EPUB, a Word file, a PDF) is taken at its word when the text agrees or is too short to say. When the words
+do not say it clearly, the plan says what the program took and that you can name it: `--from <language>`, "from German"
+in the chat (said in the language you chat in: 「ドイツ語から」), `from` on the tool. A document is refused as already in the language asked for only when its words say so
+plainly.
+
+Names and recurring terms are made consistent after the first pass, by what the translation itself writes. The program
+finds the strings the document repeats (in Japanese and Chinese, runs of Han characters and katakana; in a language
+written with spaces, capitalised words and runs of them). Once every unit is translated, the model is shown a few
+passages of each string with their translation and names the words that say it, and is asked once more where its words
+stand in none of the units; the program keeps an answer only where more than three in four of the units holding the
+string write it there. For a person whose whole name stands in too few units (written given name first in some, family
+name first in others), the program settles the part of the name more than two in three of them share, the family name
+usually, when that part does not stand in the rest of the document; a title such as "Minister" does. At the reviewed and
+thorough tiers the reader then settles what is still unsettled: it is shown up to twelve passages of each string, says
+the words each translation uses, and chooses the one form the whole document should use, which must be one of the forms
+the translation already writes; it may choose the form fewer units write, or none. A unit that writes a decided name or
+term otherwise is flagged and revised toward the decided form. Your glossary wins where both name a string. The program
+sets the original in parentheses after a decided name written in another script, once, where the source first holds
+that name on its own. The note lists what was decided and how: by most units, by the part most units share, or by the
+reader, with the forms it chose among; what the reader left to you; and, for each string not decided, the words the
+model named and how many units write them. A wrong form, or one the reader left, is settled with the glossary and the
+document translated again. Code blocks and front matter are not sent to the model.
 
 Four tiers (`--quality`, the same words in the chat, on the form and on the tool):
 
 | tier | what runs | when to choose it |
 | --- | --- | --- |
 | `quick` | one pass with the glossary and the kept words | you want it as soon as possible |
-| `checked`, the default | one pass; then the checks a program makes with no model (every unit present on both sides, every number, address and citation of a unit in its translation, every glossary term rendered as the glossary says, the length within a band); then a program's score for every unit, LaBSE's closeness of meaning between source and translation and, when it is installed, MetricX-24's quality estimate; a flagged unit is translated again in a fresh call and the revision kept only when its score improves; with one model only, a sample of units is translated back and compared | the honest middle: no second model, nothing spent |
-| `reviewed` | checked, then a second seat reads source and translation side by side, the units the checks flagged and a sample of the rest (a fifth, spread through the document, more where the scores are lowest; a document under 150 units is read whole, and the note says so), and annotates each error with a fixed typology, accuracy (mistranslation, omission, addition, untranslated), terminology (against the glossary), fluency (grammar, wording), style (register), a severity (minor, major, critical) and the words concerned; a unit with a major or critical error is translated again against its flags and read again | the extra reading, for a document that matters, at its possible cost |
+| `checked`, the default | one pass; then the checks a program makes with no model (every unit present on both sides, every number, address and citation of a unit in its translation, every glossary term and decided name rendered as decided, the length within the band for the pair); then a program's score for every unit, LaBSE's closeness of meaning between source and translation and, when it is installed, MetricX-24's quality estimate; a flagged unit is translated again in a fresh call and the revision kept only when its score improves; with one model only, a sample of units is translated back and compared | the honest middle: no second model, nothing spent |
+| `reviewed` | checked, then a second seat reads source and translation side by side, the units the checks flagged and a sample of the rest (a fifth, spread through the document, more where the scores are lowest; a document under 150 units is read whole, and the note says so), and annotates each error with a fixed typology, accuracy (mistranslation, omission, addition, untranslated), terminology (against the glossary), fluency (grammar, wording), style (register), a severity (minor, major, critical), the words concerned and the same words as they should read; a line is no flag when its correction is the words it flags, when it says the translation is right and asks for no change, or when it asks for a name or term the program settled and flags itself, and the note counts the lines set aside; a unit with a major or critical error is translated again against its flags and read again | the extra reading, for a document that matters, at its possible cost |
 | `thorough` | reviewed, with every unit read | the extra reading over the whole document |
 
-A unit still flagged after everything is marked in the output with a bracketed note in the document's new language
-and listed in the translation note; a minor error is listed and the unit left as it is. What counts as a bad score is
+The translated document holds the translation and nothing else. A passage still flagged after its revision is listed in
+the translation note, under "Still in doubt": its number, its unit, its first words (enough to find it with a search)
+and why; a passage no translation could be kept for stays in its original words. The note shows the first 200; a longer
+list is whole in `<name>.<lang>.translation-doubts.json` beside it. To have these passages in the document too, ask for
+the notes at the end: each gets its number in brackets after its text, [1], [2], and the document ends with a section
+that lists them by number with why, titled in the document's new language ("訳注" in Japanese, "Anmerkungen zur
+Übersetzung" in German, "Translation notes" in a language without a title of its own); an EPUB gets it as its last
+chapter, a Word file, a PDF or Markdown as its last heading. In a document whose own text has numbers in brackets, such as
+citations, the numbers are [†1], [†2]. Every way of asking for a translation takes the choice:
+
+| where | the notes at the end | the translation alone |
+| --- | --- | --- |
+| `researchzosho translate` | `--notes end` | `--notes off` |
+| the Translate form on the Keep page | the box "list what the checks still doubt at the end of the document, numbered" ticked | the box left unticked |
+| the chat, on the web page or in the terminal, with the file attached, named, or given by its path | "with the notes at the end", "and list what the checks doubt at the end", 「訳注は末尾に」 or 「訳注付きで」 in the ask, or in the answer to the chat's question about the tier ("checked, with the notes at the end") | "no notes", 「訳注なし」 |
+| `library_translate` over MCP (stdio and `/rpc`), `POST /v1/translate`, and the chat's model when it files one | `notes=end` | `notes=off` |
+| the Java client, `translate(raw, to, as, quality, notes)`, and the Python SDK, `translate(raw, to, notes=…)` | `"end"` | `"off"` |
+
+Saying neither leaves it to the setting `translate_notes` (`off`, the default, or `end`), and each ask overrides the
+setting either way; a run keeps the choice it was filed with, through a restart too. The chat's question about the
+tier ends with where the doubts will go and the words that change it, and the chat's reply after filing says where
+they go, from the run as it was filed; so do the Translate form's page, the run's page, the tool's answer (`notes`)
+and the job (`library_job`, `GET /v1/jobs/<id>`). A bad word is refused with the two choices and what each does. The
+result says how many passages the checks still doubt, where they are listed, and how to have them at the end. A minor error is
+listed in the note and the unit left as it is; the quick tier checks nothing and lists nothing. What counts as a bad score is
 never a fixed number: the thresholds are measured per language pair from the scores of the units accepted so far
 (the lowest tenth of LaBSE, the highest tenth of MetricX-24, once twenty are on record), and a flag always shows the
 score. A unit under 40 characters, a heading, a table cell or a caption, is scored and shown but never flagged by its
 score: on a short unit the scores reward the literal word over the right one (a cell "Cells on the rim" scored 0.47 as
-縁の区画数 and 0.81 as 細胞, the biological cell), so the program's checks and the reader are what judge those. The first units of a pair come from a translation read by hand: `researchzosho translate scores accept
-<translation note> --units 1,3-5` puts the units you found right onto the record. The note names the tier, the
+縁の区画数 and 0.81 as 細胞, the biological cell), so the program's checks and the reader are what judge those. The length
+band is the pair's too: until the record holds twenty units of the pair, a band measured on parallel texts for the
+scripts the two languages are written in (English is usually 2.1 to 3.8 times as long as the Japanese it translates, a
+German translation of English 0.84 to 1.18 times); then the middle 80% of the record's. A paragraph is flagged past the
+band by half again, and the flag says the band; a short unit only when its translation is far too long. A pair the
+measured scripts do not cover is not judged by length until its record holds twenty units.
+
+Every paragraph of 40 characters or more that a checked translation translated goes on the record, flagged or not, with
+the scores and the length of its first pass, under the job it came from: the record is a measurement of what the model
+writes for the pair, so the thresholds flag about one paragraph in ten per scorer from one translation to the next. A job
+puts nothing there when its PDF had pages the reader could not read or could not put in order, or when the program's own
+checks of what breaks a measurement (numbers, addresses, citations, your glossary, a missing translation, a length far
+past the band measured on parallel texts; never the scores, nor a name or term written more than one way) flagged more
+than half its paragraphs before any revision; a job that fails or is
+stopped takes its units off. Earlier versions put on only the units nothing flagged or that you chose as right, a
+sample cut off at the threshold it set, which made the threshold tighter at every run: those entries stay in the file,
+are listed apart, and nothing is measured from them. `researchzosho translate scores` shows what the record holds by
+job; `researchzosho translate scores withdraw J-0042` (or `researchzosho jobs J-0042 --withdraw-scores`, or the button
+on the run's page) takes a job's units off and says the thresholds now; `withdraw --unnamed ja en` takes off the entries
+an earlier version put there without a job. The note names the tier, the
 scorers that ran and their models, the thresholds, every unit's scores, the flags with their scores, what changed
 (each revision's scores before and after, kept or not), the reader if any and what it read, the glossary and the
 shelves.
@@ -1413,7 +1498,7 @@ Who reads, for `reviewed` and `thorough`, depends on what is set up (`researchzo
 | --- | --- | --- |
 | one local model only | the same model, in fresh calls | the note says so, and that it is the weaker check; a sample of units is translated back into the source language by it and compared with the source, mechanically and by a reading of the pair (`--back-translate off` turns that off) |
 | two local models (a judge seat, `RESEARCHZOSHO_JUDGE_DRIVE`, or a second entry) | the judge seat, or the entry named with `--judge <entry>` | the note names it; no back-translation unless asked |
-| hosted entries | the judge seat, or `--judge <entry>`; the translator too with `--model <entry>` | a paid call: the cost is said first, about two reads of the document at the entry's prices for the reader, one read and one write for the translator; the run stays inside the entry's monthly cap and goes on the tally; nothing hosted is spent unless you chose that entry |
+| hosted entries | the judge seat, or `--judge <entry>`; the translator too with `--model <entry>` | a paid call: the cost is said first, for the reader what the tier sends it (every unit it reads with its source and the instructions, the units it reads again after their revision, the names it is asked to settle, a dozen passages each) and what it writes, at the entry's prices, the tokens sent and written said apart; one read and one write for the translator; the run stays inside the entry's monthly cap and goes on the tally; nothing hosted is spent unless you chose that entry |
 | `--judge auto` | the strongest configured entry that is not the translator, local before hosted | the note says which it chose and why |
 | no model at all | — | a translation is not offered: one sentence says to connect a model |
 
@@ -1665,21 +1750,38 @@ and its language is read off its letters: Japanese, Chinese, Korean or else Engl
 
 Each person can read reports in their own language. In the chat, "read this in Japanese" or "この報告書を英語で" about the
 report just shown, or one named by its id, or "the dossier on Ada Example", answers with the link to it in that language,
-and starts the translation when none is kept yet. A report's page offers Read in: as written, English, 日本語;
+and starts the translation when none is kept yet. A report's page offers Read in: as written, and each language the
+pages are written in, by its own name;
 "Always read in …" keeps the choice (`researchzosho settings read-in ja` does the same), and from then on every
 report written in another language opens translated by the model, the first time after a few minutes, kept until the
 report changes. The cites, the claim ids, the dates and the sources stand as they are, the report's line says what it
 was written in and what you read it in, and Past says the same of each. A program reads a report in a language with
 `library_get` and `in`.
 
-The pages, the chat's own sentences and the command line's fixed sentences follow your language too: the labels, the
-titles, the buttons, the notes and the questions the library asks under a reply. The web pages pick it in this order: the
-switch in the header (日本語 / English, kept by your browser), the language you read reports in when you are signed in,
-your browser's language, the library's `language` setting, else English. The command line follows `RESEARCHZOSHO_LANGUAGE`,
-else the terminal's `LANG` when it is Japanese. English and Japanese exist; the descriptions of the settings on the Keep
-page stay in English for now, and the model's own words come in the language the report was written in. Another
-language is one file, `librarian/src/main/resources/org/researchzosho/librarian/chrome/<code>.json`, English text to
-the sentence in that language; a sentence the file lacks is shown in English.
+The pages, the chat and the command line's fixed sentences speak your language: English, 日本語 (Japanese), 中文
+(Chinese, in simplified characters), 한국어 (Korean), Deutsch, Français, Español, Português, Italiano or Русский. That is
+the labels, the titles, the buttons, the notes, the dates and numbers as your language writes them, and everything the
+chat says of its own: its answers to "translate this file", "read this in …", the pictures and the models, the questions
+it asks under a reply, its notices about runs, and /help. The model's own words come in the language it answers in.
+
+The web pages pick the language in this order: the menu in the header that names each language in its own words (kept by
+your browser), the language you read reports in when you are signed in, your browser's languages in the order it prefers
+them (pt-BR is Portuguese, zh-CN Chinese; a browser that asks for Chinese in traditional characters, zh-TW, zh-HK or
+zh-Hant, gets its next language, since the Chinese is simplified), the library's `language` setting, else English. The
+command line follows `RESEARCHZOSHO_LANGUAGE` (a code or a name: `ja`, `German`, `Deutsch`), else the terminal's
+`LC_ALL`, `LC_MESSAGES` or `LANG` (`fr_FR.UTF-8`).
+
+The chat understands what you type in any of these languages, whatever language the pages are in: "traduis ce fichier
+en japonais, vérifié, avec les notes à la fin", "переведи этот файл на японский", the tiers (quick, checked, reviewed,
+thorough, and each language's own words for them), "with the notes at the end" and "no notes", "this file", yes and no
+(a question that ends in (y/N) shows your language's own letters, (s/N) in Spanish, (j/N) in German), "none", a language's
+name in your language, "read this in …", "find pictures of …", "which model is the default" and "make … the default".
+The phrases that name a model for a translation ("translated by kimi", "checked by the strongest other model") are
+English in every language. The words each language is read by are a file of their own,
+`librarian/src/main/resources/org/researchzosho/librarian/chrome/words/<code>.json`: a meaning to the list of phrases
+that mean it, `{what}`, `{lang}` and the like where you name something. The interface's words are
+`librarian/src/main/resources/org/researchzosho/librarian/chrome/<code>.json`, English text to the sentence in that
+language; another language is one file of each, and a sentence a file lacks is shown in English.
 
 ## 10. Checks against bad sources
 
@@ -2398,6 +2500,7 @@ researchzosho chat                 # continue the last conversation, or start on
 researchzosho chat --new           # start a fresh one
 researchzosho chat --sessions      # list earlier conversations
 researchzosho chat --resume C-…    # reopen one
+researchzosho chat --delete C-…    # say what deleting it means; with --yes, delete it
 ```
 
 Type a question. The Librarian looks it up and answers with the entry ids, like `[F-0012-a]`, so you can
@@ -2447,7 +2550,7 @@ It follows two rules. It uses only the library's own tools: no commands, no read
 outside a research run. And it does not make things up. A figure or a source that none of its look-ups
 returned is marked under the reply as its guess.
 
-Inside a conversation, at the terminal and on the Chat page alike: `/new`, `/sessions`, `/resume <id>`, `/runs`,
+Inside a conversation, at the terminal and on the Chat page alike: `/new`, `/sessions`, `/resume <id>`, `/delete [<id>]`, `/runs`,
 `/model`, `/share`, `/sources`, `/interview <name>`, `/suggest`, `/help`, and each field's own command (`/family`,
 `/career`, `/home`, `/patents`, `/video`); `/quit` leaves the terminal. On the page, `/new` and `/resume` open the
 conversation they name. Conversations are saved in `catalog/chat/` and continue where they left off.
@@ -2460,6 +2563,15 @@ its report on the shelves, the notice suggests it. The library never splits a co
 that is yours to decide. The model sees a conversation's last 12 turns, a short summary of what came before (the
 earlier asks' first words, the runs this conversation filed and the reports they left, the files attached) and the
 shelves as they are today; the conversation file keeps every turn, and `/resume` opens an old one whole.
+
+**Deleting a conversation.** On the Chat page, Delete… on a conversation in the list, or on the one open, says what
+deleting means and holds the button that does it. In either chat, `/delete` says the same for this conversation
+(`/delete <id>` for another) and `/delete <id> --yes` deletes it; at the command line, `researchzosho chat --delete <id> --yes`.
+The messages are gone for good. The reports, research runs and translations the conversation started stay in the
+library, and a file attached in it stays on the shelves. A question it was still waiting on is released as no answer,
+as when its ten minutes pass. While a reply is being written in it, it is not deleted; delete it once the reply has
+come. The page then opens the most recent conversation left, or a new one. Only the conversations on your own list can
+be deleted. The terminal's own list of lines typed (the up arrow) is not part of any conversation and stays.
 
 The library answers these itself too, without the model, in both chats: `/explain <id or a term>`,
 `/perspectives <question>`, `/established <claim>`, `/read <id or address> [--in ja]`, `/subjects` (with `proposed`,
@@ -2998,11 +3110,11 @@ person who keeps the library; "all pages" beside it opens every page, grouped: t
 Subjects, Map, Dossiers, Pictures), the work (Inbox, Open questions, Runs, Research, Sources, Suggested, Changes), what is yours
 (Chat, Help, Owned, Settings, Account) and each field's own pages. The pages are light, and dark when the computer is
 set to dark; the switch in the header, system, light or dark, is remembered by the browser, and so is the language
-beside it, 日本語 or English (section 9). The pages are:
+chosen in the small menu beside it, which names each language in its own words (section 9). The pages are:
 
 | Page | What it shows |
 |---|---|
-| Chat, the home | The conversation with the Librarian. Each answer carries a mark saying where it came from: the shelves, a research run it started, the library itself, or the model's own words; under it, what was looked up on the way and the claims it cites, each with its standing (● established, ○ not yet) and its sources. The answer appears as the model writes it, with a caret and a stop beside it; the stop ends the turn within seconds and keeps the words that came. A model that cannot stream shows its answer whole, after a line that says it is being written. The runs the conversation follows stand beside it, a bar each, with a stop; the earlier conversations open from a button. Enter sends, Shift+Enter breaks a line. Files chosen with "@ Attach", dropped onto the page, or pasted as a picture, one or several or an archive, go onto the shelves with the turn, by the Add page's own path, and the turn says what came of each, so the Librarian can read them; before sending, each shows as a chip with its name and size and a × that takes it off, and one message carries up to ten. A question the library asks with named choices, which of these is meant, shows as a button for each; the number or the name typed answers it too, and as with yes or no, no answer within ten minutes counts as none. |
+| Chat, the home | The conversation with the Librarian. Each answer carries a mark saying where it came from: the shelves, a research run it started, the library itself, or the model's own words; under it, what was looked up on the way and the claims it cites, each with its standing (● established, ○ not yet) and its sources. The answer appears as the model writes it, with a caret and a stop beside it; the stop ends the turn within seconds and keeps the words that came. A model that cannot stream shows its answer whole, after a line that says it is being written. The runs the conversation follows stand beside it, a bar each, with a stop; the earlier conversations open from a button, each with a Delete… of its own. Enter sends, Shift+Enter breaks a line. Files chosen with "@ Attach", dropped onto the page, or pasted as a picture, one or several or an archive, go onto the shelves with the turn, by the Add page's own path, and the turn says what came of each, so the Librarian can read them; before sending, each shows as a chip with its name and size and a × that takes it off, and one message carries up to ten. A question the library asks with named choices, which of these is meant, shows as a button for each; the number or the name typed answers it too, and as with yes or no, no answer within ten minutes counts as none. |
 | Books | Your shelf as the library reads it from Calibre, the subjects you go for, the books you loved, liked and chose, and the books reports; for the owner, a reaction to a book, the preferences file shown and changed, and the DNA's records read now. |
 | Podcasts | The shows followed, each with its feed and cadence, and the podcasts reports; a form follows a feed or stops following one, and the owner reads the transcripts held for their DNA. |
 | Video | The videos the library has read with their three tracks, what was said, the words shown and what is seen, the pictures looked for, and the videos reports; Past has a row for the videos read. |

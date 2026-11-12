@@ -50,7 +50,7 @@ final class ForecastsPage {
             b.append("</tr>\n");
         }
         b.append("</table>\n");
-        if (r.has("brier")) b.append("<p class=\"k\">").append(t("Brier score over the scored forecasts: {0}.", String.format(Locale.ROOT, "%.3f", r.path("brier").asDouble()))).append("</p>");
+        if (r.has("brier")) b.append("<p class=\"k\">").append(t("Brier score over the scored forecasts: {0}.", Chrome.now().decimal(r.path("brier").asDouble(), 3))).append("</p>");
         return b.toString();
     }
 
@@ -61,7 +61,7 @@ final class ForecastsPage {
         a.put("op", "score").put("id", form.getOrDefault("id", "").strip()).put("outcome", form.getOrDefault("outcome", "").strip()).put("note", form.getOrDefault("note", "").strip());
         try {
             ObjectNode r = new LibraryProtocol(store).dossier(a);
-            return r.path("summary").asText() + (r.has("brier") ? " " + t("Brier score over the scored forecasts on {0}: {1}.", r.path("subject").asText(), String.format(Locale.ROOT, "%.3f", r.path("brier").asDouble())) : "");
+            return r.path("summary").asText() + (r.has("brier") ? " " + t("Brier score over the scored forecasts on {0}: {1}.", r.path("subject").asText(), Chrome.now().decimal(r.path("brier").asDouble(), 3)) : "");
         } catch (ProtocolError e) { return e.getMessage(); }
     }
 }

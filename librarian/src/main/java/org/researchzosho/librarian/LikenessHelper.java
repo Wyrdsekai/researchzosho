@@ -117,8 +117,9 @@ final class LikenessHelper {
     static boolean on() { return !Config.get(SETTING, "").strip().equalsIgnoreCase("off"); }
 
     /** "no likeness helper is set up; the model's reading alone" / "the likeness helper (…) measured each candidate against the reference first, and the model that sees judged them in that order". */
-    static String said() {
-        return scorer() == null ? "no likeness helper is set up; the model's reading alone" : "the likeness helper (" + SHORT + ") measured each candidate against the reference first, and the model that sees judged them in that order";
+    static String said() { return said(Chrome.ENGLISH); }
+    static String said(Chrome c) {
+        return scorer() == null ? c.t("no likeness helper is set up; the model's reading alone") : c.t("the likeness helper ({0}) measured each candidate against the reference first, and the model that sees judged them in that order", SHORT);
     }
 
     // ---- the helper's place on the disk ----

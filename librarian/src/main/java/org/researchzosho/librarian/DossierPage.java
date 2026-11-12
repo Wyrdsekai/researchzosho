@@ -19,6 +19,9 @@ import java.util.regex.Pattern;
 
 import static org.researchzosho.librarian.Pages.enc;
 import static org.researchzosho.librarian.Pages.esc;
+import static org.researchzosho.librarian.Pages.n;
+import static org.researchzosho.librarian.Pages.t;
+import static org.researchzosho.librarian.Pages.tc;
 
 /**
  * The dossier page (0.6.6): the target package the person reads, rendered from what the shelves hold ({@link Dossier#gather}) and from the
@@ -97,7 +100,7 @@ final class DossierPage {
             for (String w : words) if (NOT_A_PERSON.contains(w.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", ""))) person = false;
             if (!person) { m.appendReplacement(b, Matcher.quoteReplacement(m.group())); continue; }
             String key = name.toLowerCase(Locale.ROOT).replaceFirst("^the ", "");
-            String link = dossierSubjects.contains(key) ? "<a href=\"/dossier?subject=" + enc(name) + "\">" + raw + "</a>" : raw + " (<a class=\"k\" href=\"/research?q=" + enc("Who is " + name + "? A full dossier.") + "&amp;field=person\">start a dossier</a>)";
+            String link = dossierSubjects.contains(key) ? "<a href=\"/dossier?subject=" + enc(name) + "\">" + raw + "</a>" : raw + " (<a class=\"k\" href=\"/research?q=" + enc("Who is " + name + "? A full dossier.") + "&amp;field=person\">" + t("start a dossier") + "</a>)";
             m.appendReplacement(b, Matcher.quoteReplacement(bold ? "<b>" + link + "</b>" : link));
         }
         m.appendTail(b);
@@ -125,13 +128,10 @@ final class DossierPage {
         List<String> asks = new ArrayList<>();
         String storyTitle = "The story of " + d.label();
         for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) asks.add(Acquisitions.compress(inv.title(), 70).replaceAll("[.?!]+$", ""));
-        StringBuilder b = new StringBuilder();
-        if (asks.isEmpty()) b.append("From no run yet: the claims the shelves hold on the subject.");
-        else b.append("From ").append(asks.size()).append(asks.size() == 1 ? " run: " : " runs: ").append(String.join("; ", asks)).append(".");
+        String from = asks.isEmpty() ? t("From no run yet: the claims the shelves hold on the subject.")
+                : asks.size() == 1 ? t("From 1 run: {0}.", asks.get(0)) : t("From {0} runs: {1}.", asks.size(), String.join("; ", asks));   // the runs' own questions, as they were asked
         boolean milestones = !Dossier.milestones(d.claims()).isEmpty();
-        b.append(" Milestones, decisions, statements and media");
-        b.append(milestones ? ", the milestones first within a year." : "; the founding and the basics come with the full research.");
-        return b.toString();
+        return from + " " + (milestones ? t("Milestones, decisions, statements and media, the milestones first within a year.") : t("Milestones, decisions, statements and media; the founding and the basics come with the full research."));
     }
 
     /**
@@ -140,26 +140,26 @@ final class DossierPage {
      */
     static String render(LibraryStore store, String subject, Translate.Words w, String inLang) throws IOException {
         StringBuilder b = new StringBuilder();
-        b.append("<form class=\"big\" action=\"/dossier\"><input name=\"subject\" value=\"").append(esc(subject)).append("\" placeholder=\"A person or an organisation…\"").append(subject.isEmpty() ? " autofocus" : "").append("> <button>Dossier</button></form>");
+        b.append("<form class=\"big\" action=\"/dossier\"><input name=\"subject\" value=\"").append(esc(subject)).append("\" placeholder=\"").append(esc(t("A person or an organisation…"))).append("\"").append(subject.isEmpty() ? " autofocus" : "").append("> <button>").append(t("Dossier")).append("</button></form>");
         if (subject.isEmpty()) {   // the front door: every dossier the shelves hold
-            b.append("<p class=\"k\">Everything the library holds on one subject, as one page: who they are, the Reading for your question, what was searched, the timeline, the relations, what was told, the claims by the class of their source, the story and the reports to dive into, the open questions.</p>");
+            b.append("<p class=\"k\">").append(t("Everything the library holds on one subject, as one page: who they are, the Reading for your question, what was searched, the timeline, the relations, what was told, the claims by the class of their source, the story and the reports to dive into, the open questions.")).append("</p>");
             List<Dossiers.Entry> all = Dossiers.list(store);
-            b.append("<p class=\"k\">To request a dossier on someone new, type the name above and open it: the page offers one button that files the research.</p>");
-            if (all.isEmpty()) { b.append("<p>No dossiers yet.</p>"); return b.toString(); }
-            b.append(CSS).append("<div class=\"dz\"><h2 id=\"all\">The dossiers on the shelves</h2><div class=\"sec\"><table><tr><th>Subject</th><th>Kind</th><th>Claims</th><th>Reports</th><th>Last run</th><th>Story</th></tr>");
+            b.append("<p class=\"k\">").append(t("To request a dossier on someone new, type the name above and open it: the page offers one button that files the research.")).append("</p>");
+            if (all.isEmpty()) { b.append("<p>").append(t("No dossiers yet.")).append("</p>"); return b.toString(); }
+            b.append(CSS).append("<div class=\"dz\"><h2 id=\"all\">").append(t("The dossiers on the shelves")).append("</h2><div class=\"sec\"><table><tr><th>").append(t("Subject")).append("</th><th>").append(t("Kind")).append("</th><th>").append(t("Claims")).append("</th><th>").append(t("Reports")).append("</th><th>").append(t("Last run")).append("</th><th>").append(t("Story")).append("</th></tr>");
             for (Dossiers.Entry e : all)
-                b.append("<tr><td><a href=\"/dossier?subject=").append(enc(e.subject())).append("\">").append(esc(e.subject())).append("</a></td><td>").append(esc(e.kind())).append("</td><td>").append(e.claims())
-                 .append("</td><td>").append(e.reports()).append("</td><td>").append(esc(e.lastRun())).append("</td><td>").append(e.story() ? "written" : "").append("</td></tr>");
+                b.append("<tr><td><a href=\"/dossier?subject=").append(enc(e.subject())).append("\">").append(esc(e.subject())).append("</a></td><td>").append(esc(e.kind().isEmpty() ? "" : t(e.kind()))).append("</td><td>").append(e.claims())
+                 .append("</td><td>").append(e.reports()).append("</td><td>").append(esc(Chrome.now().day(e.lastRun()))).append("</td><td>").append(e.story() ? t("written") : "").append("</td></tr>");
             b.append("</table></div></div>");
             return b.toString();
         }
         Dossier.Gathered d = Dossier.gather(store, subject);
         b.append(CSS).append("<div class=\"dz\">");
-        if (inLang != null) b.append("<p class=\"k\">Read in ").append(esc(Translate.LANGUAGES.getOrDefault(inLang, inLang))).append(": the library's own dossier of <a href=\"/dossier?subject=").append(enc(d.label())).append("\">").append(esc(d.label()))
-                .append("</a>, each piece of prose translated by the model. The cites, the claim ids, the dates and the badges stand as they are; a piece whose translation would have lost one is kept in the original.</p>");
+        if (inLang != null) b.append("<p class=\"k\">").append(t("Read in {0}: the library's own dossier of {1}, each piece of prose translated by the model. The cites, the claim ids, the dates and the badges stand as they are; a piece whose translation would have lost one is kept in the original.",
+                esc(Chrome.now().languageName(inLang)), "<a href=\"/dossier?subject=" + enc(d.label()) + "\">" + esc(d.label()) + "</a>")).append("</p>");
         if (d.node() == null && d.claims().isEmpty() && d.reports().isEmpty()) {
-            b.append("<p>The library holds nothing on <b>").append(esc(subject)).append("</b> yet. A research run starts the dossier: it searches the open sources for who they are, what they do and what was written of them, and the page fills as the claims arrive.</p>")
-             .append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(subject)).append("\"><button name=\"request\" value=\"1\">Request the dossier</button></form></div>");
+            b.append("<p>").append(t("The library holds nothing on {0} yet. A research run starts the dossier: it searches the open sources for who they are, what they do and what was written of them, and the page fills as the claims arrive.", "<b>" + esc(subject) + "</b>")).append("</p>")
+             .append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(subject)).append("\"><button name=\"request\" value=\"1\">").append(t("Request the dossier")).append("</button></form></div>");
             return b.toString();
         }
         Investigation latest = null; Investigation story = null;
@@ -169,71 +169,72 @@ final class DossierPage {
         Map<SourceClass, List<Finding>> byClass = d.byClass();
         // in-page navigation
         b.append("<nav class=\"in\">");
-        for (String[] a : new String[][]{{"identity", "Identity"}, {"reading", "Reading"}, {"work", "What they do"}, {"coverage", "Coverage"}, {"timeline", "Timeline"}, {"decisions", "Decisions"}, {"said", "In their own words"}, {"media", "Media"}, {"facets", "Facets"}, {"pattern", "Pattern of life"}, {"relations", "Relations"}, {"told", "Told"}, {"claims", "Claims"}, {"analysis", "Analysis"}, {"story", "Story"}, {"reports", "Reports"}, {"notfound", "Not found"}, {"questions", "Open questions"}, {"conflicts", "Conflicts"}, {"checks", "Checks"}, {"linked", "Linked"}, {"shared", "Shared"}, {"refresh", "Refresh"}, {"later", "Not yet"}})
+        for (String[] a : new String[][]{{"identity", t("Identity")}, {"reading", tc("Reading", READING)}, {"work", t("What they do")}, {"coverage", t("Coverage")}, {"timeline", t("Timeline")}, {"decisions", t("Decisions")}, {"said", t("In their own words")}, {"media", t("Media")}, {"facets", t("Facets")}, {"pattern", t("Pattern of life")}, {"relations", t("Relations")}, {"told", tc("Told", SECTION)}, {"claims", t("Claims")}, {"analysis", t("Analysis")}, {"story", t("Story")}, {"reports", t("Reports")}, {"notfound", tc("Not found", SECTION)}, {"questions", t("Open questions")}, {"conflicts", t("Conflicts")}, {"checks", t("Checks")}, {"linked", t("Linked")}, {"shared", t("Shared")}, {"refresh", t("Refresh")}, {"later", tc("Not yet", SECTION)}})
             b.append("<a href=\"#").append(a[0]).append("\">").append(a[1]).append("</a>");
         b.append("</nav>");
         // the ask for more: a research run with the whole brief, never automatic; a card made for the career search grows into the full dossier here
         String fullQ = d.kind().equalsIgnoreCase("person") ? "Who is " + d.label() + "? A full dossier." : "Who is " + d.label() + "? A full dossier: its history, power and governance, customers and rivals, money, people, decisions and what to expect.";
-        b.append("<p class=\"note\">").append(d.claims().size()).append(d.claims().size() == 1 ? " claim" : " claims").append(" on the shelves. <a href=\"/research?q=").append(enc(fullQ)).append("\">Research in full</a>: a run with the whole brief, hours on a local model, only when you ask.</p>");
+        String full = "<a href=\"/research?q=" + enc(fullQ) + "\">" + t("Research in full") + "</a>";
+        b.append("<p class=\"note\">").append(d.claims().size() == 1 ? t("1 claim on the shelves. {0}: a run with the whole brief, hours on a local model, only when you ask.", full) : t("{0} claims on the shelves. {1}: a run with the whole brief, hours on a local model, only when you ask.", d.claims().size(), full)).append("</p>");
         b.append(Pages.saveLinks("/download?subject=" + enc(d.label()), inLang));
         b.append(madeFold(store, d, storyTitle));
         // identity
-        b.append("<h2 id=\"identity\">Identity</h2><div class=\"sec id\"><div><div class=\"facts\">");
+        b.append("<h2 id=\"identity\">").append(t("Identity")).append("</h2><div class=\"sec id\"><div><div class=\"facts\">");
         b.append("<b>").append(esc(d.label())).append("</b>");
-        if (!d.kind().isEmpty()) b.append(" · ").append(esc(d.kind()));
-        if (d.node() != null && !d.node().aliases().isEmpty()) b.append("<br><b>Also written</b> ").append(esc(String.join(" · ", d.node().aliases())));
+        if (!d.kind().isEmpty()) b.append(" · ").append(esc(MapPage.KINDS.contains(d.kind()) ? MapPage.kindSaid(d.kind()) : t(d.kind())));   // a name's kind on the map, or a field's (person, organization)
+        if (d.node() != null && !d.node().aliases().isEmpty()) b.append("<br><b>").append(t("Also written")).append("</b> ").append(esc(String.join(" · ", d.node().aliases())));
         if (d.node() != null && d.node().wikidata() != null && !d.node().wikidata().isBlank()) b.append("<br><b>Wikidata</b> ").append(esc(d.node().wikidata()));
-        b.append("<br><b>Claims</b> ").append(d.claims().size()); if (!byClass.isEmpty()) { List<String> parts = new ArrayList<>(); for (var e : byClass.entrySet()) parts.add(e.getValue().size() + " " + e.getKey().label()); b.append(" (").append(esc(String.join(", ", parts))).append(")"); }
-        b.append(" · <b>Reports</b> ").append(d.reports().size()).append(" · <b>Open questions</b> ").append(d.questions().size());
+        b.append("<br><b>").append(t("Claims")).append("</b> ").append(d.claims().size()); if (!byClass.isEmpty()) { List<String> parts = new ArrayList<>(); for (var e : byClass.entrySet()) parts.add(classSaid(e.getKey()) + " " + e.getValue().size()); b.append(" (").append(esc(String.join(Chrome.now().sep(), parts))).append(")"); }
+        b.append(" · <b>").append(t("Reports")).append("</b> ").append(d.reports().size()).append(" · <b>").append(t("Open questions")).append("</b> ").append(d.questions().size());
         String own = Translate.languageOf(body);   // read in another language: the library's own dossier, its pieces translated by the model and kept until the dossier changes
-        b.append("<br><b>Read in</b> ");
-        if (inLang != null) b.append("<a href=\"/dossier?subject=").append(enc(d.label())).append("\">the original</a> ");
-        for (String[] l : new String[][]{{"en", "English"}, {"ja", "日本語"}}) if (!l[0].equals(own) && !l[0].equals(inLang)) b.append("<a href=\"/dossier?subject=").append(enc(d.label())).append("&amp;in=").append(l[0]).append("\">").append(l[1]).append("</a> ");
-        b.append(inLang == null ? "<span class=\"note\">(translated by the model, the claims in their own language)</span>" : "<span class=\"note\">(this page is read in " + esc(Translate.LANGUAGES.getOrDefault(inLang, inLang)) + ": the pieces translated by the model, the cites, the ids and the dates as they stand)</span>");
+        b.append("<br><b>").append(t("Read in")).append("</b> ");
+        if (inLang != null) b.append("<a href=\"/dossier?subject=").append(enc(d.label())).append("\">").append(t("the original")).append("</a> ");
+        for (String l : Chrome.available()) if (!l.equals(own) && !l.equals(inLang)) b.append("<a href=\"/dossier?subject=").append(enc(d.label())).append("&amp;in=").append(l).append("\" lang=\"").append(l).append("\">").append(esc(Chrome.nativeName(l))).append("</a> ");   // every language the pages are written in, by its own name
+        b.append("<span class=\"note\">").append(inLang == null ? t("(translated by the model, the claims in their own language)") : t("(this page is read in {0}: the pieces translated by the model, the cites, the ids and the dates as they stand)", esc(Chrome.now().languageName(inLang)))).append("</span>");
         String identity = section(body, "Identity");
-        if (!identity.isEmpty()) b.append("<br><b>How resolved</b> ").append(esc(clip(w.tr(identity), 600)));
+        if (!identity.isEmpty()) b.append("<br><b>").append(t("How resolved")).append("</b> ").append(esc(clip(w.tr(identity), 600)));
         b.append("</div></div>");
-        if (latest != null) b.append("<div class=\"q\"><div class=\"lean\">Question of the latest run</div>").append(esc(w.tr(latest.title()))).append("<div class=\"date\">").append(esc(day(latest.recordedAt()))).append(" · <a href=\"/entry/").append(enc(latest.id())).append("\">the report</a></div></div>");
+        if (latest != null) b.append("<div class=\"q\"><div class=\"lean\">").append(t("Question of the latest run")).append("</div>").append(esc(w.tr(latest.title()))).append("<div class=\"date\">").append(esc(Chrome.now().day(day(latest.recordedAt())))).append(" · <a href=\"/entry/").append(enc(latest.id())).append("\">").append(t("the report")).append("</a></div></div>");
         b.append("</div>");
         // reading
-        b.append("<h2 id=\"reading\">Reading, for that question</h2><div class=\"sec\">");
+        b.append("<h2 id=\"reading\">").append(t("Reading, for that question")).append("</h2><div class=\"sec\">");
         String reading = section(body, "Reading"); if (reading.isEmpty()) reading = section(body, "Answer"); if (reading.isEmpty()) reading = sectionStarting(body, "Answer (");
-        b.append(reading.isEmpty() ? "<p class=\"note\">No report yet; the Reading is written for the question a run is asked.</p>" : linkCites(Pages.md(w.tr(reading)), latest)).append("</div>");
+        b.append(reading.isEmpty() ? "<p class=\"note\">" + t("No report yet; the Reading is written for the question a run is asked.") + "</p>" : linkCites(Pages.md(w.tr(reading)), latest)).append("</div>");
         // what they do: the work, from the latest report that has it, whatever the latest question leaned on
-        b.append("<h2 id=\"work\">What they do</h2><div class=\"sec\">");
+        b.append("<h2 id=\"work\">").append(t("What they do")).append("</h2><div class=\"sec\">");
         String work = Dossier.work(d.reports());
-        b.append(work.isEmpty() ? "<p class=\"note\">No report describes the work yet; a run on the subject writes it: each principal product, project or programme, the flagship above all.</p>" : linkCites(Pages.md(w.tr(work)), Dossier.reportOf(d.reports(), "What they do", "The work", "Material"))).append("</div>");
+        b.append(work.isEmpty() ? "<p class=\"note\">" + t("No report describes the work yet; a run on the subject writes it: each principal product, project or programme, the flagship above all.") + "</p>" : linkCites(Pages.md(w.tr(work)), Dossier.reportOf(d.reports(), "What they do", "The work", "Material"))).append("</div>");
         // coverage
-        b.append("<h2 id=\"coverage\">Coverage</h2><div class=\"sec\"><div class=\"chips\">");
+        b.append("<h2 id=\"coverage\">").append(t("Coverage")).append("</h2><div class=\"sec\"><div class=\"chips\">");
         List<String[]> cov = coverage(body); String never = notSearched(body);
-        if (cov.isEmpty()) b.append("<span class=\"chip none\">no collections searched yet</span>");
+        if (cov.isEmpty()) b.append("<span class=\"chip none\">").append(t("no collections searched yet")).append("</span>");
         for (String[] c : cov) b.append("<span class=\"chip\"><b>").append(esc(c[0])).append("</b> ").append(esc(c[1])).append("</span>");
-        if (!never.isEmpty()) b.append("<span class=\"chip none\">not searched: ").append(esc(clip(never, 160))).append("</span>");
-        b.append("</div><p class=\"note\">Written by the library from what the searches of the latest run returned, not by the model.</p></div>");
+        if (!never.isEmpty()) b.append("<span class=\"chip none\">").append(t("not searched: {0}", esc(clip(never, 160)))).append("</span>");
+        b.append("</div><p class=\"note\">").append(t("Written by the library from what the searches of the latest run returned, not by the model.")).append("</p></div>");
         // timeline
         Map<String, List<Finding>> byYear = new TreeMap<>();
         for (Finding f : d.claims()) { String y = Dossier.yearOf(f); if (y != null) byYear.computeIfAbsent(y, k -> new ArrayList<>()).add(f); }
-        b.append("<h2 id=\"timeline\">Timeline</h2><div class=\"sec\">");
+        b.append("<h2 id=\"timeline\">").append(t("Timeline")).append("</h2><div class=\"sec\">");
         b.append("<p class=\"k\">").append(esc(timelineLine(d))).append("</p>");
-        if (byYear.isEmpty()) b.append("<p class=\"note\">No claim names a year yet.</p>");
+        if (byYear.isEmpty()) b.append("<p class=\"note\">").append(t("No claim names a year yet.")).append("</p>");
         else { b.append("<ul class=\"tl\">"); for (var e : byYear.entrySet()) for (Finding f : Dossier.milestonesFirst(e.getValue())) b.append("<li><span class=\"y\">").append(esc(e.getKey())).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // decisions: what the people in power decided, dated, with the reason they gave
-        b.append("<h2 id=\"decisions\">Decisions</h2><div class=\"sec\">");
+        b.append("<h2 id=\"decisions\">").append(t("Decisions")).append("</h2><div class=\"sec\">");
         List<Finding> decisions = Dossier.decisions(d.claims());
-        if (decisions.isEmpty()) b.append("<p class=\"note\">No decision on record yet: a run writes the Decisions of the people in power, dated, with the reason each gave, and the library files them here.</p>");
+        if (decisions.isEmpty()) b.append("<p class=\"note\">").append(t("No decision on record yet: a run writes the Decisions of the people in power, dated, with the reason each gave, and the library files them here.")).append("</p>");
         else { b.append("<ul class=\"tl\">"); for (Finding f : decisions) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // in their own words: the statements, dated and placed
-        b.append("<h2 id=\"said\">In their own words</h2><div class=\"sec\">");
+        b.append("<h2 id=\"said\">").append(t("In their own words")).append("</h2><div class=\"sec\">");
         List<Finding> said = Dossier.statements(d.claims());
-        if (said.isEmpty()) b.append("<p class=\"note\">No statement on record yet: a run writes what they said, dated and placed, from interviews, talks, posts and the press, and the library files each here.</p>");
+        if (said.isEmpty()) b.append("<p class=\"note\">").append(t("No statement on record yet: a run writes what they said, dated and placed, from interviews, talks, posts and the press, and the library files each here.")).append("</p>");
         else { b.append("<ul class=\"tl\">"); for (Finding f : said) b.append("<li><span class=\"y\">").append(esc(Dossier.yearOf(f) == null ? "" : Dossier.yearOf(f))).append("</span><span>").append(claim(f, w, d.own())).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // media: photographs, video and scans with their provenance, a thumbnail where the address gives one
-        b.append("<h2 id=\"media\">Media</h2><div class=\"sec\">");
+        b.append("<h2 id=\"media\">").append(t("Media")).append("</h2><div class=\"sec\">");
         List<Finding> media = Dossier.media(d.claims());
-        if (media.isEmpty()) b.append("<p class=\"note\">No photograph, video or scan on record yet: a run looks in Wikimedia Commons, YouTube, the Internet Archive and the subject's own pages, and files each with who made it, when, where and under which licence.</p>");
+        if (media.isEmpty()) b.append("<p class=\"note\">").append(t("No photograph, video or scan on record yet: a run looks in Wikimedia Commons, YouTube, the Internet Archive and the subject's own pages, and files each with who made it, when, where and under which licence.")).append("</p>");
         else {
             Map<String, String> titles = new LinkedHashMap<>();
             for (Investigation inv : d.reports()) for (var e : TimelineClaims.refTitles(inv.body()).entrySet()) titles.putIfAbsent(e.getKey(), e.getValue());
@@ -246,7 +247,7 @@ final class DossierPage {
         }
         b.append("</div>");
         // the facets the reports carry: customers, peers and alternatives; power and governance; influences; money; places; signals
-        b.append("<h2 id=\"facets\">Facets</h2>");
+        b.append("<h2 id=\"facets\">").append(t("Facets")).append("</h2>");
         Set<String> dossierSubjects = new HashSet<>(); for (Dossiers.Entry e : Dossiers.list(store)) dossierSubjects.add(e.subject().toLowerCase(Locale.ROOT).replaceFirst("^the ", ""));
         int facetsShown = 0;
         for (String[] f : Dossier.FACETS) {
@@ -255,126 +256,127 @@ final class DossierPage {
             facetsShown++;
             String rendered = linkCites(Pages.md(w.tr(text)), Dossier.reportOf(d.reports(), names));
             if (f[0].equals("People")) rendered = peopleLinks(rendered, dossierSubjects);   // each person named leads to their dossier, or to the run that starts one
-            b.append("<div class=\"sec\"><h3>").append(esc(f[0])).append("</h3>").append(rendered).append("</div>");
+            b.append("<div class=\"sec\"><h3>").append(esc(tc(f[0], FACET))).append("</h3>").append(rendered).append("</div>");
         }
-        if (facetsShown == 0) b.append("<div class=\"sec\"><p class=\"note\">No facet yet: a run on the subject writes its customers, peers and alternatives, who holds power over it, its money, its places and its signals (for a person: influences, holdings).</p></div>");
+        if (facetsShown == 0) b.append("<div class=\"sec\"><p class=\"note\">").append(t("No facet yet: a run on the subject writes its customers, peers and alternatives, who holds power over it, its money, its places and its signals (for a person: influences, holdings).")).append("</p></div>");
         // the pattern of life: what the record holds by year, the places it names, the appearances — computed from the claims
-        b.append("<h2 id=\"pattern\">Pattern of life</h2><div class=\"sec\">");
+        b.append("<h2 id=\"pattern\">").append(t("Pattern of life")).append("</h2><div class=\"sec\">");
         String pattern = PatternOfLife.html(PatternOfLife.of(d.claims()));
-        b.append(pattern.isEmpty() ? "<p class=\"note\">No dated claim yet; the pattern is computed from the claims as they come.</p>" : pattern + "<p class=\"note\">Computed from the claims, not written by a model: a place is listed because a claim says the subject was there.</p>").append("</div>");
+        b.append(pattern.isEmpty() ? "<p class=\"note\">" + t("No dated claim yet; the pattern is computed from the claims as they come.") + "</p>" : pattern + "<p class=\"note\">" + t("Computed from the claims, not written by a model: a place is listed because a claim says the subject was there.") + "</p>").append("</div>");
         // relations
-        b.append("<h2 id=\"relations\">Relations</h2><div class=\"sec\">");
-        if (d.relations().isEmpty()) b.append("<p class=\"note\">No typed relation yet: a claim with the shape person – relation – organisation makes one.</p>");
+        b.append("<h2 id=\"relations\">").append(t("Relations")).append("</h2><div class=\"sec\">");
+        if (d.relations().isEmpty()) b.append("<p class=\"note\">").append(t("No typed relation yet: a claim with the shape person – relation – organisation makes one.")).append("</p>");
         else {
-            b.append("<table><tr><th>Relation</th><th>With</th><th>Claim</th></tr>");
+            b.append("<table><tr><th>").append(t("Relation")).append("</th><th>").append(t("With")).append("</th><th>").append(t("Claim")).append("</th></tr>");
             for (Graph.Edge e : d.relations()) {
                 boolean out = d.node() != null && d.node().id().equals(e.from()); String otherId = out ? e.to() : e.from(); Graph.Node o = d.graph().node(otherId);
                 String other = o == null ? otherId : o.label();
-                b.append("<tr><td>").append(esc((out ? "" : "← ") + w.tr(e.predicate()))).append("</td><td><a href=\"/dossier?subject=").append(enc(other)).append("\">").append(esc(other)).append("</a>").append(o != null && !o.kind().isEmpty() ? " <span class=\"date\">" + esc(o.kind()) + "</span>" : "").append(e.disputed() ? " <span class=\"badge disputed\">disputed</span>" : "").append("</td><td><a href=\"/entry/").append(enc(e.findingId())).append("\">").append(esc(e.findingId())).append("</a></td></tr>");
+                b.append("<tr><td>").append(esc((out ? "" : "← ") + w.tr(e.predicate()))).append("</td><td><a href=\"/dossier?subject=").append(enc(other)).append("\">").append(esc(other)).append("</a>").append(o != null && !o.kind().isEmpty() ? " <span class=\"date\">" + esc(MapPage.kindSaid(o.kind())) + "</span>" : "").append(e.disputed() ? " <span class=\"badge disputed\">" + t("disputed") + "</span>" : "").append("</td><td><a href=\"/entry/").append(enc(e.findingId())).append("\">").append(esc(e.findingId())).append("</a></td></tr>");
             }
             b.append("</table>");
         }
         b.append("</div>");
         // told
         List<Finding> told = byClass.getOrDefault(SourceClass.told, List.of());
-        b.append("<h2 id=\"told\">Told</h2><div class=\"sec\">");
-        if (told.isEmpty()) b.append("<p class=\"note\">Nothing told yet. Tell the librarian what you know of ").append(esc(d.label())).append(" in the chat, or: researchzosho tell \"").append(esc(d.label())).append("\" \"…\"</p>");
+        b.append("<h2 id=\"told\">").append(tc("Told", SECTION)).append("</h2><div class=\"sec\">");
+        if (told.isEmpty()) b.append("<p class=\"note\">").append(t("Nothing told yet. Tell the librarian what you know of {0} in the chat, or: {1}", esc(d.label()), "<code>researchzosho tell \"" + esc(d.label()) + "\" \"…\"</code>")).append("</p>");
         for (Finding f : told) b.append("<div class=\"told\">").append(esc(w.tr(f.body().strip()))).append(" <span class=\"date\">").append(esc(f.validAsOf())).append(", ").append(esc(f.writer().replaceFirst("^patron:", ""))).append("</span> <a href=\"/entry/").append(enc(f.id())).append("\">").append(esc(f.id())).append("</a></div>");
-        if (writer()) b.append("<form method=\"post\" action=\"/dossier\" class=\"stack\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><label>Tell the library what you know of ").append(esc(d.label())).append(", in your own words<br><textarea name=\"text\" rows=\"3\" required></textarea></label><button name=\"tell\" value=\"1\">File it as told</button> <span class=\"note\">dated, with you as the source; the names, dates and events it raises become questions for the next run</span></form>");
+        if (writer()) b.append("<form method=\"post\" action=\"/dossier\" class=\"stack\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><label>").append(t("Tell the library what you know of {0}, in your own words", esc(d.label()))).append("<br><textarea name=\"text\" rows=\"3\" required></textarea></label><button name=\"tell\" value=\"1\">").append(t("File it as told")).append("</button> <span class=\"note\">").append(t("dated, with you as the source; the names, dates and events it raises become questions for the next run")).append("</span></form>");
         b.append("</div>");
         // claims by class
-        b.append("<h2 id=\"claims\">Claims by the class of their source</h2><div class=\"sec\">");
+        b.append("<h2 id=\"claims\">").append(t("Claims by the class of their source")).append("</h2><div class=\"sec\">");
         for (SourceClass c : new SourceClass[]{SourceClass.publicRecord, SourceClass.ownPublication, SourceClass.supplied, SourceClass.thirdParty}) {
             List<Finding> fs = byClass.get(c); if (fs == null || fs.isEmpty()) continue;
-            b.append("<p><b>").append(esc(c.label())).append("</b> · ").append(fs.size()).append("</p><ul class=\"plain\">");
+            b.append("<p><b>").append(esc(classSaid(c))).append("</b> · ").append(fs.size()).append("</p><ul class=\"plain\">");
             for (Finding f : fs) b.append("<li>").append(claim(f, w, d.own())).append("</li>");
             b.append("</ul>");
         }
-        b.append("<p class=\"note\">The class is read from where each source lives, never from the model: a register, a court or a filing is public record; the subject's own site or account is own publication (an organisation's or a product's site whose address carries its name, as researchzosho.org is ResearchZosho's; a person's is not read from a name, since a namesake's would pass for theirs); a page you supplied is supplied; what you told the library is told; press and reporting are third-party.</p></div>");
+        b.append("<p class=\"note\">").append(t("The class is read from where each source lives, never from the model: a register, a court or a filing is public record; the subject's own site or account is own publication (an organisation's or a product's site whose address carries its name, as researchzosho.org is ResearchZosho's; a person's is not read from a name, since a namesake's would pass for theirs); a page you supplied is supplied; what you told the library is told; press and reporting are third-party.")).append("</p></div>");
         // story + reports
         // analysis: the layer apart from the facts, from the latest report, with the subject's forecast ledger
-        b.append("<h2 id=\"analysis\">Analysis</h2><div class=\"sec\">");
+        b.append("<h2 id=\"analysis\">").append(t("Analysis")).append("</h2><div class=\"sec\">");
         String judgments = Analysis.section(body, "Judgments"), implications = Analysis.section(body, "Implications and options"), summary = Analysis.section(body, "Source summary");
         boolean libraryWroteSummary = summary.isEmpty(); if (libraryWroteSummary) summary = Analysis.sourceSummary(body);
         List<Analysis.Conjecture> conj = Analysis.conjectures(body); List<Forecasts.Entry> ledger = Forecasts.of(store, d.label());
         if (judgments.isEmpty() && conj.isEmpty() && ledger.isEmpty() && implications.isEmpty())
-            b.append("<p class=\"note\">No analysis layer yet: the next run on this subject writes one — what the facts add up to, the conjectures with their likelihood, the forecasts, the options.</p>");
+            b.append("<p class=\"note\">").append(t("No analysis layer yet: the next run on this subject writes one — what the facts add up to, the conjectures with their likelihood, the forecasts, the options.")).append("</p>");
         else {
-            if (!judgments.isEmpty()) b.append("<h3>Judgments</h3><p>").append(linkCites(esc(w.tr(judgments)), latest)).append("</p>");
+            if (!judgments.isEmpty()) b.append("<h3>").append(t("Judgments")).append("</h3><p>").append(linkCites(esc(w.tr(judgments)), latest)).append("</p>");
             if (!conj.isEmpty()) {
-                b.append("<h3>Conjectures</h3><ul class=\"plain\">");
+                b.append("<h3>").append(t("Conjectures")).append("</h3><ul class=\"plain\">");
                 for (Analysis.Conjecture c : conj) b.append("<li>").append(linkCites(esc(w.tr(c.text())), latest)).append(c.likelihood().isEmpty() ? "" : " <span class=\"chip\"><b>" + esc(c.likelihood()) + "</b>" + (c.percent() == null ? "" : ", " + c.percent() + "%") + "</span>")
-                        .append(c.confidence().isEmpty() ? "" : " <span class=\"date\">confidence " + esc(c.confidence()) + "</span>").append(c.indicators().isEmpty() ? "" : "<br><span class=\"note\">Would change this: " + esc(w.tr(c.indicators())) + "</span>").append("</li>");
+                        .append(c.confidence().isEmpty() ? "" : " <span class=\"date\">" + t("confidence {0}", esc(c.confidence())) + "</span>").append(c.indicators().isEmpty() ? "" : "<br><span class=\"note\">" + t("Would change this: {0}", esc(w.tr(c.indicators()))) + "</span>").append("</li>");
                 b.append("</ul>");
             }
             if (!ledger.isEmpty()) {
-                b.append("<h3>Forecasts</h3><table><tr><th>Id</th><th>By</th><th>Forecast</th><th>Likelihood</th><th>Confidence</th><th>Outcome</th></tr>");
+                b.append("<h3>").append(t("Forecasts")).append("</h3><table><tr><th>").append(t("Id")).append("</th><th>").append(tc("By", "a column of the forecasts: the date by which the forecast is to happen")).append("</th><th>").append(t("Forecast")).append("</th><th>").append(t("Likelihood")).append("</th><th>").append(t("Confidence")).append("</th><th>").append(t("Outcome")).append("</th></tr>");
                 for (Forecasts.Entry f : ledger) b.append("<tr><td>").append(esc(f.id())).append("</td><td>").append(esc(f.by())).append("</td><td>").append(esc(w.tr(f.text()))).append("</td><td>").append(esc(f.likelihood()))
-                        .append(f.percent() == null ? "" : " (" + f.percent() + "%)").append("</td><td>").append(esc(f.confidence())).append("</td><td>").append(f.outcome() == null || f.outcome().isEmpty() ? "open" : esc(f.outcome()) + (f.scored() == null ? "" : ", " + esc(f.scored()))).append("</td></tr>");
+                        .append(f.percent() == null ? "" : " (" + f.percent() + "%)").append("</td><td>").append(esc(f.confidence())).append("</td><td>").append(f.outcome() == null || f.outcome().isEmpty() ? t("open") : esc(OUTCOMES.contains(f.outcome()) ? t(f.outcome().equals("did-not") ? "did not" : f.outcome()) : f.outcome()) + (f.scored() == null ? "" : ", " + esc(f.scored()))).append("</td></tr>");
                 b.append("</table>");
                 Double brier = Forecasts.brier(ledger);
-                if (brier != null) b.append("<p class=\"note\">Brier score over the scored forecasts: ").append(String.format(Locale.ROOT, "%.3f", brier)).append(" (0 is perfect, 0.25 is coin-tossing).</p>");
+                if (brier != null) b.append("<p class=\"note\">").append(t("Brier score over the scored forecasts: {0} (0 is perfect, 0.25 is coin-tossing).", Chrome.now().decimal(brier, 3))).append("</p>");
                 if (writer()) {
                     for (Forecasts.Entry f : ledger) {
                         if (f.outcome() != null && !f.outcome().isEmpty()) continue;
-                        b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><input type=\"hidden\" name=\"score\" value=\"").append(esc(f.id())).append("\">").append(esc(f.id())).append(": <select name=\"outcome\"><option value=\"happened\">happened</option><option value=\"did-not\">did not</option><option value=\"void\">void</option></select> <input name=\"note\" size=\"18\" placeholder=\"what settled it\"> <button>Score</button></form> ");
+                        b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><input type=\"hidden\" name=\"score\" value=\"").append(esc(f.id())).append("\">").append(esc(f.id())).append(": <select name=\"outcome\"><option value=\"happened\">").append(t("happened")).append("</option><option value=\"did-not\">").append(t("did not")).append("</option><option value=\"void\">").append(t("void")).append("</option></select> <input name=\"note\" size=\"18\" placeholder=\"").append(esc(t("what settled it"))).append("\"> <button>").append(t("Score")).append("</button></form> ");
                     }
                 }
-                b.append("<p class=\"note\">Score one once its date has passed, here or at the terminal: researchzosho forecast &lt;id&gt; happened|did-not|void.</p>");
+                b.append("<p class=\"note\">").append(t("Score one once its date has passed, here or at the terminal: {0}.", "<code>researchzosho forecast &lt;id&gt; happened|did-not|void</code>")).append("</p>");
             }
-            if (!implications.isEmpty()) b.append("<h3>Implications and options</h3><p>").append(linkCites(esc(w.tr(implications)), latest)).append("</p>");
-            if (!summary.isEmpty()) b.append("<h3>Source summary</h3><p>").append(esc(w.tr(summary))).append(libraryWroteSummary ? " <span class=\"note\">(written by the library from the references and the checks)</span>" : "").append("</p>");
-            if (latest != null) b.append("<p class=\"note\">From <a href=\"/entry/").append(enc(latest.id())).append("\">").append(esc(latest.title())).append("</a>, ").append(esc(day(latest.recordedAt()))).append(". Conjectures and forecasts live here and on the frontier, never on the shelves as claims.</p>");
+            if (!implications.isEmpty()) b.append("<h3>").append(t("Implications and options")).append("</h3><p>").append(linkCites(esc(w.tr(implications)), latest)).append("</p>");
+            if (!summary.isEmpty()) b.append("<h3>").append(t("Source summary")).append("</h3><p>").append(esc(w.tr(summary))).append(libraryWroteSummary ? " <span class=\"note\">" + t("(written by the library from the references and the checks)") + "</span>" : "").append("</p>");
+            if (latest != null) b.append("<p class=\"note\">").append(t("From {0}, {1}. Conjectures and forecasts live here and on the open questions, never on the shelves as claims.", "<a href=\"/entry/" + enc(latest.id()) + "\">" + esc(latest.title()) + "</a>", esc(Chrome.now().day(day(latest.recordedAt()))))).append("</p>");
         }
         b.append("</div>");
-        b.append("<h2 id=\"story\">Story</h2><div class=\"sec\">");
+        b.append("<h2 id=\"story\">").append(t("Story")).append("</h2><div class=\"sec\">");
         if (story != null) {
             int grown = Math.max(0, d.claims().size() - story.findings().size());
-            b.append("<p><a href=\"/entry/").append(enc(story.id())).append("\">").append(esc(storyTitle)).append("</a> <span class=\"date\">written ").append(esc(day(story.recordedAt()))).append(" from ").append(story.findings().size()).append(" claims</span> — chapter by chapter; ")
-             .append(grown == 0 ? "current with the shelves." : "the shelves hold " + grown + " more claims now; the next run on this subject writes it again, or: researchzosho story \"" + esc(d.label()) + "\"").append("</p>");
+            String again = "<code>researchzosho story \"" + esc(d.label()) + "\"</code>", on = esc(Chrome.now().day(day(story.recordedAt())));
+            b.append("<p><a href=\"/entry/").append(enc(story.id())).append("\">").append(esc(storyTitle)).append("</a> <span class=\"date\">").append(story.findings().size() == 1 ? t("written {0} from 1 claim", on) : t("written {0} from {1} claims", on, story.findings().size())).append("</span> ")
+             .append(grown == 0 ? t("Chapter by chapter, current with the shelves.") : grown == 1 ? t("Chapter by chapter; the shelves hold 1 more claim now. The next run on this subject writes it again, or: {0}", again) : t("Chapter by chapter; the shelves hold {0} more claims now. The next run on this subject writes it again, or: {1}", grown, again)).append("</p>");
         }
-        else b.append("<p class=\"note\">Not written yet: researchzosho story \"").append(esc(d.label())).append("\" writes it from the claims, a decade a chapter.</p>");
-        if (writer() && !d.claims().isEmpty()) b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><button name=\"story\" value=\"1\">").append(story == null ? "Write the story" : "Write the story again").append("</button> <span class=\"note\">the library's model writes it, a minute or more</span></form>");
+        else b.append("<p class=\"note\">").append(t("Not written yet: {0} writes it from the claims, a decade a chapter.", "<code>researchzosho story \"" + esc(d.label()) + "\"</code>")).append("</p>");
+        if (writer() && !d.claims().isEmpty()) b.append("<form method=\"post\" action=\"/dossier\" class=\"inline\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><button name=\"story\" value=\"1\">").append(story == null ? t("Write the story") : t("Write the story again")).append("</button> <span class=\"note\">").append(t("the library's model writes it, a minute or more")).append("</span></form>");
         b.append("</div>");
-        b.append("<h2 id=\"reports\">Reports to dive into</h2><div class=\"sec\">");
-        if (d.reports().isEmpty()) b.append("<p class=\"note\">None yet.</p>");
-        else { b.append("<ul class=\"plain\">"); for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) b.append("<li><a href=\"/entry/").append(enc(inv.id())).append("\">").append(esc(w.tr(inv.title()))).append("</a> <span class=\"date\">").append(esc(day(inv.recordedAt()))).append("</span><br><span class=\"note\">").append(esc(Dossier.answerOf(inv.body(), 260))).append("</span></li>"); b.append("</ul>"); }
+        b.append("<h2 id=\"reports\">").append(t("Reports to dive into")).append("</h2><div class=\"sec\">");
+        if (d.reports().isEmpty()) b.append("<p class=\"note\">").append(t("None yet.")).append("</p>");
+        else { b.append("<ul class=\"plain\">"); for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) b.append("<li><a href=\"/entry/").append(enc(inv.id())).append("\">").append(esc(w.tr(inv.title()))).append("</a> <span class=\"date\">").append(esc(Chrome.now().day(day(inv.recordedAt())))).append("</span><br><span class=\"note\">").append(esc(Dossier.answerOf(inv.body(), 260))).append("</span></li>"); b.append("</ul>"); }
         b.append("</div>");
         // not found, questions, conflicts, checks
         List<String> notFound = new ArrayList<>(); for (Investigation inv : d.reports()) notFound.addAll(Dossier.notFoundLines(inv.body()));
-        b.append("<h2 id=\"notfound\">Looked for and not found</h2><div class=\"sec\">");
-        if (notFound.isEmpty()) b.append("<p class=\"note\">Nothing recorded as searched and not found.</p>"); else { b.append("<ul class=\"plain\">"); for (String l : notFound) b.append("<li>").append(esc(w.tr(l))).append("</li>"); b.append("</ul>"); }
+        b.append("<h2 id=\"notfound\">").append(t("Looked for and not found")).append("</h2><div class=\"sec\">");
+        if (notFound.isEmpty()) b.append("<p class=\"note\">").append(t("Nothing recorded as searched and not found.")).append("</p>"); else { b.append("<ul class=\"plain\">"); for (String l : notFound) b.append("<li>").append(esc(w.tr(l))).append("</li>"); b.append("</ul>"); }
         b.append("</div>");
-        b.append("<h2 id=\"questions\">Open questions</h2><div class=\"sec\">");
-        if (d.questions().isEmpty()) b.append("<p class=\"note\">None open on this subject. What you tell the librarian can open some.</p>"); else { b.append("<ul class=\"plain\">"); for (Frontier.Line l : d.questions()) b.append("<li>").append(esc(w.tr(l.text()))).append(" <a class=\"k\" href=\"/research?q=").append(enc(l.text())).append("\">research</a></li>"); b.append("</ul>"); }
+        b.append("<h2 id=\"questions\">").append(t("Open questions")).append("</h2><div class=\"sec\">");
+        if (d.questions().isEmpty()) b.append("<p class=\"note\">").append(t("None open on this subject. What you tell the librarian can open some.")).append("</p>"); else { b.append("<ul class=\"plain\">"); for (Frontier.Line l : d.questions()) b.append("<li>").append(esc(w.tr(l.text()))).append(" <a class=\"k\" href=\"/research?q=").append(enc(l.text())).append("\">").append(t("research")).append("</a></li>"); b.append("</ul>"); }
         b.append("</div>");
         String conflicts = section(body, "Conflicts and uncertainty");
-        b.append("<h2 id=\"conflicts\">Conflicts and uncertainty</h2><div class=\"sec\">").append(conflicts.isEmpty() ? "<p class=\"note\">None recorded by the latest run.</p>" : linkCites(Pages.md(w.tr(conflicts)), latest)).append("</div>");
+        b.append("<h2 id=\"conflicts\">").append(t("Conflicts and uncertainty")).append("</h2><div class=\"sec\">").append(conflicts.isEmpty() ? "<p class=\"note\">" + t("None recorded by the latest run.") + "</p>" : linkCites(Pages.md(w.tr(conflicts)), latest)).append("</div>");
         String cite = firstLine(section(body, "Cite-check")); String classes = byClassLine(body);
-        b.append("<h2 id=\"checks\">Checks</h2><div class=\"sec\"><div class=\"chips\">");
-        if (!cite.isEmpty()) b.append("<span class=\"chip\"><b>cite-check</b> ").append(esc(cite.replaceFirst("^cite-check: ", ""))).append("</span>");
-        if (!classes.isEmpty()) b.append("<span class=\"chip\"><b>references by class</b> ").append(esc(classes)).append("</span>");
-        if (cite.isEmpty() && classes.isEmpty()) b.append("<span class=\"chip none\">no checks yet</span>");
-        b.append("</div><p class=\"note\">Mechanical: every cited sentence of the latest report read against its source; a sentence the source does not support is marked in the text, not deleted.</p></div>");
+        b.append("<h2 id=\"checks\">").append(t("Checks")).append("</h2><div class=\"sec\"><div class=\"chips\">");
+        if (!cite.isEmpty()) b.append("<span class=\"chip\"><b>").append(t("cite-check")).append("</b> ").append(esc(cite.replaceFirst("^cite-check: ", ""))).append("</span>");
+        if (!classes.isEmpty()) b.append("<span class=\"chip\"><b>").append(t("references by class")).append("</b> ").append(esc(classes)).append("</span>");
+        if (cite.isEmpty() && classes.isEmpty()) b.append("<span class=\"chip none\">").append(t("no checks yet")).append("</span>");
+        b.append("</div><p class=\"note\">").append(t("Mechanical: every cited sentence of the latest report read against its source; a sentence the source does not support is marked in the text, not deleted.")).append("</p></div>");
         // linked
-        b.append("<h2 id=\"linked\">Linked subjects</h2><div class=\"sec\">");
+        b.append("<h2 id=\"linked\">").append(t("Linked subjects")).append("</h2><div class=\"sec\">");
         Map<String, Integer> seen = new LinkedHashMap<>();
         for (Graph.Edge e : d.relations()) { String other = d.node() != null && d.node().id().equals(e.from()) ? e.to() : e.from(); seen.merge(other, 1, Integer::sum); }
         int shown = 0;
         if (!seen.isEmpty()) {
-            b.append("<table><tr><th>Subject</th><th>Kind</th><th>Of its own</th><th></th></tr>");
+            b.append("<table><tr><th>").append(t("Subject")).append("</th><th>").append(t("Kind")).append("</th><th>").append(t("Of its own")).append("</th><th></th></tr>");
             for (var e : seen.entrySet()) { Graph.Node o = d.graph().node(e.getKey()); if (o == null || o.label().matches("^\\d[\\d\\s.,–-]*(?:\\s*to\\s*\\d[\\d\\s.,–-]*)?$")) continue; shown++;
-                b.append("<tr><td><a href=\"/dossier?subject=").append(enc(o.label())).append("\">").append(esc(o.label())).append("</a></td><td>").append(esc(o.kind())).append("</td><td>").append(o.degree()).append(o.degree() == 1 ? " relation" : " relations").append("</td><td><a class=\"k\" href=\"/research?q=").append(enc("Who or what is " + o.label() + "?")).append("\">research</a></td></tr>"); }
+                b.append("<tr><td><a href=\"/dossier?subject=").append(enc(o.label())).append("\">").append(esc(o.label())).append("</a></td><td>").append(esc(MapPage.kindSaid(o.kind()))).append("</td><td>").append(n(o.degree(), "{0} relation", "{0} relations")).append("</td><td><a class=\"k\" href=\"/research?q=").append(enc("Who or what is " + o.label() + "?")).append("\">").append(t("research")).append("</a></td></tr>"); }
             b.append("</table>");
         }
-        if (shown == 0) b.append("<p class=\"note\">No linked subject yet.</p>");
+        if (shown == 0) b.append("<p class=\"note\">").append(t("No linked subject yet.")).append("</p>");
         b.append("</div>");
         // shared names: the links across dossiers, each side cited, the connection a question
         List<CrossLinks.Link> links = CrossLinks.of(store, d.label());
-        b.append("<h2 id=\"shared\">Shared with other dossiers</h2><div class=\"sec\">");
-        if (links.isEmpty()) b.append("<p class=\"note\">No name this subject's claims share with another dossier's yet.</p>");
+        b.append("<h2 id=\"shared\">").append(t("Shared with other dossiers")).append("</h2><div class=\"sec\">");
+        if (links.isEmpty()) b.append("<p class=\"note\">").append(t("No name this subject's claims share with another dossier's yet.")).append("</p>");
         else {
-            b.append("<table><tr><th>Name</th><th>Also in the dossier of</th><th>Here</th><th>There</th></tr>");
+            b.append("<table><tr><th>").append(t("Name")).append("</th><th>").append(t("Also in the dossier of")).append("</th><th>").append(tc("Here", "a column: this dossier's claims that name it")).append("</th><th>").append(tc("There", "a column: the other dossier's claims that name it")).append("</th></tr>");
             for (CrossLinks.Link l : links) {
                 b.append("<tr><td><b>").append(esc(l.name())).append("</b></td><td><a href=\"/dossier?subject=").append(enc(l.other())).append("\">").append(esc(l.other())).append("</a></td><td>");
                 for (String id : l.ownClaims()) b.append("<a class=\"k\" href=\"/entry/").append(enc(id)).append("\">").append(esc(id.substring(0, Math.min(6, id.length())))).append("</a> ");
@@ -382,20 +384,25 @@ final class DossierPage {
                 for (String id : l.otherClaims()) b.append("<a class=\"k\" href=\"/entry/").append(enc(id)).append("\">").append(esc(id.substring(0, Math.min(6, id.length())))).append("</a> ");
                 b.append("</td></tr>");
             }
-            b.append("</table><p class=\"note\">What connects them is a question until a run or you answer it: each link is on the open questions once the report that made it landed, with a research link.</p>");
+            b.append("</table><p class=\"note\">").append(t("What connects them is a question until a run or you answer it: each link is on the open questions once the report that made it landed, with a research link.")).append("</p>");
         }
         b.append("</div>");
         // refresh and watch: the latest question again, or a standing search on the subject
-        b.append("<h2 id=\"refresh\">Refresh and watch</h2><div class=\"sec\">");
+        b.append("<h2 id=\"refresh\">").append(t("Refresh and watch")).append("</h2><div class=\"sec\">");
         String field = latest == null ? "" : Fields.ofRun(store, latest.id()).stream().filter(x -> x.equals("person") || x.equals("organization")).findFirst().orElse("");
-        if (latest != null) b.append("<p>Refresh: <a href=\"/research?q=").append(enc(latest.title())).append(field.isEmpty() ? "" : "&field=" + enc(field)).append("\">research the latest question again</a>; the landing rewrites this page.</p>");
+        if (latest != null) b.append("<p>").append(t("Refresh: {0}; the landing rewrites this page.", "<a href=\"/research?q=" + enc(latest.title()) + (field.isEmpty() ? "" : "&field=" + enc(field)) + "\">" + t("research the latest question again") + "</a>")).append("</p>");
         Serials.Shelf watched = null; for (Serials.Shelf sh : Serials.shelves(store)) if (sh.query().equalsIgnoreCase(d.label()) || sh.slug().equals(watchSlug(d.label()))) watched = sh;
-        if (watched != null) b.append("<p>Watched: a search for the subject every ").append(watched.everyDays()).append(" days").append(watched.lastChecked() == null || watched.lastChecked().equals("-") ? "" : ", last " + esc(watched.lastChecked())).append("; its arrivals land in the inbox.</p>");
-        else b.append("<form method=\"post\" action=\"/dossier\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><button name=\"watch\" value=\"1\">Watch</button> <span class=\"note\">a search for the subject every seven days, its arrivals in the inbox; or: researchzosho dossier \"").append(esc(d.label())).append("\" --watch</span></form>");
+        if (watched != null) {
+            boolean unchecked = watched.lastChecked() == null || watched.lastChecked().equals("-"), daily = watched.everyDays() == 1;
+            String last = unchecked ? "" : esc(Chrome.now().day(watched.lastChecked()));
+            b.append("<p>").append(unchecked ? (daily ? t("Watched: a search for the subject every day; its arrivals land in the inbox.") : t("Watched: a search for the subject every {0} days; its arrivals land in the inbox.", watched.everyDays()))
+                    : daily ? t("Watched: a search for the subject every day, last {0}; its arrivals land in the inbox.", last) : t("Watched: a search for the subject every {0} days, last {1}; its arrivals land in the inbox.", watched.everyDays(), last)).append("</p>");
+        }
+        else b.append("<form method=\"post\" action=\"/dossier\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(d.label())).append("\"><button name=\"watch\" value=\"1\">").append(t("Watch")).append("</button> <span class=\"note\">").append(t("a search for the subject every seven days, its arrivals in the inbox; or: {0}", "<code>researchzosho dossier \"" + esc(d.label()) + "\" --watch</code>")).append("</span></form>");
         b.append("</div>");
         // what the page will carry when built
-        b.append("<h2 id=\"later\">Not yet on this page</h2><div class=\"sec\"><p class=\"later\">Statements and socials as dated quotes, photos and video with their provenance, the pattern of life beyond the signals above. Each is a build after the claims that feed it exist.</p>");
-        b.append("<p class=\"note\">Markdown: researchzosho dossier \"").append(esc(d.label())).append("\" · JSON: library_dossier · PDF: print this page · Obsidian: researchzosho vault writes Dossiers/").append(esc(d.label())).append(".md.</p></div>");
+        b.append("<h2 id=\"later\">").append(t("Not yet on this page")).append("</h2><div class=\"sec\"><p class=\"later\">").append(t("Statements and socials as dated quotes, photos and video with their provenance, the pattern of life beyond the signals above. Each is a build after the claims that feed it exist.")).append("</p>");
+        b.append("<p class=\"note\">").append(t("Markdown: {0} · JSON: {1} · PDF: print this page · Obsidian: {2} writes {3}.", "<code>researchzosho dossier \"" + esc(d.label()) + "\"</code>", "<code>library_dossier</code>", "<code>researchzosho vault</code>", "<code>Dossiers/" + esc(d.label()) + ".md</code>")).append("</p></div>");
         return b.toString();
     }
 
@@ -406,7 +413,9 @@ final class DossierPage {
     static String claim(Finding f, Translate.Words w, SourceClass.Own own) {
         SourceClass c = SourceClass.of(f.sources(), own);
         String cls = switch (c) { case publicRecord -> "c-public"; case ownPublication -> "c-own"; case supplied -> "c-supplied"; case told -> "c-told"; case canon -> "c-canon"; default -> "c-third"; };
-        return esc(w.tr(f.title())) + " <span class=\"cls " + cls + "\">" + esc(c.label()) + "</span>" + (Dossier.dateShown(f).isEmpty() ? "" : "<span class=\"date\">" + esc(Dossier.dateShown(f)) + "</span>")
+        String shown = Dossier.dateShown(f);
+        if (shown.startsWith("said ")) shown = t("said {0}", shown.substring(5));   // the day the claim was stated, apart from the year it is about
+        return esc(w.tr(f.title())) + " <span class=\"cls " + cls + "\">" + esc(classSaid(c)) + "</span>" + (shown.isEmpty() ? "" : "<span class=\"date\">" + esc(shown) + "</span>")
                 + " <a class=\"k\" href=\"/entry/" + enc(f.id()) + "\">" + esc(f.id()) + "</a>";
     }
 
@@ -420,16 +429,16 @@ final class DossierPage {
         for (Investigation inv : d.reports()) if (!inv.title().equals(storyTitle)) runs.add(inv);
         Map<String, ObjectNode> jobByReport = new HashMap<>();
         try { for (ObjectNode raw : new Jobs(store, j -> "").recent(200, null)) { String inv = Jobs.view(raw).path("investigation").asText(""); if (!inv.isEmpty()) jobByReport.putIfAbsent(inv, raw); } } catch (IOException | RuntimeException ignored) { }
-        StringBuilder in = new StringBuilder("<dl class=\"made\"><dt>Runs</dt><dd>");
+        StringBuilder in = new StringBuilder("<dl class=\"made\"><dt>").append(tc("Runs", "the research runs a dossier was made from")).append("</dt><dd>");
         String lastRun = "";
-        if (runs.isEmpty()) in.append("None yet: the claims came from the shelves, or were told.");
+        if (runs.isEmpty()) in.append(t("None yet: the claims came from the shelves, or were told."));
         else {
             in.append("<ul class=\"plain\">");
             for (Investigation inv : runs) {
                 ObjectNode job = jobByReport.get(inv.id());
                 String model = job == null ? "" : job.path("args").path("model_entry").asText(job.path("drive").asText(""));
                 if (day(inv.recordedAt()).compareTo(lastRun) > 0) lastRun = day(inv.recordedAt());
-                in.append("<li><a href=\"/entry/").append(enc(inv.id())).append("\">").append(esc(inv.title())).append("</a> <span class=\"date\">").append(esc(day(inv.recordedAt()))).append("</span>")
+                in.append("<li><a href=\"/entry/").append(enc(inv.id())).append("\">").append(esc(inv.title())).append("</a> <span class=\"date\">").append(esc(Chrome.now().day(day(inv.recordedAt())))).append("</span>")
                   .append(model.isEmpty() ? "" : ", " + esc(model)).append(job == null ? "" : ", " + esc(RunProgress.elapsed(RunProgress.of(Jobs.view(job)).elapsedSeconds()))).append("</li>");
             }
             in.append("</ul>");
@@ -440,16 +449,35 @@ final class DossierPage {
             for (Finding.Source s : f.sources()) { String u = s.locator() == null ? "" : s.locator(); if (u.startsWith("told://")) told++; else { String h = CareerSources.host(u); if (!h.isEmpty()) hosts.add(h); } }
             String on = day(f.recordedAt()); if (!on.isEmpty() && (first.isEmpty() || on.compareTo(first) < 0)) first = on; if (on.compareTo(last) > 0) last = on;
         }
+        // each count after its noun, so the sentence is right for every number in every language
         List<String> classes = new ArrayList<>();
-        for (Map.Entry<SourceClass, List<Finding>> e : d.byClass().entrySet()) if (!e.getValue().isEmpty()) classes.add(e.getValue().size() + " " + e.getKey().label());
-        in.append("<dt>Sources</dt><dd>").append(d.claims().size()).append(d.claims().size() == 1 ? " claim" : " claims").append(classes.isEmpty() ? "" : " by the class of their source: " + esc(String.join(", ", classes)))
-          .append("; from ").append(hosts.size()).append(hosts.size() == 1 ? " site" : " sites").append(hosts.isEmpty() ? "" : " (" + esc(String.join(", ", hosts.size() > 12 ? new ArrayList<>(hosts).subList(0, 12) : new ArrayList<>(hosts))) + (hosts.size() > 12 ? ", …" : "") + ")")
-          .append(told > 0 ? "; " + told + " told" : "").append(".</dd>");
-        in.append("<dt>Dates</dt><dd>").append(first.isEmpty() ? "No claim dated yet." : first.equals(last) ? "The claims were recorded on " + esc(first) + "." : "The claims were recorded from " + esc(first) + " to " + esc(last) + ".").append("</dd>");
-        in.append("<dt>Record</dt><dd>The dossier is built from the shelves each time it is opened; <a href=\"/dossier?subject=").append(enc(d.label())).append("&amp;format=md\">the markdown</a> is the same page as text.</dd></dl>");
-        String gist = runs.size() + (runs.size() == 1 ? " run, " : " runs, ") + d.claims().size() + (d.claims().size() == 1 ? " claim, " : " claims, ") + hosts.size() + (hosts.size() == 1 ? " site" : " sites") + (told > 0 ? ", " + told + " told" : "") + (lastRun.isEmpty() ? "" : ", last run " + lastRun);
-        return "<details class=\"sec made\"><summary><h2>How this was made</h2> <span class=\"gist\">" + esc(gist) + "</span></summary><div class=\"in\">" + in + "</div></details>";
+        for (Map.Entry<SourceClass, List<Finding>> e : d.byClass().entrySet()) if (!e.getValue().isEmpty()) classes.add(classSaid(e.getKey()) + " " + e.getValue().size());
+        String sites = esc(String.join(", ", hosts.size() > 12 ? new ArrayList<>(hosts).subList(0, 12) : new ArrayList<>(hosts))) + (hosts.size() > 12 ? ", …" : "");
+        List<String> source = new ArrayList<>();
+        source.add(t("Claims: {0}.", d.claims().size()));
+        if (!classes.isEmpty()) source.add(t("By the class of their source: {0}.", esc(String.join(Chrome.now().sep(), classes))));
+        source.add(hosts.isEmpty() ? t("Sites: {0}.", 0) : t("Sites: {0} ({1}).", hosts.size(), sites));
+        if (told > 0) source.add(t("Told: {0}.", told));
+        in.append("<dt>").append(t("Sources")).append("</dt><dd>").append(String.join(" ", source)).append("</dd>");
+        String from = Chrome.now().day(first), to = Chrome.now().day(last);
+        in.append("<dt>").append(t("Dates")).append("</dt><dd>").append(first.isEmpty() ? t("No claim dated yet.") : first.equals(last) ? t("The claims were recorded on {0}.", esc(from)) : t("The claims were recorded from {0} to {1}.", esc(from), esc(to))).append("</dd>");
+        in.append("<dt>").append(t("Record")).append("</dt><dd>").append(t("The dossier is built from the shelves each time it is opened; {0} is the same page as text.", "<a href=\"/dossier?subject=" + enc(d.label()) + "&amp;format=md\">" + t("the markdown") + "</a>")).append("</dd></dl>");
+        List<String> gist = new ArrayList<>(List.of(runs.size() == 1 ? tc("{0} run", RUNS, 1) : tc("{0} runs", RUNS, runs.size()), n(d.claims().size(), "{0} claim", "{0} claims"), n(hosts.size(), "{0} site", "{0} sites")));
+        if (told > 0) gist.add(t("{0} told", told));
+        if (!lastRun.isEmpty()) gist.add(t("last run {0}", Chrome.now().day(lastRun)));
+        return "<details class=\"sec made\"><summary><h2>" + t("How this was made") + "</h2> <span class=\"gist\">" + esc(String.join(Chrome.now().sep(), gist)) + "</span></summary><div class=\"in\">" + in + "</div></details>";
     }
+
+    /** The meanings beside the words that have another meaning elsewhere in the interface. */
+    static final String READING = "the section of a dossier that answers the question of its latest run", SECTION = "a section of a dossier, in its table of contents",
+            FACET = "a facet of a dossier: one part of what the reports say of the subject";
+    /** The meaning beside "{0} run(s)" in the summary of how a dossier was made. */
+    static final String RUNS = "a count of the research runs a dossier was made from";
+    /** A forecast's outcomes as they are kept; "did-not" is said "did not". */
+    static final Set<String> OUTCOMES = Set.of("happened", "did-not", "void");
+
+    /** The class of a source as a badge says it, in the person's language. */
+    static String classSaid(SourceClass c) { return tc(c.label(), "the class of a claim's source, as a badge beside the claim"); }
 
     static String section(String body, String name) { return TimelineClaims.sectionIn(body, name); }   // with its continuations
     static String sectionStarting(String body, String prefix) {

@@ -40,6 +40,9 @@ class FallbackSearchTest {
 
     @Test
     void theFallbackIsOnUnlessTurnedOff() {
-        assertTrue(WebSearchTool.fallbackOn(), "on by default");
+        // by the setting's value: the suite itself offers "off" (RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT), so that no test asks Wikipedia
+        assertTrue(WebSearchTool.fallbackOn(null), "on when nothing is set");
+        assertTrue(WebSearchTool.fallbackOn("on"));
+        for (String off : new String[]{"off", "OFF", "false", "0"}) assertTrue(!WebSearchTool.fallbackOn(off), off);
     }
 }

@@ -83,7 +83,7 @@ class CheckpointTest {
         return new Run(o, d.calls.get(), Files.readString(o.output()));
     }
 
-    /** A library as each run finds it: the pair's record of twenty accepted units (a run adds to it when it ends, so each run has its own). */
+    /** A library as each run finds it: the pair's record of twenty paragraphs (a run adds to it when it ends, so each run has its own). */
     static LibraryStore library(Path dir) throws IOException {
         LibraryStore store = new LibraryStore(dir); store.init();
         TranslationTest.seedRecord(store);
@@ -114,7 +114,8 @@ class CheckpointTest {
         Run resumed = translate(store, in, tmp.resolve("job.ja.md"), second, -1, () -> false);
         second.close();
         assertEquals(whole.calls() - 3, resumed.calls(), "the three calls that came back before the end are given back, never asked again; the one in flight is asked again");
-        assertEquals(3L, second.givenBack.get());
+        assertTrue(DocNames.candidates(List.of("The gear train", "Paragraph 1 says the gears were cut by hand with files and a dividing plate."), "The gear train").isEmpty(), "the document has no name for the program to find, so no call decides one");
+        assertEquals(3L, second.givenBack.get(), "the three batches before the end come back from the record");
         assertEquals(whole.doc(), resumed.doc(), "the same document as the run nobody stopped");
         assertEquals(whole.o().flags(), resumed.o().flags());
         assertEquals(whole.o().labse(), resumed.o().labse());

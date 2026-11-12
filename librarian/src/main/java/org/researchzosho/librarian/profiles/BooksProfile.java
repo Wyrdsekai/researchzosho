@@ -17,6 +17,7 @@ import org.researchzosho.librarian.Vocabulary;
 
 import java.util.List;
 import org.researchzosho.librarian.BooksPage;
+import org.researchzosho.librarian.Chrome;
 import org.researchzosho.librarian.Patrons;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -41,7 +42,7 @@ public final class BooksProfile implements Profile {
     @Override public Page page(LibraryStore store, Patrons.Patron patron, String path, String method, Map<String, String> query, Map<String, String> form) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
         if ("POST".equals(method)) { Patrons.check(store, patron, Patrons.Level.write); return new Page("Books", "", false, BooksPage.PATH + "?note=" + URLEncoder.encode(BooksPage.post(store, patron, form), StandardCharsets.UTF_8)); }
-        return new Page("Books", BooksPage.body(store, patron, query), false, null);
+        return new Page(Chrome.now().t("Books"), BooksPage.body(store, patron, query), false, null);
     }
 
     @Override public String description() { return "which book: real books from the catalogues, found by subject, lists and syllabi rather than sales, judged by fit to the ask or to the person's own shelf"; }

@@ -276,6 +276,9 @@ public final class LibrarianDaemon {
                 String jid = job.path("job_id").asText("");
                 try (Checkpoint cp = checkpoint(job, Translation.basis(job))) {   // unit by unit: a restart resumes it where it was
                     return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid), cp);
+                } catch (RuntimeException e) {   // failed or stopped: a job that does not end done keeps nothing on the record of the checks' thresholds
+                    try { TranslationScores.withdraw(store, jid); } catch (IOException ignored) { }
+                    throw e;
                 }
             }
             case "translate" -> {   // a dossier or a report read in another language, made by the library's model and kept until it changes

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.AfterEach;
+import org.researchzosho.librarian.CrisisHelp.Line;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,33 +37,46 @@ class HelplinesLocaleTest {
 
     @AfterEach void back() { ContentJudge.use(null); }
 
+    static Line line(String country) { for (Line l : CrisisHelp.LINES) if (l.countries().contains(country)) return l; throw new AssertionError(country); }
+
     @Test
     void theTextComesInThePersonsLanguageWithTheirCountryFirst() {
+        // the help in the language of the locale when the program has a file for it (Spanish once es.json is in, seeded with the lines
+        // that were here), English when it has none; the country's own line first
+        String es = Chrome.available().contains("es") ? "es" : "en";
         String ar = CrisisHelp.text(Locale.forLanguageTag("es-AR"));
-        assertTrue(ar.startsWith(CrisisHelp.OPENING.get("es") + "\n- En Argentina: llama al 135, gratis desde la Ciudad y el Gran Buenos Aires;"), ar);
-        assertTrue(ar.contains("\n- En cualquier lugar del mundo: findahelpline.com") && ar.endsWith(CrisisHelp.EMERGENCY.get("es")), ar);
-        String es = CrisisHelp.text(Locale.forLanguageTag("es-ES"));
-        assertTrue(es.startsWith(CrisisHelp.OPENING.get("es") + "\n- En España: llama al 024, gratis y confidencial, a cualquier hora."), es);
+        Line argentina = line("AR"), spain = line("ES"), japan = line("JP");
+        assertTrue(ar.startsWith(CrisisHelp.said(CrisisHelp.OPENING, es) + "\n- " + CrisisHelp.said(argentina.text(), es)), ar);
+        assertTrue(ar.contains("\n- " + CrisisHelp.said(CrisisHelp.DIRECTORY, es)) && ar.endsWith(CrisisHelp.said(CrisisHelp.EMERGENCY, es)), ar);
+        assertTrue(CrisisHelp.text(Locale.forLanguageTag("es-ES")).startsWith(CrisisHelp.said(CrisisHelp.OPENING, es) + "\n- " + CrisisHelp.said(spain.text(), es)));
         String jp = CrisisHelp.text(Locale.forLanguageTag("ja-JP"));
-        assertTrue(jp.startsWith(CrisisHelp.OPENING.get("ja") + "\n- 日本：よりそいホットライン 0120-279-338"), jp);
-        // Spanish with no country the help has: the directory first; a language the help does not have: English
+        assertTrue(jp.startsWith("自分を傷つけることを考えているなら、今すぐ誰かに話を聞いてもらえます。秘密は守られます。\n- 日本：よりそいホットライン 0120-279-338"), jp);
+        assertTrue(jp.startsWith(CrisisHelp.said(CrisisHelp.OPENING, "ja") + "\n- " + CrisisHelp.said(japan.text(), "ja")), jp);
+        // a country the help has no line for: the directory first
         String mx = CrisisHelp.text(Locale.forLanguageTag("es-MX"));
-        assertTrue(mx.startsWith(CrisisHelp.OPENING.get("es") + "\n- En cualquier lugar del mundo"), mx);
-        assertTrue(mx.contains("En Estados Unidos te atienden en español."), mx);
-        assertTrue(CrisisHelp.text(Locale.forLanguageTag("fr-FR")).startsWith(CrisisHelp.OPENING.get("en")));
+        assertTrue(mx.startsWith(CrisisHelp.said(CrisisHelp.OPENING, es) + "\n- " + CrisisHelp.said(CrisisHelp.DIRECTORY, es)), mx);
+        if (es.equals("es")) assertTrue(mx.contains("En Estados Unidos te atienden en español."), mx);
+        // every language the program has a file for has every sentence of the help: none falls back to English unnoticed
+        for (String code : Chrome.available()) for (String sentence : CrisisHelp.sentences()) {
+            Chrome.MISSING.clear();
+            CrisisHelp.said(sentence, code);
+            assertTrue(Chrome.MISSING.isEmpty(), code + " lacks the help's sentence: " + sentence);
+        }
+        assertTrue(CrisisHelp.text(Locale.forLanguageTag("sv-SE")).startsWith(CrisisHelp.OPENING), "a language the program has no file for: English");
         // English is as it was
-        assertTrue(CrisisHelp.text(Locale.US).startsWith(CrisisHelp.OPENING.get("en") + "\n- In the United States and Canada: call or text 988, free, at any hour.\n- Anywhere in the world"));
+        assertTrue(CrisisHelp.text(Locale.US).startsWith(CrisisHelp.OPENING + "\n- In the United States and Canada: call or text 988, free, at any hour.\n- Anywhere in the world"));
     }
 
     @Test
     void theDataNamesEachServiceInTheOrderShown() {
         ObjectNode d = CrisisHelp.data(Locale.forLanguageTag("es-ES"));
-        assertEquals("es", d.path("language").asText());
+        String es = Chrome.available().contains("es") ? "es" : "en";
+        assertEquals(es, d.path("language").asText());
         JsonNode first = d.path("helplines").path(0), second = d.path("helplines").path(1);
         assertEquals("ES", first.path("countries").path(0).asText());
         assertEquals("call 024", first.path("contact").asText());
         assertTrue(first.path("free").asBoolean() && first.path("url").asText().startsWith("https://www.sanidad.gob.es"));
-        assertEquals("En España: llama al 024, gratis y confidencial, a cualquier hora.", first.path("text").asText());
+        assertEquals(CrisisHelp.said(line("ES").text(), es), first.path("text").asText());
         assertEquals("*", second.path("countries").path(0).asText(), "the worldwide directory second");
         assertEquals(CrisisHelp.LINES.size() + 1, d.path("helplines").size());
         for (JsonNode h : d.path("helplines")) for (String f : new String[]{"name", "contact", "url", "text"}) assertFalse(h.path(f).asText().isBlank(), f + " in " + h);
@@ -76,7 +90,7 @@ class HelplinesLocaleTest {
         a.putObject("patron").put("did", "person").put("name", "keeper").put("runtime", "cli");
         ProtocolError e = assertThrows(ProtocolError.class, () -> new LibraryProtocol(store).research(a));
         assertEquals("confirm", e.code);
-        assertTrue(e.getMessage().startsWith(CrisisHelp.OPENING.get("ja")), e.getMessage());
+        assertTrue(e.getMessage().startsWith(CrisisHelp.said(CrisisHelp.OPENING, "ja")), e.getMessage());
         assertTrue(e.getMessage().endsWith(ContentOffer.CONFIRM), "the sentence for the program stays as it was");
         assertEquals("ja", e.extra.path("language").asText());
         assertEquals("JP", e.extra.path("helplines").path(0).path("countries").path(0).asText());

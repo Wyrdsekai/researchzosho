@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.Config;
 import org.researchzosho.tools.Fetch;
+import org.researchzosho.tools.WebSearchTool;
 
 import java.net.URI;
 import java.nio.file.Path;
@@ -43,6 +44,27 @@ class SuiteHomeTest {
             assertFalse(why != null && why.contains("own services"), "a fixture served at 127.0.0.1 is not refused as the drive's host: " + why);
             Config.set("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:9");
             assertEquals("http://127.0.0.1:9", Config.get("RESEARCHZOSHO_DRIVE"), "a test's own setting wins over the offer");
+        } finally {
+            System.setProperty("user.home", realHome);
+            Config.invalidate();
+        }
+    }
+
+    @Test
+    void theTestTaskKeepsTheWebSearchOffTheNetwork(@TempDir Path tmp) throws Exception {
+        assumeTrue(System.getenv("RESEARCHZOSHO_DRIVE_DEFAULT") != null, "under the Gradle test task");
+        assertEquals("http://localhost:2", System.getProperty("researchzosho.searxng"), "the default search address is a closed port, not this machine's SearXNG");
+        assertEquals("off", System.getenv("RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT"), "the fallback that asks Wikipedia is offered as off");
+        String realHome = System.getProperty("user.home");
+        System.setProperty("user.home", tmp.resolve("home").toString());   // a home with no settings at all
+        Config.invalidate();
+        try {
+            assertFalse(WebSearchTool.searxConfigured(), "the closed port is not a SearXNG of the library's own");
+            assertEquals("http://localhost:2", WebSearchTool.defaultEndpoint());
+            assertTrue(Help.webSearch().contains("No SearXNG answers searches at http://localhost:2"), "the help's line on web search asks the same address, not this machine's own: " + Help.webSearch());
+            assertFalse(WebSearchTool.fallbackOn(), "off when a test sets nothing");
+            Config.set("RESEARCHZOSHO_FALLBACK_SEARCH", "on");
+            assertTrue(WebSearchTool.fallbackOn(), "a test's own setting wins over the offer");
         } finally {
             System.setProperty("user.home", realHome);
             Config.invalidate();

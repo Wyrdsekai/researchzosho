@@ -1,9 +1,5 @@
 package org.researchzosho.librarian;
 
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.text.PDFTextStripper;
-import org.researchzosho.tools.DocText;
 import org.researchzosho.tools.Entities;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -44,12 +40,14 @@ public final class DocUnits {
     private DocUnits() { }
 
     /** The kinds of unit. {@link #translated(String)} says which carry words to translate. */
-    public static final String TITLE = "title", HEADING = "heading", PARA = "para", ITEM = "item", CELL = "cell", CAPTION = "caption", CODE = "code", RULE = "rule", IMAGE = "image";
+    public static final String TITLE = "title", HEADING = "heading", PARA = "para", ITEM = "item", CELL = "cell", CAPTION = "caption", CODE = "code", RULE = "rule", IMAGE = "image", NOTE = "note";
 
     /**
      * One unit: its kind; its text (Markdown's inline marks within it); its level (a heading's 1–6, an item's depth from 0, 1 for a
-     * header cell); for a cell the table it belongs to and its row; for an item whether its list is numbered; and {@code extra}: an
-     * image's path, "quote" on a paragraph from a block quote, "front" on front matter.
+     * header cell; a note's number); for a cell the table it belongs to and its row; for an item whether its list is numbered; and {@code
+     * extra}: an image's path, "quote" on a paragraph from a block quote, "front" on front matter, a note's kind (footnote, endnote,
+     * comment). A note's mark stands in the text where the reader meets it as {@code [^n]}, Markdown's own; its words are a unit of their
+     * own at the end of the document, after a rule.
      */
     public record Unit(String kind, String text, int level, int table, int row, boolean ordered, String extra) {
         public static Unit of(String kind, String text) { return new Unit(kind, text, 0, -1, -1, false, ""); }
@@ -68,7 +66,13 @@ public final class DocUnits {
      * The document: its format as cut (md, txt, pdf, docx, epub), its title, the language of its words as read off its letters, its
      * chapters, the pictures an EPUB carries (by the path the chapters name them by), and the original's metadata an EPUB keeps (creator).
      */
-    public record Doc(String format, String title, String lang, List<Chapter> chapters, Map<String, byte[]> images, Map<String, String> meta) {
+    public record Doc(String format, String title, String lang, List<Chapter> chapters, Map<String, byte[]> images, Map<String, String> meta, PdfReading.Read reading, Languages.Guess language) {
+        public Doc(String format, String title, String lang, List<Chapter> chapters, Map<String, byte[]> images, Map<String, String> meta) { this(format, title, lang, chapters, images, meta, null, null); }
+        public Doc(String format, String title, String lang, List<Chapter> chapters, Map<String, byte[]> images, Map<String, String> meta, PdfReading.Read reading) { this(format, title, lang, chapters, images, meta, reading, null); }
+        /** How the language was worked out: the text, the file's own tag, or the person's word; a guess by the script when none was kept. */
+        public Languages.Guess guess() { return language != null ? language : new Languages.Guess(lang, "", 1, 0, Languages.Guess.SCRIPT); }
+        /** The same document, said by the person to be written in {@code language}. */
+        public Doc saidIn(String language) { Languages.Guess g = Languages.said(language, guess()); return new Doc(format, title, g.code(), chapters, images, meta, reading, g); }
         /** Every unit, across the chapters, in order. */
         public List<Unit> units() { List<Unit> out = new ArrayList<>(); for (Chapter c : chapters) out.addAll(c.units()); return out; }
         /** The units that carry words to translate. */
@@ -79,12 +83,12 @@ public final class DocUnits {
         public Doc map(UnaryOperator<Unit> f) {
             List<Chapter> cs = new ArrayList<>();
             for (Chapter c : chapters) { List<Unit> us = new ArrayList<>(); for (Unit u : c.units()) us.add(f.apply(u)); cs.add(new Chapter(c.file(), us)); }
-            return new Doc(format, title, lang, cs, images, meta);
+            return new Doc(format, title, lang, cs, images, meta, reading, language);
         }
-        public Doc withTitle(String t) { return new Doc(format, t, lang, chapters, images, meta); }
+        public Doc withTitle(String t) { return new Doc(format, t, lang, chapters, images, meta, reading, language); }
     }
 
-    public static boolean translated(String kind) { return kind.equals(TITLE) || kind.equals(HEADING) || kind.equals(PARA) || kind.equals(ITEM) || kind.equals(CELL) || kind.equals(CAPTION); }
+    public static boolean translated(String kind) { return kind.equals(TITLE) || kind.equals(HEADING) || kind.equals(PARA) || kind.equals(ITEM) || kind.equals(CELL) || kind.equals(CAPTION) || kind.equals(NOTE); }
 
     public static final Set<String> IN = Set.of("txt", "md", "pdf", "docx", "epub"), OUT = Set.of("md", "txt", "pdf", "docx", "epub");
 
@@ -103,32 +107,48 @@ public final class DocUnits {
         return switch (ext) { case "md", "markdown" -> "md"; case "txt", "text" -> "txt"; case "pdf", "docx", "epub" -> ext; default -> ext.isEmpty() || !name.contains(".") ? "txt" : null; };
     }
 
-    /** The document cut into its units; an IOException names what could not be read. */
-    public static Doc cut(byte[] bytes, String name) throws IOException {
+    /** The document cut into its units; an IOException names what could not be read. A PDF's pages that are pictures of text are read by eye, as many as the shelves read. */
+    public static Doc cut(byte[] bytes, String name) throws IOException { return cut(bytes, name, PdfReading.Options.reading(PdfReading.SHELF_EYE_PAGES)); }
+
+    /** The same, a PDF read as {@code pdf} says: its preflight alone (a plan), or every page by eye a long job reads with its checkpoint. */
+    public static Doc cut(byte[] bytes, String name, PdfReading.Options pdf) throws IOException {
         String fmt = format(bytes, name);
         if (fmt == null) throw new IOException("The file " + name + " is not a format the translation reads: txt, md, pdf, docx or epub.");
         return switch (fmt) {
             case "md" -> markdown(new String(bytes, StandardCharsets.UTF_8), stem(name));
             case "txt" -> text(new String(bytes, StandardCharsets.UTF_8), stem(name), "txt");
-            case "pdf" -> {
-                String[] t = pdfText(bytes);
-                if (t[1].strip().length() < 20) { DocText.Doc d = DocText.convert(bytes, name); if (d.text().isBlank()) throw new IOException("No text could be read from " + name + " (" + d.kind() + ")."); t = new String[]{d.title(), d.text()}; }   // pictures of pages: read as the library reads them
-                yield text(t[1], t[0].isBlank() ? stem(name) : t[0], "pdf");
-            }
+            case "pdf" -> pdf(PdfReading.read(bytes, pdf), stem(name));
             case "docx" -> docx(bytes, stem(name));
             case "epub" -> epub(bytes, stem(name));
             default -> throw new IOException("The file " + name + " is not a format the translation reads.");
         };
     }
 
-    /** A PDF's title and text by PDFBox, the paragraphs it tells apart by their spacing set off by blank lines: [title, text]. */
-    static String[] pdfText(byte[] bytes) throws IOException {
-        try (PDDocument doc = Loader.loadPDF(bytes)) {
-            PDFTextStripper s = new PDFTextStripper();
-            s.setSortByPosition(true); s.setParagraphEnd("\n"); s.setPageEnd("\n\n");
-            String title = doc.getDocumentInformation() == null || doc.getDocumentInformation().getTitle() == null ? "" : doc.getDocumentInformation().getTitle().strip();
-            return new String[]{title, s.getText(doc)};
-        } catch (IOException e) { throw e; } catch (Exception e) { throw new IOException("The PDF could not be read: " + e.getMessage(), e); }
+    /**
+     * A PDF cut by the reader's blocks ({@link PdfReading}): its title and headings as headings, its paragraphs, its captions; a figure's
+     * labels and its pictures are not units (a translation carries no pictures), and a page that needed the eye and was not read gives
+     * none. The reading goes with the document, so that a plan and a summary say how its pages were read.
+     */
+    static Doc pdf(PdfReading.Read r, String name) {
+        List<Unit> out = new ArrayList<>();
+        for (PdfLayout.Page p : r.pages()) {
+            for (PdfLayout.Block b : p.blocks()) {   // a page not read holds no blocks, or only the lines of a garbled page that are words
+                String t = b.text().strip();
+                if (t.isEmpty()) continue;
+                switch (b.kind()) {
+                    case PdfLayout.TITLE -> out.add(Unit.heading(1, t));
+                    case PdfLayout.HEADING -> out.add(Unit.heading(b.level() <= 1 ? 2 : 3, t));
+                    case PdfLayout.CAPTION -> out.add(Unit.of(CAPTION, t));
+                    case PdfLayout.PARA -> out.add(Unit.of(PARA, t));
+                    default -> { }
+                }
+            }
+        }
+        String title = r.title();
+        StringBuilder all = new StringBuilder(); for (Unit u : out) if (u.translated()) all.append(u.text()).append('\n');
+        Languages.Guess g = Languages.ofDocument(all.length() > 0 ? all.toString() : "", r.lang());   // the text, and the PDF's own Lang where the text agrees or is too short to say
+        String lang = !g.code().isEmpty() ? g.code() : !r.preflight().language().isEmpty() ? r.preflight().language() : "en";
+        return new Doc("pdf", title.isBlank() ? name : title, lang, List.of(new Chapter("", out)), Map.of(), Map.of(), r, g);
     }
 
     static String stem(String name) { return name == null ? "document" : name.replaceAll("^.*[\\\\/]", "").replaceAll("\\.[A-Za-z0-9]+$", ""); }
@@ -215,9 +235,13 @@ public final class DocUnits {
         out.add(new Unit(PARA, text, 0, -1, -1, false, quote ? "quote" : ""));
     }
 
-    private static Doc doc(String format, String title, List<Unit> units, Map<String, byte[]> images, Map<String, String> meta) {
+    private static Doc doc(String format, String title, List<Unit> units, Map<String, byte[]> images, Map<String, String> meta) { return doc(format, title, units, images, meta, ""); }
+
+    /** The document, its language worked out from its text and, where the file names one, that ({@link Languages#ofDocument}). */
+    private static Doc doc(String format, String title, List<Unit> units, Map<String, byte[]> images, Map<String, String> meta, String fileSays) {
         StringBuilder all = new StringBuilder(); for (Unit u : units) if (u.translated()) all.append(u.text()).append('\n');
-        return new Doc(format, title, Translate.languageOf(all.toString()), List.of(new Chapter("", units)), images, meta);
+        Languages.Guess g = Languages.ofDocument(all.toString(), fileSays);
+        return new Doc(format, title, g.code().isEmpty() ? "en" : g.code(), List.of(new Chapter("", units)), images, meta, null, g);
     }
 
     private static String titleOf(List<Unit> units, String name) {
@@ -290,24 +314,89 @@ public final class DocUnits {
         List<Unit> out = new ArrayList<>();
         int[] table = {0};
         TITLE_USED.set(false);
-        try { for (Element b : children(body)) if (local(b).equals("body")) walkDocx(b, out, links, bullets, styles, table); } finally { TITLE_USED.remove(); }
-        String title = "";
-        if (z.containsKey("docProps/core.xml")) { Matcher m = Pattern.compile("<dc:title>(.*?)</dc:title>").matcher(new String(z.get("docProps/core.xml"), StandardCharsets.UTF_8)); if (m.find()) title = Entities.decode(m.group(1)).strip(); }
-        return doc("docx", title.isEmpty() ? titleOf(out, name) : title, out, Map.of(), Map.of());
+        Notes notes = new Notes(notesOf(z.get("word/footnotes.xml"), "footnote"), notesOf(z.get("word/endnotes.xml"), "endnote"), notesOf(z.get("word/comments.xml"), "comment"));
+        NOTES.set(notes);
+        try {
+            for (Element b : children(body)) if (local(b).equals("body")) walkDocx(b, out, links, bullets, styles, table);
+            // the notes the text marks, in the order it marks them: footnotes, endnotes and comments, each a unit after a rule at the end
+            List<Unit> said = new ArrayList<>();
+            for (int i = 0; i < notes.found.size(); i++) {
+                Object[] f = notes.found.get(i);
+                StringBuilder t = new StringBuilder();
+                for (Element p : descendants((Element) f[1], "p", null)) { String r = runs(p, links).strip(); if (!r.isEmpty()) t.append(t.length() == 0 ? "" : " ").append(r); }
+                said.add(new Unit(NOTE, t.toString().strip(), (int) f[0], -1, -1, false, (String) f[2]));
+            }
+            if (!said.isEmpty()) { out.add(Unit.of(RULE, "")); out.addAll(said); }
+        } finally { TITLE_USED.remove(); NOTES.remove(); }
+        String title = "", language = "";
+        if (z.containsKey("docProps/core.xml")) {
+            String core = new String(z.get("docProps/core.xml"), StandardCharsets.UTF_8);
+            Matcher m = Pattern.compile("<dc:title>(.*?)</dc:title>").matcher(core); if (m.find()) title = Entities.decode(m.group(1)).strip();
+            Matcher l = Pattern.compile("<dc:language>(.*?)</dc:language>").matcher(core); if (l.find()) language = l.group(1).strip();
+        }
+        if (language.isEmpty() && z.containsKey("word/styles.xml")) {   // the document's default language, as Word sets it for its text
+            Matcher l = Pattern.compile("<w:docDefaults>.*?<w:lang\\b[^>]*\\bw:val=\"([^\"]+)\"", Pattern.DOTALL).matcher(new String(z.get("word/styles.xml"), StandardCharsets.UTF_8));
+            if (l.find()) language = l.group(1);
+        }
+        return doc("docx", title.isEmpty() ? titleOf(out, name) : title, out, Map.of(), Map.of(), language);
     }
 
     /** Whether the document used the Title style before this paragraph: then "heading 1" is a section under it, a level down, as our own writer sets them. */
     private static final ThreadLocal<Boolean> TITLE_USED = ThreadLocal.withInitial(() -> false);
+
+    /** A Word file's notes by their id (footnotes, endnotes, comments), and the ones its text marks, numbered in the order it marks them: [number, element, kind]. */
+    static final class Notes {
+        final Map<String, Element> footnotes, endnotes, comments;
+        final List<Object[]> found = new ArrayList<>();
+        Notes(Map<String, Element> f, Map<String, Element> e, Map<String, Element> c) { footnotes = f; endnotes = e; comments = c; }
+        /** The mark for the note {@code id} of {@code kind}, its number given the first time the text marks it; "" for a note the file does not hold. */
+        String mark(String kind, String id) {
+            Map<String, Element> m = kind.equals("footnote") ? footnotes : kind.equals("endnote") ? endnotes : comments;
+            Element e = m.get(id);
+            if (e == null) return "";
+            for (Object[] f : found) if (f[1] == e) return "[^" + f[0] + "]";
+            found.add(new Object[]{found.size() + 1, e, kind});
+            return "[^" + found.size() + "]";
+        }
+    }
+    private static final ThreadLocal<Notes> NOTES = new ThreadLocal<>();
+
+    /** The notes of word/footnotes.xml, endnotes.xml or comments.xml by their id; the separators Word keeps among the footnotes left out. */
+    static Map<String, Element> notesOf(byte[] xml, String kind) {
+        Map<String, Element> out = new LinkedHashMap<>();
+        if (xml == null) return out;
+        try {
+            Element root = parse(new String(xml, StandardCharsets.UTF_8)).getDocumentElement();
+            for (Element n : descendants(root, kind, null)) {
+                String type = n.getAttributeNS(W, "type");
+                if (type.equals("separator") || type.equals("continuationSeparator") || type.equals("continuationNotice")) continue;
+                out.put(n.getAttributeNS(W, "id"), n);
+            }
+        } catch (IOException ignored) { }
+        return out;
+    }
+
+    /** The text boxes a paragraph anchors, the first of each choice an alternate-content block gives (its fallback is the same box again). */
+    static List<Element> textBoxes(Element e) {
+        List<Element> out = new ArrayList<>();
+        for (Element c : children(e)) {
+            String l = local(c);
+            if (l.equals("Fallback")) continue;
+            if (l.equals("txbxContent")) { out.add(c); continue; }
+            out.addAll(textBoxes(c));
+        }
+        return out;
+    }
 
     private static void walkDocx(Element e, List<Unit> out, Map<String, String> links, Set<String> bullets, Map<String, String> styles, int[] table) {
         for (Element c : children(e)) {
             switch (local(c)) {
                 case "p" -> {
                     Unit u = docxParagraph(c, links, bullets, styles);
-                    if (u == null) continue;
                     Unit last = out.isEmpty() ? null : out.get(out.size() - 1);
-                    if (u.extra().equals("docx-code") && last != null && last.extra().equals("docx-code")) { out.set(out.size() - 1, last.withText(last.text().replaceAll("\\n```$", "") + "\n" + u.text().replaceFirst("^```\\n", ""))); continue; }   // the lines of one code block
-                    out.add(u);
+                    if (u != null && u.extra().equals("docx-code") && last != null && last.extra().equals("docx-code")) out.set(out.size() - 1, last.withText(last.text().replaceAll("\\n```$", "") + "\n" + u.text().replaceFirst("^```\\n", "")));   // the lines of one code block
+                    else if (u != null) out.add(u);
+                    for (Element box : textBoxes(c)) walkDocx(box, out, links, bullets, styles, table);   // a text box's words after the paragraph that anchors it
                 }
                 case "tbl" -> {
                     table[0]++; int row = -1;
@@ -322,7 +411,7 @@ public final class DocUnits {
                         }
                     }
                 }
-                case "sdt", "sdtContent", "smartTag", "customXml" -> walkDocx(c, out, links, bullets, styles, table);
+                case "sdt", "sdtContent", "smartTag", "customXml", "ins" -> walkDocx(c, out, links, bullets, styles, table);
                 default -> { }
             }
         }
@@ -405,6 +494,8 @@ public final class DocUnits {
                             case "t" -> t.append(x.getTextContent());
                             case "tab" -> t.append(' ');
                             case "br", "cr" -> t.append(' ');
+                            case "footnoteReference", "endnoteReference" -> { Notes n = NOTES.get(); if (n != null) t.append(n.mark(local(x).equals("footnoteReference") ? "footnote" : "endnote", x.getAttributeNS(W, "id"))); }
+                            case "commentReference" -> { Notes n = NOTES.get(); if (n != null) t.append(n.mark("comment", x.getAttributeNS(W, "id"))); }
                             default -> { }
                         }
                     }
@@ -419,7 +510,7 @@ public final class DocUnits {
                     String href = links.get(c.getAttributeNS(R, "id"));
                     b.append(href != null && !inner.isEmpty() ? "[" + inner.toString().strip() + "](" + href + ")" : inner);
                 }
-                case "pPr", "rPr" -> { }
+                case "pPr", "rPr", "txbxContent", "Fallback", "del" -> { }   // a text box is read after its paragraph; a fallback repeats its choice; deleted text is gone
                 default -> runs(c, links, b);
             }
         }
@@ -472,8 +563,8 @@ public final class DocUnits {
         if (chapters.isEmpty()) throw new IOException("The EPUB has no chapter with words in it.");
         StringBuilder all = new StringBuilder(); for (Chapter c : chapters) for (Unit u : c.units()) if (u.translated()) all.append(u.text()).append('\n');
         if (title.isEmpty()) title = name;
-        String declared = meta.getOrDefault("language", "").toLowerCase(Locale.ROOT).replaceAll("[-_].*$", "");   // the package says its language; the letters decide only when it does not
-        return new Doc("epub", title, declared.matches("[a-z]{2}") ? declared : Translate.languageOf(all.toString()), chapters, images, meta);
+        Languages.Guess g = Languages.ofDocument(all.toString(), meta.getOrDefault("language", ""));   // the package's language where the text agrees or is too short to say; the text where it plainly says another
+        return new Doc("epub", title, g.code().isEmpty() ? "en" : g.code(), chapters, images, meta, null, g);
     }
 
     /** The nav document's labels by the file each points at (the fragment dropped). */

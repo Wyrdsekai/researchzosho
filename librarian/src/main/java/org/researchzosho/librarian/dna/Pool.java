@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
+import org.researchzosho.librarian.Chrome;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -23,7 +24,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Locale;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -142,11 +142,16 @@ public final class Pool {
     }
 
     /** Where things stand, in sentences. */
-    public static String status(String kind) {
+    public static String status(String kind) { return status(kind, Chrome.in(Chrome.EN)); }
+
+    /** The same in {@code w}'s language, for the pages: a whole sentence for one document and for many, of each kind. */
+    public static String status(String kind, Chrome w) {
         int[] c = Dna.counts(kind);
-        StringBuilder b = new StringBuilder(String.format(Locale.ROOT, "The store holds %d %s document(s), %d labelled. ", c[0], kind, c[1]));
-        b.append(sharing() ? "Sharing is on: the night writes a pack of the labelled documents to " + outbox() + " once a week for you to send (" + SHARE_KEY + "=off stops it). " : "Sharing is off: nothing leaves this machine (" + SHARE_KEY + "=on writes a weekly pack to " + outbox() + " for you to send). ");
-        b.append("researchzosho dna pack export <file> writes a pack now, dna pack import <file> reads one, dna pack refresh fetches the published one when there is one.");
-        return b.toString();
+        boolean one = c[0] == 1, podcast = Dna.PODCAST.equals(kind);
+        String held = podcast ? (one ? w.t("The store holds {0} podcast document, {1} labelled.", c[0], c[1]) : w.t("The store holds {0} podcast documents, {1} labelled.", c[0], c[1]))
+                : (one ? w.t("The store holds {0} book document, {1} labelled.", c[0], c[1]) : w.t("The store holds {0} book documents, {1} labelled.", c[0], c[1]));
+        String share = sharing() ? w.t("Sharing is on: the night writes a pack of the labelled documents to {0} once a week for you to send ({1} stops it).", outbox(), SHARE_KEY + "=off")
+                : w.t("Sharing is off: nothing leaves this machine ({0} writes a weekly pack to {1} for you to send).", SHARE_KEY + "=on", outbox());
+        return held + " " + share + " " + w.t("researchzosho dna pack export <file> writes a pack now, dna pack import <file> reads one, dna pack refresh fetches the published one when there is one.");
     }
 }

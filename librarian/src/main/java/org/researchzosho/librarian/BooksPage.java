@@ -4,6 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
+import org.researchzosho.librarian.dna.Dna;
+import org.researchzosho.librarian.dna.Pool;
+import org.researchzosho.librarian.dna.Prefs;
+
 import java.io.IOException;
 import java.util.Map;
 
@@ -13,31 +17,33 @@ public final class BooksPage {
 
     private BooksPage() { }
 
-    /** One line of state for the shelf, on Past's row and at the page's head. */
-    static String stateLine(ObjectNode p) {
-        if (!p.path("calibre").asBoolean()) return "No Calibre library is set, so there is no shelf to read; the setting calibre names its folder or its metadata.db.";
-        return p.path("books").asInt() + (p.path("books").asInt() == 1 ? " book" : " books") + " on the shelf, " + p.path("chosen").asInt() + " chosen one by one, " + p.path("liked").asInt() + " you went for; "
-             + p.path("ratings_given").asInt() + (p.path("ratings_given").asInt() == 1 ? " rating" : " ratings") + " given by you.";
+    /** One line of state for the shelf, in English. */
+    static String stateLine(ObjectNode p) { return stateLine(p, Chrome.ENGLISH); }
+
+    /** One line of state for the shelf, on Past's row and at the page's head, in {@code c}'s language: each count after its noun, right for every number. */
+    static String stateLine(ObjectNode p, Chrome c) {
+        if (!p.path("calibre").asBoolean()) return c.t("No Calibre library is set, so there is no shelf to read; the setting calibre names its folder or its metadata.db.");
+        return c.t("Books on the shelf: {0}. Chosen one by one: {1}. You went for: {2}. Ratings given by you: {3}.", c.number(p.path("books").asInt()), c.number(p.path("chosen").asInt()), c.number(p.path("liked").asInt()), c.number(p.path("ratings_given").asInt()));
     }
 
     public static String body(LibraryStore store, Patrons.Patron patron) throws IOException { return body(store, patron, Map.of()); }
 
     public static String body(LibraryStore store, Patrons.Patron patron, Map<String, String> q) throws IOException {
         ObjectNode p = Shelf.profile(store);
-        StringBuilder b = new StringBuilder("<p class=\"lede\">What you liked, read against the long tail; the next one, with why. A books question in the chat is a conversation before it is a run.</p>");
+        StringBuilder b = new StringBuilder("<p class=\"lede\">").append(Pages.t("What you liked, read against the long tail; the next one, with why. A books question in the chat is a conversation before it is a run.")).append("</p>");
         String note = q.getOrDefault("note", "");
         if (!note.isEmpty()) b.append("<p class=\"note\">").append(Pages.esc(note)).append("</p>");
-        b.append("<p class=\"state").append(p.path("calibre").asBoolean() ? " done" : "").append("\">").append(Pages.esc(stateLine(p))).append("</p>");
+        b.append("<p class=\"state").append(p.path("calibre").asBoolean() ? " done" : "").append("\">").append(Pages.esc(stateLine(p, Chrome.now()))).append("</p>");
         if (p.path("calibre").asBoolean()) {
             if (!p.path("subjects_liked").isEmpty()) {
-                b.append("<h2>The subjects you go for</h2><p class=\"k\">Among the books you chose or rated well; the tilt says how much more than merely owned.</p><ul class=\"tight\">");
-                int n = 0; for (JsonNode s : p.path("subjects_liked")) { if (n++ >= 12) break; b.append("<li>").append(Pages.esc(s.path("tag").asText())).append(" <span class=\"k\">").append(Pages.esc(s.path("share").asText())).append(s.has("tilt") ? " · tilt " + Pages.esc(s.path("tilt").asText()) : "").append("</span></li>"); }
+                b.append("<h2>").append(Pages.t("The subjects you go for")).append("</h2><p class=\"k\">").append(Pages.t("Among the books you chose or rated well; the tilt says how much more than merely owned.")).append("</p><ul class=\"tight\">");
+                int n = 0; for (JsonNode s : p.path("subjects_liked")) { if (n++ >= 12) break; b.append("<li>").append(Pages.esc(s.path("tag").asText())).append(" <span class=\"k\">").append(Pages.esc(s.path("share").asText())).append(s.has("tilt") ? " · " + Pages.t("tilt {0}", Pages.esc(s.path("tilt").asText())) : "").append("</span></li>"); }
                 b.append("</ul>");
             }
-            list(b, "Books you loved", p.path("loved")); list(b, "Books you liked", p.path("liked_sample")); list(b, "Books you chose one by one", p.path("chosen_sample")); list(b, "Added lately", p.path("added_lately"));
+            list(b, Pages.t("Books you loved"), p.path("loved")); list(b, Pages.t("Books you liked"), p.path("liked_sample")); list(b, Pages.t("Books you chose one by one"), p.path("chosen_sample")); list(b, Pages.t("Added lately"), p.path("added_lately"));
         }
         if (owner(store, patron)) b.append(forms(store, patron));
-        b.append(Pages.rowsSection(store, patron, "books", "Books reports", "None yet. Ask in the chat which book on a subject, or what to read next: the report it files is the first row here."));
+        b.append(Pages.rowsSection(store, patron, "books", Pages.t("Books reports"), Pages.t("None yet. Ask in the chat which book on a subject, or what to read next: the report it files is the first row here.")));
         return b.toString();
     }
 
@@ -55,13 +61,13 @@ public final class BooksPage {
         ObjectNode prefs;
         try { prefs = lp.prefs(a); } catch (ProtocolError e) { prefs = null; }
         b.append("<h2>").append(Pages.t("Your preferences")).append("</h2>");
-        if (prefs != null) { b.append("<p class=\"k\">").append(Pages.esc(prefs.path("summary").asText(""))).append("</p>"); if (!prefs.path("text").asText("").isBlank()) b.append("<pre>").append(Pages.esc(prefs.path("text").asText().strip())).append("</pre>"); }
+        if (prefs != null) { b.append("<p class=\"k\">").append(Pages.esc(prefsSaid(Prefs.load(Dna.BOOK)))).append("</p>"); if (!prefs.path("text").asText("").isBlank()) b.append("<pre>").append(Pages.esc(prefs.path("text").asText().strip())).append("</pre>"); }
         b.append("<form method=\"post\" action=\"/books\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"prefs-set\"><label>").append(Pages.t("Set")).append(" <input name=\"name\" size=\"16\" placeholder=\"weight.subject\" required></label> <label>").append(Pages.t("to")).append(" <input name=\"value\" size=\"24\" required></label> <button class=\"btn\">").append(Pages.t("Set")).append("</button></form> ")
          .append("<form method=\"post\" action=\"/books\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"prefs-unset\"><label>").append(Pages.t("Unset")).append(" <input name=\"name\" size=\"16\" required></label> <button class=\"quiet\">").append(Pages.t("Unset")).append("</button></form> ")
          .append("<form method=\"post\" action=\"/books\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"prefs-draft\"><button class=\"quiet\">").append(Pages.t("Draft it from my shelf")).append("</button></form> ")
          .append("<form method=\"post\" action=\"/books\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"prefs-learn\"><button class=\"quiet\">").append(Pages.t("Learn from my reactions")).append("</button></form>");
         b.append("<h2>").append(Pages.t("The DNA")).append("</h2>");
-        try { b.append("<pre>").append(Pages.esc(lp.dna(a.deepCopy().put("op", "status")).path("text").asText("").strip())).append("</pre>"); } catch (ProtocolError e) { b.append("<p class=\"k\">").append(Pages.esc(e.getMessage())).append("</p>"); }
+        b.append("<pre>").append(Pages.esc(Pool.status(Dna.BOOK, Chrome.now()) + "\n" + Pool.status(Dna.PODCAST, Chrome.now()))).append("</pre>");   // what library_dna's status says, in the person's language
         b.append("<form method=\"post\" action=\"/books\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"dna-records\"><button class=\"btn\">").append(Pages.t("Read the catalogue's records for my books now")).append("</button> <span class=\"k\">").append(Pages.t("a few a second, the labelled ones first; at the terminal: {0}", "<code>researchzosho dna records</code>")).append("</span></form>");
         return b.toString();
     }
@@ -84,6 +90,12 @@ public final class BooksPage {
                 default -> { return Pages.t("That is not something the Books page does."); }
             }
         } catch (ProtocolError e) { return e.getMessage(); }
+    }
+
+    /** What the protocol's show says of the preferences file, in the person's language: there is none yet, or how many lines it has. */
+    static String prefsSaid(Prefs p) {
+        if (!p.exists()) return Pages.t("No preferences file yet; the defaults apply.");
+        return Pages.n(p.lines().size(), "The preferences file for books, {0} line.", "The preferences file for books, {0} lines.");
     }
 
     static void list(StringBuilder b, String head, JsonNode arr) {

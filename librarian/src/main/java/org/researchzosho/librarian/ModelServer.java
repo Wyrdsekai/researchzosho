@@ -26,6 +26,7 @@ import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
@@ -756,7 +757,7 @@ public final class ModelServer {
     }
 
     static String logHint() {
-        return switch (os) { case linux -> "journalctl --user -u " + UNIT; case macos, windows -> dir().resolve("llama-swap.log").toString(); };
+        return switch (os) { case linux -> "journalctl --user -u " + proxyUnit(); case macos, windows -> dir().resolve("llama-swap.log").toString(); };
     }
 
     /** `model check`: does every row's file still resolve where the row says, and the pinned builds too? For the release gate. */
@@ -877,10 +878,70 @@ public final class ModelServer {
     }
 
     /** Whether the service is registered, per platform. */
+    /** The container a start script of this folder starts ({@code docker run … --name <it>}); {@code otherwise} when the script is not there or names none. */
+    static String containerOf(Path script, String otherwise) {
+        try {
+            if (Files.isRegularFile(script)) {
+                Matcher m = Pattern.compile("--name\\s+([A-Za-z0-9][A-Za-z0-9_.-]*)").matcher(Files.readString(script, StandardCharsets.UTF_8));
+                if (m.find()) return m.group(1);
+            }
+        } catch (IOException ignored) { }
+        return otherwise;
+    }
+
+    /**
+     * The config with every stop command naming the container that its own start script starts. The two can disagree where this folder
+     * is one that two programs' installers write (a home they share): one wrote the start script under its container's name, the other
+     * rewrote the config with its own. The proxy then stopped a container that was never there, so a model that went idle, or was
+     * unloaded, stayed up and kept its memory.
+     */
+    static String stopsWhatStarts(String yaml) {
+        Matcher m = Pattern.compile("(?m)^(\\s*cmd:\\s*(\\S+\\.sh)\\b[^\\n]*\\n\\s*cmdStop:\\s*docker stop\\s+)(\\S+)").matcher(yaml);
+        StringBuilder out = new StringBuilder();
+        while (m.find()) m.appendReplacement(out, Matcher.quoteReplacement(m.group(1) + containerOf(Path.of(m.group(2)), m.group(3))));
+        m.appendTail(out);
+        return out.toString();
+    }
+
+    /**
+     * The systemd unit that runs this folder's proxy: this program's own, or the one another program's installer made for the same folder.
+     * A restart sent to a unit that is not there does nothing and says nothing, and the proxy rereads its config only on a restart.
+     */
+    static String proxyUnit() {
+        Path own = unitPath(Os.linux);
+        if (Files.isRegularFile(own) || own.getParent() == null || !Files.isDirectory(own.getParent())) return UNIT;
+        String swap = dir().resolve("llama-swap").toString();
+        try (Stream<Path> units = Files.list(own.getParent())) {
+            for (Path u : units.filter(x -> x.getFileName().toString().endsWith(".service")).sorted().toList())
+                if (Files.readString(u, StandardCharsets.UTF_8).contains(swap)) return u.getFileName().toString().replaceFirst("\\.service$", "");
+        } catch (IOException | RuntimeException ignored) { }
+        return UNIT;
+    }
+
+    /**
+     * Puts right an install saved with a stop command that names a container its start script does not start (see {@link #stopsWhatStarts}):
+     * the command is corrected, the proxy is restarted to read it, and a model the old command left running is stopped, so the next
+     * request starts it afresh under its name. What it did, in a sentence; "" when there was nothing to put right; "!" and why when it could not.
+     */
+    public static String repairStop() {
+        if (os != Os.linux) return "";
+        try {
+            Path cfg = dir().resolve("config.yaml");
+            if (!Files.isRegularFile(cfg)) return "";
+            String y = Files.readString(cfg, StandardCharsets.UTF_8), right = stopsWhatStarts(y);
+            if (right.equals(y)) return "";
+            Files.writeString(cfg, right, StandardCharsets.UTF_8);
+            runner.run(List.of("systemctl", "--user", "restart", proxyUnit()));
+            String left = containerOf(dir().resolve("run.sh"), null);
+            if (left != null) runner.run(List.of("docker", "stop", left));
+            return "the model server's stop command named a container that its start script does not start, so a model that went idle was never stopped and kept its memory. The command is corrected and the proxy restarted; the model starts again on the next request";
+        } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
     static String serviceState() {
         try {
             return switch (os) {
-                case linux -> runner.run(List.of("systemctl", "--user", "is-active", UNIT)).out().strip();
+                case linux -> runner.run(List.of("systemctl", "--user", "is-active", proxyUnit())).out().strip();
                 case macos -> runner.run(List.of("launchctl", "print", "gui/" + uid() + "/" + LABEL)).code() == 0 ? "loaded" : "not loaded";
                 case windows -> runner.run(List.of("schtasks", "/query", "/tn", TASK)).code() == 0 ? "task registered" : "no task";
             };
@@ -951,11 +1012,12 @@ public final class ModelServer {
             }
             Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "");
             Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n", StandardCharsets.UTF_8);
-            Files.writeString(cfg, p.configYaml(), StandardCharsets.UTF_8);
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
+            // the model's start script stays as it is, whoever wrote it, so the config's stop command names the container that script starts
+            Files.writeString(cfg, stopsWhatStarts(p.configYaml()), StandardCharsets.UTF_8);
             // the proxy rereads its config only on a restart
             switch (os) {
-                case linux -> runner.run(List.of("systemctl", "--user", "restart", UNIT));
+                case linux -> runner.run(List.of("systemctl", "--user", "restart", proxyUnit()));
                 case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); runner.run(List.of("launchctl", "bootstrap", "gui/" + uid(), p.unit().toString())); }
                 case windows -> { runner.run(List.of("taskkill", "/im", "llama-swap.exe", "/f")); detach.start(List.of("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", p.unit().toString())); }
             }

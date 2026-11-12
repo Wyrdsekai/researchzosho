@@ -67,6 +67,12 @@ public final class Setup {
         String chat(String base, String model, String key);
         /** Whether {@code base} answers an embeddings request. */
         boolean embeds(String base, String key);
+        /**
+         * How many calls at once the server at {@code base} answers, for {@code model} (ModelSlots.probe). No default: asked of a server
+         * that starts its model on demand, this starts the model, so a stand-in answers it itself and never passes it on to whatever
+         * runs at that address on the machine the tests run on.
+         */
+        ModelSlots.Plan slots(String base, String model);
         /** Whether a SearXNG at {@code base} answers a JSON search (it needs json in search.formats). */
         default boolean searxng(String base) { return false; }
         /** Whether the Brave Search API accepts {@code key}. */
@@ -119,6 +125,7 @@ public final class Setup {
     public static Probe liveProbe() {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build();
         return new Probe() {
+            @Override public ModelSlots.Plan slots(String base, String model) { return ModelSlots.probe(base, model); }
             @Override public List<String> models(String base, String key) {
                 if (Anthropic.is(base)) {
                     try { List<String> ids = new ArrayList<>(); for (Anthropic.Model m : new Anthropic(Anthropic.base(base), key).models()) ids.add(m.id()); return ids; } catch (RuntimeException e) { return null; }
@@ -393,7 +400,7 @@ public final class Setup {
                 model = settleModel(base, key, there, there == null || there.isEmpty() ? model : null);
             }
             Config.set("RESEARCHZOSHO_DRIVE", base);
-            ModelSlots.Plan plan = ModelSlots.probe(base, Config.get("RESEARCHZOSHO_MODEL", "local-model"));
+            ModelSlots.Plan plan = probe.slots(base, Config.get("RESEARCHZOSHO_MODEL", "local-model"));
             out.println("  Research: " + plan.describe() + ". The settings job.workers and research.workers change that.");
             if (model != null && !model.isBlank()) Config.set("RESEARCHZOSHO_MODEL", model);
             if (key != null && !key.isBlank()) Config.set("RESEARCHZOSHO_API_KEY", key);

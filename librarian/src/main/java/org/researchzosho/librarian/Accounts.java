@@ -56,12 +56,14 @@ public final class Accounts {
         public boolean hasPassword() { return password != null && !password.isEmpty(); }
         public boolean secondStep() { return code != null; }
         /** How this person signs in, said in a few words, for the lists. */
-        public String ways() {
+        public String ways() { return ways(Chrome.ENGLISH); }
+        /** The same, said in a language: "a password, 2 passkeys and a one-time code". */
+        public String ways(Chrome c) {
             List<String> w = new ArrayList<>();
-            if (hasPassword()) w.add("password");
-            if (!passkeys.isEmpty()) w.add(passkeys.size() == 1 ? "a passkey" : passkeys.size() + " passkeys");
-            if (secondStep()) w.add("one-time code");
-            return w.isEmpty() ? "no way to sign in yet" : String.join(", ", w);
+            if (hasPassword()) w.add(c.english() ? "password" : c.t("a password"));
+            if (!passkeys.isEmpty()) w.add(c.english() ? (passkeys.size() == 1 ? "a passkey" : passkeys.size() + " passkeys") : c.n(passkeys.size(), "a passkey", "{0} passkeys"));
+            if (secondStep()) w.add(c.english() ? "one-time code" : c.t("a one-time code"));
+            return w.isEmpty() ? c.t("no way to sign in yet") : c.english() ? String.join(", ", w) : c.and(w);
         }
     }
 

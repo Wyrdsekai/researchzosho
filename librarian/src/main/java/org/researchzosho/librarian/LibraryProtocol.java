@@ -505,6 +505,7 @@ public final class LibraryProtocol {
         if (raw == null) throw ProtocolError.unavailable("No text could be read from " + target.getFileName() + "." + Corpus.whyNoText());
         r.put("kind", "file"); r.put("path", target.toString()); r.put("mode", mode); r.put("raw", raw.getFileName().toString());
         r.put("title", RawCapture.read(raw)[1]);
+        if (!Corpus.lastReading().isEmpty()) r.put("reading", Corpus.lastReading());   // a PDF: how its pages were read, said when it is added
         if (!collection.isEmpty()) r.put("collection", collection);
         r.put("added", 1);
         r.put("next", "Ask about it with library_ask, or research it with library_research {sources: \"shelves\"}");
@@ -694,7 +695,13 @@ public final class LibraryProtocol {
      * browser posted; raw names a document on the shelves by its entry. The plan comes back at once: the units, the characters, the time
      * at either tier; library_job follows the run, whose result names the file, its note and the shelves.
      */
-    public ObjectNode translate(JsonNode args) throws IOException {
+    public ObjectNode translate(JsonNode args) throws IOException { return translate(args, null); }
+
+    /**
+     * The same, filed by a surface of the library's own ({@code by}: chat, when the chat's model calls the tool), so the run's result names
+     * that surface's way to the notes at the end; null for a program's call (mcp, or cli when the keeper names where the file goes).
+     */
+    ObjectNode translate(JsonNode args, String by) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
         String op = args.path("op").asText("translate").strip().toLowerCase(Locale.ROOT);
@@ -729,21 +736,25 @@ public final class LibraryProtocol {
             }
         } else throw ProtocolError.invalidArgs("Give the document: path (a file on this machine, or one the browser posted) or raw (an entry on the shelves).");
         String judge = args.path("judge").asText("").strip(), model = args.path("model").asText("").strip(), back = args.has("back_translation") ? (args.path("back_translation").asBoolean(false) ? "on" : "off") : "";
+        String notes = Translation.notes(args.path("notes").asText(""));   // where what the checks still doubt is written: end, off, or the setting's choice
+        if (notes == null) throw ProtocolError.invalidArgs(Translation.NOTES_SAID);
         if (!Translation.anyModel()) throw ProtocolError.unavailable(Translation.NO_MODEL);
         Translation.Plan plan;
-        try { plan = Translation.plan(store, file, to, args.path("as").asText(""), args.path("quality").asText(Translation.DEFAULT), Translation.configuredSeat()[1], model, judge); }
+        try { plan = Translation.plan(store, file, to, args.path("as").asText(""), args.path("quality").asText(Translation.DEFAULT), Translation.configuredSeat()[1], model, judge, args.path("from").asText("")); }
         catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         Path out = args.path("out").asText("").isEmpty() ? null : Path.of(args.path("out").asText()).toAbsolutePath().normalize();
         if (out != null && !patron.person()) throw ProtocolError.forbidden("Only the library owner names where the file is written; without out it goes under the library's exports.");
-        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, args.path("collection").asText(""), out == null ? "mcp" : "cli", judge, model, back);
+        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, args.path("collection").asText(""), out != null ? "cli" : by == null ? "mcp" : by, judge, model, back, notes, args.path("from").asText(""));
+        if (plan.reading() != null) a.set("pdf_preflight", plan.reading().json());   // the job's page says what the reader found, as the plan did
         String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron.did(), a);
-        r.put("job_id", id); r.put("file", file.getFileName().toString()); r.put("format", plan.format()); r.put("from", plan.from()); r.put("to", plan.to()); r.put("as", plan.as()); r.put("quality", plan.quality());
+        r.put("job_id", id); r.put("file", file.getFileName().toString()); r.put("format", plan.format()); r.put("from", plan.from()); r.put("to", plan.to()); r.put("as", plan.as()); r.put("quality", plan.quality()); r.put("notes", notes);
+        if (plan.reading() != null) { r.put("reading", plan.readingSaid(Chrome.ENGLISH)); r.set("reading_pages", plan.reading().json()); }
         r.put("units", plan.units()); r.put("characters", plan.chars()); r.put("estimate_seconds", plan.seconds()); r.put("estimate", plan.saidFor()); r.put("estimate_measured", plan.measured()); r.put("estimates", plan.said());
         ObjectNode secs = r.putObject("estimate_seconds_by_tier"); secs.put("quick", plan.quickSeconds()); secs.put("checked", plan.checkedSeconds()); secs.put("reviewed", plan.reviewedSeconds()); secs.put("thorough", plan.thoroughSeconds());
         if (!judge.isEmpty()) { r.put("judge", plan.judge()); r.put("judge_hosted", plan.judgeHosted()); if (plan.judgeHosted()) { r.put("judge_cost_dollars", Math.round(plan.judgeCost() * 100) / 100.0); r.put("judge_tokens", plan.judgeTokens()); } }
         if (!model.isEmpty()) { r.put("model", plan.translator()); r.put("model_hosted", plan.translatorHosted()); if (plan.translatorHosted()) { r.put("model_cost_dollars", Math.round(plan.translatorCost() * 100) / 100.0); r.put("model_tokens", plan.translatorTokens()); } }
-        r.put("summary", "Filed " + id + ": \"" + file.getFileName() + "\" (" + plan.units() + " units, " + plan.chars() + " characters, written in " + ReadIn.name(plan.from()) + ") into " + ReadIn.name(plan.to()) + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
-        r.put("next", "library_job with job_id follows it; its result names the file (under the library's exports, served at /exports/<name>), the translation note beside it, and both documents on the shelves.");
+        r.put("summary", (plan.reading() == null ? "" : plan.readingSaid(Chrome.ENGLISH) + " ") + "Filed " + id + ": \"" + file.getFileName() + "\" (" + plan.units() + " units, " + plan.chars() + " characters, written in " + ReadIn.name(plan.from()) + ") into " + ReadIn.name(plan.to()) + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
+        r.put("next", "library_job with job_id follows it; its result names the file (under the library's exports, served at /exports/<name>), the translation note beside it (which lists what the checks still doubt), and both documents on the shelves.");
         store.circulate("translate", patron.label() + " :: " + file.getFileName() + " → " + plan.to() + " (" + plan.quality() + ")");
         return r;
     }
@@ -3742,6 +3753,8 @@ public final class LibraryProtocol {
                 String[] raw = RawCapture.read(p);
                 ObjectNode e = M.createObjectNode();
                 e.put("id", id); e.put("kind", "raw"); e.put("state", "captured");
+                String sensor = RawCapture.field(p, "pdf_sensor");   // a PDF: how its pages were read, as the reader found it when it was added
+                if (sensor != null && !sensor.isBlank()) { try { e.set("pdf_reading", M.readTree(sensor)); } catch (IOException ignored) { } }
                 e.put("claim_type", "verbatim"); e.put("confidence", "n/a");
                 e.put("untrusted_text", true);   // a page's own words: a consumer treats the body as data, never instruction
                 Captions.Extract cx = Captions.extract(raw[2]);

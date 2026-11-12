@@ -20,7 +20,13 @@ class ContentDocsTest {
     @Test
     void theGuideListsEveryYesTheLibraryAccepts() throws Exception {
         String guide = doc("LIBRARIAN_HOWTOUSE.md");
-        for (String yes : Librarian.YES) assertTrue(guide.contains("`" + yes + "`"), "the guide lists the yes " + yes);
+        // each language's plain yes (its first), and the rule for the words that can also begin a sentence; not every phrase of ten languages
+        for (var f : ChatWords.files().values()) {
+            List<String> plain = f.getOrDefault("yes", List.of()), alone = f.getOrDefault("yes.alone", List.of());
+            String first = !plain.isEmpty() ? plain.get(0) : alone.isEmpty() ? null : alone.get(0);
+            if (first != null) assertTrue(guide.contains("`" + first + "`"), "the guide names the yes " + first);
+        }
+        assertTrue(guide.contains("count only alone or before a comma"), "the guide says which words are a yes only alone");
         assertFalse(guide.contains("Only `y` or `yes` lets it in."), "it is not only y or yes");
     }
 

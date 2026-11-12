@@ -13,7 +13,7 @@ set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 routes="$here/deploy/caddy/routes"
 domain=${RZ_DOMAIN:-localhost}
-image=${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.2}
+image=${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.3}
 drive=${RZ_DRIVE:-http://host.docker.internal:8080}
 model=${RZ_MODEL:-}
 trusted=${RZ_TRUSTED_PROXY:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}

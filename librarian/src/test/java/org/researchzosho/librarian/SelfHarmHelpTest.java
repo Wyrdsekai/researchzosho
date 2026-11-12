@@ -74,7 +74,7 @@ class SelfHarmHelpTest {
         assertTrue(us.startsWith(HELP_START + "\n- In the United States and Canada: call or text 988, free, at any hour.\n- Anywhere in the world: findahelpline.com"), us);
         String jp = CrisisHelp.text(Locale.forLanguageTag("en-JP"));   // English, in Japan: Japan's lines first (ja-JP is the help in Japanese, HelplinesLocaleTest)
         assertTrue(jp.startsWith(HELP_START + "\n- In Japan: よりそいホットライン 0120-279-338, free, at any hour; or いのちの電話 0120-783-556, free, every day from 16:00 to 21:00.\n- Anywhere in the world"), jp);
-        String unknown = CrisisHelp.text(Locale.FRANCE);
+        String unknown = CrisisHelp.text(Locale.forLanguageTag("sv-SE"));   // a country with no line, in a language the help is not written in: English, the directory first
         assertTrue(unknown.startsWith(HELP_START + "\n- Anywhere in the world: findahelpline.com lists free helplines in more than 175 countries."), "no line for the country: the directory first: " + unknown);
         for (String line : List.of("116 123", "13 11 14", "0800 111 0 111", "0800 111 0 222", "988")) assertTrue(unknown.contains(line), line);
         assertFalse(unknown.toLowerCase(Locale.ROOT).contains("email") || unknown.contains("@"), "the Samaritans' email is not shown");
@@ -239,7 +239,7 @@ class SelfHarmHelpTest {
         try {
             String page = PagesTest.post(HttpClient.newHttpClient(), "http://127.0.0.1:" + d.port() + "/research", "question=" + Pages.enc(SHORT), null).body();
             assertTrue(page.contains("findahelpline.com") && page.contains("Do you want the library to research this question?"), page);
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(store); }
+        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
     }
 
     @Test
@@ -355,7 +355,7 @@ class SelfHarmHelpTest {
             String yes = PagesTest.post(c, base + "/research", "question=" + Pages.enc(SURE) + "&mode=depth&harm_ok=1", null).body();
             ObjectNode j = GenealogyOfferTest.job(store, yes);
             assertEquals("[\"self-harm\"]", j.path("args").path("allow").toString());
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(store); }
+        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
     }
 
     @Test
@@ -382,6 +382,6 @@ class SelfHarmHelpTest {
             String sent = PagesTest.post(c, base + "/research", "question=" + Pages.enc(SURE) + "&harm_ok=1&content_told=1", null).body();
             assertFalse(sent.contains("Do you want the library to research this question?"), sent);
             assertEquals("[\"self-harm\"]", GenealogyOfferTest.job(store, sent).path("args").path("allow").toString());
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(store); }
+        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
     }
 }

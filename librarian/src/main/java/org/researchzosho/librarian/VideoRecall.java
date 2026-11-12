@@ -104,7 +104,7 @@ public final class VideoRecall {
     static Path work() { return workDir != null ? workDir : Video.dir(); }
 
     /** The model that reads pictures, by the name it is configured under; and that name as it is kept in a capture's address. */
-    public static String modelName() { return Config.get("RESEARCHZOSHO_VISION_MODEL", Config.get("RESEARCHZOSHO_MODEL", "local-model")); }
+    public static String modelName() { DriveClient d = ModelEntries.seeingDrive(); return d != null ? d.model() : Config.get("RESEARCHZOSHO_VISION_MODEL", Config.get("RESEARCHZOSHO_MODEL", "local-model")); }
     static String modelKey() { String k = modelName().replaceAll("[^A-Za-z0-9._-]", "-"); return k.isEmpty() ? "model" : k; }
 
     // ── what was said, shown and seen: a search over the person's own viewing ─────────────────────────────────
@@ -139,6 +139,11 @@ public final class VideoRecall {
     static String plainTitle(String title) { return title.replaceFirst(" \\((what is on screen|the words on screen|the shots between the frames)\\)$", ""); }
 
     static String label(String kind) { return kind.equals("seen") || kind.equals("shot") ? "on screen: " : kind.equals("shown") ? "words on screen: " : "said: "; }
+
+    /** A hit's line with its track, as the page says it in {@code c}'s language: what was said, what is on screen, the words on screen. */
+    static String labelled(String kind, String line, Chrome c) {
+        return kind.equals("seen") || kind.equals("shot") ? c.t("on screen: {0}", line) : kind.equals("shown") ? c.t("words on screen: {0}", line) : c.t("said: {0}", line);
+    }
 
     /** The hits as a person reads them: the moment, the video, what was said, shown or seen there, and the link to that moment. */
     public static String sawText(List<Hit> hits, String query) {
@@ -1033,9 +1038,10 @@ public final class VideoRecall {
         } catch (IOException e) { return new byte[0]; }
     }
 
-    /** The picture and the question to the model that reads pictures: the vision drive when one is set, else the library's own. */
+    /** The picture and the question to the model that sees, found as the library finds it everywhere; the library's own when none is known to see. */
     static String liveVision(byte[] image, String ask) {
-        DriveClient drive = new DriveClient(Config.get("RESEARCHZOSHO_VISION_DRIVE", Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200")), modelName());
+        DriveClient eyes = ModelEntries.seeingDrive();
+        DriveClient drive = eyes != null ? eyes : new DriveClient(Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200"), modelName());
         ArrayNode msgs = M.createArrayNode();
         ArrayNode content = msgs.addObject().put("role", "user").putArray("content");
         content.addObject().put("type", "text").put("text", ask);

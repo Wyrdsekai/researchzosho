@@ -117,6 +117,7 @@ public final class LibrarianCli {
               submit "<claim…>" --source <url> [--source …] [--why <words>]   a claim of your own, filed as a draft with its sources; it waits in the inbox
               help <words…>                look the words up in the program's own documentation (the chat's /help does the same)
               chat [--new | --resume <id>]  talk to the Librarian: ask, follow up, start a research run, read what it found, decide the inbox. /help inside
+              chat --sessions | --delete <id> [--yes]   the conversations, newest first; one deleted for good, said first, done with --yes
               add <file|url> [title]       add your own document (PDF/DOCX/PPTX/ODT/EPUB/HTML/text)
               add <folder> [--collection N] [--register] [--link] [--survey] [--pictures]
                                            add every document under a folder, as a collection. --link reads the files where they are (nothing is copied). --survey only counts them
@@ -162,6 +163,7 @@ public final class LibrarianCli {
               research workers <n> · pause · resume · stop <J-…> · window <HH:MM-HH:MM|off>    change them now. A running question follows at its next step. stop ends one research run there
               jobs [<J-…>]                 every research run, queued and running first, then the last finished. One id: its state, progress, wait, and where its report went
               jobs <J-…> --choose <n|name> · --yes | --no   answer a run that waits: for one of its named choices, or whether to research it at all
+              jobs <J-…> --withdraw-scores   a translation's units off the record its checks' thresholds and length band are measured from
               seeks [list | read <group> [<J-…>] | merge <group> | drop <group>]
                                            the same question researched several times apart (research ask … --seek <group>): the seeks, one's report, the merge, the end
               stats [<n>]                  the research runs side by side: turns, rounds, citation checks, sources, fetches. The last n rows (default 20) and the totals
@@ -191,9 +193,10 @@ public final class LibrarianCli {
                                            an entry, or its Simple or Familiar version, as a Markdown, PDF or Word file
               report export <I-…> --pdf|--docx [--out FILE] [--in <language>]
                                            a report as a PDF or a Word file, as its page shows it: the answer, the checks, the claims, the sources as links
-              translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality quick|checked] [--out FILE] [--no-wait]
+              translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality checked|quick|reviewed|thorough] [--notes end|off] [--out FILE] [--no-wait]
                                            your own document (txt, md, pdf, docx, epub) in another language, written beside it in the same format or another; both go onto the shelves.
-                                           quick is one pass; checked adds the program's checks, a second reading and a revision. The time is said first
+                                           quick is one pass; checked, the default, adds the program's checks, the scores and a revision; reviewed and thorough a second reading.
+                                           The note beside it lists what the checks still doubt; --notes end numbers those passages and lists them at the end of the document too. The time is said first
               glossary [list | add "<term>" <language> "<rendering>" | remove "<term>" <language>]   the renderings every translation uses
               images find <words…> [--count N] [--keep] [--judge "<criteria>"] [--collection <name>]
                                            pictures for the words from Brave (with a key) and the library's SearXNG, each with its page; --keep puts them on the
@@ -642,6 +645,8 @@ public final class LibrarianCli {
         } else if (Logs.wantsStdout(false)) Logs.toStdout();   // no terminal (a container, a cloud runner), or the setting says so: the log on stdout
         // a model server of this machine's own, installed by an earlier release: bring it up to this one (the embeddings server beside the model)
         try { String up = ModelServer.upgrade(System.out); if (up.startsWith("!")) System.out.println("  model server not upgraded: " + up.substring(1)); } catch (Exception ignored) { }
+        // and one an earlier release saved with a stop command that stops nothing: put right, once
+        try { String fixed = ModelServer.repairStop(); if (!fixed.isEmpty()) System.out.println(fixed.startsWith("!") ? "  model server not repaired: " + fixed.substring(1) : "  model server repaired: " + fixed + "."); } catch (Exception ignored) { }
         // the new version's table of models, read against this machine as it is today: said, never acted on
         try { String sm = ModelServer.suggestionNotice(); if (!sm.isEmpty()) System.out.println("  " + sm); } catch (Exception ignored) { }
         // what an update owes the library: things an earlier version saved wrongly are fixed by this one, once per version
@@ -943,7 +948,7 @@ public final class LibrarianCli {
                             boolean epAnswers = Searx.answers(ep);
                             System.out.println("  SearXNG: " + ep + " " + (epAnswers ? "answers" : "does not answer") + "; docker container " + Searx.CONTAINER + ": " + Searx.state() + (Searx.haveDocker() ? "" : " (no docker here)"));
                             // the library set to a SearXNG elsewhere that no longer answers, while the one on this machine does: say where the searches went and what to do
-                            String local = "http://localhost:" + Searx.DEFAULT_PORT;
+                            String local = WebSearchTool.defaultEndpoint();   // the usual address on this machine, as the search tool has it
                             if (!epAnswers && !ep.equals(local) && Searx.answers(local))
                                 System.out.println("  The SearXNG on this machine answers at " + local + ", but the library is set to " + ep + ", so web searches have gone to the built-in fallback. "
                                         + "`researchzosho search start` points the library at the one on this machine and saves that.");
@@ -2276,6 +2281,7 @@ public final class LibrarianCli {
             if (args[i].equals("--new")) session = Librarian.Session.open(store);
             else if (args[i].equals("--resume") && i + 1 < args.length) { session = Librarian.Session.resume(store, args[++i]); if (session == null) { System.err.println("no session " + args[i] + " (researchzosho chat --sessions lists them)"); return 2; } }
             else if (args[i].equals("--sessions")) { for (String id : Librarian.Session.list(store)) { var sx = Librarian.Session.resume(store, id); System.out.println("  " + id + "  " + (sx == null ? "" : sx.title())); } return 0; }
+            else if (args[i].equals("--delete")) return chatDelete(store, i + 1 < args.length && !args[i + 1].startsWith("--") ? args[i + 1] : "", List.of(args).contains("--yes"));
         }
         // the latest conversation continues only while it has been quiet for less than a day, the web chat's rule too; an older one is kept, and said,
         // not resumed in silence (the chat opened on a three-week-old session and showed its last reply as if new, 2026-10-08)
@@ -2341,7 +2347,7 @@ public final class LibrarianCli {
                 libH[0] = new Librarian(store, driveH[0], Librarian.person(), current[0]);
             }
             @Override public boolean atTheTerminal() { return true; }
-            @Override public String helpExtra() { return "up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves"; }
+            @Override public String helpExtra() { return Chrome.now().t("up and down arrows go through what you typed before, Ctrl-R searches it, Ctrl-C clears the line, Ctrl-D leaves"); }
         };
         while (true) {
             System.out.println();
@@ -2350,24 +2356,41 @@ public final class LibrarianCli {
             line = line.strip();
             if (line.isEmpty() && !libH[0].waitingForAnswer()) continue;   // while the library waits for a (y/N) answer, Enter is no
             if (Librarian.QUIT.contains(line)) break;
+            if (current[0].gone()) System.out.println("  " + Chrome.now().t("This conversation was deleted elsewhere, so a fresh one is open: {0}.", front.open()));   // the page deleted it while this chat sat open: nothing goes back into it
             String taken;
             if (line.startsWith("/") || !libH[0].waitingForAnswer()) { System.out.print("  …"); System.out.flush(); }   // a field's reply may take the model a moment
             try { taken = ChatCommands.reply(store, Patrons.Patron.PERSON, "terminal", line, libH[0].waitingForAnswer(), front); }
-            catch (IOException e) { taken = "That did not work: " + e.getMessage(); }
+            catch (IOException e) { taken = Chrome.now().t("That did not work: {0}", e.getMessage()); }
             System.out.print("\r   \r"); System.out.flush();
             if (taken != null) { for (String l : taken.split("\n")) System.out.println("  " + l); continue; }
             System.out.print("  …"); System.out.flush();
             String reply;
-            try { reply = libH[0].say(line); } catch (Exception e) { reply = "(the model did not answer: " + e.getMessage() + ")"; }
+            try { reply = libH[0].say(line); } catch (Exception e) { reply = Chrome.now().t("(the model did not answer: {0})", e.getMessage()); }
             System.out.print("\r   \r");
             synchronized (System.out) { System.out.println(reply); }
-            for (String jobId : current[0].watched()) if (announced.add(jobId)) System.out.println("  following " + jobId + ": this chat shows its stage and says when it is done. /runs shows it now");
+            for (String jobId : current[0].watched()) if (announced.add(jobId)) System.out.println("  " + Chrome.now().t("following {0}: this chat shows its stage and says when it is done. /runs shows it now", jobId));
         }
         lib = libH[0]; session = current[0];
         watcher.interrupt();
         io.close();
         if (lib.waitingForAnswer()) { String left = lib.leaveUnanswered(); if (!left.isEmpty()) System.out.println(left); }
-        System.out.println("Session " + session.id + " is kept; researchzosho chat continues it.");
+        System.out.println(Chrome.now().t("Session {0} is kept; researchzosho chat continues it.", session.id));
+        return 0;
+    }
+
+    /**
+     * {@code researchzosho chat --delete <id> [--yes]}: one of the conversations, by its id or a unique start of it as --resume takes it.
+     * Without --yes it says what deleting means and the command that does it; with --yes it is deleted ({@link Librarian.Session#delete}).
+     */
+    static int chatDelete(LibraryStore store, String id, boolean yes) throws IOException {
+        Chrome c = Chrome.now();
+        if (id.isEmpty()) { System.err.println(c.t("Say which conversation: researchzosho chat --delete and its id. researchzosho chat --sessions lists them.")); return 2; }
+        Librarian.Session s = Librarian.Session.resume(store, id, Librarian.person());
+        if (s == null) { System.err.println(c.t("No conversation of yours has the id {0}, so nothing was deleted. researchzosho chat --sessions lists them.", id)); return 2; }
+        if (!yes) { System.out.println(c.t("Delete the conversation “{0}” ({1})?", s.named(), s.id) + " " + c.t(Librarian.DELETE_MEANS) + "\n" + c.t("To go ahead: {0}", "researchzosho chat --delete " + s.id + " --yes")); return 0; }
+        Librarian.Session.Deleted d = Librarian.Session.delete(store, s.id, Librarian.person());
+        if (d.outcome() != Librarian.Session.Outcome.DELETED) { System.err.println(d.said()); return 1; }
+        System.out.println(d.said());
         return 0;
     }
 
@@ -2781,6 +2804,8 @@ public final class LibrarianCli {
             System.out.println("Taken: " + r.path("choice").asText() + ". Research run " + id + " is " + r.path("state").asText() + ".");
             return 0;
         }
+        // a translation's units taken off the record the checks' thresholds are measured from, as `translate scores withdraw <job>` does
+        if (!id.isEmpty() && args.length > 3 && args[3].equals("--withdraw-scores")) { System.out.println(TranslationScores.withdrawnSaid(store, TranslationScores.withdraw(store, id), Chrome.now())); return 0; }
         // the person's answer to a run the service held for it: the question read as a person asking about harming themselves
         if (!id.isEmpty() && args.length > 3 && (args[3].equals("--yes") || args[3].equals("--no"))) {
             a.put("op", args[3].equals("--yes") ? "allow" : "decline");
@@ -2807,6 +2832,10 @@ public final class LibrarianCli {
             boolean declinedRun = j.path("declined").path("run").asBoolean(false);
             if (j.path("declined").isObject()) System.out.println("  declined: " + j.path("declined").path("statement").asText());
             if (!declinedRun && j.hasNonNull("result") && !j.get("result").asText().isBlank()) System.out.println("  " + (j.path("is_error").asBoolean(false) ? "error: " : "result: ") + Acquisitions.compress(j.get("result").asText(), 300));
+            if (Translation.JOB_KIND.equals(j.path("kind").asText())) {   // a translation: its units on the record the checks are measured from, and the way to take them off
+                String rec = Translation.onRecordSaid(store, j.path("job_id").asText(), Chrome.now());
+                if (!rec.isEmpty()) System.out.println("  " + rec + " " + Chrome.now().t("researchzosho jobs {0} --withdraw-scores takes this translation off the record.", j.path("job_id").asText()));
+            }
             return 0;
         }
         int running = 0, queued = 0;
@@ -3572,7 +3601,8 @@ public final class LibrarianCli {
         Citations.Meta meta = Citations.resolve(store, locator, Citations.LIVE);   // a DOI / arXiv / PubMed url: the record's title and citation
         if (meta != null && !meta.title().isEmpty() && givenTitle.isBlank()) title = meta.title();
         Captions.Extract cx = Captions.extract(doc.text());
-        Path raw = RawCapture.capture(store, locator, doc.text(), title, "researchzosho-add", "");   // THIS store, not the configured one (a test with two libraries found the difference)
+        if (doc.reading() != null) System.out.println(PdfReading.said(doc.reading().preflight(), Chrome.now()) + (doc.reading().byEye().isEmpty() && doc.reading().unread().isEmpty() ? "" : " " + doc.reading().said(Chrome.now())));   // a PDF: how its pages were read
+        Path raw = RawCapture.capture(store, locator, doc.text(), title, "researchzosho-add", "", "", Corpus.readingHead(doc));   // THIS store, not the configured one (a test with two libraries found the difference)
         if (raw == null) { System.err.println("Not saved: this machine has no library (`researchzosho init`), or the page was refused"); return 1; }
         // the person's own address: saved even when no model could check it, and checked when one answers; a checked page means a
         // model answers now, so the pages still waiting are checked, and what that check removes is said here

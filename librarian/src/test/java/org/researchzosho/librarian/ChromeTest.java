@@ -18,9 +18,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.text.NumberFormat;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.TreeSet;
 import java.util.function.Supplier;
 
@@ -80,8 +84,22 @@ class ChromeTest {
             "/explain", "/help", "/map", "/login", "/join?code=nope", "/account", "/owned", "/suggest", "/homes", "/homes?search=ada-example", "/career", "/career?seeker=first-person", "/video", "/video?q=tea", "/patents", "/chat?new=1", "/no-such-page",
             "/seeks", "/perspectives", "/submit", "/forecasts", "/bridges", "/launch", "/db", "/books", "/podcasts", "/images");
 
+    /** English the pages used to show inside a translated sentence, made in code: none may stand in a page in another language. */
+    static final List<String> ENGLISH_MADE = List.of(" checked, the default; quick ", "(a first guess: nothing has been timed on this model yet)");
+
+    /**
+     * English the pages showed in every language until 2026-11-10, built from literals that never went through the words, or a sentence
+     * the protocol says in English for a program: none may stand in a page in another language.
+     */
+    static final List<String> ENGLISH_LEFT = List.of("Access is open", "a month the library stops at", "Every line is a claim; a dashed line", "a person, a place, a work, a subject", "A person or an organisation",
+            "Everything the library holds on one subject", "To request a dossier on someone new", "No dossiers yet.", "Family history (genealogy mode)", "pornography, and gore", "is running here", "This library holds",
+            "Fields that are on:", "Its documentation:", "Nothing is imported yet.", "Shows and episodes on a subject", "No show is followed yet.", "Follow a show below, or from a terminal", "Podcasts reports",
+            "What you liked, read against the long tail", "No Calibre library is set", "Books reports", "No preferences file yet", "The store holds", "Passkeys need an address", "Passkeys need an https address",
+            "The passkey was not accepted", "No passkey was used", "Exa, a search engine for the web", "Tavily, a search engine for the web", ">The model server<", ">Your own search service<", "The map hit an error",
+            "Names the map knows best", "Type a name: a person");
+
     @Test
-    void everyPageRenderedInJapaneseFallsBackOnNothing(@TempDir Path tmp) throws Exception {
+    void everyPageRenderedInEveryLanguageFallsBackOnNothing(@TempDir Path tmp) throws Exception {
         LibraryStore store = stocked(tmp);
         String token = Patrons.issueToken(store, "did:key:me");
         LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
@@ -89,25 +107,41 @@ class ChromeTest {
         String base = "http://127.0.0.1:" + d.port();
         Chrome.MISSING.clear();
         List<String> failed = new ArrayList<>();
+        List<String> codes = Chrome.available().subList(1, Chrome.available().size());   // every language with a file: Japanese, and each one dropped in beside it
+        assertTrue(codes.contains("ja"));
         try {
-            for (String path : PAGES) {
-                var r = get(c, base + path, "rz_token=" + token, "ja");
-                if (r.statusCode() >= 500) failed.add(path + " → " + r.statusCode() + ": " + r.body().replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").substring(0, Math.min(300, r.body().length())));
-                else if (r.statusCode() == 200 && !r.body().contains("<html lang=\"ja\">")) failed.add(path + " is not in Japanese");
+            for (String code : codes) {
+                for (String path : PAGES) {
+                    var r = get(c, base + path, "rz_token=" + token, code);
+                    if (r.statusCode() >= 500) failed.add(code + " " + path + " → " + r.statusCode() + ": " + r.body().replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").substring(0, Math.min(300, r.body().length())));
+                    else if (r.statusCode() == 200 && !r.body().contains("<html lang=\"" + code + "\">")) failed.add(path + " is not in " + code);
+                    else if (r.statusCode() == 200) {
+                        for (String en : ENGLISH_MADE) if (r.body().contains(en)) failed.add(code + " " + path + " shows English made in code: " + en);
+                        for (String en : ENGLISH_LEFT) if (r.body().contains(en)) failed.add(code + " " + path + " shows English that never went through the words: " + en);
+                    }
+                }
+                var visitor = get(c, base + "/login", null, code);   // the sign-in page as a visitor sees it, with the ask-to-be-let-in form
+                assertTrue(visitor.body().contains("<html lang=\"" + code + "\">"), visitor.body());
             }
-            var visitor = get(c, base + "/login", null, "ja");   // the sign-in page as a visitor sees it, with the ask-to-be-let-in form
-            assertTrue(visitor.body().contains("<html lang=\"ja\">"), visitor.body());
         } finally { d.stop(); }
         assertTrue(failed.isEmpty(), String.join("\n", failed));
         List<String> missing = new ArrayList<>(new TreeSet<>(Chrome.MISSING));
-        assertTrue(missing.isEmpty(), missing.size() + " text(s) the Japanese file lacks (code<tab>text):\n" + String.join("\n", missing));
+        assertTrue(missing.isEmpty(), missing.size() + " text(s) a language file lacks (code<tab>text):\n" + String.join("\n", missing));
     }
 
     @Test
     void theLanguageIsChosenInOrder(@TempDir Path tmp) throws Exception {
-        assertEquals(List.of("en", "ja"), Chrome.available());
-        assertEquals("ja", Chrome.fromAccept("ja,en;q=0.5")); assertEquals("en", Chrome.fromAccept("en-US,en;q=0.9,ja;q=0.8")); assertEquals("ja", Chrome.fromAccept("fr-CA,fr;q=0.9,ja-JP;q=0.4"));
-        assertNull(Chrome.fromAccept("fr")); assertNull(Chrome.fromAccept("")); assertNull(Chrome.fromAccept(null)); assertEquals("ja", Chrome.fromAccept("en;q=0.3, ja;q=0.7"));
+        assertEquals(List.of("en", "ja"), Chrome.available().subList(0, 2), "English, then Japanese, then each language with a file");
+        assertEquals("ja", Chrome.fromAccept("ja,en;q=0.5")); assertEquals("en", Chrome.fromAccept("en-US,en;q=0.9,ja;q=0.8")); assertEquals("ja", Chrome.fromAccept("sv-SE,sv;q=0.9,ja-JP;q=0.4"));
+        assertNull(Chrome.fromAccept("sv")); assertNull(Chrome.fromAccept("")); assertNull(Chrome.fromAccept(null)); assertEquals("ja", Chrome.fromAccept("en;q=0.3, ja;q=0.7"));
+        // a regional form is its language's file; Chinese in traditional characters is not the simplified file's, and the browser's next language is asked
+        assertEquals("pt", Chrome.codeOf("pt-BR")); assertEquals("pt", Chrome.codeOf("pt_BR.UTF-8")); assertEquals("zh", Chrome.codeOf("zh-CN")); assertEquals("zh", Chrome.codeOf("zh-Hans"));
+        assertEquals("zh", Chrome.codeOf("zh-Hans-HK")); assertEquals("ja", Chrome.codeOf("ja_JP.UTF-8")); assertEquals("ja", Chrome.codeOf("日本語")); assertEquals("de", Chrome.codeOf("Deutsch")); assertEquals("ru", Chrome.codeOf("Russian"));
+        for (String t : List.of("zh-TW", "zh-HK", "zh-MO", "zh-Hant", "zh-Hant-TW", "zh_TW.UTF-8")) assertEquals(Chrome.TRADITIONAL, Chrome.codeOf(t), t);
+        assertEquals("ja", Chrome.fromAccept("zh-TW,ja;q=0.8"), "zh-TW passes over the simplified file to the next language");
+        for (String code : Chrome.available()) assertEquals(code, Chrome.fromAccept(code + "-XX," + code + ";q=0.9"), "every language with a file, from its regional form");
+        if (Chrome.available().contains("zh")) { assertEquals("zh", Chrome.fromAccept("zh-CN")); assertEquals("zh", Chrome.fromAccept("zh-Hans")); assertEquals("zh", Chrome.fromAccept("zh-TW,zh;q=0.9")); }
+        if (Chrome.available().contains("pt")) assertEquals("pt", Chrome.fromAccept("pt-BR,pt;q=0.9"));
         // the query, then the cookie, then the person's own language, then the browser's, then the library's, then English
         String realHome = System.getProperty("user.home");
         try {
@@ -117,7 +151,7 @@ class ChromeTest {
             Patrons.set(store, "did:key:me", "Me", Patrons.Level.write);
             Patrons.Patron me = new Patrons.Patron("did:key:me", "Me", "web");
             assertEquals("en", Chrome.choose(store, me, null, null, null), "nothing says a language: English");
-            assertEquals("en", Chrome.choose(store, me, null, null, "fr"), "a browser whose language the chrome is not written in: English");
+            assertEquals("en", Chrome.choose(store, me, null, null, "sv"), "a browser whose language the chrome is not written in: English");
             assertEquals("ja", Chrome.choose(store, me, null, null, "ja"), "the browser's");
             Config.set("RESEARCHZOSHO_LANGUAGE", "Japanese");
             assertEquals("ja", Chrome.choose(store, me, null, null, null), "the library writes its reports in Japanese: the pages too, with nothing nearer");
@@ -143,6 +177,10 @@ class ChromeTest {
             var plain = get(c, base + "/past", null, null);
             assertTrue(plain.body().contains("<html lang=\"en\">") && plain.body().contains(">Past<"), plain.body());
             assertTrue(plain.body().contains("hreflang=\"ja\"") && plain.body().contains("日本語") && plain.body().contains("href=\"/past?lang=ja\""), "the switch offers Japanese: " + plain.body());
+            // a small menu, not a row: the language in use, and each language with a file by its own name, English last
+            String menu = plain.body().substring(plain.body().indexOf("<details class=\"lang-switch\">"), plain.body().indexOf("</details>", plain.body().indexOf("<details class=\"lang-switch\">")));
+            for (String code : Chrome.available()) assertTrue(menu.contains("hreflang=\"" + code + "\" lang=\"" + code + "\"") && menu.contains(">" + Chrome.nativeName(code) + "</a>"), code + " in " + menu);
+            assertTrue(menu.lastIndexOf("hreflang=\"en\"") > menu.lastIndexOf("hreflang=\"ja\""), menu);
             var switched = get(c, base + "/past?lang=ja", null, null);
             assertTrue(switched.body().contains("<html lang=\"ja\">"), switched.body());
             assertTrue(switched.headers().allValues("set-cookie").stream().anyMatch(v -> v.startsWith("rz_lang=ja;")), "the switch is kept in a cookie: " + switched.headers().map());
@@ -222,5 +260,14 @@ class ChromeTest {
         Chrome.MISSING.clear();
         assertEquals(Chrome.ENGLISH, Chrome.in("xx"), "a language with no file is English");
         assertEquals("日本語", Chrome.nativeName("ja")); assertEquals("English", Chrome.nativeName("en"));
+        // the numbers and the list's stops as the language writes them
+        assertEquals("11,979", ja.number(11979)); assertEquals("11,979", en.number(11979)); assertEquals("、", ja.sep()); assertEquals(", ", en.sep());
+        // every language with a file writes a day and a number by its locale, and today in its own words
+        for (String code : Chrome.available().subList(1, Chrome.available().size())) {
+            Chrome c = Chrome.in(code);
+            assertEquals(DateTimeFormatter.ofLocalizedPattern("yMMMd").withLocale(Locale.forLanguageTag(code)).format(LocalDate.of(2025, 10, 14)), c.day("2025-10-14"), code);
+            assertEquals(NumberFormat.getIntegerInstance(Locale.forLanguageTag(code)).format(11979), c.number(11979), code);
+            assertTrue(c.dayTime(Instant.now().toString()).startsWith(c.t("today") + " "), code);
+        }
     }
 }

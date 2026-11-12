@@ -107,7 +107,12 @@ public final class Explain {
     // ---- an entry at a rung ----
 
     /** What a reading is doing right now, for a page or a terminal to show: one short phrase per stage. */
-    public interface Progress { void at(String stage); Progress NONE = s -> { }; }
+    public interface Progress {
+        void at(String stage);
+        /** The stage, with the whole sentence a page says it in ("The library is reading the entry and the {0} claims behind it…") and its places; the terminal shows the phrase. */
+        default void stage(String phrase, String sentence, Object... args) { at(phrase); }
+        Progress NONE = s -> { };
+    }
 
     public static Reading entry(LibraryStore store, Researcher.Drive drive, String id, Rung rung, boolean fresh) throws IOException {
         return entry(store, drive, id, rung, fresh, Progress.NONE);
@@ -122,7 +127,10 @@ public final class Explain {
             // as written IS the entry: no model touches it
             return new Reading(id, "", rung, e.path("body").asText(), List.of(), "shelves", 0, 0, e.path("recorded_at").asText(""), true, null);
         }
-        progress.at("reading the entry" + (e.path("findings").size() > 0 ? " and the " + e.path("findings").size() + " claims behind it" : e.path("sources").size() > 0 ? " and its " + e.path("sources").size() + " sources" : ""));
+        int claims = e.path("findings").size(), sources = e.path("sources").size();
+        progress.stage("reading the entry" + (claims > 0 ? " and the " + claims + " claims behind it" : sources > 0 ? " and its " + sources + " sources" : ""),
+                claims > 0 ? (claims == 1 ? "The library is reading the entry and the {0} claim behind it…" : "The library is reading the entry and the {0} claims behind it…")
+                        : sources > 0 ? (sources == 1 ? "The library is reading the entry and its {0} source…" : "The library is reading the entry and its {0} sources…") : "The library is reading the entry…", claims > 0 ? claims : sources);
         Material mat = material(store, p, e);
         Path cache = dir(store).resolve(id).resolve(rung.name() + ".md");
         Reading hit = fresh ? null : cached(cache, mat.hash, id, "", rung);
@@ -161,7 +169,7 @@ public final class Explain {
             ctx = p.entry(inId, p.kindOf(inId), true);
             if (ctx == null) throw ProtocolError.notFound("entry " + inId);
         }
-        progress.at("looking for \"" + term + "\" in the library");
+        progress.stage("looking for \"" + term + "\" in the library", "The library is looking for \"{0}\" in the library…", term);
         Material mat = termMaterial(store, p, term, ctx);
         String slug = LibraryStore.slug(term);
         Path cache = dir(store).resolve(ctx == null ? "_terms" : inId).resolve("term-" + slug + "." + rung.name() + ".md");
@@ -337,7 +345,8 @@ public final class Explain {
 
     private static Reading generate(Researcher.Drive drive, String prompt, Material mat, String of, String term, Rung rung, Progress progress) {
         if (Config.isOn("RESEARCHZOSHO_EXPLAIN_DEBUG", false)) System.err.println("---- explain prompt ----\n" + prompt + "\n---- end ----");
-        progress.at(term.isEmpty() ? "writing it for " + (rung == Rung.familiar ? "someone who knows the field" : "a beginner") : "writing what the library says about \"" + term + "\"");
+        progress.stage(term.isEmpty() ? "writing it for " + (rung == Rung.familiar ? "someone who knows the field" : "a beginner") : "writing what the library says about \"" + term + "\"",
+                term.isEmpty() ? (rung == Rung.familiar ? "The library is writing it for someone who knows the field…" : "The library is writing it for a beginner…") : "The library is writing what the library says about \"{0}\"…", term);
         ArrayNode msgs = M.createArrayNode();
         msgs.addObject().put("role", "user").put("content", prompt);
         String raw;
@@ -371,7 +380,7 @@ public final class Explain {
                 StringBuilder src = new StringBuilder();
                 for (String i : ids) src.append(mat.byId.get(i)).append("\n\n");
                 String claim = pt.replaceAll("\\[[^\\]]+\\]", "").strip();
-                progress.at("checking paragraph " + seen + " of " + total + " against its sources");
+                progress.stage("checking paragraph " + seen + " of " + total + " against its sources", "The library is checking paragraph {0} of {1} against its sources…", seen, total);
                 checked++;
                 if ("unsupported".equals(CiteCheck.judge(drive, claim, CiteCheck.excerpt(src.toString(), claim)))) {
                     unsupported++;

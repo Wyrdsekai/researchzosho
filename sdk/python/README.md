@@ -23,6 +23,11 @@ text = lib.read("https://example.org/paper.pdf", max_chars=4000)["text"]
 
 job = lib.research("What did Japanese sources say about keigo in subtitles after 2020?")
 result = lib.wait(job["job_id"])          # an overnight ask; poll or wait
+
+# a document on the shelves translated, with what the checks still doubt listed at its end
+plan = lib.translate("2026-11-10-clock.md", "Japanese", notes="end")
+print(plan["estimate"], plan["notes"])
+done = lib.wait(plan["job_id"])
 ```
 
 Every result carries `library_id`, `library_name`, `contract`. Errors raise `LibraryError` with

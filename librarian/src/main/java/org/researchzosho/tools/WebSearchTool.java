@@ -190,10 +190,10 @@ public final class WebSearchTool implements Tool {
     public static boolean searxDownLately() { return searxDownAt > 0 && System.currentTimeMillis() - searxDownAt < 3_600_000L; }
 
     /** The built-in fallback (Wikipedia's search, no key, no install) is on unless RESEARCHZOSHO_FALLBACK_SEARCH=off. */
-    public static boolean fallbackOn() {
-        String v = Config.get("RESEARCHZOSHO_FALLBACK_SEARCH");
-        return v == null || !(v.equalsIgnoreCase("off") || v.equalsIgnoreCase("false") || v.equals("0"));
-    }
+    public static boolean fallbackOn() { return fallbackOn(Config.get("RESEARCHZOSHO_FALLBACK_SEARCH")); }
+
+    /** The same, of the setting's value: on when nothing is set. */
+    static boolean fallbackOn(String v) { return v == null || !(v.equalsIgnoreCase("off") || v.equalsIgnoreCase("false") || v.equals("0")); }
 
     /**
      * The fallback: Wikipedia's own search API in the language of the query, plus the scholarly literature from
@@ -278,8 +278,15 @@ public final class WebSearchTool implements Tool {
     public static String endpoint() {
         if (endpointOverride != null) return endpointOverride;
         String e = Config.get("RESEARCHZOSHO_SEARXNG");
-        return (e == null || e.isBlank()) ? "http://localhost:8888" : e.replaceAll("/+$", "");
+        return (e == null || e.isBlank()) ? defaultEndpoint() : e.replaceAll("/+$", "");
     }
+
+    /**
+     * Where the tool searches when no SearXNG is set: this machine's own, at its usual port. The suite names a closed port instead
+     * (the property researchzosho.searxng), as it does for the drive: a test that sets no search server of its own would otherwise
+     * search the live web through whatever answers at the build machine's default address.
+     */
+    public static String defaultEndpoint() { return System.getProperty("researchzosho.searxng", "http://localhost:8888"); }
 
     /**
      * Brave Search API, first choice when a key is configured. Measured reason (2026-08-29,

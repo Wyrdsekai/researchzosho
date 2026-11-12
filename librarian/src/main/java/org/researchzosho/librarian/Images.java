@@ -95,9 +95,10 @@ public final class Images {
         /** "1920×1080" or "". */
         public String size() { return width > 0 && height > 0 ? width + "×" + height : ""; }
         /** One sentence a person reads: the title, where it stands, its size and who found it. */
-        public String said() {
-            String t = title == null || title.isBlank() ? "A picture" : "\"" + title + "\"";
-            return t + (host().isEmpty() ? "" : " from " + host()) + (size().isEmpty() ? "" : ", " + size()) + (source == null || source.isBlank() ? "" : ", found through " + source) + ".";
+        public String said() { return said(Chrome.ENGLISH); }
+        public String said(Chrome c) {
+            String t = title == null || title.isBlank() ? c.t("A picture") : "\"" + title + "\"";
+            return t + (host().isEmpty() ? "" : " " + c.t("from {0}", host())) + (size().isEmpty() ? "" : ", " + size()) + (source == null || source.isBlank() ? "" : ", " + c.t("found through {0}", source)) + ".";
         }
         /** The Markdown image line the chat shows as a small picture: the small copy when there is one, else the picture itself. */
         public String show() { String src = thumbnail != null && !thumbnail.isBlank() ? thumbnail : image; return "![" + (title == null ? "" : title.replace("]", ")").replace("\n", " ")) + "](" + src + ")"; }
@@ -130,9 +131,10 @@ public final class Images {
         public Judged(Found found, Verdict verdict, String why, String model, String criteria) { this(found, verdict, why, model, criteria, Instant.now().toString()); }
         public boolean yes() { return verdict == Verdict.YES; }
         /** One line a person reads: the title, the verdict, the reason. */
-        public String said() {
+        public String said() { return said(Chrome.ENGLISH); }
+        public String said(Chrome c) {
             String t = found.title() == null || found.title().isBlank() ? found.image() : "\"" + found.title() + "\"";
-            return t + ": " + (verdict == Verdict.UNJUDGED ? "not judged" : verdict.word()) + (why == null || why.isBlank() ? "." : " — " + why);
+            return t + ": " + (verdict == Verdict.UNJUDGED ? c.t("not judged") : c.t(verdict.word())) + (why == null || why.isBlank() ? "." : " — " + why);
         }
         /** The head lines a kept entry carries for it. */
         public Map<String, String> more() {
@@ -193,11 +195,15 @@ public final class Images {
     public record Result(List<Found> found, List<String> answered, List<String> silent, int skipped) {
         public Result(List<Found> found, List<String> answered, List<String> silent) { this(found, answered, silent, 0); }
         /** "5 pictures found through Brave and SearXNG" / "No picture was found: Brave (no key kept), SearXNG (did not answer)"; the skipped said after. */
-        public String said(String words) {
-            String through = answered.isEmpty() ? "" : " through " + String.join(" and ", answered);
-            String skip = skipped == 0 ? "" : " " + skipped + (skipped == 1 ? " candidate was" : " candidates were") + " skipped as not " + (skipped == 1 ? "a picture" : "pictures") + " the model can look at (an SVG, a PDF and the like).";
-            if (found.isEmpty()) return "No picture was found for \"" + words + "\"" + through + (silent.isEmpty() ? "" : "; " + String.join(", ", silent)) + "." + skip;
-            return found.size() + (found.size() == 1 ? " picture" : " pictures") + " found for \"" + words + "\"" + through + (silent.isEmpty() ? "" : " (" + String.join(", ", silent) + ")") + "." + skip;
+        public String said(String words) { return said(words, Chrome.ENGLISH); }
+        public String said(String words, Chrome c) {
+            String engines = String.join(c.t(" and "), answered), quiet = String.join(", ", silent);
+            String skip = skipped == 0 ? "" : " " + c.t(skipped == 1 ? "{0} candidate was skipped as not a picture the model can look at (an SVG, a PDF and the like)." : "{0} candidates were skipped as not pictures the model can look at (an SVG, a PDF and the like).", skipped);
+            if (found.isEmpty()) return (answered.isEmpty() ? (silent.isEmpty() ? c.t("No picture was found for \"{0}\".", words) : c.t("No picture was found for \"{0}\"; {1}.", words, quiet))
+                    : silent.isEmpty() ? c.t("No picture was found for \"{0}\" through {1}.", words, engines) : c.t("No picture was found for \"{0}\" through {1}; {2}.", words, engines, quiet)) + skip;
+            String n = c.n(found.size(), "{0} picture", "{0} pictures");
+            return (answered.isEmpty() ? (silent.isEmpty() ? c.t("{0} found for \"{1}\".", n, words) : c.t("{0} found for \"{1}\" ({2}).", n, words, quiet))
+                    : silent.isEmpty() ? c.t("{0} found for \"{1}\" through {2}.", n, words, engines) : c.t("{0} found for \"{1}\" through {2} ({3}).", n, words, engines, quiet)) + skip;
         }
     }
 
@@ -1019,24 +1025,29 @@ public final class Images {
         public Liked(Reference reference, String words, String wordsWhy, String mode, String modeWhy, boolean twoPictures, Result found, List<Judged> judged, int skipped) { this(reference, words, wordsWhy, mode, modeWhy, twoPictures, found, judged, skipped, List.of(), Map.of()); }
         public Liked(Reference reference, String words, String wordsWhy, String mode, String modeWhy, boolean twoPictures, Result found, List<Judged> judged, int skipped, List<Found> sameAsReference) { this(reference, words, wordsWhy, mode, modeWhy, twoPictures, found, judged, skipped, sameAsReference, Map.of()); }
         /** "Your picture appears also on doyles.space (https://…) and on x.example (https://…)." — the candidates that were the reference's own bytes; "" when none. */
-        public String appearsAlso() {
+        public String appearsAlso() { return appearsAlso(Chrome.ENGLISH); }
+        public String appearsAlso(Chrome c) {
             if (sameAsReference.isEmpty()) return "";
             List<String> places = new ArrayList<>();
             for (Found f : sameAsReference) places.add((f.host().isEmpty() ? f.image() : f.host()) + " (" + (f.page() == null || f.page().isBlank() ? f.image() : f.page()) + ")");
-            return "Your picture appears also on " + String.join(" and on ", places) + ".";
+            return c.t("Your picture appears also on {0}.", String.join(c.t(" and on "), places));
         }
         /** How the judging was done, one sentence, and whether the likeness helper measured first. */
-        public String how(ModelEntries.Entry eyes) {
-            return (twoPictures ? "The model that sees (" + eyes.name() + ", " + eyes.model() + ") compared each candidate with your picture, both in one look."
-                    : "The model that sees (" + eyes.name() + ", " + eyes.model() + ") takes one picture at a time, so your picture was described in words and each candidate judged against those words.")
-                    + " " + capital(LikenessHelper.said()) + ".";
+        public String how(ModelEntries.Entry eyes) { return how(eyes, Chrome.ENGLISH); }
+        public String how(ModelEntries.Entry eyes, Chrome c) {
+            return (twoPictures ? c.t("The model that sees ({0}, {1}) compared each candidate with your picture, both in one look.", eyes.name(), eyes.model())
+                    : c.t("The model that sees ({0}, {1}) takes one picture at a time, so your picture was described in words and each candidate judged against those words.", eyes.name(), eyes.model()))
+                    + " " + capital(LikenessHelper.said(c)) + ".";
         }
         public long yes() { return judged.stream().filter(Judged::yes).count(); }
         public long unsure() { return judged.stream().filter(j -> j.verdict() == Verdict.UNSURE).count(); }
         /** "2 of 6 are the same, 1 unsure." / "… are like it." */
-        public String tally(String what) {
+        public String tally(String what) { return tally(what, Chrome.ENGLISH); }
+        /** {@code what} in the person's words already. */
+        public String tally(String what, Chrome c) {
             long y = yes(), u = unsure();
-            return y + " of " + judged.size() + (y == 1 ? " is" : " are") + (CONCEPT.equals(mode) ? " like it" : " the same" + (what == null || what.isBlank() ? "" : " " + what)) + (u == 0 ? "." : ", " + u + " unsure.");
+            String head = CONCEPT.equals(mode) ? (y == 1 ? "{0} of {1} is like it" : "{0} of {1} are like it") : what == null || what.isBlank() ? (y == 1 ? "{0} of {1} is the same" : "{0} of {1} are the same") : (y == 1 ? "{0} of {1} is the same {2}" : "{0} of {1} are the same {2}");
+            return c.t(head + (u == 0 ? "." : ", {3} unsure."), y, judged.size(), what, u);
         }
         /** The skipped, said; "" when none were. */
         public String skippedSaid() { int n = skipped + found.skipped(); return n == 0 ? "" : " " + n + (n == 1 ? " candidate was" : " candidates were") + " skipped as not " + (n == 1 ? "a picture" : "pictures") + " the model can look at (an SVG, a PDF and the like)."; }

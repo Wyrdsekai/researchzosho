@@ -15,6 +15,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.UUID;
 import java.util.zip.CRC32;
 import java.util.zip.ZipEntry;
@@ -67,8 +69,27 @@ public final class DocWriters {
             if (b.length() > 0) b.append("\n");
             blocks(images ? c.units() : c.units().stream().filter(u -> !u.kind().equals(DocUnits.IMAGE)).toList(), b, false);
         }
-        return b.toString().strip() + "\n";
+        String md = b.toString().strip() + "\n";
+        return images ? md : superscriptMarks(md.replaceAll("(?m)^\\[\\^(\\d+)]: ", "[^$1] "));   // a PDF or a Word file shows a note's mark as a raised number, not Markdown's [^1]
     }
+
+    private static final Pattern NOTE_MARK = Pattern.compile("\\[\\^(\\d+)]");
+
+    /** Note marks [^12] as raised numbers ¹², for the formats that show the mark itself. */
+    static String superscriptMarks(String s) {
+        Matcher m = NOTE_MARK.matcher(s);
+        StringBuilder b = new StringBuilder();
+        while (m.find()) {
+            StringBuilder sup = new StringBuilder();
+            for (char c : m.group(1).toCharArray()) sup.append("⁰¹²³⁴⁵⁶⁷⁸⁹".charAt(c - '0'));
+            m.appendReplacement(b, Matcher.quoteReplacement(sup.toString()));
+        }
+        m.appendTail(b);
+        return b.toString();
+    }
+
+    /** Note marks [^12] as [12], for plain text. */
+    static String bracketMarks(String s) { return NOTE_MARK.matcher(s).replaceAll("[$1]"); }
 
     /** The words alone: headings as lines, lists with their marks, a table's rows with their cells side by side, the marks within a line taken off. */
     public static String text(Doc d) {
@@ -77,7 +98,7 @@ public final class DocWriters {
             if (b.length() > 0) b.append("\n");
             blocks(c.units(), b, true);
         }
-        return b.toString().strip() + "\n";
+        return bracketMarks(b.toString().strip()) + "\n";
     }
 
     private static void blocks(List<Unit> units, StringBuilder b, boolean plain) {
@@ -120,6 +141,7 @@ public final class DocWriters {
                 case DocUnits.CODE -> { if (plain) { String t = u.text().replaceAll("(?m)^```.*$\\n?", ""); b.append(t.endsWith("\n") ? t : t + "\n"); } else b.append(u.text()).append('\n'); i++; }
                 case DocUnits.RULE -> { b.append(plain ? "----" : "---").append('\n'); i++; }
                 case DocUnits.IMAGE -> { b.append(plain ? "[" + (u.text().isBlank() ? "picture" : u.text()) + ": " + u.extra() + "]" : "![" + u.text() + "](" + u.extra() + ")").append('\n'); i++; }
+                case DocUnits.NOTE -> { b.append("[^").append(u.level()).append("]").append(plain ? " " + words(u.text()) : ": " + u.text()).append('\n'); i++; }   // Markdown's footnote; its number raised or bracketed for the other formats
                 default -> { b.append(u.text()).append('\n'); i++; }
             }
             prev = kind;
@@ -239,6 +261,7 @@ public final class DocWriters {
                 case DocUnits.CODE -> { String t = u.text().replaceAll("(?m)^```.*$\\n?", ""); b.append("<pre>").append(xml(t.replaceAll("\\s+$", ""))).append("</pre>\n"); i++; }
                 case DocUnits.RULE -> { b.append("<hr/>\n"); i++; }
                 case DocUnits.IMAGE -> { String href = imageHref.get(u.extra()); if (href != null) b.append("<p><img src=\"").append(xml(href)).append("\" alt=\"").append(xml(u.text())).append("\"/></p>\n"); i++; }
+                case DocUnits.NOTE -> { b.append("<aside epub:type=\"footnote\" id=\"fn-").append(u.level()).append("\"><p>").append(u.level()).append(". ").append(inline(u.text())).append("</p></aside>\n"); i++; }
                 default -> { b.append("<p>").append(inline(u.text())).append("</p>\n"); i++; }
             }
         }
@@ -250,8 +273,18 @@ public final class DocWriters {
         while (open.size() > keep) b.append("</").append(open.remove(open.size() - 1)).append(">\n");
     }
 
-    /** A line's Markdown marks as XHTML: bold, italic, code and links. */
+    /** A line's Markdown marks as XHTML: bold, italic, code and links; a note's mark a raised link to the note in the chapter. */
     static String inline(String text) {
+        Matcher m = NOTE_MARK.matcher(text);
+        if (m.find()) {
+            StringBuilder out = new StringBuilder(); int at = 0;
+            do { out.append(inlineMarks(text.substring(at, m.start()))).append("<sup><a epub:type=\"noteref\" href=\"#fn-").append(m.group(1)).append("\">").append(m.group(1)).append("</a></sup>"); at = m.end(); } while (m.find());
+            return out.append(inlineMarks(text.substring(at))).toString();
+        }
+        return inlineMarks(text);
+    }
+
+    private static String inlineMarks(String text) {
         StringBuilder b = new StringBuilder();
         for (Span s : ExportDoc.inline(text, Map.of())) {
             String t = xml(s.text());

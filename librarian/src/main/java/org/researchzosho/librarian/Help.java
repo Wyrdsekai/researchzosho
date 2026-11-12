@@ -3,6 +3,7 @@ package org.researchzosho.librarian;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 import org.researchzosho.drive.DriveClient;
@@ -251,96 +252,123 @@ public final class Help {
         } catch (Exception e) { return false; }
     }
 
-    /** The web search as research runs meet it: Brave or not, whether a SearXNG answers a search, and what is left when neither does. */
-    static String webSearch() {
+    /** The web search as research runs meet it, in English: what a program reads (library_help). */
+    static String webSearch() { return webSearch(Chrome.ENGLISH); }
+
+    /** The web search as research runs meet it: Brave or not, whether a SearXNG answers a search, and what is left when neither does; in {@code c}'s language. */
+    static String webSearch(Chrome c) {
         boolean brave = !Config.get("RESEARCHZOSHO_BRAVE_KEY", "").isBlank();
-        String set = Config.get("RESEARCHZOSHO_SEARXNG", ""), base = set.isBlank() ? "http://localhost:" + Searx.DEFAULT_PORT : set.replaceAll("/+$", "");
+        String set = Config.get("RESEARCHZOSHO_SEARXNG", ""), base = set.isBlank() ? WebSearchTool.defaultEndpoint() : set.replaceAll("/+$", "");   // the address the search tool itself asks when none is set
         boolean searx = Searx.answers(base), fallback = !"off".equalsIgnoreCase(Config.get("RESEARCHZOSHO_FALLBACK_SEARCH", ""));
-        StringBuilder b = new StringBuilder("Web search: ");
-        b.append(brave ? "Brave is searched first, its key is set. " : "there is no Brave key, so Brave is not searched. ");
-        if (searx) b.append("SearXNG at ").append(base).append(" answers searches").append(brave ? ", after Brave. " : ", so it is what research runs search with. ");
+        List<String> said = new ArrayList<>();
+        said.add(brave ? c.t("Web search: Brave is searched first, its key is set.") : c.t("Web search: there is no Brave key, so Brave is not searched."));
+        if (searx) said.add(brave ? c.t("SearXNG at {0} answers searches, after Brave.", base) : c.t("SearXNG at {0} answers searches, so it is what research runs search with.", base));
         else {
             String own = Searx.state();
-            b.append("No SearXNG answers searches at ").append(base)
-                    .append(own.equals("stopped") ? "; the library's own is installed but stopped, and researchzosho search start starts it. " : own.equals("running") ? "; the library's own is running but did not answer a search. " : "; researchzosho search start installs the library's own. ");
+            said.add(own.equals("stopped") ? c.t("No SearXNG answers searches at {0}; the library's own is installed but stopped, and researchzosho search start starts it.", base)
+                    : own.equals("running") ? c.t("No SearXNG answers searches at {0}; the library's own is running but did not answer a search.", base)
+                    : c.t("No SearXNG answers searches at {0}; researchzosho search start installs the library's own.", base));
         }
-        b.append("Wikipedia's search is the last resort, ").append(fallback ? "on." : "off.");
-        if (!brave && !searx) b.append(" With only Wikipedia's search, research runs find much less of the web.");
-        return b.toString();
+        said.add(fallback ? c.t("Wikipedia's search is the last resort, on.") : c.t("Wikipedia's search is the last resort, off."));
+        if (!brave && !searx) said.add(c.t("With only Wikipedia's search, research runs find much less of the web."));
+        return String.join(" ", said);
     }
 
-    /** The short form: the version, the model and whether it answers, the web search. */
-    public static String shortState() {
+    /** The short form, in English: what a program reads. */
+    public static String shortState() { return shortState(Chrome.ENGLISH); }
+
+    /** The short form: the version, the model and whether it answers, the web search; in {@code c}'s language. */
+    public static String shortState(Chrome c) {
         String drive = Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200"), model = Config.get("RESEARCHZOSHO_MODEL", "local-model");
-        return "ResearchZosho " + Version.string() + " is running here. The model is " + model + " at " + drive + (answers(drive) ? ", and it answers. " : ", and it does not answer now. ") + webSearch();
+        return c.t("ResearchZosho {0} is running here.", Version.string()) + " " + (answers(drive) ? c.t("The model is {0} at {1}, and it answers.", model, drive) : c.t("The model is {0} at {1}, and it does not answer now.", model, drive)) + " " + webSearch(c);
     }
 
-    /** The live state, in sentences: version, holdings, model, search, fields, commands, pages, and what is missing now. */
-    public static String state(LibraryStore store) {
-        StringBuilder b = new StringBuilder("ResearchZosho ").append(Version.string()).append(" is running here.");
+    /** The live state, in English: what library_help and a program read. */
+    public static String state(LibraryStore store) { return state(store, Chrome.ENGLISH); }
+
+    /**
+     * The live state, in sentences, in {@code c}'s language: version, holdings, model, search, fields, commands, pages. Each state is a whole
+     * sentence of its own (the model answers or not, search by meaning on or off, each search place's state), so every language says it whole.
+     */
+    public static String state(LibraryStore store, Chrome c) {
+        StringBuilder b = new StringBuilder(c.t("ResearchZosho {0} is running here.", Version.string()));
         try {
             ObjectNode a = M.createObjectNode(); a.putObject("patron").put("did", "person").put("name", "the person").put("runtime", "local");
             JsonNode st = new LibraryProtocol(store).status(a);
             int claims = st.path("counts").path("finding").path("total").asInt(0), runs = st.path("counts").path("investigation").asInt(0), pages = st.path("counts").path("raw").asInt(0);
-            b.append(" This library holds ").append(claims).append(claims == 1 ? " claim, " : " claims, ").append(runs).append(runs == 1 ? " write-up" : " write-ups")
-                    .append(" and ").append(pages).append(pages == 1 ? " page kept from the web." : " pages kept from the web.");
-            String meaning = st.path("search_by_meaning").asText("");
-            if (!meaning.isEmpty()) b.append(" Search by meaning is ").append(meaning).append('.');
+            b.append(' ').append(c.t("This library holds claims: {0}, write-ups: {1}, pages kept from the web: {2}.", c.number(claims), c.number(runs), c.number(pages)));
+            String meaning = switch (st.path("search_by_meaning").asText("")) {
+                case "on" -> c.t("Search by meaning is on.");
+                case "off" -> c.t("Search by meaning is off.");
+                case "not answering" -> c.t("Search by meaning is not answering.");
+                default -> "";
+            };
+            if (!meaning.isEmpty()) b.append(' ').append(meaning);
         } catch (Exception ignored) { }
         String drive = Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200"), model = Config.get("RESEARCHZOSHO_MODEL", "local-model");
         boolean up = answers(drive);
-        b.append("\nThe model it talks to by default is ").append(model).append(" at ").append(drive).append(up ? ", and it answers." : ", and it does not answer now: research runs and the chat need it.");
+        b.append('\n').append(up ? c.t("The model it talks to by default is {0} at {1}, and it answers.", model, drive) : c.t("The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.", model, drive));
         List<String> named = new ArrayList<>(ModelEntries.all().keySet());
-        if (!named.isEmpty()) b.append(" Named models it can also use: ").append(String.join(", ", named)).append('.');
-        b.append("\n").append(webSearch());
+        if (!named.isEmpty()) b.append(' ').append(c.t("Named models it can also use: {0}.", String.join(c.sep(), named)));
+        b.append('\n').append(webSearch(c));
+        String semi = c.english() ? "; " : c.sep();   // the items of these lists hold commas of their own
         List<String> fields = new ArrayList<>();
-        for (Profile p : Fields.enabled(store)) fields.add(p.name() + " (" + p.description() + ")");
-        if (!fields.isEmpty()) b.append("\nFields that are on: ").append(String.join("; ", fields)).append('.');
-        List<String> cmds = new ArrayList<>(List.of("/help, and words after it to look something up in the documentation", "/model", "/interview and a name", "/suggest"));
-        for (Profile p : Fields.enabled(store)) if (!p.chatCommandHelp().isBlank()) cmds.add(p.chatCommandHelp().strip());
-        b.append("\nThe chat's own commands: ").append(String.join("; ", cmds)).append('.');
-        b.append("\nThe pages: Home, Ask, Search, Subjects, Map, Dossiers, Inbox, Open questions, Runs, Research, Suggested, Changes, Chat, Help and Settings");
-        List<String> own = new ArrayList<>(); for (Profile p : Fields.enabled(store)) for (Profile.Link l : p.menu()) own.add(l.label());
-        if (!own.isEmpty()) b.append(", and the fields' own: ").append(String.join(", ", own));
-        b.append('.');
+        for (Profile p : Fields.enabled(store)) fields.add(c.tc("{0} ({1})", FIELD_ITEM, c.english() ? p.name() : c.tc(p.name(), Fields.NAME_MEANING), c.t(p.description())));
+        if (!fields.isEmpty()) b.append('\n').append(c.t("Fields that are on: {0}.", String.join(semi, fields)));
+        List<String> cmds = new ArrayList<>(List.of(c.t("/help, and words after it to look something up in the documentation"), "/model", c.t("/interview and a name"), "/suggest"));
+        for (Profile p : Fields.enabled(store)) if (!p.chatCommandHelp().isBlank()) cmds.add(c.t(p.chatCommandHelp().strip()));
+        b.append('\n').append(c.t("The chat's own commands: {0}.", String.join(semi, cmds)));
+        List<String> pages = new ArrayList<>();
+        for (String page : List.of("Home", "Ask", "Search", "Subjects", "Map", "Dossiers", "Inbox", "Open questions", "Runs", "Research", "Suggested", "Changes", "Chat", "Help", "Settings")) pages.add(c.t(page));
+        b.append('\n').append(c.t("The pages: {0}.", c.and(pages)));
+        List<String> own = new ArrayList<>(); for (Profile p : Fields.enabled(store)) for (Profile.Link l : p.menu()) own.add(c.t(l.label()));
+        if (!own.isEmpty()) b.append(' ').append(c.t("The fields' own pages: {0}.", String.join(c.sep(), own)));
         return b.toString();
     }
 
-    /** What /help and some words answer, and the Help page: the documentation's sections first, then what is running here, in short. */
-    public static String lookup(LibraryStore store, String question) {
+    /** The meaning beside "{0} ({1})" in the list of fields: a field's name and what it does. */
+    static final String FIELD_ITEM = "a field's name and what it does, in a list";
+
+    /** What /help and some words answer, and the Help page, in English. */
+    public static String lookup(LibraryStore store, String question) { return lookup(store, question, Chrome.ENGLISH); }
+
+    /** What /help and some words answer, and the Help page, in {@code c}'s language: the documentation's sections first (as the documents are written), then what is running here, in short. */
+    public static String lookup(LibraryStore store, String question, Chrome c) {
         String q = question == null ? "" : question.strip();
-        if (q.isEmpty()) return answer(store, "");
-        return sections(q) + "\n\nWhat is running here: " + shortState();
+        if (q.isEmpty()) return answer(store, "", c);
+        return sections(q, c) + "\n\n" + c.t("What is running here: {0}", shortState(c));
     }
 
     /** The sections that answer the question, with where to ask; or that the documentation says nothing on it. */
-    static String sections(String q) {
-        if (docs().isEmpty()) return missing();
+    static String sections(String q, Chrome c) {
+        if (docs().isEmpty()) return missing(c);
         List<Section> found = find(q, 3);
-        if (found.isEmpty()) return "Its own documentation says nothing on \"" + q + "\". Questions it does not answer can be asked at " + ISSUES + ".";
-        StringBuilder b = new StringBuilder("From its own documentation:");
+        if (found.isEmpty()) return c.t("Its own documentation says nothing on \"{0}\". Questions it does not answer can be asked at {1}.", q, ISSUES);
+        StringBuilder b = new StringBuilder(c.t("From its own documentation:"));
         for (Section s : found) {
             String t = s.text().length() > 1800 ? s.text().substring(0, 1800) + " …" : s.text();
             b.append("\n\n## ").append(s.doc()).append(": ").append(s.heading()).append("\n").append(t);
         }
-        return b.append("\n\nIf this does not answer it, the documentation does not cover it: ask at ").append(ISSUES).append('.').toString();
+        return b.append("\n\n").append(c.t("If this does not answer it, the documentation does not cover it: ask at {0}.", ISSUES)).toString();
     }
 
     /** What it says when it has no documentation to hand: why, and where it is online. */
-    static String missing() {
-        return "This copy has no documentation to hand yet. An installed copy reads it from GitHub the first time it is needed and keeps it, and that has not "
-                + "worked from here; it is online at " + online() + ". Questions it does not answer can be asked at " + ISSUES + ".";
+    static String missing(Chrome c) {
+        return c.t("This copy has no documentation to hand yet. An installed copy reads it from GitHub the first time it is needed and keeps it, and that has not worked from here; it is online at {0}. Questions it does not answer can be asked at {1}.", online(), ISSUES);
     }
 
-    /** What library_help answers: the whole live state, then the documentation's sections that answer the question, then where to ask. */
-    public static String answer(LibraryStore store, String question) {
-        StringBuilder b = new StringBuilder(state(store));
+    /** What library_help answers, in English: the whole live state, then the documentation's sections that answer the question, then where to ask. */
+    public static String answer(LibraryStore store, String question) { return answer(store, question, Chrome.ENGLISH); }
+
+    /** The same in {@code c}'s language: the Help page asked nothing. */
+    public static String answer(LibraryStore store, String question, Chrome c) {
+        StringBuilder b = new StringBuilder(state(store, c));
         String q = question == null ? "" : question.strip();
         if (q.isEmpty()) {
             List<String> names = new ArrayList<>(); for (String d : docs()) names.add(d.replaceFirst("\\.md$", ""));
-            b.append("\n\n").append(names.isEmpty() ? missing() : "Its documentation: " + String.join(", ", names) + ". Ask about anything in it.");
+            b.append("\n\n").append(names.isEmpty() ? missing(c) : c.t("Its documentation: {0}. Ask about anything in it.", String.join(c.sep(), names)));
             return b.toString();
         }
-        return b.append("\n\n").append(sections(q)).toString();
+        return b.append("\n\n").append(sections(q, c)).toString();
     }
 }

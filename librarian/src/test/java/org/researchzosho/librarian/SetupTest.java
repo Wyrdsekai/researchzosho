@@ -28,6 +28,8 @@ class SetupTest {
         @Override public List<String> models(String base, String key) { return base.equals(answering) ? ids : null; }
         @Override public String chat(String base, String model, String key) { return base.equals(answering) ? "ready" : "!nothing is answering at that address"; }
         @Override public boolean embeds(String base, String key) { return embeds && base.equals(answering); }
+        final List<String> slotsAsked = new ArrayList<>();   // the address asked how many calls at once it answers: answered here, never by the machine
+        @Override public ModelSlots.Plan slots(String base, String model) { slotsAsked.add(base); return ModelSlots.plan(base.equals(answering) ? 4 : 0, base.equals(answering) ? "llama.cpp says so" : "the model server did not answer; the usual numbers until it does"); }
         String searx = null; String braveKey = null;                 // what answers a search probe, if anything
         @Override public boolean searxng(String base) { return searx != null && base.equals(searx); }
         @Override public boolean brave(String key) { return braveKey != null && key.equals(braveKey); }
@@ -81,11 +83,13 @@ class SetupTest {
     @Test
     void theScorersAreOfferedWithTheirSizesAndSetUpOnAYes(@TempDir Path home) throws Exception {
         var acts = new FakeActs(); acts.scorers = true;
-        var free = TranslationScores.FREE; var metricx = TranslationScores.METRICX_INSTALL;
+        var free = TranslationScores.FREE; var metricx = TranslationScores.METRICX_INSTALL; var labseUp = TranslationScores.LABSE_UP; var docker = Searx.runner;
         try {
+            // no LaBSE and no Docker on the machine setup runs on, whatever the machine the tests run on has
+            TranslationScores.LABSE_UP = () -> false; Searx.runner = cmd -> new Searx.Result(1, "");
             TranslationScores.FREE = () -> 200L << 30;
             String out = run(home, "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts, true, true, true);
-            assertTrue(out.contains("A checked translation scores every line with LaBSE and MetricX-24. Set up ") && out.contains("MetricX-24 (about 4.7 GB") && out.contains("now?"), out);
+            assertTrue(out.contains("A checked translation scores every line with LaBSE and MetricX-24. Set up LaBSE (") && out.contains(" and MetricX-24 (about 4.7 GB") && out.contains("now?"), "both are missing on a machine that has neither: " + out);
             assertTrue(out.contains("Setting them up; this takes minutes.") && out.contains("(the scorers' install, stood in)") && out.contains("Both scorers are ready."), out);
             assertEquals(1, acts.scorersInstalled);
             // a disk without the room: said, not done
@@ -99,7 +103,7 @@ class SetupTest {
             TranslationScores.FREE = () -> 200L << 30;
             String off = run(home.resolve("three"), "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts3, true, true, true, Map.of("RESEARCHZOSHO_SCORERS", "off"));
             assertFalse(off.contains("MetricX-24"), off);
-        } finally { TranslationScores.FREE = free; TranslationScores.METRICX_INSTALL = metricx; }
+        } finally { TranslationScores.FREE = free; TranslationScores.METRICX_INSTALL = metricx; TranslationScores.LABSE_UP = labseUp; Searx.runner = docker; }
     }
 
     @Test
@@ -278,6 +282,7 @@ class SetupTest {
         @Override public List<String> models(String base, String key) { return base.equals("http://localhost:8080") ? List.of("embed", "qwen3.8-27b") : null; }
         @Override public String chat(String base, String model, String key) { asked.add(model); return model.equals("qwen3.8-27b") ? "ready" : "!the server answered 404"; }
         @Override public boolean embeds(String base, String key) { return false; }
+        @Override public ModelSlots.Plan slots(String base, String model) { return ModelSlots.plan(4, "llama.cpp says so"); }
     }
 
     @Test

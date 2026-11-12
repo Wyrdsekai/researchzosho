@@ -244,7 +244,7 @@ public record RunLimits(int maxMinutes, int maxTurns, String sources, boolean no
         switch (sources) { case "shelves" -> p.add(c.t("from the shelves only")); case "web" -> p.add(c.t("from the web only")); case "both" -> p.add(c.t("the web too")); default -> { } }
         if (noPaid) p.add(c.t("no paid search services"));
         if (!model.isEmpty()) p.add(c.t("on the model {0}", model));
-        return String.join(c.ja() ? "、" : ", ", p);
+        return String.join(c.sep(), p);
     }
 
     /**

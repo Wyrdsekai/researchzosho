@@ -32,7 +32,7 @@ services:
   # the first library; scripts/fleet.sh create <name> runs the others the same way, on this network
   rz-alpha:
     container_name: rz-alpha   # named as scripts/fleet.sh names the others, so the route table and the list agree
-    image: ${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.2}
+    image: ${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.3}
     volumes:
       - rz-alpha-library:/library
       - rz-alpha-config:/config

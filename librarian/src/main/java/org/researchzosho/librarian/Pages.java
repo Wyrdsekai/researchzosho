@@ -129,7 +129,8 @@ final class Pages {
                         Live live = s == null ? null : LIVE.get(s.id);
                         if (live != null && !live.done) live.stop = true;
                         sendJson(x, 200, M.createObjectNode().put("stopping", live != null && !live.done));
-                    } else if ("POST".equals(method) && "1".equals(form.get("page"))) {   // the Chat page's own script: the reply comes back as the page's changing part; the box to say the next thing is never sent back, so what is typed in it stays
+                    } else if ("POST".equals(method) && "delete".equals(form.get("op"))) redirect(x, chatDelete(store, patron, form));   // Delete… on a conversation in the list, or on the one open in the page
+                    else if ("POST".equals(method) && "1".equals(form.get("page"))) {   // the Chat page's own script: the reply comes back as the page's changing part; the box to say the next thing is never sent back, so what is typed in it stays
                         Turn turn = liveTurn(d, store, patron, form);
                         Librarian.Session s = turn.show() != null ? turn.show() : chatSession(store, patron, form);
                         // a command opened another conversation: the page's script goes to it, so the box to say the next thing names it
@@ -149,8 +150,8 @@ final class Pages {
                     else send(x, 200, page(store, patron, t("Bridges"), BridgesPage.body(store, patron, q, null)));
                 }
                 case LaunchPage.PATH -> {
-                    if ("POST".equals(method)) { LaunchPage.Done done = LaunchPage.post(store, patron, form); if (done.section() != null) send(x, 200, page(store, patron, t("Read in"), LaunchPage.body(store, patron, q, done.section()))); else redirect(x, LaunchPage.PATH + "?note=" + URLEncoder.encode(done.note(), StandardCharsets.UTF_8)); }
-                    else send(x, 200, page(store, patron, t("Read in"), LaunchPage.body(store, patron, q, null)));
+                    if ("POST".equals(method)) { LaunchPage.Done done = LaunchPage.post(store, patron, form); if (done.section() != null) send(x, 200, page(store, patron, tc("Read in", READ_IN_PAGE), LaunchPage.body(store, patron, q, done.section()))); else redirect(x, LaunchPage.PATH + "?note=" + URLEncoder.encode(done.note(), StandardCharsets.UTF_8)); }
+                    else send(x, 200, page(store, patron, tc("Read in", READ_IN_PAGE), LaunchPage.body(store, patron, q, null)));
                 }
                 case DbPage.PATH -> {
                     if ("POST".equals(method)) { DbPage.Done done = DbPage.post(store, patron, form); if (done.section() != null) send(x, 200, page(store, patron, t("Databases"), DbPage.body(store, patron, Map.of("database", form.getOrDefault("database", ""), "sql", form.getOrDefault("sql", "")), done.section()))); else redirect(x, DbPage.PATH + "?note=" + URLEncoder.encode(done.note(), StandardCharsets.UTF_8)); }
@@ -186,7 +187,12 @@ final class Pages {
                 case "/questions" -> { if ("POST".equals(method)) { String to = questionsPost(d, store, p, patron, form); redirect(x, to); } else send(x, 200, questions(store, p, patron, q)); }
                 case "/inbox" -> { if ("POST".equals(method)) { inboxPost(store, patron, form); redirect(x, "/inbox"); } else send(x, 200, inbox(store, p, patron, q)); }
                 case "/remove" -> { if ("POST".equals(method)) send(x, 200, removePost(store, p, patron, form)); else redirect(x, "/"); }
-                case "/jobs" -> { if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron, q)); }
+                case "/jobs" -> {
+                    if ("POST".equals(method) && "withdraw-scores".equals(form.get("op"))) {   // a translation's units off the record the checks are measured from: what left, and the thresholds now
+                        String id = form.getOrDefault("job_id", "").strip();
+                        send(x, 200, page(store, patron, t("Run {0}", id), withdrawPost(store, patron, id)));
+                    } else if ("POST".equals(method)) { jobsPost(p, patron, form); redirect(x, "/jobs"); } else send(x, 200, jobs(store, p, patron, q));
+                }
                 case "/explain" -> send(x, 200, explain(store, p, patron, q));
                 case "/download" -> download(x, store, patron, q);
                 case "/translate" -> {   // a document of the person's own translated: the file, the language, the format and the tier, filed as a job
@@ -314,7 +320,7 @@ final class Pages {
                 send(x, 403, SignIn.loginPage(store, t("This library is shared with named readers. Sign in with your name and password, or ask to be let in."), x));
                 return;
             }
-            String hint = "forbidden".equals(e.code) && patron.anonymous() ? " " + t("{0} to do this.", "<a href=\"/login\">" + t("Sign in") + "</a>") : "";
+            String hint = "forbidden".equals(e.code) && patron.anonymous() ? " <a href=\"/login\">" + t("Sign in to do this.") + "</a>" : "";
             String c = cookie(x, COOKIE);
             if ("forbidden".equals(e.code) && c != null && !c.isBlank()) {
                 // the browser sent a sign-in that is refused now (a token removed or denied since): forget it here, so the next load is a plain visit
@@ -356,7 +362,7 @@ final class Pages {
         ObjectNode status = p.status(args(patron));
         JsonNode c = status.path("counts");
         StringBuilder b = new StringBuilder();
-        b.append("<p class=\"k\">").append(t("This library has {0} claims ({1} accepted, {2} disputed, {3} waiting for review), {4} reports, {5} summaries and {6} saved pages, on {7} subjects. Last change {8}.",
+        b.append("<p class=\"k\">").append(t("Claims: {0} ({1} accepted, {2} disputed, {3} waiting for review). Reports: {4}. Summaries: {5}. Saved pages: {6}. Subjects: {7}. Last change {8}.",
                 c.path("finding").path("total").asInt(), c.path("finding").path("accepted").asInt(), c.path("finding").path("disputed").asInt(), c.path("finding").path("draft").asInt(), c.path("investigation").asInt(), c.path("article").asInt(), c.path("raw").asInt(), c.path("subject").asInt(), when(status.path("last_updated").asText("never"))))
          .append(" ").append(esc(d.describeWorkers())).append(".</p>");
         List<Suggestions.Entry> now = new ArrayList<>(); try { for (Suggestions.Entry e : Suggestions.open(store)) if (e.klass().equals("now") && now.size() < 2) now.add(e); } catch (IOException ignored) { }
@@ -416,7 +422,7 @@ final class Pages {
             RunProgress.View v = RunProgress.of(Jobs.view(raw), now, typical);
             String title = runName(store, raw);
             String kind = reportKind(raw.path("args").path("field").asText(""));
-            String line = v.state().equals("running") ? t("Still being made: {0}, {1} in; the report fills as it goes.", esc(Chrome.now().english() ? v.stage().toLowerCase(Locale.ROOT) : v.stage()), esc(RunProgress.elapsed(v.elapsedSeconds())))
+            String line = v.state().equals("running") ? t("Still being made: {0}, {1} in; the report fills as it goes.", esc(RunProgress.stageInSentence(raw.path("progress"))), esc(RunProgress.elapsed(v.elapsedSeconds())))
                     : v.state().equals("queued") ? t("Waiting to start; the runs ahead of it go first.") : t("Waiting for your answer in the chat; with none, it starts as it was filed.");
             rows.add(new PastRow(kind, "/jobs/" + enc(v.id()), title, line, "being made", raw.path("started_at").asText(raw.path("queued_at").asText(""))));
         }
@@ -483,10 +489,10 @@ final class Pages {
         try {
             ObjectNode shelf = Shelf.profile(store);
             if (shelf.path("calibre").asBoolean()) { String last = ""; for (JsonNode x : shelf.path("added_lately")) { String t = x.asText(); if (t.length() >= 10 && t.substring(0, 10).matches("\\d{4}-\\d{2}-\\d{2}") && t.compareTo(last) > 0) last = t.substring(0, 10); }
-                rows.add(new PastRow("books", BooksPage.PATH, t("Your shelf"), esc(BooksPage.stateLine(shelf)), "done", last)); }
+                rows.add(new PastRow("books", BooksPage.PATH, t("Your shelf"), esc(BooksPage.stateLine(shelf, Chrome.now())), "done", last)); }
         } catch (Exception ignored) { }
         List<Serials.Shelf> shows = PodcastsPage.followed(store);
-        if (!shows.isEmpty()) { String last = ""; for (Serials.Shelf s : shows) if (PodcastsPage.checked(s) && s.lastChecked().compareTo(last) > 0) last = s.lastChecked(); rows.add(new PastRow("podcasts", PodcastsPage.PATH, t("Podcasts followed"), esc(PodcastsPage.stateLine(shows)), "done", last)); }
+        if (!shows.isEmpty()) { String last = ""; for (Serials.Shelf s : shows) if (PodcastsPage.checked(s) && s.lastChecked().compareTo(last) > 0) last = s.lastChecked(); rows.add(new PastRow("podcasts", PodcastsPage.PATH, t("Podcasts followed"), esc(PodcastsPage.stateLine(shows, Chrome.now())), "done", last)); }
         List<VideoRecall.Held> videos = VideoRecall.held(store);   // the videos the library has read, with their three tracks: a row of the videos' kind, with the Video page
         if (!videos.isEmpty()) { String last = ""; for (VideoRecall.Held h : videos) if (h.readOn().compareTo(last) > 0) last = h.readOn(); rows.add(new PastRow("videos", "/video#held", t("Videos read"), esc(VideoRecallPage.heldLine(videos)), "done", last)); }
         for (ObjectNode k : VideoRecall.kept(store))
@@ -554,7 +560,7 @@ final class Pages {
         StringBuilder s = new StringBuilder(t("Done {0}.", esc(dayTime(inv.recordedAt())))).append(" ").append(t("Report filed"));
         if (led != null && led.path("cite_checked").asInt(0) > 0) s.append("; ").append(t("{0} of {1} cited sentences checked against their sources", led.path("cite_supported").asInt(), led.path("cite_checked").asInt())).append(led.path("cite_unsupported").asInt(0) > 0 ? ", " + t("{0} marked", led.path("cite_unsupported").asInt()) : "");
         s.append("; ").append(n(inv.findings().size(), "{0} claim", "{0} claims")).append(", ").append(n(inv.open().size(), "{0} open question", "{0} open questions")).append(".");
-        if (waiting > 0) s.append(" ").append(t("Since then: {0} for your review.", n(waiting, "{0} claim waits", "{0} claims wait")));
+        if (waiting > 0) s.append(" ").append(n(waiting, "Since then: {0} claim waits for your review.", "Since then: {0} claims wait for your review."));
         if (job != null && job.path("declined").isObject() && !job.path("declined").path("run").asBoolean(false)) s.append(" ").append(t("The model declined part of it."));
         if (inv.state() == Finding.State.draft && job != null && job.path("checks").path("held").asBoolean(false)) s.append(" ").append(t("It is not accepted and waits for you to look at it."));   // one of its own checks holds it back; Updates says why
         return s.toString();
@@ -568,7 +574,7 @@ final class Pages {
             Finding f = store.finding(fid);
             if (f == null) return "";
             boolean est = f.state() == Finding.State.accepted;
-            return "<a class=\"est" + (est ? "" : " no") + "\" href=\"/entry/" + enc(fid) + "\" title=\"" + (est ? t("established: accepted") : t("not yet: {0}", f.state().name())) + "\">" + (est ? "●" : "○") + "</a>";
+            return "<a class=\"est" + (est ? "" : " no") + "\" href=\"/entry/" + enc(fid) + "\" title=\"" + (est ? t("established: accepted") : t("not yet: {0}", t(f.state().name()))) + "\">" + (est ? "●" : "○") + "</a>";
         } catch (Exception e) { return ""; }
     }
 
@@ -701,7 +707,7 @@ final class Pages {
             Investigation report; try { report = store.investigation(inv); } catch (Exception e) { report = null; }
             if (report == null) continue;
             int w = waiting.getOrDefault(inv, 0);
-            String gist = t("Report filed; {0}, {1}", n(report.findings().size(), "{0} claim", "{0} claims"), n(report.open().size(), "{0} open question", "{0} open questions")) + (w > 0 ? "; " + t("{0} for your review.", n(w, "{0} waits", "{0} wait")) : ".");
+            String gist = t("Report filed; {0}, {1}", n(report.findings().size(), "{0} claim", "{0} claims"), n(report.open().size(), "{0} open question", "{0} open questions")) + (w > 0 ? "; " + n(w, "{0} waits for your review.", "{0} wait for your review.") : ".");
             String acts = (w > 0 ? "<a class=\"btn\" href=\"/inbox?report=" + enc(inv) + "\">" + t("Review the {0}", w) + "</a> " : "") + "<a class=\"btn quiet\" href=\"/entry/" + enc(inv) + "?beside=1\">" + t("Open") + "</a>";
             // a report that one of its own checks holds back is not accepted: the row says so and why, and the keeper accepts it here
             ReportStanding.Row hold = report.state() == Finding.State.draft ? ReportStanding.held(store, report) : null;
@@ -727,7 +733,7 @@ final class Pages {
         for (var e : waiting.entrySet()) {
             if (landed.contains(e.getKey())) continue;
             long at = RunProgress.millis(latest.getOrDefault(e.getKey(), "") + "T00:00:00Z");
-            rows.add(new Update(at, "/entry/" + enc(e.getKey()) + "?beside=1", titles.get(e.getKey()), t("claims wait for your review"), t("{0} for your review.", n(e.getValue(), "{0} claim waits", "{0} claims wait")), "<a class=\"btn\" href=\"/inbox?report=" + enc(e.getKey()) + "\">" + t("Review the {0}", e.getValue()) + "</a>", "waiting:" + e.getKey()));
+            rows.add(new Update(at, "/entry/" + enc(e.getKey()) + "?beside=1", titles.get(e.getKey()), t("claims wait for your review"), n(e.getValue(), "{0} claim waits for your review.", "{0} claims wait for your review."), "<a class=\"btn\" href=\"/inbox?report=" + enc(e.getKey()) + "\">" + t("Review the {0}", e.getValue()) + "</a>", "waiting:" + e.getKey()));
         }
         // claims that changed: came back, were retracted or revised, accepted, disputed, retired; the newest change of each claim
         Map<String, Changes.Change> byClaim = new LinkedHashMap<>();
@@ -739,7 +745,7 @@ final class Pages {
             else if (ev.equals("revised")) { what = t("a claim's source was revised"); gist = t("A newer version of the paper behind it is out ({0}).", c.detail()); }
             else if (ev.startsWith("state:")) { String to = ev.substring(ev.lastIndexOf('→') + 1); what = to.equals("accepted") ? t("a claim was accepted") : to.equals("disputed") ? t("a claim was disputed") : to.equals("retired") ? t("a claim was retired") : t("a claim changed state"); gist = c.detail().isEmpty() ? ev.substring(6).replace("→", " → ") : c.detail(); }
             else if (ev.equals("edited")) { what = t("a claim was edited"); gist = c.detail(); }
-            else { what = t("a claim {0}", ev); gist = c.detail(); }
+            else { what = t("a claim changed"); gist = ev + (c.detail().isBlank() ? "" : ": " + c.detail()); }
             String title = c.id(); try { Finding f = store.finding(c.id()); if (f != null) title = f.title(); } catch (Exception ignored) { }
             rows.add(new Update(RunProgress.millis(c.at()), "/entry/" + enc(c.id()), title, what, esc(Acquisitions.compress(gist, 200)), "<a class=\"btn quiet\" href=\"/entry/" + enc(c.id()) + "\">" + t("Open") + "</a>", "change:" + c.id()));
         }
@@ -917,9 +923,9 @@ final class Pages {
         StringBuilder b = new StringBuilder("<p class=\"lede\">").append(t("What the person who keeps the library looks after, behind this one link.")).append("</p>");
         String note = q.getOrDefault("note", "");
         if (!note.isEmpty()) b.append("<p class=\"notice\">").append(esc(note)).append("</p>");
-        String refused = OutsideServices.refusedNotice(store);   // a key the last check refused is said at the top, until the next check
+        String refused = OutsideServices.refusedNotice(store, Chrome.now());   // a key the last check refused is said at the top, until the next check
         if (!refused.isEmpty()) b.append("<p class=\"notice\">").append(esc(refused)).append("</p>");
-        if (!WebAccess.signInRequired()) b.append("<p class=\"notice\">").append(esc(WebAccess.OPEN_NOTICE)).append(" ").append(esc(WebAccess.OPEN_HOWTO).replace("run: ", "run <code>")).append("</code></p>");
+        if (!WebAccess.signInRequired()) b.append("<p class=\"notice\">").append(t("Access is open. To require sign-in, run {0}.", "<code>" + esc(WebAccess.OPEN_COMMAND) + "</code>")).append("</p>");
         b.append(fold("connection", t("Connection and models"), n(entries.size(), "{0} model named", "{0} models named") + (hosted > 0 ? ", " + t("{0} rented", hosted) : "") + " · " + t("the drive at {0}", esc(DRIVE_NOW.get())),
                 modelsSection(store).replace("<h2>" + t("Models") + "</h2>", "") + "<p><a class=\"btn\" href=\"/connect\">" + t("Connect another, or test one") + "</a> <a class=\"k\" href=\"" + MODELS_PAGE + "\">" + t("the models page") + "</a></p>"));
         b.append(fold("sources", t("Sources and their yield"), n(sources, "{0} source", "{0} sources"), SourcesPage.body(store, true, q)));
@@ -949,10 +955,10 @@ final class Pages {
 
     /** The Translate form: a file, the language, the format out, the tier; the glossary beneath, with a line to add to it. */
     static String translateForm(LibraryStore store) {
-        StringBuilder b = new StringBuilder("<p class=\"k\">").append(t("A document of your own (txt, md, pdf, docx or epub) translated into another language, unit by unit: headings, paragraphs, list items, table cells, captions. The structure is kept; the layout is not. Checked, the default, is one pass with the program's checks and scores and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading of the flagged units and a sample of the rest; thorough reads every unit. What cannot be settled is marked. The time is said when the run is filed; the run's page has the file, its note and where both are on the shelves.")).append("</p>");
+        StringBuilder b = new StringBuilder("<p class=\"k\">").append(t("A document of your own (txt, md, pdf, docx or epub) translated into another language, unit by unit: headings, paragraphs, list items, table cells, captions. The structure is kept; the layout is not. Checked, the default, is one pass with the program's checks and scores and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading of the flagged units and a sample of the rest; thorough reads every unit. What the checks still doubt is listed in the note beside the translation, never in its text; the box below puts it at the end of the document too, numbered. The time is said when the run is filed; the run's page has the file, its note and where both are on the shelves.")).append("</p>");
         b.append("<form method=\"post\" action=\"/translate\" enctype=\"multipart/form-data\" class=\"stack\"><input type=\"file\" name=\"file\" required aria-label=\"").append(esc(t("the file to translate"))).append("\"> ");
         b.append("<select name=\"to\" aria-label=\"").append(esc(t("the language"))).append("\">");
-        for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\"").append(e.getKey().equals("ja") ? " selected" : "").append(">").append(esc(e.getValue())).append("</option>");
+        for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\"").append(e.getKey().equals("ja") ? " selected" : "").append(">").append(esc(Chrome.now().languageLabel(e.getKey()))).append("</option>");
         b.append("</select> <select name=\"as\" aria-label=\"").append(esc(t("the format"))).append("\"><option value=\"\">").append(t("the same format")).append("</option><option value=\"md\">Markdown</option><option value=\"pdf\">PDF</option><option value=\"docx\">Word</option><option value=\"epub\">EPUB</option><option value=\"txt\">").append(t("plain text")).append("</option></select> ");
         b.append("<select name=\"quality\" aria-label=\"").append(esc(t("the tier"))).append("\"><option value=\"checked\" selected>").append(t("checked (the default)")).append("</option><option value=\"quick\">").append(t("quick")).append("</option><option value=\"reviewed\">").append(t("reviewed")).append("</option><option value=\"thorough\">").append(t("thorough")).append("</option></select> ");
         List<ModelEntries.Entry> models = new ArrayList<>(); for (ModelEntries.Entry e : ModelEntries.all().values()) if (!e.name().equals(ModelEntries.DEFAULT)) models.add(e);
@@ -965,6 +971,8 @@ final class Pages {
         if (!models.isEmpty()) b.append("<option value=\"auto\">").append(t("checked by the strongest other model (auto)")).append("</option>");
         for (ModelEntries.Entry e : models) b.append("<option value=\"").append(esc(e.name())).append("\">").append(esc(t("checked by {0}", e.name() + (e.hosted() ? " (" + t("hosted, paid") + (ModelEntries.keyKept(e) ? "" : "; " + t("no key kept yet")) + ")" : "")))).append("</option>");
         b.append("</select> <label><input type=\"checkbox\" name=\"back\" value=\"on\"> ").append(t("translate a sample back and compare (on by itself when one model checks its own work)")).append("</label> ");
+        // the notes at the end: ticked when the setting makes them the default; the hidden field says the box was on the form, so an unticked box is an off
+        b.append("<input type=\"hidden\" name=\"notes_box\" value=\"1\"><label><input type=\"checkbox\" name=\"notes\" value=\"end\"").append(Translation.NOTES_END.equals(Translation.notes("")) ? " checked" : "").append("> ").append(t(Translation.NOTES_BOX)).append("</label> ");
         if (models.stream().anyMatch(e -> !ModelEntries.keyKept(e))) b.append("<small class=\"k\">").append(t("A hosted model runs on its host's key; one without it is listed but no run uses it. The Settings page keeps keys under Models.")).append("</small> ");
         b.append(scorersLine());
         b.append("<input name=\"collection\" placeholder=\"").append(esc(t("a collection to shelve it under (optional)"))).append("\" aria-label=\"").append(esc(t("the collection"))).append("\"> <button>").append(t("Translate the file")).append("</button></form>");
@@ -972,7 +980,7 @@ final class Pages {
         List<Glossary.Entry> entries = Glossary.list(store);
         if (!entries.isEmpty()) { b.append("<ul class=\"tight\">"); for (Glossary.Entry e : entries) b.append("<li>").append(esc(e.term())).append(" → ").append(esc(e.rendering())).append(" <span class=\"k\">(").append(esc(ReadIn.name(e.lang()))).append(")</span> <form method=\"post\" action=\"/translate\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"glossary-remove\"><input type=\"hidden\" name=\"term\" value=\"").append(esc(e.term())).append("\"><input type=\"hidden\" name=\"lang\" value=\"").append(esc(e.lang())).append("\"><button>").append(t("remove")).append("</button></form></li>"); b.append("</ul>"); }
         b.append("<form method=\"post\" action=\"/translate\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"glossary-add\"><input name=\"term\" placeholder=\"").append(esc(t("the term, as it stands in the source"))).append("\" required aria-label=\"").append(esc(t("the term"))).append("\"> <select name=\"lang\" aria-label=\"").append(esc(t("the language"))).append("\">");
-        for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\"").append(e.getKey().equals("ja") ? " selected" : "").append(">").append(esc(e.getValue())).append("</option>");
+        for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\"").append(e.getKey().equals("ja") ? " selected" : "").append(">").append(esc(Chrome.now().languageLabel(e.getKey()))).append("</option>");
         b.append("</select> <input name=\"rendering\" placeholder=\"").append(esc(t("its rendering"))).append("\" required aria-label=\"").append(esc(t("the rendering"))).append("\"> <button>").append(t("Add to the glossary")).append("</button></form>");
         return b.toString();
     }
@@ -981,7 +989,7 @@ final class Pages {
     /** The Translate fold's line on the scorers: both there, or what is missing with the button that sets it up, or the setup running. */
     static String scorersLine() {
         if (TranslationScores.setupRunning()) return "<p class=\"k\">" + esc(t("LaBSE and MetricX-24 are being set up in the background; the plan says which are there when a run is filed.")) + "</p>";
-        String missing = TranslationScores.missingSaid();
+        String missing = TranslationScores.missingSaid(Chrome.now());
         if (missing.isEmpty() || !TranslationScores.setupAllowed()) return "";
         return "<form method=\"post\" action=\"/translate\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"scorers\"><span class=\"k\">" + esc(t("A checked translation scores every line with LaBSE and MetricX-24; {0} not set up yet.", missing))
                 + "</span> <button>" + t("Set them up now") + "</button></form>";
@@ -996,15 +1004,21 @@ final class Pages {
             List<Uploads.Uploaded> files = Uploads.files(form, "file");
             if (files.isEmpty()) return "<p>" + t("Choose a file to translate.") + "</p>" + translateForm(store);
             String name = files.get(0).name();
+            String notes = form.containsKey("notes_box") ? (form.containsKey("notes") ? Translation.NOTES_END : Translation.NOTES_OFF) : form.getOrDefault("notes", "");   // the box as the person left it: ticked, end; unticked, off; no box on the form, the setting's
+            if (Translation.notes(notes) == null) return "<p class=\"notice\">" + esc(t(Translation.NOTES_SAID)) + "</p>" + translateForm(store);   // a post of a program's own with a word that is neither
             Path kept = Translation.keepCopy(store, files.get(0).path(), name);
             String to = form.getOrDefault("to", "ja"), as = form.getOrDefault("as", ""), quality = form.getOrDefault("quality", Translation.DEFAULT), collection = form.getOrDefault("collection", "").strip(), judge = form.getOrDefault("judge", "").strip(), model = form.getOrDefault("model", "").strip(), back = form.containsKey("back") ? "on" : "";
             if (!Translation.anyModel()) return "<p class=\"notice\">" + esc(t(Translation.NO_MODEL)) + "</p>" + translateForm(store);
             Translation.Plan plan;
             try { plan = Translation.plan(store, kept, to, as, quality, Translation.configuredSeat()[1], model, judge); }
+            catch (Translation.Refused e) { return "<p class=\"notice\">" + esc(e.in(Chrome.now())) + "</p>" + translateForm(store); }
             catch (IOException e) { return "<p class=\"notice\">" + esc(e.getMessage()) + "</p>" + translateForm(store); }
-            String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron == null ? "" : patron.did(), Translation.args(kept, name, plan.to(), plan.as(), plan.quality(), null, collection, "web", judge, model, back));
-            return "<p><b>" + t("Filed as {0}.", "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a>") + "</b> " + esc(t("{0}: {1} units with words, {2} characters, written in {3}. Into {4} as {5}, {6}: {7}.", kept.getFileName().toString(), plan.units(), String.format(Locale.ROOT, "%,d", plan.chars()), ReadIn.name(plan.from()), ReadIn.name(plan.to()), plan.as(), plan.quality(), plan.saidFor()))
-                    + " " + esc(t("All four tiers: {0}.", plan.said())) + " " + t("The run's page shows its progress and, when it is done, the file, its note and where both are on the shelves.") + "</p>" + translateForm(store);
+            ObjectNode filed = Translation.args(kept, name, plan.to(), plan.as(), plan.quality(), null, collection, "web", judge, model, back, notes);
+            if (plan.reading() != null) filed.set("pdf_preflight", plan.reading().json());
+            String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron == null ? "" : patron.did(), filed);
+            String read = plan.readingSaid(Chrome.now());
+            return "<p><b>" + t("Filed as {0}.", "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a>") + "</b> " + (read.isEmpty() ? "" : esc(read) + " ") + esc(t("{0}: {1} units with words, {2} characters, written in {3}. Into {4} as {5}, {6}: {7}.", kept.getFileName().toString(), plan.units(), Chrome.now().number(plan.chars()), languageName(plan.from()), languageName(plan.to()), plan.as(), t(plan.quality()), plan.saidFor(Chrome.now())))
+                    + " " + esc(t("All four tiers: {0}.", plan.said(Chrome.now()))) + " " + esc(t(Translation.notesSaid(filed.path("notes").asText(Translation.NOTES_OFF), plan.quality()))) + " " + t("The run's page shows its progress and, when it is done, the file, its note and where both are on the shelves.") + "</p>" + translateForm(store);
         } finally { Uploads.drop(form); }
     }
 
@@ -1013,7 +1027,7 @@ final class Pages {
         if (rs.isEmpty()) return t("No key is set, so there was nothing to check.");
         int ok = 0, bad = 0, unsure = 0; List<String> refused = new ArrayList<>();
         for (OutsideServices.Result r : rs) { if (r.accepted() == null) unsure++; else if (r.accepted()) ok++; else { bad++; refused.add(r.service()); } }
-        return n(rs.size(), "{0} key checked:", "{0} keys checked:") + " " + t("{0} accepted", ok) + (bad > 0 ? ", " + t("{0} refused ({1})", bad, String.join(", ", refused)) : "") + (unsure > 0 ? ", " + t("{0} that the service did not say", unsure) : "") + ". " + t("Each line is in the table.");
+        return n(rs.size(), "{0} key checked.", "{0} keys checked.") + " " + t("Accepted: {0}.", ok) + (bad > 0 ? " " + t("Refused: {0} ({1}).", bad, String.join(", ", refused)) : "") + (unsure > 0 ? " " + t("The service did not say: {0}.", unsure) : "") + " " + t("Each line is in the table.");
     }
 
     static String keysGist(LibraryStore store) {
@@ -1034,10 +1048,10 @@ final class Pages {
         for (OutsideServices.Row r : OutsideServices.rows(store)) {
             OutsideServices.Service s = r.service();
             String last = r.last() == null ? "" : OutsideServices.lastSaid(r);
-            b.append("<tr><td data-l=\"service\"><b>").append(esc(s.name())).append("</b></td><td data-l=\"adds\">").append(esc(s.adds())).append("</td><td data-l=\"terms\">").append(esc(s.terms())).append(" <span class=\"k\">(").append(t("read {0}", esc(Chrome.now().day(s.checkedOn())))).append(")</span></td>")
-             .append("<td data-l=\"key\">").append(r.set() ? t("set") : "<span class=\"k\">" + t("not set") + "</span>").append("</td><td data-l=\"use\">").append(esc(OutsideServices.use(r))).append("</td>")
-             .append("<td data-l=\"check\"").append(r.last() != null && r.last().accepted() != null && !r.last().accepted() ? " class=\"bad\"" : "").append(">").append(last.isEmpty() ? "<span class=\"k\">" + t("not checked") + "</span>" : esc(last)).append("</td>")
-             .append("<td data-l=\"link\"><a href=\"").append(esc(s.link())).append("\" rel=\"noopener\">").append(esc(s.link().replaceFirst("^https?://", "").replaceFirst("/$", ""))).append("</a> <span class=\"k\">→ ").append(esc(String.join(", ", s.allSettings()))).append("</span></td></tr>");
+            b.append("<tr><td data-l=\"" + esc(t("Service")) + "\"><b>").append(esc(OutsideServices.nameSaid(s, Chrome.now()))).append("</b></td><td data-l=\"" + esc(t("What it adds")) + "\">").append(esc(s.adds())).append("</td><td data-l=\"" + esc(t("Free or paid, allowance, read on")) + "\">").append(esc(s.terms())).append(" <span class=\"k\">(").append(t("read {0}", esc(Chrome.now().day(s.checkedOn())))).append(")</span></td>")
+             .append("<td data-l=\"" + esc(t("Key")) + "\">").append(r.set() ? t("set") : "<span class=\"k\">" + t("not set") + "</span>").append("</td><td data-l=\"" + esc(t("This month")) + "\">").append(esc(OutsideServices.use(r, Chrome.now()))).append("</td>")
+             .append("<td data-l=\"" + esc(t("Last check")) + "\"").append(r.last() != null && r.last().accepted() != null && !r.last().accepted() ? " class=\"bad\"" : "").append(">").append(last.isEmpty() ? "<span class=\"k\">" + t("not checked") + "</span>" : esc(last)).append("</td>")
+             .append("<td data-l=\"" + esc(t("Get a key")) + "\"><a href=\"").append(esc(s.link())).append("\" rel=\"noopener\">").append(esc(s.link().replaceFirst("^https?://", "").replaceFirst("/$", ""))).append("</a> <span class=\"k\">→ ").append(esc(String.join(", ", s.allSettings()))).append("</span></td></tr>");
         }
         return b.append("</table></div>").toString();
     }
@@ -1060,7 +1074,7 @@ final class Pages {
             b.append("</table>");
         }
         Double brier = Suggestions.brier(all);
-        if (brier != null) b.append("<p class=\"k\">").append(t("Brier score over your marks: {0} (0 is perfect, 0.25 is coin-tossing).", String.format(Locale.ROOT, "%.3f", brier))).append("</p>");
+        if (brier != null) b.append("<p class=\"k\">").append(t("Brier score over your marks: {0} (0 is perfect, 0.25 is coin-tossing).", Chrome.now().decimal(brier, 3))).append("</p>");
         b.append("<p class=\"k\">").append(t("At the command line: researchzosho suggest · in the chat: /suggest · the nightly housekeeping classes new suggestions with the model's typed judge; this page uses the rules.")).append("</p>");
         return page(store, patron, t("Suggested"), b.toString());
     }
@@ -1166,6 +1180,8 @@ final class Pages {
              .append(esc(t.path("predicate").asText())).append(" — <a href=\"/map?focus=").append(enc(t.path("object").asText())).append("\">").append(esc(t.path("object").asText())).append("</a></p>");
         }
         if ("raw".equals(kind)) {
+            PdfReading.Preflight pre = PdfReading.fromJson(e.get("pdf_reading"));   // a PDF: what the reader found, the sentence the add and a plan say
+            if (pre != null) b.append("<p class=\"k\">").append(esc(PdfReading.said(pre, Chrome.now()))).append("</p>");
             b.append("<p>").append(t("Saved from {0} ({1} characters).", locatorLink(e.path("locator").asText()), e.path("chars").asInt())).append(" ")
              .append("<a href=\"/read?locator=").append(enc(e.path("locator").asText())).append("\">").append(t("Read the whole saved page")).append("</a>.</p>");
             b.append("<pre class=\"raw\">").append(esc(e.path("body").asText())).append("</pre>");
@@ -1244,9 +1260,19 @@ final class Pages {
     }
 
     /** A language's name in the language of the page: Japanese, 日本語; one the table has no word for, as ReadIn names it. */
-    static String languageName(String code) {
-        String name = ReadIn.name(code);
-        return Translate.LANGUAGES.containsKey(Translate.code(code)) ? t(name) : name;
+    static String languageName(String code) { return Chrome.now().languageName(code); }
+
+    /** The words of the page, with the meaning beside an English word that has two ({@link Chrome#tc}). */
+    static String tc(String en, String meaning, Object... args) { return Chrome.now().tc(en, meaning, args); }
+    /** What "Read in" means on the page that reads material into the library, against the line on a report that names its language. */
+    static final String READ_IN_PAGE = "the page and its link in the menu that read material into the library";
+
+    /** A language by its own name, for a list of languages to switch to: 日本語, Deutsch; one the switch does not name, as its locale names itself. */
+    static String ownName(String code) {
+        String c = Translate.code(code);
+        if (Chrome.FILES.contains(c) || c.equals(Chrome.EN)) return Chrome.nativeName(c);
+        String own = Locale.forLanguageTag(c).getDisplayLanguage(Locale.forLanguageTag(c));
+        return own.isBlank() || own.equals(c) ? ReadIn.name(c) : Character.toUpperCase(own.charAt(0)) + own.substring(1);
     }
 
     /** A Past row's word on a report's language, by the same rule as its page: read in the person's language when that translation is kept. */
@@ -1263,9 +1289,10 @@ final class Pages {
     static String readInLine(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, String id, String written, String readIn, String mine, Translate.Translated tr) throws IOException {
         StringBuilder b = new StringBuilder("<p class=\"k readin\"><b>").append(t("Read in")).append("</b> ");
         b.append(readIn.isEmpty() ? t("as written") : "<a href=\"/entry/" + enc(id) + "?in=written\">" + t("as written") + "</a>");
-        List<String[]> offered = new ArrayList<>(List.of(new String[]{"en", "English"}, new String[]{"ja", "日本語"}));
-        if (!mine.isEmpty() && offered.stream().noneMatch(l -> l[0].equals(mine))) offered.add(new String[]{mine, ReadIn.name(mine)});
-        if (!readIn.isEmpty() && offered.stream().noneMatch(l -> l[0].equals(readIn))) offered.add(new String[]{readIn, ReadIn.name(readIn)});
+        List<String[]> offered = new ArrayList<>();   // every language the pages are written in, by its own name; the person's and the one asked for besides
+        for (String c : Chrome.available()) offered.add(new String[]{c, Chrome.nativeName(c)});
+        if (!mine.isEmpty() && offered.stream().noneMatch(l -> l[0].equals(mine))) offered.add(new String[]{mine, ownName(mine)});
+        if (!readIn.isEmpty() && offered.stream().noneMatch(l -> l[0].equals(readIn))) offered.add(new String[]{readIn, ownName(readIn)});
         for (String[] l : offered) {
             if (l[0].equals(written)) continue;
             b.append(" · ").append(l[0].equals(readIn) ? esc(l[1]) : "<a href=\"/entry/" + enc(id) + "?in=" + enc(l[0]) + "\">" + esc(l[1]) + "</a>");
@@ -1515,7 +1542,7 @@ final class Pages {
         if (o.path("parked").asBoolean() && !show.equals("parked")) b.append("<span class=\"badge\">").append(t("parked")).append("</span> ");
         b.append("<span class=\"k\">").append(o.path("position").asInt()).append(".</span> ").append(withIdLinks(Frontier.strip(text)));
         if (o.hasNonNull("parked_why")) b.append(" <span class=\"k\">— ").append(t("waits: {0}", esc(o.path("parked_why").asText()))).append("</span>");
-        b.append(" <span class=\"k\">").append(esc(t(t))).append(t.equals("asked") ? " ×" + o.path("asked").asInt() : "").append(o.hasNonNull("field") ? " · " + t("{0} mode", esc(o.path("field").asText())) : "").append(" · ").append(esc(Chrome.now().day(o.path("date").asText())));
+        b.append(" <span class=\"k\">").append(esc(t(t))).append(t.equals("asked") ? " ×" + o.path("asked").asInt() : "").append(o.hasNonNull("field") ? " · " + t("{0} mode", esc(Fields.said(o.path("field").asText()))) : "").append(" · ").append(esc(Chrome.now().day(o.path("date").asText())));
         if (!o.path("language").asText("english").equals("english")) b.append(" · ").append(esc(o.path("language").asText()));
         for (var x : o.path("subjects")) b.append(" · ").append(esc(x.asText()));
         b.append("</span>");
@@ -1636,7 +1663,7 @@ final class Pages {
             try {
                 ObjectNode r = p.add(a);
                 if (r.path("kind").asText("").equals("archive")) out.add(new Shelved(u.name(), r.path("summary").asText(""), problems(r), "", r.path("added").asInt() > 0));
-                else out.add(new Shelved(u.name(), ownTitle(r.path("title").asText(""), u.name()), "", r.path("raw").asText(""), true));
+                else out.add(new Shelved(u.name(), ownTitle(r.path("title").asText(""), u.name()), r.path("reading").asText("").isEmpty() ? "" : " " + r.path("reading").asText(""), r.path("raw").asText(""), true));
             } catch (ProtocolError | IOException e) { out.add(new Shelved(u.name(), e.getMessage(), "", "", false)); }
         }
     }
@@ -1745,7 +1772,7 @@ final class Pages {
             List<AccessRequests.Request> asking = new ArrayList<>();
             for (AccessRequests.Request r : AccessRequests.list(store)) if (r.state().equals("pending")) asking.add(r);
             if (!asking.isEmpty()) {
-                b.append("<h2>").append(t("Asking to be let in")).append("</h2><table><tr><th>").append(t("who")).append("</th><th>").append(t("note")).append("</th><th>").append(t("asked")).append("</th><th></th></tr>\n");
+                b.append("<h2>").append(t("Asking to be let in")).append("</h2><table><tr><th>").append(t("who")).append("</th><th>").append(t("note")).append("</th><th>").append(tc("asked", "a column of the table of people asking to be let in: when they asked")).append("</th><th></th></tr>\n");
                 for (AccessRequests.Request r : asking) b.append("<tr><td>").append(esc(r.name().isEmpty() ? r.did() : r.name())).append(r.did().startsWith("did:mail:") ? " <small>" + esc(r.did().substring(9)) + "</small>" : "").append("</td><td>").append(esc(r.note())).append("</td><td>").append(esc(Chrome.now().day(r.date()))).append("</td><td>")
                  .append("<form class=\"inline\" method=\"post\" action=\"/inbox\"><input type=\"hidden\" name=\"request\" value=\"").append(esc(r.id())).append("\"><button name=\"do\" value=\"let-in-read\">").append(t("Let in to read")).append("</button> <button name=\"do\" value=\"let-in-write\">").append(t("Let in to write")).append("</button> <input name=\"why\" size=\"18\" placeholder=\"").append(esc(t("why not"))).append("\"> <button name=\"do\" value=\"refuse\" class=\"quiet\">").append(t("Refuse")).append("</button></form></td></tr>\n");
                 b.append("</table>\n");
@@ -1864,7 +1891,7 @@ final class Pages {
          .append("<input name=\"name\" required placeholder=\"").append(esc(t("name, such as deepseek"))).append("\"> <input name=\"drive\" required placeholder=\"").append(esc(t("openrouter, anthropic, openai, gemini, nebius, huggingface, or an address"))).append("\"> ")
          .append("<input name=\"model\" required placeholder=\"").append(esc(t("model id, such as deepseek/deepseek-v4.1-flash"))).append("\"> <input name=\"prices\" placeholder=\"").append(esc(t("prices per M: in/out/cache"))).append("\"> <input name=\"cap\" size=\"6\" placeholder=\"").append(esc(t("cap, dollars a month"))).append("\"> <button>").append(t("Add")).append("</button></form>");
         b.append("<form method=\"post\" action=\"/settings\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"model_key\"><label class=\"small k\">").append(t("Keep a host's key")).append("</label> ")
-         .append("<input name=\"host\" required placeholder=\"").append(esc(t("openrouter, anthropic, openai, gemini, nebius, huggingface"))).append("\"> <input type=\"password\" name=\"value\" autocomplete=\"off\" placeholder=\"").append(esc(t("the key; empty forgets it"))).append("\"> <button>").append(t("Keep")).append("</button></form>");
+         .append("<input name=\"host\" required placeholder=\"").append(esc(t("openrouter, anthropic, openai, gemini, nebius, huggingface"))).append("\"> <input type=\"password\" name=\"value\" autocomplete=\"off\" placeholder=\"").append(esc(t("the key; empty forgets it"))).append("\"> <button>").append(tc("Keep", "a button that saves the thing beside it")).append("</button></form>");
         b.append("<p class=\"k\">").append(t("A hosted entry runs on its host's key; without one it is listed but no run uses it. Keys come from the provider: openrouter.ai/keys, console.anthropic.com, platform.openai.com, aistudio.google.com, tokenfactory.nebius.com, huggingface.co/settings/tokens.")).append("</p>");
         return b.toString();
     }
@@ -1913,8 +1940,8 @@ final class Pages {
             b.append("<table><tr><th>").append(t("who")).append("</th><th>").append(t("may")).append("</th><th>").append(t("signs in with")).append("</th><th></th></tr>\n<tr><td><i>").append(t("anyone not listed")).append("</i></td><td>").append(t(String.valueOf(pol.dflt()))).append("</td><td></td><td></td></tr>\n");
             for (Patrons.Entry e : pol.listed()) {
                 Accounts.Account acc = Accounts.byDid(store, e.did());
-                String ways = acc == null ? (e.tokenHash() == null ? t("nothing yet") : t("a token (a program)")) : acc.ways();
-                b.append("<tr><td>").append(esc(e.name().isEmpty() ? e.did() : e.name())).append(" <small>").append(esc(e.did())).append("</small></td><td>").append(t(String.valueOf(e.level()))).append("</td><td>").append(esc(ways)).append("</td><td><form class=\"inline\" method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"did\" value=\"").append(esc(e.did())).append("\"><button name=\"op\" value=\"reader-read\" class=\"quiet\">").append(t("read")).append("</button> <button name=\"op\" value=\"reader-write\" class=\"quiet\">").append(t("write")).append("</button> <button name=\"op\" value=\"reader-deny\" class=\"quiet\">").append(t("deny")).append("</button> <button name=\"op\" value=\"reader-remove\" class=\"quiet\">").append(t("remove")).append("</button> <button name=\"op\" value=\"reader-link\" class=\"quiet\">").append(t("new link")).append("</button> <input type=\"password\" name=\"password\" size=\"12\" placeholder=\"").append(esc(t("a password"))).append("\" autocomplete=\"off\"> <button name=\"op\" value=\"reader-password\" class=\"quiet\">").append(t("set")).append("</button></form></td></tr>\n");
+                String ways = acc == null ? (e.tokenHash() == null ? t("nothing yet") : t("a token (a program)")) : acc.ways(Chrome.now());
+                b.append("<tr><td>").append(esc(e.name().isEmpty() ? e.did() : e.name())).append(" <small>").append(esc(e.did())).append("</small></td><td>").append(t(String.valueOf(e.level()))).append("</td><td>").append(esc(ways)).append("</td><td><form class=\"inline\" method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"did\" value=\"").append(esc(e.did())).append("\"><button name=\"op\" value=\"reader-read\" class=\"quiet\">").append(t("read")).append("</button> <button name=\"op\" value=\"reader-write\" class=\"quiet\">").append(t("write")).append("</button> <button name=\"op\" value=\"reader-deny\" class=\"quiet\">").append(tc("deny", "a button on a reader's row that refuses them")).append("</button> <button name=\"op\" value=\"reader-remove\" class=\"quiet\">").append(t("remove")).append("</button> <button name=\"op\" value=\"reader-link\" class=\"quiet\">").append(t("new link")).append("</button> <input type=\"password\" name=\"password\" size=\"12\" placeholder=\"").append(esc(t("a password"))).append("\" autocomplete=\"off\"> <button name=\"op\" value=\"reader-password\" class=\"quiet\">").append(tc("set", "a button that sets the password written beside it")).append("</button></form></td></tr>\n");
             }
             b.append("</table>\n");
             // what anyone not listed may do; a program's id listed by hand; a token for one (until 2026-11-07 the terminal's alone)
@@ -1934,7 +1961,7 @@ final class Pages {
         JsonNode status = p.owned(st);
         String words = q.getOrDefault("q", "").strip(), year = q.getOrDefault("year", "").strip(), shop = q.getOrDefault("shop", "").strip();
         StringBuilder b = new StringBuilder();
-        b.append("<p>").append(esc(status.path("summary").asText())).append("</p>\n");
+        b.append("<p>").append(esc(ownedSaid(status))).append("</p>\n");
         List<Recalls.Hit> recallHits = Recalls.hits(store, true);
         if (!recallHits.isEmpty()) {
             b.append("<h2>").append(t("Recall notices that may concern what you own")).append("</h2><table><tr><th>").append(t("notice")).append("</th><th>").append(t("you have")).append("</th><th>").append(t("found by")).append("</th><th></th></tr>\n");
@@ -1951,7 +1978,8 @@ final class Pages {
         if (status.path("lines").asInt() > 0 && (!words.isEmpty() || !year.isEmpty() || !shop.isEmpty() || "1".equals(q.get("all")))) {
             ObjectNode f = M.createObjectNode(); f.put("op", "find"); f.put("words", words); f.put("year", year); f.put("shop", shop); f.put("limit", 200); f.set("patron", LibrarianDaemon.patronNode(patron));
             JsonNode found = p.owned(f);
-            b.append("<p>").append(esc(found.path("summary").asText())).append("</p>\n<table><tr><th>").append(t("date")).append("</th><th>").append(t("shop")).append("</th><th>").append(t("what")).append("</th><th>").append(t("paid")).append("</th></tr>\n");
+            int count = found.path("count").asInt(), limit = 200;
+            b.append("<p>").append(esc(count == 0 ? t("Nothing in what you own matches.") : count >= limit ? t("The first {0} lines, newest first.", count) : n(count, "{0} line, newest first.", "{0} lines, newest first."))).append("</p>\n<table><tr><th>").append(t("date")).append("</th><th>").append(t("shop")).append("</th><th>").append(t("what")).append("</th><th>").append(t("paid")).append("</th></tr>\n");
             for (JsonNode l : found.path("lines")) {
                 String price = l.path("total").asText().isEmpty() ? l.path("unit_price").asText() : l.path("total").asText();
                 b.append("<tr><td>").append(esc(Chrome.now().day(l.path("date").asText()))).append("</td><td>").append(esc(l.path("shop").asText())).append("</td><td>").append(esc(l.path("title").asText()))
@@ -1970,6 +1998,17 @@ final class Pages {
         }
         b.append("<p>").append(t("To add records: {0} on the machine the library runs on, with the zip a shop's data request returns, a mailbox file or folder, or a statement as CSV. The ledger is a reference the research and the chat may use; nothing needs it.", "<code>researchzosho owned import &lt;file&gt;</code>")).append("</p>\n");
         return page(store, patron, t("Owned"), b.toString(), 0, null, true);
+    }
+
+    /**
+     * What the owned ledger holds, in the person's language: the page's own sentence from the counts of library_owned's status (whose
+     * summary is the protocol's English); where each file's records begin is the table below it.
+     */
+    static String ownedSaid(JsonNode st) {
+        int lines = st.path("lines").asInt();
+        if (lines == 0) return t("Nothing is imported yet.");
+        return t("Lines: {0}. Purchases: {1}. Receipts for services: {2}. Statement payments: {3}. Files: {4}.", Chrome.now().number(lines), Chrome.now().number(st.path("purchases").asInt()),
+                Chrome.now().number(st.path("receipts").asInt()), Chrome.now().number(st.path("payments").asInt()), Chrome.now().number(st.path("sources").size()));
     }
 
     private static void ownedPost(LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
@@ -2082,6 +2121,18 @@ final class Pages {
     }
 
     /** The Runs page's forms: pause or resume the runner, stop one run. */
+    /**
+     * The run page's button: a translation's units taken off the record its checks are measured from, by someone who may write to the
+     * library; what left and the thresholds now, with the way back to the run. A reader who may only read is refused, as is an id that is
+     * no translation run.
+     */
+    static String withdrawPost(LibraryStore store, Patrons.Patron patron, String id) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.write);
+        ObjectNode job = new Jobs(store, j -> "").get(id);
+        if (job == null || !Translation.JOB_KIND.equals(job.path("kind").asText()) || !Jobs.visibleTo(patron, job)) throw ProtocolError.notFound(t("No translation run has the id {0}.", id));
+        return "<p>" + esc(TranslationScores.withdrawnSaid(store, TranslationScores.withdraw(store, id), Chrome.now())) + "</p><p><a href=\"/jobs/" + enc(id) + "\">" + t("Back to the run") + "</a></p>";
+    }
+
     private static void jobsPost(LibraryProtocol p, Patrons.Patron patron, Map<String, String> form) throws IOException {
         ObjectNode a = args(patron);
         String op = form.getOrDefault("op", "");
@@ -2153,6 +2204,10 @@ final class Pages {
         b.append(" · ").append(j.path("elapsed_s").asLong()).append(" s");
         if (j.hasNonNull("drive")) b.append(" · ").append(t("on {0}", esc(j.path("drive").asText())));
         b.append("</p>");
+        ObjectNode filedJob = new Jobs(store, x -> "").get(id);
+        PdfReading.Preflight read = filedJob == null ? null : PdfReading.fromJson(filedJob.path("args").get("pdf_preflight"));   // a PDF's translation: what the reader found, as its plan said
+        if (read != null) b.append("<p class=\"k\">").append(esc(PdfReading.said(read, Chrome.now()))).append("</p>");
+        if (j.hasNonNull("notes")) { ObjectNode raw = filedJob; b.append("<p class=\"k\">").append(esc(t(Translation.notesSaid(j.path("notes").asText(), raw == null ? "" : Translation.tierOf(raw.path("args")))))).append("</p>"); }   // a document's translation: where what its checks still doubt goes, as filed
         if (j.hasNonNull("resumed")) b.append("<p class=\"k\">").append(esc(RunProgress.resumed(j))).append("</p>");   // a restart or an update interrupted it: where it picked up
         if (live && j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(p, args(patron).path("patron"))); b.append("<p><b>").append(esc(v.stage())).append("</b> · ").append(t("{0} elapsed", esc(RunProgress.elapsed(v.elapsedSeconds())))).append(" · ").append(t("about {0}% done", v.percent())).append(" <progress max=\"100\" value=\"").append(v.percent()).append("\"></progress></p>"); }
         if (live && j.has("progress")) b.append("<p class=\"k\">").append(esc(progressLine(j.get("progress")))).append("</p>");
@@ -2171,6 +2226,10 @@ final class Pages {
             }
         }
         if (!declinedRun && j.hasNonNull("result") && !j.path("result").asText().isEmpty()) b.append("<h2>").append(j.path("is_error").asBoolean() ? t("What went wrong") : t("Result")).append("</h2><div class=\"body\">").append(md(j.path("result").asText())).append("</div>");
+        if (Translation.JOB_KIND.equals(j.path("kind").asText()) && !live) {   // a translation's units on the record the checks are measured from, and the button that takes them off
+            String rec = Translation.onRecordSaid(store, id, Chrome.now());
+            if (!rec.isEmpty()) b.append("<p class=\"k\">").append(esc(rec)).append(" <form class=\"inline\" method=\"post\" action=\"/jobs\"><input type=\"hidden\" name=\"op\" value=\"withdraw-scores\"><input type=\"hidden\" name=\"job_id\" value=\"").append(esc(id)).append("\"><button class=\"quiet\">").append(t("Take this translation off the record")).append("</button></form></p>");
+        }
         if (live) return page(store, patron, t("Run {0}", id), b.toString(), 5, null);
         if (!back.isEmpty() && "done".equals(state)) return page(store, patron, t("Run {0}", id), b.toString(), 3, back);
         return page(store, patron, t("Run {0}", id), b.toString());
@@ -2189,8 +2248,8 @@ final class Pages {
             if (j == null || !j.path("args").path("suggested").isObject()) continue;
             JsonNode s = j.path("args").path("suggested");
             String question = j.path("args").path("question").asText(""), field = s.path("field").asText();
-            b.append("<p class=\"notice\">").append(esc(s.path("offer").asText())).append(" ").append(t("The question \"{0}\" was sent as ordinary research, as {1}.", esc(question), "<a href=\"/jobs/" + enc(id.strip()) + "\">" + esc(id.strip()) + "</a>")).append(" ")
-             .append(t("To research it in {0} mode, {1} and send it.", esc(field), "<a href=\"/research?q=" + enc(question) + "&field=" + enc(field) + "\">" + t("open it on the Research page with the box ticked") + "</a>")).append("</p>");
+            b.append("<p class=\"notice\">").append(esc(t(s.path("offer").asText()))).append(" ").append(t("The question \"{0}\" was sent as ordinary research, as {1}.", esc(question), "<a href=\"/jobs/" + enc(id.strip()) + "\">" + esc(id.strip()) + "</a>")).append(" ")
+             .append(t("To research it in {0} mode, {1} and send it.", esc(Fields.said(field)), "<a href=\"/research?q=" + enc(question) + "&field=" + enc(field) + "\">" + t("open it on the Research page with the box ticked") + "</a>")).append("</p>");
         }
         return b.toString();
     }
@@ -2209,8 +2268,8 @@ final class Pages {
         for (Profile p : Fields.enabled(store)) {
             if (!p.joinsOnlyWhenAsked() || p.choice().isBlank()) continue;
             boolean on = p.name().equalsIgnoreCase(ticked == null ? "" : ticked.strip());
-            b.append("<label class=\"choice\"><input type=\"checkbox\" name=\"field\" value=\"").append(esc(p.name())).append("\"").append(on ? " checked" : "").append("> ").append(esc(p.choice())).append("</label>");
-            if (s != null && s.field().equals(p.name()) && !on) { b.append("<p class=\"notice\">").append(esc(s.offer())).append(" ").append(t("Tick the box above to use it. Sent as it is, the question is researched as ordinary research.")).append("</p>"); told = true; }
+            b.append("<label class=\"choice\"><input type=\"checkbox\" name=\"field\" value=\"").append(esc(p.name())).append("\"").append(on ? " checked" : "").append("> ").append(esc(t(p.choice()))).append("</label>");   // the field's own sentence, in the person's language
+            if (s != null && s.field().equals(p.name()) && !on) { b.append("<p class=\"notice\">").append(esc(t(s.offer()))).append(" ").append(t("Tick the box above to use it. Sent as it is, the question is researched as ordinary research.")).append("</p>"); told = true; }
         }
         if (told) b.append("<input type=\"hidden\" name=\"told\" value=\"1\">");
         return b.toString();
@@ -2223,8 +2282,8 @@ final class Pages {
      */
     static String allowChoice(List<String> needs, boolean ticked) {
         StringBuilder b = new StringBuilder("<label class=\"choice\"><input type=\"checkbox\" name=\"allow\" value=\"1\"").append(ticked ? " checked" : "")
-                .append("> ").append(t("Let in what the library leaves out by default, for this question only: {0}", esc(ContentOffer.described(List.of(ContentPolicy.EXPLICIT, ContentPolicy.HOWTO))))).append("</label>");
-        if (needs != null && !needs.isEmpty()) b.append("<p class=\"notice\">").append(esc(ContentOffer.offer(needs))).append(" ").append(t("Tick the box above to let it in. Sent as it is, the question is researched with that material left out.")).append("</p>")
+                .append("> ").append(t("Let in what the library leaves out by default, for this question only: {0}", esc(ContentOffer.described(List.of(ContentPolicy.EXPLICIT, ContentPolicy.HOWTO), Chrome.now())))).append("</label>");
+        if (needs != null && !needs.isEmpty()) b.append("<p class=\"notice\">").append(esc(ContentOffer.offer(needs, Chrome.now()))).append(" ").append(t("Tick the box above to let it in. Sent as it is, the question is researched with that material left out.")).append("</p>")
                 .append("<input type=\"hidden\" name=\"content_told\" value=\"1\">");
         return b.toString();
     }
@@ -2487,9 +2546,9 @@ final class Pages {
         String jobUrl = "/jobs/" + enc(id) + (back.isEmpty() ? "" : "?back=" + enc(back));
         // the judge could not tell whether the question is a person asking about harming themselves: the help is shown anyway, first
         String help = detected != null && detected.harm() == ContentOffer.Harm.UNSURE && !harmOk ? helpBlock() : "";
-        return page(store, patron, t("Sent"), help + "<p>" + t("Sent as {0}", "<a href=\"" + jobUrl + "\">" + esc(id) + "</a>") + (r.hasNonNull("field") ? ", " + t("in {0} mode", esc(r.path("field").asText())) : "") + (quick ? ", " + t("first in line") : "") + ". " + t("{0} before it, {1} worker(s).", r.path("queued_ahead").asInt(), r.path("workers").asInt())
+        return page(store, patron, t("Sent"), help + "<p>" + t("Sent as {0}", "<a href=\"" + jobUrl + "\">" + esc(id) + "</a>") + (r.hasNonNull("field") ? ", " + t("in {0} mode", esc(Fields.said(r.path("field").asText()))) : "") + (quick ? ", " + t("first in line") : "") + ". " + t("{0} before it, {1} worker(s).", r.path("queued_ahead").asInt(), r.path("workers").asInt())
                 + " " + t("The {0} page shows how it is going. The answer appears there, and in the library, when it is done.", "<a href=\"/jobs\">" + t("runs") + "</a>") + "</p>"
-                + (back.isEmpty() ? "" : "<p>" + t("When it is done, {0}", "<a href=\"" + esc(back) + "\">" + t("read the explanation") + "</a>") + (quick ? " — " + t("a few minutes") : "") + ".</p>"),
+                + (back.isEmpty() ? "" : "<p>" + (quick ? t("When it is done, {0} — a few minutes.", "<a href=\"" + esc(back) + "\">" + t("read the explanation") + "</a>") : t("When it is done, {0}.", "<a href=\"" + esc(back) + "\">" + t("read the explanation") + "</a>")) + "</p>"),
                 quick ? 2 : 0, quick ? jobUrl : null);
     }
 
@@ -2521,8 +2580,8 @@ final class Pages {
                 final boolean f = fresh;
                 Thread t = new Thread(() -> {
                     try {
-                        if (term.isEmpty()) Explain.entry(store, drive, id, rung, f, st -> nw.stage = st);
-                        else Explain.term(store, drive, term, in, rung, f, st -> nw.stage = st);
+                        if (term.isEmpty()) Explain.entry(store, drive, id, rung, f, nw.progress());
+                        else Explain.term(store, drive, term, in, rung, f, nw.progress());
                     } catch (Throwable e) { nw.error = e; }
                     nw.done = true;
                 }, "reading-" + key);
@@ -2593,6 +2652,16 @@ final class Pages {
     /** A reading being written in the background: what it is doing, since when, and how it ended. */
     static final class Working {
         volatile String stage = "starting";
+        /** The stage as the waiting page says it: a whole sentence of the interface's words and its places. */
+        volatile String sentence = "The library is starting…";
+        volatile Object[] args = new Object[0];
+        /** The reading's progress, kept as the page's words. */
+        Explain.Progress progress() {
+            return new Explain.Progress() {
+                @Override public void at(String st) { stage = st; }
+                @Override public void stage(String phrase, String said, Object... a) { stage = phrase; sentence = said; args = a; }
+            };
+        }
         final long started = System.currentTimeMillis();
         volatile boolean done;
         volatile Throwable error;
@@ -2603,7 +2672,7 @@ final class Pages {
     private static String workingPage(LibraryStore store, Patrons.Patron patron, Working w, String what, String of, Explain.Rung rung) throws IOException {
         long secs = (System.currentTimeMillis() - w.started) / 1000;
         StringBuilder b = new StringBuilder();
-        b.append("<div class=\"working\"><span class=\"spin\"></span><div><p><b>").append(t("The library is {0}…", esc(w.stage))).append("</b></p>");
+        b.append("<div class=\"working\"><span class=\"spin\"></span><div><p><b>").append(esc(t(w.sentence, w.args))).append("</b></p>");
         b.append("<p class=\"k\">").append(t("{0} seconds so far.", secs)).append(" ").append(t("The library reads what it has, writes, then checks each paragraph against its sources.")).append(" ")
          .append(t("A report takes about a minute the first time; a word, ten to twenty seconds.")).append("</p>");
         b.append("<p class=\"k\">").append(t("This page updates itself. You can leave; the result is kept.")).append("</p></div></div>");
@@ -2664,9 +2733,25 @@ final class Pages {
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
     }
 
+    /**
+     * The header that has a file saved under its own name. A header carries ASCII alone (the server refuses the whole reply for one
+     * letter outside it: a document named in Japanese could not be downloaded at all), so a name with other letters goes twice, as
+     * RFC 6266 has it: a plain form any client reads, each run of other letters an underscore, and the name itself in UTF-8,
+     * percent-encoded (filename*), which a browser prefers and saves the file under.
+     */
+    static String disposition(String name) {
+        String n = name == null ? "" : name.replaceAll("[\\p{Cntrl}\"\\\\]", "").strip();
+        if (n.isEmpty()) n = "download";
+        if (n.chars().allMatch(c -> c >= 0x20 && c < 0x7F)) return "attachment; filename=\"" + n + "\"";
+        String plain = n.replaceAll("[^\\x20-\\x7E]+", "_");
+        if (plain.startsWith("_")) plain = "document" + plain;
+        String own = URLEncoder.encode(n, StandardCharsets.UTF_8).replace("+", "%20").replace("*", "%2A");
+        return "attachment; filename=\"" + plain + "\"; filename*=UTF-8''" + own;
+    }
+
     private static void sendFile(HttpExchange x, String name, String type, byte[] bytes) throws IOException {
         x.getResponseHeaders().set("Content-Type", type);
-        x.getResponseHeaders().set("Content-Disposition", "attachment; filename=\"" + name.replace("\"", "") + "\"");
+        x.getResponseHeaders().set("Content-Disposition", disposition(name));
         x.sendResponseHeaders(200, bytes.length);
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
     }
@@ -3070,7 +3155,7 @@ final class Pages {
         else if (q.get("session") != null && !q.get("session").isBlank()) { s = Librarian.Session.resume(store, q.get("session"), patron); if (s == null) s = Librarian.Session.latest(store, patron); }
         else s = Librarian.Session.latest(store, patron);
         if (s == null) return page(store, patron, t("Chat"), "<p>" + esc(t(CHAT_SIGN_IN)) + " <a href=\"/login\">" + t("Sign in") + "</a></p>");
-        StringBuilder b = new StringBuilder("<div class=\"shell beside\"><section class=\"conv\">").append(conv(store, lp, patron, s, false));
+        StringBuilder b = new StringBuilder("<div class=\"shell beside\"><section class=\"conv\">").append(conv(store, lp, patron, s, false, q.getOrDefault("note", "")));
         b.append("</section><aside id=\"runs-strip\" class=\"strip side\" data-session=\"").append(esc(s.id)).append("\">").append(runsStrip(store, lp, patron, s)).append("</aside></div>");
         b.append("<div id=\"scrim\" class=\"scrim\"></div>").append(sessionsDrawer(store, patron, s));
         b.append("<script>").append(chatPageJs()).append("</script>");
@@ -3078,13 +3163,16 @@ final class Pages {
     }
 
     /** The conversation itself: its head, the turns, the box to say the next thing, and the strip under it when it is not beside. */
-    static String conv(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s, boolean stripBelow) throws IOException {
+    static String conv(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s, boolean stripBelow) throws IOException { return conv(store, lp, patron, s, stripBelow, ""); }
+
+    /** The same, with {@code note} under the latest turn: what came of a delete, said on the page it led to. */
+    static String conv(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s, boolean stripBelow, String note) throws IOException {
         StringBuilder b = new StringBuilder();
         b.append("<div class=\"convhead\"><button type=\"button\" class=\"btn quiet\" id=\"sessions-toggle\">").append(t("Conversations")).append("</button><span class=\"title\">").append(esc(sessionTitle(s))).append("</span>")
-         .append("<a class=\"small k3\" href=\"/chat?new=1\">").append(t("new conversation")).append("</a><span class=\"small k3 counts\">").append(counts(lp, patron)).append("</span></div>");
+         .append("<a class=\"small k3\" href=\"/chat?new=1\">").append(t("new conversation")).append("</a>").append(Files.exists(s.file) ? deleteForm(s.id, s.id) : "").append("<span class=\"small k3 counts\">").append(counts(lp, patron)).append("</span></div>");   // a conversation with nothing in it yet is on no list, and has nothing to delete
         boolean first = !modelAnswers(store);   // the first screen, until a model answers once; the composer does not take the focus then, or the page would scroll past the screen
         if (first) b.append("<div class=\"first\">").append(connectBlock(store, patron, "", false)).append("</div>");
-        b.append("<div id=\"chat-view\" class=\"chat-view\">").append(chatView(store, lp, patron, s, "")).append("</div>");
+        b.append("<div id=\"chat-view\" class=\"chat-view\">").append(chatView(store, lp, patron, s, note)).append("</div>");
         b.append("<div class=\"dropcue\" id=\"chat-drop\" hidden>").append(t("Drop to attach")).append("</div>");   // shown by the page's script while files are dragged over the page
         b.append("<form id=\"chat-say\" class=\"composer\" method=\"post\" action=\"/chat\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\">")
          .append("<div class=\"chips\" id=\"chat-att\" hidden></div><p class=\"note small\" id=\"chat-att-note\" hidden></p><textarea name=\"say\" rows=\"2\"").append(first ? "" : " autofocus").append(" placeholder=\"").append(esc(t("Ask the Librarian…"))).append("\" autocomplete=\"off\"></textarea>")
@@ -3103,10 +3191,7 @@ final class Pages {
     }
 
     /** A conversation's title: the first thing the person said in it, cut short; a new one has none yet. */
-    static String sessionTitle(Librarian.Session s) {
-        for (JsonNode m : s.messages()) if (m.path("role").asText().equals("user") && !m.path("by").asText("").equals("library")) return Acquisitions.compress(m.path("content").asText(""), 70);
-        return t("A new conversation");
-    }
+    static String sessionTitle(Librarian.Session s) { return s.named(); }
 
     /** The first thing said in a conversation, read from the head of its file; "A new conversation" when nothing was. */
     static String firstWords(Path file) {
@@ -3134,10 +3219,41 @@ final class Pages {
             String g = day.equals(today) ? t("Today") : day.equals(yesterday) ? t("Yesterday") : Chrome.now().day(day);
             if (!g.equals(group)) { b.append("<div class=\"g\">").append(esc(g)).append("</div>"); group = g; }
             String words = dir == null ? id : firstWords(dir.resolve(id + ".jsonl"));
-            b.append("<a class=\"s").append(id.equals(s.id) ? " on" : "").append("\" href=\"/chat?session=").append(enc(id)).append("\">").append(esc(words)).append("<span class=\"w\">").append(esc(when)).append("</span></a>");
+            b.append("<div class=\"srow\"><a class=\"s").append(id.equals(s.id) ? " on" : "").append("\" href=\"/chat?session=").append(enc(id)).append("\">").append(esc(words)).append("<span class=\"w\">").append(esc(when)).append("</span></a>")
+             .append(deleteForm(id, s.id)).append("</div>");
         }
         if (ids.isEmpty()) b.append("<p class=\"small k3\">").append(t("No conversations yet.")).append("</p>");
         return b.append("</div></aside>").toString();
+    }
+
+    /**
+     * Delete… on a conversation, the page's way of removing something: the summary opens what deleting means and the button that does it,
+     * with no script, on a phone as on a desk. {@code showing}: the conversation open in the page, where the page stays unless it is the
+     * one deleted.
+     */
+    static String deleteForm(String id, String showing) {
+        return "<details class=\"remove\"><summary class=\"k\">" + t("Delete…") + "</summary><form method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"op\" value=\"delete\">"
+             + "<input type=\"hidden\" name=\"session\" value=\"" + esc(id) + "\"><input type=\"hidden\" name=\"showing\" value=\"" + esc(showing) + "\">" + nonceField()
+             + "<p class=\"k\">" + esc(t(Librarian.DELETE_MEANS)) + "</p><button class=\"btn quiet\">" + t("Delete this conversation") + "</button></form></details>";
+    }
+
+    /**
+     * POST /chat op=delete: one of this person's conversations deleted ({@link Librarian.Session#delete}), and where the page goes next, with
+     * what came of it in a sentence under the latest turn. The page stays on the conversation it showed; when that is the one deleted, it
+     * goes to the most recent one left, or to a new one when none is left. A second click, or the form sent again, goes where the first went.
+     */
+    static String chatDelete(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        String once = form.getOrDefault("once", "");
+        String again = once.isEmpty() ? null : SENT.get(once);
+        if (again != null) return again;
+        String showing = form.getOrDefault("showing", "").strip();
+        Librarian.Session.Deleted d = Librarian.Session.delete(store, form.getOrDefault("session", ""), patron);
+        if (d.outcome() == Librarian.Session.Outcome.DELETED) LIVE.remove(d.id());
+        boolean stay = !showing.isEmpty() && !(d.outcome() == Librarian.Session.Outcome.DELETED && showing.equals(d.id()));
+        String to = "/chat?" + (stay ? "session=" + enc(showing) + "&" : "") + "note=" + enc(d.said());
+        if (!once.isEmpty()) SENT.put(once, to);
+        return to;
     }
 
     /**
@@ -3158,7 +3274,7 @@ final class Pages {
         if (firstAsk != null && Librarian.isChoice(firstAsk)) {
             // the library asked which of these: a button for each, or the number or the name typed; with no answer in time a run is not started
             b.append("<div class=\"ask\"><p>").append(esc(Librarian.choiceQuestion(store, firstAsk))).append("</p><div class=\"opts\">");
-            for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(l)).append("</button></form> ");
+            for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(Librarian.labelSaid(l))).append("</button></form> ");   // the name as the person reads it; the value posted is the name the answer is read by
             b.append("<span class=\"k3\">").append(t("or say which in your own words. No answer within {0} minutes counts as none.", Librarian.OFFER_MINUTES)).append("</span></div></div>");
         } else if (!waiting.isEmpty()) {
             // the Librarian asked a question that ends in (y/N) and still waits: two buttons answer it; with no answer the run starts as it was filed
@@ -3372,7 +3488,7 @@ final class Pages {
 
     /** A span of milliseconds as a person reads it: 0.6 s, 12 s, 3 min. */
     static String took(long ms) {
-        if (ms < 10_000) return String.format(Locale.ROOT, "%.1f", ms / 1000.0) + t(" s");
+        if (ms < 10_000) return Chrome.now().decimal(ms / 1000.0, 1) + t(" s");
         if (ms < 120_000) return (ms / 1000) + t(" s");
         return t("{0} min", ms / 60_000);
     }
@@ -3408,7 +3524,7 @@ final class Pages {
                     for (Finding.Source src : f.sources()) { String h = host(src.locator()); if (!h.isEmpty() && !hosts.contains(h)) hosts.add(h); }
                     String srcs = f.sources().isEmpty() ? t("no source") : hosts.size() <= 2 && hosts.size() == f.sources().size() ? String.join(" · ", hosts) : t("{0} sources", f.sources().size());
                     b.append("<span class=\"c\">").append(idLink(id)).append(" <a class=\"est").append(est ? "" : " no").append("\" href=\"/entry/").append(enc(id)).append("\" title=\"")
-                     .append(est ? t("established: accepted") : t("not yet: {0}", f.state().name())).append("\">").append(est ? "●" : "○").append("</a> <span class=\"src\">· ").append(esc(srcs)).append("</span></span>");
+                     .append(est ? t("established: accepted") : t("not yet: {0}", t(f.state().name()))).append("\">").append(est ? "●" : "○").append("</a> <span class=\"src\">· ").append(esc(srcs)).append("</span></span>");
                 } else {
                     Investigation inv = store.investigation(id);
                     if (inv == null) continue;
@@ -3574,7 +3690,7 @@ final class Pages {
             StringBuilder b = new StringBuilder();
             for (Shelved x : all.subList(att.has("path") ? 1 : 0, all.size())) {   // the file an ask took for itself needs no sentence: the turn has it
                 b.append("\n\n");
-                if (!x.id().isEmpty()) b.append("I attached ").append(x.name()).append("; it is on the shelves as ").append(x.id()).append(x.said().isEmpty() ? "" : " (" + x.said() + ")").append('.');
+                if (!x.id().isEmpty()) b.append("I attached ").append(x.name()).append("; it is on the shelves as ").append(x.id()).append(x.said().isEmpty() ? "" : " (" + x.said() + ")").append('.').append(x.problems());
                 else if (x.kept()) b.append("I attached ").append(x.name()).append(". ").append(x.full());
                 else b.append("I attached ").append(x.name()).append(", which was not kept: ").append(x.full());
             }
@@ -3617,7 +3733,7 @@ final class Pages {
             @Override public Librarian.Session resume(String id) throws IOException { Librarian.Session sx = Librarian.Session.resume(store, id, patron); if (sx != null) opened[0] = sx; return sx; }
         };
         String answer = ChatCommands.reply(store, patron, "web:" + s.id, words, !Librarian.stillWaiting(store, s).isEmpty(), front);
-        if (answer != null) { chatReplied(s, words, answer); return opened[0] != null ? opened[0] : s; }
+        if (answer != null) { chatReplied(s.gone() && opened[0] != null ? opened[0] : s, words, answer); return opened[0] != null ? opened[0] : s; }   // /delete of this conversation: the exchange goes into the fresh one the page goes to
         new Librarian(store, d.chatDrive(s), patron, s).say(words);
         return s;
     }
@@ -3731,18 +3847,20 @@ final class Pages {
                 + "</body></html>";
     }
 
-    /** The language switch in the header, beside the look switch: each language the chrome is written in, by its own name, the one in use marked; a click keeps the choice in the browser. */
+    /**
+     * The language switch in the header, beside the look switch: a small menu that shows the language in use and opens to each language
+     * the chrome is written in, by its own name (日本語, 中文, 한국어, Deutsch, Français, Español, Português, Italiano, Русский, English),
+     * the one in use marked; a choice keeps itself in the browser. A menu, not a row, so ten languages fit a phone's width; no script.
+     */
     static String langSwitch(Chrome lang) {
         List<String> all = Chrome.available();
         if (all.size() < 2) return "";
-        StringBuilder b = new StringBuilder("<span class=\"lang-switch\">");
+        List<String> order = new ArrayList<>(all.subList(1, all.size())); order.add(Chrome.EN);   // the languages with a file, English last
         String href = HREF.get() == null ? "/" : HREF.get();
-        boolean first = true;
-        for (String c : all) {
-            if (!first) b.append(" · "); first = false;
+        StringBuilder b = new StringBuilder("<details class=\"lang-switch\"><summary>").append(t("language:")).append(" <span lang=\"").append(lang.code).append("\">").append(esc(Chrome.nativeName(lang.code))).append("</span></summary><div class=\"langs\">");
+        for (String c : order)
             b.append("<a href=\"").append(esc(Chrome.switchHref(href, c))).append("\" hreflang=\"").append(c).append("\" lang=\"").append(c).append("\"").append(c.equals(lang.code) ? " aria-current=\"true\"" : "").append(">").append(esc(Chrome.nativeName(c))).append("</a>");
-        }
-        return b.append("</span>").toString();
+        return b.append("</div></details>").toString();
     }
 
     /** The rail: the chat, the past and the updates with the count of what is new, the page it is on marked. Keep, for the keeper, stands beside it. */
@@ -3793,6 +3911,10 @@ final class Pages {
             details.contents:not([open]) .groups{display:none}details.contents .groups{position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--paper-2);border-bottom:1px solid var(--rule);padding:1.2em 1.6em 1.6em;display:grid;grid-template-columns:repeat(auto-fit,minmax(12em,1fr));gap:1.2em 2em;box-shadow:0 12px 24px -16px rgba(0,0,0,.4)}
             .nav-group b{display:block;font-weight:500;font-variant-caps:all-small-caps;letter-spacing:.1em;color:var(--ink-3);margin-bottom:.3em}.nav-group a{display:block;color:var(--ink);padding:.12em 0}.nav-group .ico{display:inline-block;width:1.5em;color:var(--ink-3)}
             .look-switch,.lang-switch{font-size:.86em;color:var(--ink-3);white-space:nowrap}.lang-switch a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}.lang-switch a[aria-current]{color:var(--ink);text-decoration-color:var(--accent)}.look-switch button{border:0;background:none;color:var(--ink-2);cursor:pointer;padding:0 .2em;text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}.look-switch button[aria-pressed=true]{color:var(--ink);text-decoration-color:var(--accent)}
+            details.lang-switch{position:relative;display:inline-block}details.lang-switch>summary{list-style:none;cursor:pointer;color:var(--ink-3)}details.lang-switch>summary::-webkit-details-marker{display:none}details.lang-switch>summary span{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}
+            details.lang-switch>summary::after{content:" ▾";font-size:.8em}details.lang-switch[open]>summary::after{content:" ▴"}details.lang-switch:not([open]) .langs{display:none}
+            details.lang-switch .langs{position:absolute;right:0;top:100%;z-index:6;display:flex;flex-direction:column;min-width:9em;max-width:calc(100vw - 2em);margin-top:.3em;padding:.35em 0;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;box-shadow:0 12px 24px -16px rgba(0,0,0,.4)}
+            details.lang-switch .langs a{padding:.3em .9em;text-decoration:none}details.lang-switch .langs a:hover{background:var(--paper-3)}details.lang-switch .langs a[aria-current]{font-weight:600}
             main{max-width:var(--col);margin:0 auto;padding:2em 1.4em 4em;overflow-wrap:anywhere}main.wide{max-width:none}
             footer{text-align:center;color:var(--ink-3);font-size:.86em;padding:2em 1em 3em;border-top:1px solid var(--rule);margin-top:2em}
             .kicker{font-variant-caps:all-small-caps;letter-spacing:.12em;color:var(--ink-3);margin:0 0 .3em}
@@ -3884,9 +4006,12 @@ final class Pages {
             .sessions{position:fixed;top:0;left:0;bottom:0;width:min(22em,100vw);background:var(--paper-2);border-right:1px solid var(--rule-2);box-shadow:12px 0 32px -20px rgba(0,0,0,.5);transform:translateX(-100%);transition:transform .2s;z-index:30;display:flex;flex-direction:column}
             body.sessions-open .sessions{transform:none}.sessions .head{display:flex;align-items:baseline;gap:.6em;padding:.9em 1.2em .6em;border-bottom:1px solid var(--rule)}.sessions .head b{font-weight:500;flex:1}.sessions .head button{border:0;background:none;color:var(--ink-2);cursor:pointer;padding:0 .3em}
             .sessions .body{flex:1;overflow:auto;padding:.6em 1.2em 1.4em}.sessions .g{font-variant-caps:all-small-caps;letter-spacing:.1em;color:var(--ink-3);margin:.9em 0 .2em}.sessions a.s{display:block;color:var(--ink);padding:.3em 0;border-top:1px solid var(--rule);font-size:.95em}.sessions a.s.on{color:var(--accent)}.sessions a.s .w{font:.76em var(--mono);color:var(--ink-3);margin-left:.4em}
+            .sessions .srow{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 .6em;border-top:1px solid var(--rule)}.sessions .srow a.s{flex:1;min-width:0;border-top:0}
+            .sessions details.remove>summary,.convhead details.remove>summary{list-style:none;cursor:pointer;font-size:.78em;color:var(--ink-3)}.sessions details.remove>summary::-webkit-details-marker,.convhead details.remove>summary::-webkit-details-marker{display:none}
+            .sessions details.remove[open],.convhead details.remove[open]{flex-basis:100%}details.remove form p{margin:.3em 0 .5em}
             .scrim{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:29;display:none}body.sessions-open .scrim{display:block}
             @media (max-width:900px){.shell.beside{display:flex;flex-direction:column;grid-template-columns:1fr}.shell.beside .conv{flex:1;min-height:0;max-width:none}.strip.side{position:static;margin-top:.8em;max-height:12em;flex:none}}
-            @media (max-width:700px){body{font-size:16px}header.top{padding:.8em 1em .6em;gap:.4em 1em}header.top nav.verbs{gap:.6em 1em;width:100%;order:3;font-size:.95em}header.top .keep{margin-left:0;order:4}header.top .who{font-size:.86em}.look-switch{order:5}details.contents{order:6}
+            @media (max-width:700px){body{font-size:16px}header.top{padding:.8em 1em .6em;gap:.4em 1em}header.top nav.verbs{gap:.6em 1em;width:100%;order:3;font-size:.95em}header.top .keep{margin-left:0;order:4}header.top .who{font-size:.86em}.look-switch{order:5}.lang-switch{order:5}details.contents{order:6}.btn,header.top .keep{white-space:normal;max-width:100%}button{max-width:100%;white-space:normal}
             main{padding:1.6em 1em 4em}h1{font-size:1.7em}.entries li{grid-template-columns:1fr;gap:0}table{display:block;overflow-x:auto;max-width:100%}
             table.stack thead{display:none}table.stack tr{display:block;padding:.5em 0;border-bottom:1px solid var(--rule)}table.stack td{display:block;border:0;padding:.05em 0}table.stack td.num{text-align:left}table.stack td[data-l]::before{content:attr(data-l) ": ";font-variant-caps:all-small-caps;letter-spacing:.07em;color:var(--ink-3)}
             .strip{font-size:.84em}.strip.side{max-height:9.5em}.rline,.rline.done{grid-template-columns:minmax(0,1fr) 5.5em auto auto;grid-template-areas:"nm bar el stop";padding:.3em 0;gap:.1em .5em}.rline .ph{display:none}.rline.done{grid-template-areas:"nm ph el ."}.rline.done .ph{display:block}.rline.done .bar{display:none}.cites .c{white-space:normal}.rline .el{white-space:normal}
@@ -3977,7 +4102,7 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         b.append(navGroup(t("Library"), navLink("/", t("Home"), "⌂") + navLink("/add", t("Add"), "+") + navLink("/ask", t("Ask"), "?") + navLink("/search", t("Search"), "⌕") + navLink("/subjects", t("Subjects"), "☷") + navLink("/map", t("Map"), "⊞") + navLink("/dossier", t("Dossiers"), "▤") + navLink(ImagesPage.PATH, t("Pictures"), "▣")));   // the dossiers are the library's own front door to its people and organizations, not a field's page
         b.append(navGroup(t("Work"), navLink("/inbox", t("Inbox"), "✉") + navLink("/questions", t("Open questions"), "⁇") + navLink("/jobs", t("Runs"), "▶") + navLink("/research", t("Research"), "⚗") + navLink(SeeksPage.PATH, t("Seeks"), "⫶") + navLink(BridgesPage.PATH, t("Bridges"), "⌁") + navLink(ForecastsPage.PATH, t("Forecasts"), "◔") + navLink("/sources", t("Sources"), "☵") + navLink("/suggest", t("Suggested"), "✦") + navLink("/changes", t("Changes"), "↻")));
-        b.append(navGroup(t("Ways in"), navLink(PerspectivesPage.PATH, t("Perspectives"), "⁂") + navLink(SubmitPage.PATH, t("Submit a claim"), "✎") + navLink(LaunchPage.PATH, t("Read in"), "⇲") + (yours ? navLink(DbPage.PATH, t("Databases"), "▦") : "")));
+        b.append(navGroup(t("Ways in"), navLink(PerspectivesPage.PATH, t("Perspectives"), "⁂") + navLink(SubmitPage.PATH, t("Submit a claim"), "✎") + navLink(LaunchPage.PATH, tc("Read in", READ_IN_PAGE), "⇲") + (yours ? navLink(DbPage.PATH, t("Databases"), "▦") : "")));
         b.append(navGroup(t("Yours"), navLink("/chat", t("Chat"), "❝") + navLink("/help", t("Help"), "ⓘ") + (yours ? navLink("/owned", t("Owned"), "◆") + navLink("/settings", t("Settings"), "⚙") : "") + (SignIn.hasAccountPage(patron) ? navLink("/account", t("Account"), "☺") : "")));
         String fields = fieldMenu(store, patron);
         if (!fields.isEmpty()) b.append(navGroup(t("Fields"), fields));

@@ -28,7 +28,8 @@ public final class Glossary {
 
     /** One entry: the term as it stands in a source, the language code, the rendering in it, the day it was added. */
     public record Entry(String term, String lang, String rendering, String added) {
-        public String line() { return term + " → " + rendering + " (" + Translate.LANGUAGES.getOrDefault(lang, lang) + ")"; }
+        public String line() { return line(Chrome.ENGLISH); }
+        public String line(Chrome c) { return term + " → " + rendering + " (" + c.languageName(lang) + ")"; }
     }
 
     public static Path file(LibraryStore store) { return store.root().resolve("catalog").resolve("glossary.json"); }
@@ -57,15 +58,18 @@ public final class Glossary {
     }
 
     /** Adds an entry, or replaces the one for the same term and language; what was done, in a sentence. */
-    public static String add(LibraryStore store, String term, String lang, String rendering) throws IOException {
+    public static String add(LibraryStore store, String term, String lang, String rendering) throws IOException { return add(store, term, lang, rendering, Chrome.ENGLISH); }
+
+    /** The same, what was done said in {@code c}'s language. */
+    public static String add(LibraryStore store, String term, String lang, String rendering, Chrome c) throws IOException {
         String t = term == null ? "" : term.strip(), code = Translate.code(lang), r = rendering == null ? "" : rendering.strip();
         if (t.isEmpty() || code.isEmpty() || r.isEmpty()) throw ProtocolError.invalidArgs("A glossary entry is a term, a language and its rendering: researchzosho glossary add \"Acme Corp\" ja \"アクメ社\".");
         List<Entry> all = list(store);
         boolean replaced = all.removeIf(e -> e.term().equals(t) && e.lang().equals(code));
         all.add(new Entry(t, code, r, LocalDate.now().toString()));
         write(store, all);
-        String name = Translate.LANGUAGES.getOrDefault(code, code);
-        return (replaced ? "The glossary now renders \"" + t + "\" as \"" + r + "\" in " + name + " (it had another rendering before)." : "The glossary renders \"" + t + "\" as \"" + r + "\" in " + name + " from now on.") + " Every translation into " + name + " uses it.";
+        String name = c.english() ? Translate.LANGUAGES.getOrDefault(code, code) : c.languageName(code);
+        return (replaced ? c.t("The glossary now renders \"{0}\" as \"{1}\" in {2} (it had another rendering before).", t, r, name) : c.t("The glossary renders \"{0}\" as \"{1}\" in {2} from now on.", t, r, name)) + " " + c.t("Every translation into {0} uses it.", name);
     }
 
     /** Removes the entry for a term and a language; false when there was none. */
@@ -86,12 +90,15 @@ public final class Glossary {
     }
 
     /** The entries, one a line, for a person; a sentence when there are none. */
-    public static String describe(LibraryStore store, String lang) {
+    public static String describe(LibraryStore store, String lang) { return describe(store, lang, Chrome.ENGLISH); }
+
+    /** The same, in {@code c}'s language. */
+    public static String describe(LibraryStore store, String lang, Chrome c) {
         List<Entry> all = list(store);
         String code = lang == null || lang.isBlank() ? "" : Translate.code(lang);
         List<String> lines = new ArrayList<>();
-        for (Entry e : all) if (code.isEmpty() || e.lang().equals(code)) lines.add(e.line());
-        if (lines.isEmpty()) return code.isEmpty() ? "The glossary is empty. researchzosho glossary add \"<term>\" <language> \"<rendering>\" fixes how a term is rendered in every translation." : "The glossary has no entry for " + Translate.LANGUAGES.getOrDefault(code, code) + ".";
-        return "The glossary (" + lines.size() + (lines.size() == 1 ? " entry" : " entries") + "):\n" + String.join("\n", lines);
+        for (Entry e : all) if (code.isEmpty() || e.lang().equals(code)) lines.add(e.line(c));
+        if (lines.isEmpty()) return code.isEmpty() ? c.t("The glossary is empty. researchzosho glossary add \"<term>\" <language> \"<rendering>\" fixes how a term is rendered in every translation.") : c.t("The glossary has no entry for {0}.", c.english() ? Translate.LANGUAGES.getOrDefault(code, code) : c.languageName(code));
+        return c.t(lines.size() == 1 ? "The glossary ({0} entry):" : "The glossary ({0} entries):", lines.size()) + "\n" + String.join("\n", lines);
     }
 }

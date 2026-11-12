@@ -152,7 +152,7 @@ class LikenessTest {
         session.att = M.createObjectNode().put("name", "portrait.png").put("path", pic.toString());
         String what = ImagesTurn.reply(store, session, Patrons.Patron.PERSON, "what is this?");
         assertTrue(what.startsWith(DESCRIBED), what);
-        assertTrue(ImagesTurn.DESCRIBE.matcher("これは何？").matches() && ImagesTurn.DESCRIBE.matcher("who is this").matches());
+        assertTrue(ImagesTurn.describes("これは何？") && ImagesTurn.describes("who is this"));
         // the concept mode: like it in the kind of place, the judge asked for that aspect
         asked.clear();
         session.att = M.createObjectNode().put("name", "portrait.png").put("path", pic.toString());

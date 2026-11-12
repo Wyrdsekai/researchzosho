@@ -2,6 +2,8 @@ package org.researchzosho.librarian;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.researchzosho.librarian.dna.Dna;
+import org.researchzosho.librarian.dna.Pool;
 import org.researchzosho.tools.Podcasts;
 
 import java.io.IOException;
@@ -26,29 +28,36 @@ public final class PodcastsPage {
     /** Whether a show was ever checked: the shelf keeps "-" until the first night. */
     static boolean checked(Serials.Shelf s) { return !s.lastChecked().isEmpty() && Character.isDigit(s.lastChecked().charAt(0)); }
 
-    /** One line of state for the shows followed, on Past's row and at the page's head. */
-    static String stateLine(List<Serials.Shelf> shows) {
-        if (shows.isEmpty()) return "No show is followed yet.";
-        StringBuilder b = new StringBuilder(shows.size() + (shows.size() == 1 ? " show followed: " : " shows followed: "));
-        for (int i = 0; i < shows.size() && i < 4; i++) b.append(i > 0 ? ", " : "").append(shows.get(i).slug());
-        if (shows.size() > 4) b.append(" and ").append(shows.size() - 4).append(" more");
+    /** One line of state for the shows followed, in English: the protocol's summary. */
+    static String stateLine(List<Serials.Shelf> shows) { return stateLine(shows, Chrome.ENGLISH); }
+
+    /** One line of state for the shows followed, on Past's row and at the page's head, in {@code c}'s language: a whole sentence for each form. */
+    static String stateLine(List<Serials.Shelf> shows, Chrome c) {
+        if (shows.isEmpty()) return c.t("No show is followed yet.");
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < shows.size() && i < 4; i++) names.add(shows.get(i).slug());
+        String list = String.join(c.sep(), names);
+        int more = shows.size() - 4;
+        if (more > 0) list = more == 1 ? c.t("{0} and 1 more", list) : c.t("{0} and {1} more", list, more);
         String last = ""; for (Serials.Shelf s : shows) if (checked(s) && s.lastChecked().compareTo(last) > 0) last = s.lastChecked();
-        return b.append(last.isEmpty() ? "; not checked yet." : "; last checked " + Pages.dayTime(last) + ".").toString();
+        boolean one = shows.size() == 1;
+        if (last.isEmpty()) return one ? c.t("{0} show followed: {1}; not checked yet.", shows.size(), list) : c.t("{0} shows followed: {1}; not checked yet.", shows.size(), list);
+        return one ? c.t("{0} show followed: {1}; last checked {2}.", shows.size(), list, c.dayTime(last)) : c.t("{0} shows followed: {1}; last checked {2}.", shows.size(), list, c.dayTime(last));
     }
 
     public static String body(LibraryStore store, Patrons.Patron patron) throws IOException { return body(store, patron, Map.of()); }
 
     public static String body(LibraryStore store, Patrons.Patron patron, Map<String, String> q) throws IOException {
         List<Serials.Shelf> shows = followed(store);
-        StringBuilder b = new StringBuilder("<p class=\"lede\">Shows and episodes on a subject, followed as they come; what people say on them, in their own words with the time.</p>");
+        StringBuilder b = new StringBuilder("<p class=\"lede\">").append(Pages.t("Shows and episodes on a subject, followed as they come; what people say on them, in their own words with the time.")).append("</p>");
         String note = q.getOrDefault("note", "");
         if (!note.isEmpty()) b.append("<p class=\"note\">").append(Pages.esc(note)).append("</p>");
-        b.append("<p class=\"state").append(shows.isEmpty() ? "" : " done").append("\">").append(Pages.esc(stateLine(shows))).append("</p>");
+        b.append("<p class=\"state").append(shows.isEmpty() ? "" : " done").append("\">").append(Pages.esc(stateLine(shows, Chrome.now()))).append("</p>");
         if (!shows.isEmpty()) {
-            b.append("<h2>Followed</h2><div class=\"tablewrap\"><table class=\"stack\"><tr><th>show</th><th>feed</th><th>every</th><th>last checked</th></tr>");
-            for (Serials.Shelf s : shows) b.append("<tr><td data-l=\"show\">").append(Pages.esc(s.slug())).append(s.parked() ? " <span class=\"k\">(parked)</span>" : "").append("</td><td data-l=\"feed\">").append(Pages.locatorLink(s.feedUrl())).append("</td><td data-l=\"every\">").append(s.everyDays()).append(s.everyDays() == 1 ? " day" : " days").append("</td><td data-l=\"last checked\">").append(Pages.esc(checked(s) ? Pages.dayTime(s.lastChecked()) : "not yet")).append("</td></tr>");
-            b.append("</table></div><p class=\"k\">The nightly housekeeping fetches each show's new episodes on its cadence; what it found is on <a href=\"/sources\">Sources</a>, and the episodes read are searched by the chat.</p>");
-        } else b.append("<p class=\"k\">Follow a show below, or from a terminal: <code>researchzosho podcast follow &lt;feed address&gt;</code>; the chat's podcast search finds feeds.</p>");
+            b.append("<h2>").append(Pages.t("Followed")).append("</h2><div class=\"tablewrap\"><table class=\"stack\"><tr><th>").append(Pages.t("show")).append("</th><th>").append(Pages.t("feed")).append("</th><th>").append(Pages.t("every")).append("</th><th>").append(Pages.t("last checked")).append("</th></tr>");
+            for (Serials.Shelf s : shows) b.append("<tr><td data-l=\"").append(Pages.esc(Pages.t("show"))).append("\">").append(Pages.esc(s.slug())).append(s.parked() ? " <span class=\"k\">" + Pages.t("(parked)") + "</span>" : "").append("</td><td data-l=\"").append(Pages.esc(Pages.t("feed"))).append("\">").append(Pages.locatorLink(s.feedUrl())).append("</td><td data-l=\"").append(Pages.esc(Pages.t("every"))).append("\">").append(Pages.n(s.everyDays(), "{0} day", "{0} days")).append("</td><td data-l=\"").append(Pages.esc(Pages.t("last checked"))).append("\">").append(Pages.esc(checked(s) ? Pages.dayTime(s.lastChecked()) : Pages.t("not yet"))).append("</td></tr>");
+            b.append("</table></div><p class=\"k\">").append(Pages.t("The nightly housekeeping fetches each show's new episodes on its cadence; what it found is on {0}, and the episodes read are searched by the chat.", "<a href=\"/sources\">" + Pages.t("Sources") + "</a>")).append("</p>");
+        } else b.append("<p class=\"k\">").append(Pages.t("Follow a show below, or from a terminal: {0}; the chat's podcast search finds feeds.", "<code>researchzosho podcast follow &lt;" + Pages.esc(Pages.t("feed address")) + "&gt;</code>")).append("</p>");
         if (Pages.mayWrite(store, patron)) {
             b.append("<form method=\"post\" action=\"/podcasts\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"follow\"><label>").append(Pages.t("Follow a show by its feed address")).append(" <input name=\"feed\" size=\"44\" placeholder=\"https://…/feed.xml\" required></label> <label>").append(Pages.t("every")).append(" <input name=\"every\" size=\"3\" value=\"1\"> ").append(Pages.t("days")).append("</label> <button class=\"btn primary\">").append(Pages.t("Follow")).append("</button></form>");
             if (!shows.isEmpty()) {
@@ -58,12 +67,11 @@ public final class PodcastsPage {
             }
             if (BooksPage.owner(store, patron)) {
                 b.append("<h2>").append(Pages.t("The DNA of the shows")).append("</h2>");
-                ObjectNode a = M.createObjectNode(); a.set("patron", LibrarianDaemon.patronNode(patron)); a.put("op", "status").put("kind", "podcast");
-                try { b.append("<pre>").append(Pages.esc(new LibraryProtocol(store).dna(a).path("summary").asText("").strip())).append("</pre>"); } catch (ProtocolError e) { b.append("<p class=\"k\">").append(Pages.esc(e.getMessage())).append("</p>"); }
+                b.append("<pre>").append(Pages.esc(Pool.status(Dna.PODCAST, Chrome.now()))).append("</pre>");   // what library_dna's status says, in the person's language
                 b.append("<form method=\"post\" action=\"/podcasts\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"dna\"><label>").append(Pages.t("Read the transcripts held for their DNA now, up to")).append(" <input name=\"minutes\" size=\"4\" value=\"30\"> ").append(Pages.t("minutes")).append("</label> <button class=\"btn\">").append(Pages.t("Read them")).append("</button></form>");
             }
         }
-        b.append(Pages.rowsSection(store, patron, "podcasts", "Podcasts reports", "None yet. Ask in the chat what someone says on a podcast, or about a show: the report it files is the first row here."));
+        b.append(Pages.rowsSection(store, patron, "podcasts", Pages.t("Podcasts reports"), Pages.t("None yet. Ask in the chat what someone says on a podcast, or about a show: the report it files is the first row here.")));
         return b.toString();
     }
 
@@ -88,7 +96,8 @@ public final class PodcastsPage {
                 while (true) { String want = slug; if (shelves.stream().noneMatch(sh -> sh.slug().equals(want))) break; slug = base + "-" + n++; }
                 shelves.add(new Serials.Shelf(slug, Serials.PODCAST + feed, every, "", false));
                 Serials.writeShelves(store, shelves);
-                return Pages.t("Following {0} as {1}: its new episodes arrive every {2} days and the housekeeping transcribes them at night.", fe.getKey().title(), slug, every);
+                return every == 1 ? Pages.t("Following {0} as {1}: its new episodes arrive every day and the housekeeping transcribes them at night.", fe.getKey().title(), slug)
+                        : Pages.t("Following {0} as {1}: its new episodes arrive every {2} days and the housekeeping transcribes them at night.", fe.getKey().title(), slug, every);
             }
             case "unfollow" -> {
                 String which = form.getOrDefault("which", "").strip();

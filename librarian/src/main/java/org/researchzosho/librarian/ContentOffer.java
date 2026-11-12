@@ -135,30 +135,33 @@ public final class ContentOffer {
     public static String confirmOne(Locale locale) { return (locale == null ? CrisisHelp.text() : CrisisHelp.text(locale)) + "\n\n" + CONFIRM_ONE; }
 
     /** What a category is, in words a person reads. */
-    public static String described(String category) {
+    public static String described(String category) { return described(category, Chrome.ENGLISH); }
+    public static String described(String category, Chrome c) {
         return switch (category) {
-            case ContentPolicy.EXPLICIT -> "pornography, and gore: pictures or detailed descriptions of mutilated or dead bodies";
-            case ContentPolicy.HOWTO -> "step-by-step instructions for making a weapon or an explosive, making an illegal drug, or running working exploit code against a system";
+            case ContentPolicy.EXPLICIT -> c.t("pornography, and gore: pictures or detailed descriptions of mutilated or dead bodies");
+            case ContentPolicy.HOWTO -> c.t("step-by-step instructions for making a weapon or an explosive, making an illegal drug, or running working exploit code against a system");
             default -> category;
         };
     }
 
     /** The categories in words: "a", or "a, and b". */
-    static String described(Collection<String> categories) {
+    static String described(Collection<String> categories) { return described(categories, Chrome.ENGLISH); }
+    static String described(Collection<String> categories, Chrome c) {
         List<String> words = new ArrayList<>();
-        for (String c : categories) if (!c.equals(ContentPolicy.SELF_HARM)) words.add(described(c));
-        return String.join("; and ", words);
+        for (String x : categories) if (!x.equals(ContentPolicy.SELF_HARM)) words.add(described(x, c));
+        return String.join(c.t("; and "), words);
     }
 
     /** The sentence before the question: what the default leaves out and what a yes lets in, for that run only. */
-    public static String offer(Collection<String> needs) {
-        return "This question may need material the library leaves out of research by default: " + described(needs) + ". A yes lets it into this question's research run only; "
-                + "every other run leaves it out as before.";
+    public static String offer(Collection<String> needs) { return offer(needs, Chrome.ENGLISH); }
+    public static String offer(Collection<String> needs, Chrome c) {
+        return c.t("This question may need material the library leaves out of research by default: {0}. A yes lets it into this question's research run only; every other run leaves it out as before.", described(needs, c));
     }
 
     /** The question a person who can answer is asked, with no as the answer Enter gives. {@code runs}: how many runs it is for. */
     public static String question(Collection<String> needs, int runs) {
-        return offer(needs) + " " + (runs > 1 ? Chrome.now().t("Let it in for these {0} questions? (y/N)", runs) : Chrome.now().t("Let it in for this question? (y/N)"));
+        Chrome c = Chrome.now();
+        return offer(needs, c) + " " + c.yesNo(runs > 1 ? c.t("Let it in for these {0} questions?", runs) : c.t("Let it in for this question?"));
     }
 
     /** For the command line when nobody can answer: the run goes with the material left out, and the command that lets it in. */

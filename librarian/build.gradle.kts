@@ -67,6 +67,14 @@ tasks.test {
     // and not 127.0.0.1, because the fetcher refuses the drive's host as one of the library's own services and the fixtures are
     // served at 127.0.0.1. SuiteHomeTest pins it; HomeStaysPut fails a class that leaves user.home swapped.
     environment("RESEARCHZOSHO_DRIVE_DEFAULT", "http://localhost:2")
+    // The web search is kept off the network the same way. With no search server set, the tool asks the SearXNG at this machine's
+    // default address, and where none answers it falls back to asking Wikipedia: a test that set no search server of its own searched
+    // the live web through the build machine's SearXNG, and on a CI runner through the fallback, where the page a test waited for came
+    // after the test's limit (2026-11-10). So the default address is a closed port here (a property and not RESEARCHZOSHO_SEARXNG's
+    // offer, which would count as a SearXNG of the library's own), and the fallback is offered as off; a test of either sets its own.
+    // SuiteHomeTest pins both.
+    systemProperty("researchzosho.searxng", "http://localhost:2")
+    environment("RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT", "off")
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)

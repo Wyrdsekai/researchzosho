@@ -112,13 +112,21 @@ public final class WatchHistory {
         return new ArrayList<>(out.values());
     }
 
-    /** What the library holds, in a sentence. */
-    public static String summary(LibraryStore store) {
+    /** What the library holds, in a sentence, in English: what a program and the terminal read. */
+    public static String summary(LibraryStore store) { return summary(store, Chrome.ENGLISH); }
+
+    /** What the library holds, in a sentence of {@code c}'s language: a whole sentence for one video and for many, with the span of the watches or without. */
+    public static String summary(LibraryStore store, Chrome c) {
         List<Watched> all = all(store);
-        if (all.isEmpty()) return "No watch history is filed. researchzosho add <the watch-history.json from Google Takeout> files one.";
-        return "The library holds " + all.size() + " watched " + (all.size() == 1 ? "video" : "videos") + span(all) + ".";
+        if (all.isEmpty()) return c.t("No watch history is filed. researchzosho add <the watch-history.json from Google Takeout> files one.");
+        String first = "", last = "";
+        for (Watched w : all) { if (w.watchedOn().isEmpty()) continue; if (first.isEmpty() || w.watchedOn().compareTo(first) < 0) first = w.watchedOn(); if (w.watchedOn().compareTo(last) > 0) last = w.watchedOn(); }
+        boolean one = all.size() == 1;
+        if (first.isEmpty()) return one ? c.t("The library holds {0} watched video.", 1) : c.t("The library holds {0} watched videos.", c.number(all.size()));
+        return one ? c.t("The library holds {0} watched video watched between {1} and {2}.", 1, c.day(first), c.day(last)) : c.t("The library holds {0} watched videos watched between {1} and {2}.", c.number(all.size()), c.day(first), c.day(last));
     }
 
+    /** The span of the watches as the shelved text says it: " watched between … and …", or "". */
     static String span(List<Watched> all) {
         String first = "", last = "";
         for (Watched w : all) { if (w.watchedOn().isEmpty()) continue; if (first.isEmpty() || w.watchedOn().compareTo(first) < 0) first = w.watchedOn(); if (w.watchedOn().compareTo(last) > 0) last = w.watchedOn(); }
