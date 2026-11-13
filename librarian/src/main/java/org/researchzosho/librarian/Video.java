@@ -252,12 +252,15 @@ public final class Video {
             // the transcription server is wanted, not required: a tunnel without it still searches and reads captions. Its cache folder is
             // made here, with its hub folder, and left writable: the server's own user writes the model into it and refuses an empty mount
             whisperNote = "";
-            Path hub = dir().resolve("whisper").resolve("hub");
-            Files.createDirectories(hub);
-            try { dir().resolve("whisper").toFile().setWritable(true, false); hub.toFile().setWritable(true, false); } catch (Exception ignored) { }
-            for (List<String> cmd : whisperPlan(state(CONTAINER_WHISPER))) {
-                Result r = runner.run(cmd, Duration.ofMinutes(10));
-                if (r.code() != 0) whisperNote = "the transcription server did not start (docker: " + last(r.out()) + "); captions still work";
+            if (!Helpers.localAllowed()) { whisperNote = "the transcription server is not started here (local_helpers off): " + (Helpers.address(Helpers.Helper.WHISPER) == null ? "captions still work, and RESEARCHZOSHO_WHISPER or the helpers address names one elsewhere" : "it is at " + Helpers.address(Helpers.Helper.WHISPER)); }
+            else {
+                Path hub = dir().resolve("whisper").resolve("hub");
+                Files.createDirectories(hub);
+                try { dir().resolve("whisper").toFile().setWritable(true, false); hub.toFile().setWritable(true, false); } catch (Exception ignored) { }
+                for (List<String> cmd : whisperPlan(state(CONTAINER_WHISPER))) {
+                    Result r = runner.run(cmd, Duration.ofMinutes(10));
+                    if (r.code() != 0) whisperNote = "the transcription server did not start (docker: " + last(r.out()) + "); captions still work";
+                }
             }
             String proxy = "http://127.0.0.1:" + PROXY_PORT;
             for (int i = 0; i < 45; i++) {
@@ -300,16 +303,24 @@ public final class Video {
         return List.of();
     }
 
-    /** The transcription server's address: RESEARCHZOSHO_WHISPER when set (any OpenAI-style server, on any machine), else the local container. */
+    /**
+     * The transcription server's address: RESEARCHZOSHO_WHISPER when set (any OpenAI-style server, on any machine), else the machine that
+     * serves the helpers when it serves this one, else the local container; null when this machine runs no heavy helper and no address
+     * names one, or the setting is off.
+     */
     public static String whisperBase() {
-        String w = Config.get("RESEARCHZOSHO_WHISPER");
-        return w == null || w.isBlank() ? "http://127.0.0.1:" + WHISPER_PORT : w.strip().replaceAll("/+$", "");
+        if (Helpers.off(Helpers.Helper.WHISPER)) return null;
+        String at = Helpers.address(Helpers.Helper.WHISPER);
+        if (at != null) return at;
+        return Helpers.localAllowed() ? "http://127.0.0.1:" + WHISPER_PORT : null;
     }
 
     /** Whether the transcription server answers. */
     public static boolean transcriptionReady() {
         try {
-            HttpResponse<String> r = PROBE.send(HttpRequest.newBuilder(URI.create(whisperBase() + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            String base = whisperBase();
+            if (base == null || Helpers.away(base)) return false;
+            HttpResponse<String> r = PROBE.send(Helpers.request(base + "/health").timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200;
         } catch (Exception e) { return false; }
     }
@@ -359,9 +370,10 @@ public final class Video {
         try {
             HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
             String base = whisperBase();
-            HttpResponse<String> list = http.send(HttpRequest.newBuilder(URI.create(base + "/v1/models")).timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (base == null) return false;
+            HttpResponse<String> list = http.send(Helpers.request(base + "/v1/models").timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (list.statusCode() == 200 && list.body().contains("\"" + whisperModel() + "\"")) return modelKnownReady = true;
-            HttpResponse<String> pull = http.send(HttpRequest.newBuilder(URI.create(base + "/v1/models/" + whisperModel())).timeout(Duration.ofMinutes(20))
+            HttpResponse<String> pull = http.send(Helpers.request(base + "/v1/models/" + whisperModel()).timeout(Duration.ofMinutes(20))
                     .POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString());
             return modelKnownReady = pull.statusCode() == 200 || pull.statusCode() == 201;
         } catch (Exception e) { return false; }
@@ -380,8 +392,10 @@ public final class Video {
         byte[] h = head.toString().getBytes(StandardCharsets.UTF_8), tail = ("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8);
         byte[] body = new byte[h.length + file.length + tail.length];
         System.arraycopy(h, 0, body, 0, h.length); System.arraycopy(file, 0, body, h.length, file.length); System.arraycopy(tail, 0, body, h.length + file.length, tail.length);
+        String base = whisperBase();
+        if (base == null) throw new IOException("no transcription server: this machine runs none (local_helpers off) and no address names one");
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
-        HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(whisperBase() + "/v1/audio/transcriptions")).timeout(Duration.ofMinutes(30))
+        HttpResponse<String> r = http.send(Helpers.request(base + "/v1/audio/transcriptions").timeout(Duration.ofMinutes(30))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());
         if (r.statusCode() != 200) throw new IOException("the transcription server answered HTTP " + r.statusCode() + ": " + last(r.body()));
         return r.body();

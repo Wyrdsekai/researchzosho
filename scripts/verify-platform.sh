@@ -150,6 +150,12 @@ else
   expect "service restart" "Restarted the service" "$Z" service restart --yes
   if within 60 sh -c "[ \"\$(cat '$W/home/.researchzosho/researchzosho.pid' 2>/dev/null)\" != '$OLD_PID' ]"; then pass "the restart started a new server (was pid $OLD_PID)"; else fail "the restart started a new server" "the pid is still $OLD_PID"; fi
   if within 60 serves 4649 "$NEXT"; then pass "the service serves $NEXT after the restart"; else fail "the service serves $NEXT after the restart" "port 4649 says '$(served_version 4649)'"; fi
+  # a stop and a start from the command line: the server ends, the status says so, and it comes back
+  expect "service stop" "Stopped the service" "$Z" service stop
+  if within 20 sh -c "! curl -s -o /dev/null --max-time 2 http://127.0.0.1:4649/"; then pass "the server ended with the stop"; else fail "the server ended with the stop" "port 4649 still answers"; fi
+  expect "service status says it is stopped" "and stopped" "$Z" service status
+  expect "service start" "Started the service" "$Z" service start
+  if within 60 serves 4649 "$NEXT"; then pass "the service serves $NEXT after the start"; else fail "the service serves $NEXT after the start" "port 4649 says '$(served_version 4649)'"; fi
   check "service uninstall" "$Z" service uninstall
   if within 20 sh -c "! curl -s -o /dev/null --max-time 2 http://127.0.0.1:4649/"; then pass "the service's server stopped"; else fail "the service's server stopped" "port 4649 still answers"; fi
   [ -n "$UNIT_LINK" ] && { rm -f "$UNIT_LINK"; systemctl --user daemon-reload; UNIT_LINK=""; }

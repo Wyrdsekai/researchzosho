@@ -9,6 +9,9 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.net.http.HttpResponse;
+import java.net.http.HttpRequest;
+import java.net.http.HttpClient;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -111,7 +114,10 @@ final class LikenessHelper {
     static Scorer scorer() {
         Scorer s = SCORER;
         if (s != null) return s;
-        return on() && installed() ? HELPER : null;
+        if (!on()) return null;
+        String at = Helpers.address(Helpers.Helper.LIKENESS);
+        if (at != null) return new Served(at);   // served by another machine (0.7.4)
+        return Helpers.localAllowed() && installed() ? HELPER : null;
     }
 
     static boolean on() { return !Config.get(SETTING, "").strip().equalsIgnoreCase("off"); }
@@ -119,7 +125,9 @@ final class LikenessHelper {
     /** "no likeness helper is set up; the model's reading alone" / "the likeness helper (…) measured each candidate against the reference first, and the model that sees judged them in that order". */
     static String said() { return said(Chrome.ENGLISH); }
     static String said(Chrome c) {
-        return scorer() == null ? c.t("no likeness helper is set up; the model's reading alone") : c.t("the likeness helper ({0}) measured each candidate against the reference first, and the model that sees judged them in that order", SHORT);
+        Scorer s = scorer();
+        if (s instanceof Served served) return c.t("the likeness helper ({0}), at {1}, measured each candidate against the reference first, and the model that sees judged them in that order", SHORT, served.address);
+        return s == null ? c.t("no likeness helper is set up; the model's reading alone") : c.t("the likeness helper ({0}) measured each candidate against the reference first, and the model that sees judged them in that order", SHORT);
     }
 
     // ---- the helper's place on the disk ----
@@ -186,6 +194,9 @@ final class LikenessHelper {
     /** The helper's state, for a person. */
     static String status() {
         if (!on()) return "The likeness helper is off (" + SETTING + "=off): judgements of likeness rest on the seeing model's reading alone.";
+        String at = Helpers.address(Helpers.Helper.LIKENESS);
+        if (at != null) { String h = Helpers.health(at); return "The likeness helper is served at " + at + (h == null ? ", which does not answer now: judgements of likeness rest on the seeing model's reading alone until it does." : " (" + h + ")."); }
+        if (!Helpers.localAllowed()) return "The likeness helper is not run on this machine (local_helpers off) and no address names one: judgements of likeness rest on the seeing model's reading alone. researchzosho settings set helpers http://<machine>:" + Helpers.PORT + " names a machine that serves it.";
         if (installed()) return "The likeness helper is set up at " + dir() + ": " + PICTURE_MODEL + " for pictures, " + FACE_MODEL + " for faces (" + LICENCES + "). A judgement of likeness measures each candidate against the reference first and the model that sees judges them in that order.";
         String tried = "";
         try { if (Files.isRegularFile(triedMark())) tried = " The last setup failed: " + Files.readString(triedMark()).strip() + "."; } catch (IOException ignored) { }
@@ -242,7 +253,7 @@ final class LikenessHelper {
     static synchronized String setupInBackground(String why) {
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "the likeness helper is being set up already";
-        if (!on() || installed()) return "";
+        if (!on() || installed() || !Helpers.localAllowed() || Helpers.address(Helpers.Helper.LIKENESS) != null) return "";   // nothing to set up here
         try {
             Path mark = triedMark();
             if (Files.exists(mark) && Files.getLastModifiedTime(mark).toInstant().isAfter(Instant.now().minus(Duration.ofDays(1))))
@@ -260,6 +271,28 @@ final class LikenessHelper {
     }
     static boolean setupRunning() { Thread t = setupThread; return t != null && t.isAlive(); }
     static void awaitSetup() throws InterruptedException { Thread t = setupThread; if (t != null) t.join(60_000); }
+
+    // ---- the helper served by another machine (0.7.4) ----
+
+    /** The likeness helper at another machine's address: one request a call, the helpers' secret with it; a call that fails is that measure's failure. */
+    static final class Served implements Scorer {
+        private final String address;
+        private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        Served(String address) { this.address = address; }
+        @Override public Measure score(byte[] ref, String refType, byte[] cand, String candType) throws IOException {
+            ObjectNode req = M.createObjectNode(); ObjectNode one = req.putArray("requests").addObject();
+            one.put("id", "1"); one.put("ref", Base64.getEncoder().encodeToString(ref)); one.put("cand", Base64.getEncoder().encodeToString(cand));
+            HttpResponse<String> r;
+            try { r = HTTP.send(Helpers.request(address + "/measure").timeout(Duration.ofMinutes(5)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(req.toString(), StandardCharsets.UTF_8)).build(), HttpResponse.BodyHandlers.ofString()); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("interrupted"); }
+            if (r.statusCode() != 200) throw new IOException("the likeness helper at " + address + " answered HTTP " + r.statusCode());
+            JsonNode j = M.readTree(r.body()).path("replies").path(0);
+            if (j.isMissingNode() || j.has("error")) throw new IOException("the likeness helper at " + address + ": " + j.path("error").asText("no reply"));
+            boolean refFace = j.path("faces").path(0).asBoolean(false), candFace = j.path("faces").path(1).asBoolean(false);
+            return new Measure(j.path("picture").asDouble(), j.hasNonNull("face") ? j.path("face").asDouble() : null, refFace, candFace,
+                    j.path("face_px").path(0).asInt(refFace ? 1000 : 0), j.path("face_px").path(1).asInt(candFace ? 1000 : 0), j.path("face_conf").path(0).asDouble(refFace ? 1.0 : 0), j.path("face_conf").path(1).asDouble(candFace ? 1.0 : 0));
+        }
+    }
 
     // ---- the one helper process a daemon ----
 

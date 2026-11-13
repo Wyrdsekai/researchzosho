@@ -1,5 +1,8 @@
 package org.researchzosho.librarian;
 
+import java.time.Duration;
+import java.io.OutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -441,14 +444,119 @@ public final class Service {
                 return rc;
             }
             case "status" -> {
-                out.println(describe(plan));
+                out.println(stateSaid(plan));
+                if (!Files.exists(plan.definition())) return 0;   // nothing installed: the system is not asked about a service of that name
+                out.println("  " + describe(plan));
                 int rc = exec(plan.status(), out);
                 Long pid = recordedPid(pidFile());
-                if (pid != null) out.println(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false) ? "  server running (pid " + pid + ")" : "  server not running (stale pid " + pid + ")");
+                if (pid != null && !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) out.println("  (a stale pid record, " + pid + ", of a server that has ended)");
                 return rc;
             }
-            default -> { out.println("usage: researchzosho service install|uninstall|restart|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H]"); return 2; }
+            case "stop" -> { return stop(plan, out); }
+            case "start" -> { return start(plan, out); }
+            default -> { out.println(USAGE); return 2; }
         }
+    }
+
+    static final String USAGE = "usage: researchzosho service install|uninstall|start|stop [--stop-jobs]|restart [--yes]|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H]";
+
+    /** How long stop and start wait for the server to end or to record itself before they say how it stands; a test shortens it. */
+    static volatile Duration SETTLE = Duration.ofSeconds(20);
+
+    /** The server running now by its own pid record: the service's, else one a terminal's `serve` of the default library recorded in it. */
+    static Long serverNow() {
+        Long pid = runningServer(pidFile());
+        return pid != null ? pid : runningServer(pidFileIn(defaultLibrary()));
+    }
+
+    /** The record that holds {@code pid}: the service's, or the default library's. */
+    static Path recordOf(long pid) {
+        Long a = recordedPid(pidFile());
+        return a != null && a == pid ? pidFile() : pidFileIn(defaultLibrary());
+    }
+
+    /**
+     * One line: whether the service is installed, and whether a server runs now and under what. The last line of `service stop`,
+     * `service start` and the first of `service status`, so the three read as one family.
+     */
+    static String stateSaid(Plan plan) {
+        boolean installed = Files.exists(plan.definition());
+        Long pid = serverNow();
+        if (installed) return pid != null ? "The service is installed (" + describe(plan) + ") and running (pid " + pid + ")."
+                : "The service is installed (" + describe(plan) + ") and stopped: researchzosho service start starts it, and it starts by itself at your next login.";
+        return pid != null ? "No service is installed here; a server started with researchzosho serve is running (pid " + pid + ")."
+                : "No service is installed here, and no server is running.";
+    }
+
+    /**
+     * `service stop`: the service stopped through the system's own way (systemd's stop, launchd's bootout, the end of the Windows task and
+     * the server's recorded pid), and a server that is still running after it, or that runs with no service installed, one started with
+     * `serve` in a terminal, stopped by its own pid record, never by its name. One line says what was done and how it stands now.
+     */
+    static int stop(Plan plan, PrintStream out) throws IOException, InterruptedException {
+        boolean installed = Files.exists(plan.definition());
+        Long before = serverNow();
+        int rc = 0;
+        if (installed) {
+            rc = switch (plan.os()) {
+                case linux -> quiet(List.of("systemctl", "--user", "stop", NAME), out);
+                case macos -> { int r = quiet(List.of("launchctl", "bootout", "gui/" + uid() + "/" + MAC_LABEL), out); yield before == null ? 0 : r; }   // an agent not loaded is fine when nothing ran
+                default -> { quiet(List.of("schtasks", "/End", "/TN", WIN_TASK), out); stopRecorded(pidFile(), new PrintStream(OutputStream.nullOutputStream())); yield 0; }   // the server is not the task's own process: by its record
+            };
+            if (before != null) waitEnded(before);
+        }
+        Long left = serverNow();   // a server not under the service, one started with serve in a terminal: ended by its own pid record
+        if (left != null) stopRecorded(recordOf(left), new PrintStream(OutputStream.nullOutputStream()));
+        Long now = serverNow();
+        List<String> said = new ArrayList<>();
+        if (installed) said.add(before == null ? "The service was not running." : now != null && rc != 0 ? "The service could not be stopped (exit " + rc + ")." : "Stopped the service.");
+        if (left != null) said.add(installed ? "A server started with researchzosho serve was running too (pid " + left + "); it is stopped." : "No service is installed here; stopped the server started with researchzosho serve (pid " + left + ").");
+        if (!installed && left == null) said.add("No service is installed here and no server was running, so there was nothing to stop.");
+        said.add(now != null ? "A server is still running (pid " + now + ")." : installed ? "No server runs now; researchzosho service start starts it again, and it starts by itself at your next login." : "No server runs now.");
+        out.println(String.join(" ", said));
+        return now == null ? 0 : 1;
+    }
+
+    /** `service start`: the installed service started through the system's own way; one line says what was done and how it stands now. */
+    static int start(Plan plan, PrintStream out) throws IOException, InterruptedException {
+        Long running = serverNow();
+        if (!Files.exists(plan.definition())) {
+            out.println(running != null ? "No service is installed here; a server started with researchzosho serve is running already (pid " + running + ")."
+                    : "No service is installed here, so there is nothing to start. researchzosho service install installs the service and starts it; researchzosho serve runs the server in this terminal.");
+            return running != null ? 0 : 1;
+        }
+        if (running != null) { out.println("The service is running already (pid " + running + ")."); return 0; }
+        int rc = switch (plan.os()) {
+            case linux -> quiet(List.of("systemctl", "--user", "start", NAME), out);
+            case macos -> { int r = quiet(List.of("launchctl", "bootstrap", "gui/" + uid(), plan.definition().toString()), out); yield r == 0 ? 0 : quiet(List.of("launchctl", "kickstart", "gui/" + uid() + "/" + MAC_LABEL), out); }
+            default -> quiet(windowsStartNow(plan.definition()), out);
+        };
+        long until = System.currentTimeMillis() + SETTLE.toMillis();
+        Long pid = serverNow();
+        while (rc == 0 && pid == null && System.currentTimeMillis() < until) { Thread.sleep(250); pid = serverNow(); }
+        Path log = Config.stateDir(Path.of(System.getProperty("user.home"))).resolve("logs").resolve("librarian-serve.log");
+        out.println(pid != null ? "Started the service. It is running now (pid " + pid + ") and answers in a few seconds."
+                : rc != 0 ? "The service could not be started (exit " + rc + "). Its log is " + log + "."
+                : "Asked the service to start, but no server is running yet. researchzosho service status says how it stands, and its log is " + log + ".");
+        return pid != null ? 0 : 1;
+    }
+
+    /** Waits up to {@link #SETTLE} for {@code pid} to end. */
+    static void waitEnded(long pid) throws InterruptedException {
+        long until = System.currentTimeMillis() + SETTLE.toMillis();
+        while (System.currentTimeMillis() < until && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) Thread.sleep(100);
+    }
+
+    /** The commands the service's own ways run; a test stands them in. */
+    interface Exec { int run(List<String> cmd, PrintStream out) throws IOException, InterruptedException; }
+    static volatile Exec EXEC = Service::execNow;
+
+    /** A command whose output is said only when it fails: stop and start say their one line, not the system's. */
+    static int quiet(List<String> cmd, PrintStream out) throws IOException, InterruptedException {
+        ByteArrayOutputStream b = new ByteArrayOutputStream();
+        int rc = EXEC.run(cmd, new PrintStream(b, true, StandardCharsets.UTF_8));
+        if (rc != 0) out.print(b.toString(StandardCharsets.UTF_8));
+        return rc;
     }
 
     /** Whether installing {@code plan} changes a service that is already installed: its definition exists and says something else. */
@@ -573,7 +681,9 @@ public final class Service {
         };
     }
 
-    private static int exec(List<String> cmd, PrintStream out) throws IOException, InterruptedException {
+    static int exec(List<String> cmd, PrintStream out) throws IOException, InterruptedException { return EXEC.run(cmd, out); }
+
+    static int execNow(List<String> cmd, PrintStream out) throws IOException, InterruptedException {
         if (!cmd.isEmpty() && "@detach".equals(cmd.get(0))) {   // start and do not wait: the service itself
             List<String> real = cmd.subList(1, cmd.size());
             out.println("  $ " + String.join(" ", real) + "  (detached)");

@@ -10,6 +10,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.net.http.HttpResponse;
+import java.net.http.HttpRequest;
+import java.net.http.HttpClient;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -34,6 +40,7 @@ import java.util.concurrent.TimeUnit;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.function.Consumer;
+import java.util.function.BiPredicate;
 import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -76,6 +83,8 @@ public final class TranslationScores {
         default String stopped() { return ""; }
         /** Ends what the scorer keeps running, MetricX's process; a scorer that keeps nothing running has nothing to end. */
         @Override default void close() { }
+        /** A stop asked in the middle of a step: the work under way ends now, a local process ended, a remote call abandoned. Any thread may call it. */
+        default void abort() { }
     }
 
     /** The scorers at hand: LaBSE, and MetricX when it is installed; either null when not. Closed when the translation's checks end. */
@@ -88,19 +97,41 @@ public final class TranslationScores {
             if (metricx != null) parts.add(metricx.name() + " (" + metricx.model() + ")");
             StringBuilder stops = new StringBuilder();
             for (Scorer s : new Scorer[]{labse, metricx}) if (s != null && !s.stopped().isEmpty()) stops.append("; ").append(s.stopped());
-            return parts.isEmpty() ? "no scorer: LaBSE is not set up and MetricX-24 is not installed" : String.join(", ", parts) + (metricx == null ? "; MetricX-24 is not installed, so the tier ran on LaBSE alone" : "") + stops;
+            return parts.isEmpty() ? "no scorer: " + missing(Helpers.Helper.LABSE) + " and " + missing(Helpers.Helper.METRICX)
+                    : String.join(", ", parts) + (metricx == null ? "; " + missing(Helpers.Helper.METRICX) + ", so the tier ran on LaBSE alone" : "") + (labse == null ? "; " + missing(Helpers.Helper.LABSE) + ", so the tier ran on MetricX-24 alone" : "") + stops;
         }
         @Override public void close() { if (labse != null) labse.close(); if (metricx != null) metricx.close(); }
+        /** A stop in the middle of a step: each scorer ends what it has under way. */
+        public void abort() { if (labse != null) labse.abort(); if (metricx != null) metricx.abort(); }
+    }
+
+    /** Why a scorer did not run, for the note: off, not run on this machine with no address naming one, named and not answering, or not set up here. */
+    static String missing(Helpers.Helper h) {
+        String name = h == Helpers.Helper.LABSE ? "LaBSE" : "MetricX-24";
+        if (Helpers.off(h)) return name + " is off (" + h.setting + "=off)";
+        String at = Helpers.address(h);
+        if (at != null) return name + " at " + at + " did not answer";
+        if (!Helpers.localAllowed()) return name + " is not run on this machine (local_helpers off) and no address names one";
+        return h == Helpers.Helper.LABSE ? "LaBSE is not set up" : "MetricX-24 is not installed";
     }
 
     /** The scorers for a run; a test stands this in. */
     static volatile Supplier<Scorers> SCORERS = TranslationScores::configured;
 
     static Scorers configured() {
-        String url = labseAddress(true);
-        Scorer labse = url == null ? null : labse(url);
-        Scorer metricx = metricxInstalled() ? metricx() : null;
-        return new Scorers(labse, metricx);
+        String served = Helpers.off(Helpers.Helper.LABSE) ? null : Helpers.address(Helpers.Helper.LABSE);
+        Scorer labse;
+        if (served != null) labse = new Served(Helpers.Helper.LABSE, served);   // named on another machine: waits for it a bounded time when it does not answer
+        else { String url = labseAddress(true); labse = url == null ? null : labse(url); }
+        return new Scorers(labse, metricxScorer());
+    }
+
+    /** MetricX-24 for a run: off; else served at its address; else this machine's own process when it may run here and is installed; else none. */
+    static Scorer metricxScorer() {
+        if (Helpers.off(Helpers.Helper.METRICX)) return null;
+        String at = Helpers.address(Helpers.Helper.METRICX);
+        if (at != null) return new Served(Helpers.Helper.METRICX, at);
+        return Helpers.localAllowed() && metricxInstalled() ? metricx() : null;
     }
 
     // ---- LaBSE through Text Embeddings Inference ----
@@ -109,9 +140,10 @@ public final class TranslationScores {
 
     /** The LaBSE server's address when one answers: {@code RESEARCHZOSHO_LABSE} (an address, or off), else the container, started when {@code start} and Docker is there; null when none. */
     public static String labseAddress(boolean start) {
-        String set = Config.get("RESEARCHZOSHO_LABSE", "").strip();
-        if (set.equalsIgnoreCase("off")) return null;
-        if (!set.isEmpty()) return Embed.answers(set) ? set.replaceAll("/+$", "") : null;
+        if (Helpers.off(Helpers.Helper.LABSE)) return null;
+        String at = Helpers.address(Helpers.Helper.LABSE);
+        if (at != null) return Embed.answers(at) ? at : null;
+        if (!Helpers.localAllowed()) return null;   // this machine runs no heavy helper: none is started or used here
         String local = "http://127.0.0.1:" + LABSE_PORT;
         if (Embed.answers(local)) return local;
         if (!start || !Searx.haveDocker()) return null;
@@ -148,29 +180,58 @@ public final class TranslationScores {
 
     /** What setting LaBSE up would take, for a plan that says it first; "" when it is already there. */
     public static String labseSetupSaid() {
-        String set = Config.get("RESEARCHZOSHO_LABSE", "").strip();
-        if (set.equalsIgnoreCase("off")) return LABSE_OFF_SAID;
-        if (!set.isEmpty() || LABSE_UP.getAsBoolean()) return "";
+        if (Helpers.off(Helpers.Helper.LABSE)) return LABSE_OFF_SAID;
+        if (Helpers.address(Helpers.Helper.LABSE) != null || !Helpers.localAllowed() || LABSE_UP.getAsBoolean()) return "";   // elsewhere, or not here: the plan's own clause says where
         if (!labseState().equals("absent")) return LABSE_STOPPED_SAID;
         return Searx.haveDocker() ? LABSE_FETCH_SAID : LABSE_NO_DOCKER_SAID;
     }
 
+    /** How many times, two seconds apart, a start waits for the LaBSE container to answer (ten minutes); a test shortens it. */
+    static volatile int LABSE_WAITS = 300;
+
     /** Starts the LaBSE container, fetching the model the first time; the address, or "!" and what stopped it. */
-    public static String startLabse(boolean cpu) {
+    public static String startLabse(boolean cpu) { return startLabse(cpu ? null : "all", null, line -> { }); }
+
+    /**
+     * The same on a chosen card (0.7.4): {@code gpus} is Docker's {@code --gpus} value ("all", "device=2"), null for the processor;
+     * {@code card} the chosen card's index, whose compute capability picks the image, or null. A container that exists already was
+     * created with whatever cards it had: when a card is chosen, {@code say} says so, and the container is left as it is.
+     */
+    public static String startLabse(String gpus, String card, Consumer<String> say) {
         if (!Searx.haveDocker()) return "!docker is not on this machine (https://docs.docker.com/get-docker/)";
         try {
             Files.createDirectories(labseDir());
-            String tag = cpu ? "cpu-" + Embed.VERSION : Embed.teiTag();
+            String tag = gpus == null ? "cpu-" + Embed.VERSION : Embed.teiTag(card);
             String state = labseState();
+            if (!state.equals("absent") && (card != null || gpus == null)) say.accept("The LaBSE container (" + LABSE_CONTAINER + ") exists already and keeps the cards it was created with; it is left as it is (docker rm -f " + LABSE_CONTAINER + " lets the next install create it on the card chosen).");
             Searx.Result r;
-            if (state.equals("absent")) r = Searx.runner.run(labseCommand(LABSE_PORT, tag));
+            if (state.equals("absent")) r = Searx.runner.run(labseCommand(LABSE_PORT, tag, gpus == null ? "all" : gpus));
             else if (state.equals("stopped")) r = Searx.runner.run(List.of("docker", "start", LABSE_CONTAINER));
             else r = new Searx.Result(0, "");
             if (r.code() != 0) return "!docker: " + r.out().strip();
             String url = "http://127.0.0.1:" + LABSE_PORT;
-            for (int i = 0; i < 300; i++) { if (Embed.answers(url)) return url; Thread.sleep(2000); }
+            for (int i = 0; i < LABSE_WAITS; i++) { if (Embed.answers(url)) return url; Thread.sleep(2000); }
             return "!the container started but no embeddings call answered at " + url + " within ten minutes (docker logs " + LABSE_CONTAINER + ")";
         } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
+    /**
+     * Where the LaBSE container sits, from the cards Docker gave it when it was created: "card 2" (its UUID found among nvidia-smi's
+     * cards), "all cards", "the processor" when it was given none; "" when that cannot be read.
+     */
+    static String labseOn() {
+        try {
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{json .HostConfig.DeviceRequests}}", LABSE_CONTAINER));
+            if (r.code() != 0) return "";
+            JsonNode d = M.readTree(r.out().strip().isEmpty() ? "null" : r.out().strip());
+            if (d == null || !d.isArray() || d.isEmpty()) return "the processor";
+            List<String> on = new ArrayList<>();
+            for (JsonNode q : d) {
+                if (q.path("Count").asInt(0) == -1) return "all cards";
+                for (JsonNode id : q.path("DeviceIDs")) { HelperCards.Card c = HelperCards.named(id.asText(), HelperCards.cards()); on.add(c == null ? id.asText() : c.index()); }
+            }
+            return on.isEmpty() ? "all cards" : (on.size() == 1 ? "card " : "cards ") + String.join(", ", on);
+        } catch (Exception e) { return ""; }
     }
 
     public static String stopLabse() {
@@ -179,9 +240,12 @@ public final class TranslationScores {
     }
 
     /** The docker command that creates the LaBSE container: loopback only, the GPU when the tag is not cpu, CLS pooling as the model declares. */
-    static List<String> labseCommand(int port, String tag) {
+    static List<String> labseCommand(int port, String tag) { return labseCommand(port, tag, "all"); }
+
+    /** The same, on the cards {@code gpus} names for Docker ("all", or "device=2" for one card). */
+    static List<String> labseCommand(int port, String tag, String gpus) {
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", LABSE_CONTAINER, "--restart", "unless-stopped", "-p", "127.0.0.1:" + port + ":80", "-v", labseDir().toAbsolutePath() + ":/data"));
-        if (!tag.startsWith("cpu")) { cmd.add("--gpus"); cmd.add("all"); }
+        if (!tag.startsWith("cpu")) { cmd.add("--gpus"); cmd.add(gpus); }
         cmd.add(Embed.IMAGE + ":" + tag);
         cmd.addAll(List.of("--model-id", LABSE_MODEL, "--max-client-batch-size", "128", "--max-batch-tokens", tag.startsWith("cpu") ? "2048" : "16384", "--auto-truncate"));
         return cmd;
@@ -208,6 +272,134 @@ public final class TranslationScores {
             @Override public String model() { return LABSE_MODEL + " at " + url; }
             @Override public boolean higherIsBetter() { return true; }
         };
+    }
+
+    // ---- a scorer served by another machine ----
+
+    /** How long a run waits for a named scorer that stops answering before it goes on without it; a test shortens it. */
+    static volatile Duration SERVED_RETRY = Duration.ofMinutes(2);
+    /** The pairs MetricX-24 is sent in one call: a stop or a failure costs at most these. */
+    static final int SERVED_AT_ONCE = 8;
+    private static final HttpClient SERVED_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+
+    /**
+     * LaBSE or MetricX-24 at another machine's address (0.7.4): the pairs sent a few at a time, the helpers' secret with each call. A call
+     * that fails is tried again, the waits growing to fifteen seconds, for {@link #SERVED_RETRY}; then the scorer gives no more scores
+     * and says so in the note, and the run goes on without it. It never starts a scorer of this machine in its place. A stop in the
+     * middle of a step abandons the call under way.
+     */
+    static final class Served implements Scorer {
+        private final Helpers.Helper helper;
+        private final String address;
+        private volatile boolean aborted;
+        private volatile CompletableFuture<HttpResponse<String>> call;
+        private String stopped = "", health;
+        private int scored;
+
+        Served(Helpers.Helper helper, String address) { this.helper = helper; this.address = address; }
+
+        @Override public synchronized List<Double> score(List<String[]> pairs) {
+            List<Double> out = new ArrayList<>();
+            int step = helper == Helpers.Helper.METRICX ? SERVED_AT_ONCE : Math.max(1, pairs.size());
+            for (int from = 0; from < pairs.size(); from += step) {
+                List<String[]> part = pairs.subList(from, Math.min(pairs.size(), from + step));
+                List<Double> got = stopped.isEmpty() && !aborted ? ask(part) : null;
+                for (int k = 0; k < part.size(); k++) out.add(got == null || k >= got.size() ? null : got.get(k));
+            }
+            return out;
+        }
+
+        /** One call's scores, tried again for a bounded time; null when the scorer stopped or the run was stopped. */
+        private List<Double> ask(List<String[]> part) {
+            long firstFailure = 0, wait = 2_000;
+            String why = "";
+            while (!aborted) {
+                try {
+                    List<Double> got = call(part);
+                    scored += part.size();
+                    if (health == null) health = Helpers.health(address);
+                    return got;
+                } catch (Refused r) {   // a wrong secret is not a machine that is away: no wait
+                    stopped = name() + " at " + address + " refused this library's secret (" + Helpers.SECRET_NAME + "), so the translation went on without it";
+                    log.warn("{}", stopped);
+                    return null;
+                } catch (IOException e) { why = e.getMessage(); }
+                if (aborted) return null;
+                long now = System.currentTimeMillis();
+                if (firstFailure == 0) firstFailure = now;
+                if (now - firstFailure >= SERVED_RETRY.toMillis()) {
+                    stopped = name() + " at " + address + " gave no " + (scored == 0 ? "scores" : "more scores after " + Metricx.units(scored)) + ": it did not answer for " + Metricx.said(SERVED_RETRY) + " (" + why + "); the translation went on without it";
+                    log.warn("{}", stopped);
+                    return null;
+                }
+                long until = Math.min(now + wait, firstFailure + SERVED_RETRY.toMillis());
+                while (!aborted && System.currentTimeMillis() < until) { try { Thread.sleep(200); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; } }
+                wait = Math.min(15_000, wait * 2);
+            }
+            return null;
+        }
+
+        /** One call: the scores of the pairs, in order, null for a pair the server could not score. */
+        private List<Double> call(List<String[]> part) throws IOException {
+            ObjectNode body = M.createObjectNode();
+            String path;
+            if (helper == Helpers.Helper.METRICX) {
+                path = "/score";
+                ArrayNode a = body.putArray("pairs");
+                for (String[] p : part) a.addObject().put("source", DocUnits.plainText(p[0])).put("hypothesis", DocUnits.plainText(p[1]));
+            } else {
+                path = "/v1/embeddings";
+                body.put("model", "embed");
+                ArrayNode a = body.putArray("input");
+                for (String[] p : part) { a.add(DocUnits.plainText(p[0])); a.add(DocUnits.plainText(p[1])); }
+            }
+            HttpRequest req = Helpers.request(address + path).timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).build();
+            CompletableFuture<HttpResponse<String>> f = SERVED_HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString());
+            call = f;
+            HttpResponse<String> r;
+            try {
+                while (true) {
+                    if (aborted) { f.cancel(true); throw new IOException("stopped"); }
+                    try { r = f.get(200, TimeUnit.MILLISECONDS); break; } catch (TimeoutException te) { /* wait on */ }
+                }
+            } catch (InterruptedException e) { Thread.currentThread().interrupt(); f.cancel(true); throw new IOException("interrupted"); }
+            catch (ExecutionException e) { throw new IOException(e.getCause() == null ? "the call failed" : e.getCause().getClass().getSimpleName() + (e.getCause().getMessage() == null ? "" : ": " + e.getCause().getMessage())); }
+            finally { call = null; }
+            if (r.statusCode() == 401) throw new Refused();
+            if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode());
+            JsonNode j = M.readTree(r.body());
+            List<Double> out = new ArrayList<>();
+            if (helper == Helpers.Helper.METRICX) { for (JsonNode v : j.path("scores")) out.add(v.isNumber() ? v.asDouble() : null); return out; }
+            float[][] vs = new float[part.size() * 2][];
+            for (JsonNode d : j.path("data")) {
+                int i = d.path("index").asInt(-1);
+                if (i < 0 || i >= vs.length) continue;
+                JsonNode e = d.path("embedding"); float[] v = new float[e.size()]; double norm = 0;
+                for (int k = 0; k < v.length; k++) { v[k] = (float) e.get(k).asDouble(); norm += v[k] * v[k]; }
+                norm = Math.sqrt(norm); if (norm > 0) for (int k = 0; k < v.length; k++) v[k] /= (float) norm;
+                vs[i] = v;
+            }
+            for (int i = 0; i < part.size(); i++) {
+                float[] a = vs[2 * i], b = vs[2 * i + 1];
+                if (a == null || b == null || a.length != b.length) { out.add(null); continue; }
+                double dot = 0; for (int k = 0; k < a.length; k++) dot += a[k] * b[k];
+                out.add(Math.round(dot * 10000) / 10000.0);
+            }
+            return out;
+        }
+
+        @Override public void abort() { aborted = true; CompletableFuture<HttpResponse<String>> f = call; if (f != null) f.cancel(true); }
+
+        /** The server refused the secret (HTTP 401). */
+        static final class Refused extends IOException { Refused() { super("HTTP 401"); } }
+        @Override public String name() { return helper == Helpers.Helper.METRICX ? "MetricX-24" : "LaBSE"; }
+        @Override public synchronized String model() {
+            String h = health != null ? health : Helpers.health(address);
+            String model = helper == Helpers.Helper.METRICX ? METRICX_MODEL + " in QE mode" : LABSE_MODEL;
+            return model + ", at " + address + (h == null || h.isBlank() || !h.contains(" on ") ? "" : ", " + h.substring(h.lastIndexOf(" on ") + 1));   // no bracket inside the note's own: "…, at http://homebox:8217/metricx, on cuda"
+        }
+        @Override public boolean higherIsBetter() { return helper == Helpers.Helper.LABSE; }
+        @Override public synchronized String stopped() { return stopped; }
     }
 
     // ---- MetricX-24 in a Python environment of its own ----
@@ -288,7 +480,7 @@ public final class TranslationScores {
     public static synchronized String setupInBackground(String why) {
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "the scorers are being set up already";
-        if (!setupAllowed()) return "";
+        if (!setupAllowed() || !Helpers.localAllowed()) return "";   // this machine runs no heavy helper: nothing is set up here
         String what = missingSaid();
         if (what.isEmpty()) return "";
         try {
@@ -334,11 +526,87 @@ public final class TranslationScores {
 
     /** What installing MetricX takes, for a plan that says it first; "" when it is installed. */
     public static String metricxSetupSaid() {
+        if (Helpers.off(Helpers.Helper.METRICX) || Helpers.address(Helpers.Helper.METRICX) != null || !Helpers.localAllowed()) return "";   // the plan's own clause says where, or why not
         return metricxInstalled() ? "" : METRICX_MISSING_SAID;
     }
 
     /** Sets the helper up: a Python environment with torch's CPU build and transformers, the script, the model fetched on the first load; "ready", or "!" and what stopped it. */
-    public static String installMetricx() {
+    public static String installMetricx() { return installMetricx(null, line -> { }); }
+
+    // ---- torch's CUDA build, for MetricX-24 on a card (0.7.4) ----
+
+    /**
+     * What torch's builds take, read from the wheels themselves (their sizes and their zip directories, torch 2.15.0, 2026-11-12) and
+     * measured on a machine that holds both: the processor build's whole environment takes 1.2 GB on the disk; the CUDA build on Linux
+     * x86_64, as PyPI gives it (torch 514 MB, NVIDIA's CUDA libraries, triton, with transformers, sentencepiece and protobuf), is a
+     * 2.8 GB download that unpacks to 5.2 GB; on Windows x86_64 PyPI's torch is the processor build, and the CUDA one comes from
+     * PyTorch's own index, a 2.0 GB download that unpacks to 2.9 GB. The model is 4.7 GB, 9.2 GB when both its weight files are fetched.
+     */
+    static final String METRICX_MODEL_SIZE = "about 4.7 GB for the model (its weights as 32-bit floats; the repository holds them twice over, and a fetch of both is 9.2 GB)";
+    static final String METRICX_CUDA_SIZE_LINUX = METRICX_MODEL_SIZE + " and, for its Python packages with torch's CUDA build (torch, NVIDIA's CUDA libraries, triton, transformers, sentencepiece), a 2.8 GB download that takes 5.2 GB on the disk";
+    static final String METRICX_CUDA_SIZE_WINDOWS = METRICX_MODEL_SIZE + " and, for its Python packages with torch's CUDA build, a 2.0 GB download that takes 3.0 GB on the disk";
+    static final String TORCH_SWAP_LINUX = "torch's CUDA build in place of its processor build: a 2.8 GB download, about 4 GB more on the disk";
+    static final String TORCH_SWAP_WINDOWS = "torch's CUDA build in place of its processor build: a 2.0 GB download, about 2 GB more on the disk";
+    /** At most, on the disk: the model with both weight files, and the packages; with the CUDA build on Linux, on Windows, and with the processor build. */
+    static final long METRICX_CUDA_BYTES_LINUX = (long) (14.4 * (1L << 30)), METRICX_CUDA_BYTES_WINDOWS = (long) (12.2 * (1L << 30)), METRICX_CPU_BYTES = (long) (10.4 * (1L << 30)), TORCH_SWAP_BYTES = 4L << 30;
+    /** PyTorch's own index of CUDA builds for Windows, where PyPI's torch is the processor build. */
+    static final String TORCH_CUDA_INDEX_WINDOWS = "https://download.pytorch.org/whl/cu132";
+
+    /** Whether this is Windows, and whether torch has a CUDA build for this machine (Linux or Windows, on x86_64); a test stands them in. */
+    static volatile BooleanSupplier WINDOWS = () -> System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    static volatile BooleanSupplier CUDA_BUILD = () -> {
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT), arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
+        return (os.contains("linux") || os.contains("win")) && (arch.equals("amd64") || arch.equals("x86_64"));
+    };
+
+    static boolean windows() { return WINDOWS.getAsBoolean(); }
+    static boolean cudaBuildHere() { return CUDA_BUILD.getAsBoolean(); }
+
+    /** Whether MetricX-24 gets torch's CUDA build: a card chosen (not the processor), on a machine with that build, in its own environment. */
+    static boolean cudaTorchFor(HelperCards.Choice card) {
+        return card != null && card.card() != null && cudaBuildHere() && Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank();
+    }
+
+    static String metricxSize(boolean cuda) { return !cuda ? METRICX_SIZE : windows() ? METRICX_CUDA_SIZE_WINDOWS : METRICX_CUDA_SIZE_LINUX; }
+    static long metricxBytes(boolean cuda) { return !cuda ? METRICX_CPU_BYTES : windows() ? METRICX_CUDA_BYTES_WINDOWS : METRICX_CUDA_BYTES_LINUX; }
+    static String torchSwapSize() { return windows() ? TORCH_SWAP_WINDOWS : TORCH_SWAP_LINUX; }
+
+    /** pip's line for torch: the processor build from PyTorch's CPU index, or the CUDA build (PyPI's on Linux, PyTorch's CUDA index on Windows), not kept in pip's cache. */
+    static List<String> torchInstall(Path pip, boolean cuda) {
+        if (!cuda) return List.of(pip.toString(), "install", "--quiet", "--upgrade", "torch", "--index-url", "https://download.pytorch.org/whl/cpu");
+        List<String> cmd = new ArrayList<>(List.of(pip.toString(), "install", "--quiet", "--no-cache-dir", "--upgrade", "torch"));
+        if (windows()) cmd.addAll(List.of("--index-url", TORCH_CUDA_INDEX_WINDOWS));
+        return cmd;
+    }
+
+    /** Whether MetricX-24's torch sees the chosen card: {@code torch.cuda.is_available()} under that card's environment; a test stands it in. */
+    static volatile BiPredicate<Path, HelperCards.Choice> TORCH_SEES = TranslationScores::torchSeesNow;
+
+    static boolean torchSeesNow(Path py, HelperCards.Choice card) {
+        try {
+            List<String> cmd = new ArrayList<>(List.of(py.toString()));
+            if (Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank()) cmd.add("-I"); else cmd.addAll(List.of("-E", "-P"));
+            cmd.addAll(List.of("-c", "import torch; print(torch.cuda.is_available())"));
+            ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+            HelperCards.into(pb.environment(), card);
+            Process p = pb.start();
+            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            return p.waitFor(5, TimeUnit.MINUTES) && out.strip().endsWith("True");
+        } catch (IOException e) { return false; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+    }
+
+    /** How the model's first load is started, under the card's environment; a test stands it in and reads the environment. */
+    static volatile HelperServer.Starter CHECK = ProcessBuilder::start;
+
+    /**
+     * Sets MetricX-24 up, as {@link #installMetricx()}, for the card {@code card} chose (null: none chosen, as a library's own machine
+     * sets it up). With a card, on Linux or Windows x86_64: a fresh environment gets torch's CUDA build; one already there whose torch
+     * cannot see the card gets the CUDA build in place of its own, and one that can is left alone. A CUDA build that cannot be installed
+     * (no wheel for that Python, no room) is said in one line, and the processor build goes in. The model's first load runs under the
+     * card's environment, as the served process does, and what it loaded on is said from its own reply. {@code say} gets each line.
+     */
+    static String installMetricx(HelperCards.Choice card, Consumer<String> say) {
         try {
             Files.createDirectories(metricxDir());
             try (InputStream in = TranslationScores.class.getResourceAsStream("/org/researchzosho/librarian/metricx_score.py")) {
@@ -351,20 +619,53 @@ public final class TranslationScores {
                 Searx.Result v = Searx.runner.run(List.of(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "python" : "python3", "-m", "venv", venv.toString()));
                 if (v.code() != 0) return "!Python's venv could not make " + venv + ": " + last(v.out()) + " (Python 3 with venv is needed)";
                 Path pip = venv.resolve(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "Scripts" : "bin").resolve(System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win") ? "pip.exe" : "pip");
-                Searx.Result t = Searx.runner.run(List.of(pip.toString(), "install", "--quiet", "--upgrade", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"));
+                boolean cuda = cudaTorchFor(card);
+                Searx.Result t = Searx.runner.run(torchInstall(pip, cuda));
+                if (t.code() != 0 && cuda) {
+                    say.accept("torch's CUDA build could not be installed (" + last(t.out()) + "), so MetricX-24 gets the processor build and scores on the processor.");
+                    t = Searx.runner.run(torchInstall(pip, false));
+                }
                 if (t.code() != 0) return "!installing torch into " + venv + " failed: " + last(t.out());
                 Searx.Result p = Searx.runner.run(List.of(pip.toString(), "install", "--quiet", "--upgrade", "transformers", "sentencepiece", "protobuf"));
                 if (p.code() != 0) return "!installing transformers into " + venv + " failed: " + last(p.out());
+            } else if (cudaTorchFor(card) && !TORCH_SEES.test(py, card)) {
+                // an environment set up before, with the processor build: its torch cannot see the card, so the CUDA build goes in its place
+                Path pip = py.resolveSibling(windows() ? "pip.exe" : "pip");
+                say.accept("MetricX-24's torch cannot see a card (it is the processor build): " + torchSwapSize() + ".");
+                Searx.Result u = Searx.runner.run(List.of(pip.toString(), "uninstall", "--yes", "--quiet", "torch"));
+                Searx.Result t = u.code() == 0 ? Searx.runner.run(torchInstall(pip, true)) : u;
+                if (t.code() != 0) {
+                    say.accept("torch's CUDA build could not be installed (" + last(t.out()) + "), so MetricX-24 keeps the processor build and scores on the processor.");
+                    Searx.Result back = Searx.runner.run(torchInstall(pip, false));
+                    if (back.code() != 0) return "!torch could not be put back into " + py.getParent().getParent() + ": " + last(back.out());
+                }
             }
-            // the first load fetches the model and the tokenizer; a load that answers ready leaves the marker
-            Process pr = new ProcessBuilder(pythonCommand(py, "--check")).redirectErrorStream(true).start();
+            // the first load fetches the model and the tokenizer, under the card's environment as the served process runs; a load that
+            // answers ready leaves the marker, and its reply says what it loaded on
+            ProcessBuilder pb = new ProcessBuilder(pythonCommand(py, "--check")).redirectErrorStream(true);
+            HelperCards.into(pb.environment(), card);
+            Process pr = CHECK.start(pb);
             String out;
             try (InputStream in = pr.getInputStream()) { out = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
             if (!pr.waitFor(60, TimeUnit.MINUTES)) { pr.destroyForcibly(); return "!the model did not load within an hour"; }
             if (pr.exitValue() != 0 || !out.contains("\"ready\"")) return "!the model could not be loaded: " + last(out);
             Files.writeString(metricxReady(), METRICX_MODEL + "\n", StandardCharsets.UTF_8);
+            if (card != null) say.accept(loadedOn(out));
             return "ready";
         } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
+    /** What the model's first load says it loaded on, in a line: the card by its name, or the processor. */
+    static String loadedOn(String checkOut) {
+        for (String line : checkOut.split("\\R")) {
+            try {
+                JsonNode j = M.readTree(line.strip());
+                if (!j.path("ready").asBoolean(false)) continue;
+                String device = j.path("device").asText("");
+                return device.equals("cuda") ? "MetricX-24 loads on the card" + (j.path("card").asText("").isEmpty() ? "" : " (" + j.path("card").asText() + ")") + "." : "MetricX-24 loads on the processor.";
+            } catch (IOException | RuntimeException ignored) { }
+        }
+        return "MetricX-24 loads.";
     }
 
     /**
@@ -405,7 +706,8 @@ public final class TranslationScores {
         /** What the thread puts for a process that ended or could not be written to, and what it takes as the end of the input: no line of the script's or of a unit's is either. */
         private static final String ENDED = "\0ended", CLOSE = "\0close";
         private final Supplier<List<String>> command;
-        private Process process;
+        private volatile Process process;
+        private volatile boolean aborted;
         private BlockingQueue<String> requests, replies;
         private boolean loaded;
         private int starts, scored;
@@ -416,7 +718,7 @@ public final class TranslationScores {
         @Override public synchronized List<Double> score(List<String[]> pairs) {
             List<Double> out = new ArrayList<>();
             for (String[] p : pairs) {
-                if (!stopped.isEmpty()) { out.add(null); continue; }
+                if (!stopped.isEmpty() || aborted) { out.add(null); continue; }
                 ObjectNode j = M.createObjectNode(); j.put("source", DocUnits.plainText(p[0])); j.put("hypothesis", DocUnits.plainText(p[1]));
                 out.add(ask(j.toString()));
             }
@@ -425,12 +727,13 @@ public final class TranslationScores {
 
         /** One unit's score; null for a unit the script could not score, and for every unit once the scorer has stopped. */
         private Double ask(String line) {
-            while (stopped.isEmpty()) {
+            while (stopped.isEmpty() && !aborted) {
                 if (process == null && !start()) return null;
                 Duration wait = loaded ? METRICX_STALL : METRICX_FIRST;
                 String reply;
                 try { requests.put(line); reply = replies.poll(wait.toMillis(), TimeUnit.MILLISECONDS); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); stop("the wait for a score was interrupted"); return null; }
+                if (aborted) return null;   // a stop asked in the middle of the step: the process is ended, nothing more is asked
                 if (reply == null) { stop("no score came for " + said(wait) + (loaded ? " on one unit" : " after its process started")); return null; }
                 if (reply.equals(ENDED)) { ended(); continue; }
                 loaded = true;
@@ -523,8 +826,15 @@ public final class TranslationScores {
             end(pr);
         }
 
+        /** A stop in the middle of a step: no more units are asked, the process ended; the wait for the unit under way ends with it. */
+        @Override public void abort() {
+            aborted = true;
+            Process pr = process;
+            if (pr != null) end(pr);
+        }
+
         @Override public String name() { return "MetricX-24"; }
-        @Override public String model() { return METRICX_MODEL + " in QE mode, " + (Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank() ? "in its own Python environment" : "with " + Config.get("RESEARCHZOSHO_METRICX_PYTHON", "")); }
+        @Override public String model() { return METRICX_MODEL + " in QE mode, on this machine " + (Config.get("RESEARCHZOSHO_METRICX_PYTHON", "").isBlank() ? "in its own Python environment" : "with " + Config.get("RESEARCHZOSHO_METRICX_PYTHON", "")); }
         @Override public boolean higherIsBetter() { return false; }
     }
 

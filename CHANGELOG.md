@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.4
+
+What's new: the heavy helpers can run on another machine, set up there with one command; the service stops and starts from the command line; and a job stops within seconds, also in the middle of a step.
+
+### Added
+
+- `researchzosho helpers install --on <user@host>` sets the heavy helpers up on another machine of yours over ssh: MetricX-24, LaBSE and the likeness helper, served with speech-to-text and the embeddings server when those run there. It installs ResearchZosho there when it is missing, asks once with the sizes, starts a service on port 8217, and sets this library to use it. Setup offers it on a small machine whose model is served from another one.
+- `researchzosho helpers install` does the same on the machine you run it on. `helpers uninstall` removes the service and leaves the models.
+- A library finds the helpers server on the machine that serves its model by itself. A hosted service is never asked. `settings set helpers <address>` names another machine, and `settings set helpers off` stops the look.
+- The helpers go on the card of the model server beside them. `--gpu <index>` names another card and `--cpu` keeps them off the cards. On a machine with several cards and nothing to go by, `helpers install` asks.
+- `--separate` gives a library its own set of helpers on its own card, beside the set already on the machine: `helpers install --on <user@host> --separate`. Without it a second library joins the first set, and moving that set to another card asks first, since every library it serves moves with it.
+- `settings set local_helpers off` makes a machine run none of them itself. Setup asks about it on a machine with no graphics card, or one with less than 6 GB.
+- `researchzosho helpers` says where each helper runs and whether it answers. A translation's plan says where each scorer runs, and its note names the address.
+- `researchzosho service stop` and `service start`. `service stop` names each running job and says it resumes at the next start; `--stop-jobs` stops them for good.
+- `researchzosho jobs <J-id> --stop` stops a job of any kind.
+
+### Changed
+
+- `researchzosho refresh` keeps the index when the embeddings server moves to another address and gives the same vectors. It used to index every entry again without saying so.
+- A machine that gave no connection is not waited for again for half a minute. A laptop away from the server it names waits about three seconds once, where every search waited sixteen.
+- `service status` starts with one line that says whether the service is installed and running.
+
+### Fixed
+
+- A stop asked while a translation was in the middle of a step took effect only after the step, and MetricX-24 on a processor kept scoring for minutes. The job now ends within seconds.
+- A job asked to stop was resumed at the next start when the service ended first.
+- A translation said "about 90% done" at the start of its scoring.
+- `refresh` built the index again with no vectors when the embeddings server's address had changed and the new server did not answer.
+
 ## 0.7.3
 
 What's new: the interface and the chat in ten languages, PDFs are read as a person reads them, a translation checks its names against each other, conversations can be deleted, and a translation's notes stay out of the document unless you ask for them.

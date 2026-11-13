@@ -146,6 +146,12 @@ if (Test-Path "$State\logs\update.log") { Show 'update.log:' (Get-Content "$Stat
 $old = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
 Expect 'service restart' 'Restarted the service' { & $Z service restart --yes }
 Check "the restart started a new server (was pid $old)" (Within 90 { (Test-Path "$State\researchzosho.pid") -and ([int](Get-Content "$State\researchzosho.pid") -ne $old) -and ((ServedVersion 4649) -eq $Next) }) "pid file says '$(Get-Content "$State\researchzosho.pid" -ErrorAction SilentlyContinue)', port 4649 says '$(ServedVersion 4649)'"
+# a stop and a start from the command line: the server ends, the status says so, and it comes back
+Expect 'service stop' 'Stopped the service' { & $Z service stop }
+Check 'the server ended with the stop' (Within 20 { -not (Answers 4649) }) 'port 4649 still answers'
+Expect 'service status says it is stopped' 'and stopped' { & $Z service status }
+Expect 'service start' 'Started the service' { & $Z service start }
+Check "the service serves $Next after the start" (Within 90 { (ServedVersion 4649) -eq $Next }) "port 4649 says '$(ServedVersion 4649)'"
 $after = if (Test-Path "$State\researchzosho.pid") { [int](Get-Content "$State\researchzosho.pid") } else { 0 }
 Expect 'service uninstall' 'removed' { & $Z service uninstall }
 Check "the service's server stopped" (Within 20 { -not (Answers 4649) -and -not ($after -gt 0 -and (Get-Process -Id $after -ErrorAction SilentlyContinue)) }) "port 4649 or java pid $after still there"

@@ -35,6 +35,7 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 13. The map
 14. Fields
 15. Running it as a service
+15b. Heavy helpers on another machine
 16. The web pages
 17. Obsidian and SoloMD
 18. Other programs
@@ -312,6 +313,12 @@ measures it. `embed stop` stops it. `researchzosho status` says in one line whet
 says so when a server is configured but not answering, since searches are by words only until it is. After starting one, run `researchzosho rebuild` to index the
 library with it. The nightly housekeeping would do that the next night.
 
+When the embeddings server's address changes, `researchzosho refresh` asks the new one for one sentence's vector and
+compares it with the one kept beside the index. The same vectors mean the same model, and the index is kept. Another
+model means every entry is indexed again, and `refresh` says so before it starts. A new server that does not answer
+leaves the index and its vectors as they are. A server that gave no connection is not waited for again for half a
+minute, so a laptop away from the machine it names searches by words with no wait on each search.
+
 ### Updating
 
 `researchzosho status` and the page footer say when a newer release exists. To install it:
@@ -462,7 +469,9 @@ waiting for, and where its write-up went. A job keeps what it gets as it goes: e
 and worker's notes of a research run, every unit of a translation, every task of the nightly housekeeping. When the
 service restarts, for an update or anything else, a job that was running resumes where it was: a research run at
 the turn it was on, a translation at the unit it was on, the housekeeping at its next task. The job's line says so:
-"Resumed after a restart, at turn 14." A career search, a home search and a video search begin again. A run that waits for one of its named choices is answered with
+"Resumed after a restart, at turn 14." A career search, a home search and a video search begin again. A job you asked
+to stop is not resumed: when the service ends before the stop has taken effect, the job is recorded as stopped at the
+next start. `researchzosho jobs <J-id> --stop` stops a job of any kind; a queued one never starts. A run that waits for one of its named choices is answered with
 `researchzosho jobs <J-id> --choose <number or name>`; one held for the question whether to research it at all, with
 `--yes` or `--no`. A run that has shown no progress for a quarter of an hour
 (`RESEARCHZOSHO_STALL_MINUTES`) is marked "no progress since" with the time, and the service writes
@@ -1492,6 +1501,13 @@ says so. One MetricX-24 process scores a whole translation, the model loaded onc
 five minutes (twenty for its first, which includes the load) is ended, the rest of the translation goes on without it,
 and the note says so. `researchzosho translate scorers status` says what is there.
 
+Either scorer can run on another machine: `RESEARCHZOSHO_METRICX` and `RESEARCHZOSHO_LABSE` take an address, or the
+address of a machine that serves the heavy helpers stands for both (section 15b). The plan says where each one scores
+before the job starts, and the note names the address it ran at and whether that was a card or a processor. A named
+scorer that does not answer when the plan is made is said in the plan; one that stops answering in the middle of a run
+is waited for up to two minutes, then the run goes on without it and the note says so. A machine set to run no heavy
+helper never starts its own in its place.
+
 Who reads, for `reviewed` and `thorough`, depends on what is set up (`researchzosho models`, section 12):
 
 | what is set | the reader | and |
@@ -2339,7 +2355,9 @@ are ahead of it.
 The Runs page has the same controls: "Pause the runner" and "Resume", and a "Stop" beside each run
 that is queued or running. A stop ends a run within seconds, whatever it is doing, also when it is
 waiting for the model, a web page or a search: what it waits for is given up and its connection
-closed. The run is recorded as stopped, not failed, and nothing of it is filed, also when the stop
+closed. A translation ends the same way in the middle of a step: a call to the model is closed, a
+MetricX-24 process is ended, and a call to a scorer on another machine is given up. `researchzosho jobs
+<J-id> --stop` does the same from the command line, for any kind of job. The run is recorded as stopped, not failed, and nothing of it is filed, also when the stop
 comes after its research and before its report is filed. If you stop a run once its report is being
 filed, the report stays in the library, and `research stop` says so: the checking of the report's
 claims that comes after the filing ends with the step it is on, and the nightly housekeeping finishes
@@ -3000,9 +3018,20 @@ checked and what was not. Each field below is one of the three kinds and works a
 ```
 researchzosho service install            # Linux, macOS or Windows; a user service, no administrator rights
 researchzosho service status
+researchzosho service stop               # stop it; a running job resumes where it was at the next start
+researchzosho service stop --stop-jobs   # stop it, and stop the running jobs for good
+researchzosho service start              # start it again
 researchzosho service restart            # a job that is going stops, and resumes where it was when the service is back
 researchzosho service uninstall
 ```
+
+`service stop` and `service start` use the system's own way: systemd's stop and start on Linux, launchd's bootout and
+bootstrap on macOS, and on Windows the logon task ended and the server stopped by its recorded process id. A stopped
+service starts again by itself at your next login. With no service installed, `service stop` stops a
+`researchzosho serve` running in a terminal, found by the process id it recorded, never by its name. Each of the
+three ends with one line that says what was done and how it stands now, and `service status` starts with that line.
+Before it stops, `service stop` names each running job and says what becomes of it: it resumes where it was at the
+next start, unless you stop it with `researchzosho jobs <J-id> --stop` or give `--stop-jobs`.
 
 The service listens on `127.0.0.1:4649`. It runs the housekeeping at three each morning;
 `--crew-hour` changes the hour. It writes its log to `~/.researchzosho/logs/librarian-serve.log`.
@@ -3102,6 +3131,52 @@ researchzosho connect off                                           # back to th
 library, with the token, so they get its tools without a service of their own. The verbs that touch a
 library's folder or its computer (setup, service, model, add, reader, share, settings…) say to run
 them on the library's computer.
+
+## 15b. Heavy helpers on another machine
+
+MetricX-24, LaBSE, the likeness helper, speech-to-text and the embeddings server take a laptop's processor for hours.
+Put them on the machine with the card, from the laptop:
+
+```
+researchzosho helpers install --on homebox      # over ssh with your own keys; asks once, with the sizes
+```
+
+It installs or updates ResearchZosho there, sets up what is missing, serves the embeddings server and speech-to-text
+when they already run there, keeps a secret, and starts a user service on port 8217. Then it sets `helpers` and
+`helpers_secret` here and says what is served. When ssh needs a password, it gives the two commands to run by hand.
+`researchzosho setup` offers it on a small machine whose model is served from another one.
+
+On the big machine itself, the same in one command, which ends with the line to paste on the library's machine:
+
+```
+researchzosho helpers install                   # --only metricx,labse  --gpu 2 | --cpu  --beside-port 8212  --yes
+researchzosho helpers secret                    # the kept secret, alone on a line
+researchzosho helpers uninstall                 # the service goes; the models stay
+```
+
+**Which card.** `--gpu <index or UUID>` names one and `--cpu` keeps them off every card; the choice is kept
+(`helpers_gpu`). Without either: the card of the model server beside them (`--beside-port`; `--on` passes it when your
+model is served from that machine), else the card this program's model server was installed with, else the only
+card; with several cards and nothing deciding it asks, and with `--yes` it stops. With a card, MetricX-24 gets torch's
+CUDA build (Linux and Windows x86_64; a processor build already there is replaced). An existing LaBSE or embeddings
+container keeps its cards.
+
+**A set per card.** One set serves every library by default. Two libraries whose models sit on different cards can each
+have their own: `helpers install --separate` (or `--on homebox --separate`) adds a set on this call's card, on the next
+port from 8218, and points `--on`'s library at it; run again, it finds that set. `--gpu` to a card with no set and no
+`--separate` moves the one set, which it asks first (`--move` with `--yes`). `helpers port` prints a set's port,
+`helpers service status` lists the sets, and `helpers uninstall --gpu N` removes one.
+
+**Found by itself.** With `helpers` unset, a library whose model is served from another machine of yours (a private
+address or a local name) asks that machine's port 8217 and uses the helpers server there; one that needs its secret
+is said, with the line that sets it. A hosted service is never asked; `settings set helpers off` stops the look.
+`researchzosho helpers` says where each helper runs.
+
+The secret goes only to addresses this program serves; the calls are plain http, so use a network you trust or an
+https proxy. One helper can be named on its own (`RESEARCHZOSHO_METRICX`, `_LABSE`, `_LIKENESS`, `_WHISPER`, `_EMBED`,
+an address or `off`). macOS and Windows have no helpers service yet: there `helpers install` says to run `helpers
+serve`. With `settings set local_helpers off` a machine runs none of them, and a helper no address names is left out,
+as a translation's plan and note say. A helpers machine that stops answering stays the one named.
 
 ## 16. The web pages
 

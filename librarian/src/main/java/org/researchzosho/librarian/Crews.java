@@ -244,7 +244,7 @@ public final class Crews {
             // monthly: everything re-embedded; nightly: only what changed since the last stamp
             int n = cadence.monthly() ? idx.rebuild() : idx.refresh();
             store.regenerateIndex();
-            return n + (cadence.monthly() ? " entries indexed (full, monthly)" : " changed entr(ies) re-indexed (incremental)");
+            return n + (cadence.monthly() ? " entries indexed (full, monthly)" : idx.said().contains("indexed again") ? " entries indexed (full). " + idx.said() : " changed entr(ies) re-indexed (incremental)" + (idx.said().isEmpty() ? "" : ". " + idx.said()));
         }));
         steps.add(step(store, "backup", () -> "wrote " + Backup.run(store, Backup.dir(store), Backup.KEEP) + " (keeping " + Backup.KEEP + ")"));
         return steps;

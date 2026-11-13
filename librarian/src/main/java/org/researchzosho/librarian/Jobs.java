@@ -805,6 +805,25 @@ public final class Jobs {
         enqueue(j);
     }
 
+    /**
+     * A job a person asked to stop, which the last service left running before the stop took effect (it ended, or was stopped, in the
+     * seconds between): it ends stopped, as it would have, and is never resumed (0.7.4). Its kept work goes as a stopped job's does, and a
+     * translation's scores leave the record as a stopped translation's do.
+     */
+    private void stoppedWhileAway(ObjectNode j) throws IOException {
+        String id = j.path("job_id").asText();
+        Files.deleteIfExists(stopMarker(id));
+        Files.deleteIfExists(activeDir().resolve(id + ".lock"));
+        j.put("state", "stopped"); j.put("is_error", false); j.put("ended_at", Instant.now().toString());
+        j.put("result", "stopped by the person — " + STOPPED_WHILE_AWAY);   // as a stop the worker settles says it
+        j.remove("progress");
+        if (Translation.JOB_KIND.equals(j.path("kind").asText())) { try { TranslationScores.withdraw(store, id); } catch (IOException ignored) { } }
+        finish(j);
+    }
+
+    /** What a job stopped that way says after the person's stop. */
+    static final String STOPPED_WHILE_AWAY = "the service ended before the run did, and the stop holds: it was not started again";
+
     /** What a job says about its last interruption: "Resumed after a restart, at unit 4,312 of 11,637."; "" for a job never interrupted. */
     public static String resumedSentence(JsonNode j) {
         JsonNode list = j.path("interruptions");
@@ -859,6 +878,7 @@ public final class Jobs {
             if ("queued".equals(st)) {
                 enqueue(j);
             } else if ("running".equals(st)) {
+                if (stopRequested(j.path("job_id").asText())) { stoppedWhileAway(j); active.remove(j.path("job_id").asText()); continue; }
                 if (why == null) why = whyStopped(before);
                 interrupted(j, why);
             }

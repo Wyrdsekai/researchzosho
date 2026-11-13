@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "researchzosho"
-version = "0.7.3"
+version = "0.7.4"
 description = "Python client for ResearchZosho, an open-source deep research assistant with citations and memory. It searches your library, starts research runs and reads their results over HTTP, with no dependencies."
 keywords = ["deep-research", "research-assistant", "citations", "literature-review", "mcp", "local-llm"]
 readme = "README.md"

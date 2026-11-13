@@ -53,6 +53,14 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_JUDGE_DRIVE", Kind.address, "A second model server for the checks (the judge); the main one when unset.", "http://localhost:8081"),
             new Setting("RESEARCHZOSHO_JUDGE_MODEL", Kind.text, "The judge model's name on that server.", ""),
             new Setting("RESEARCHZOSHO_EMBED", Kind.address, "The embeddings server, for search by meaning; off when unset.", "http://localhost:30001"),
+            // the heavy helpers: where they run (0.7.4)
+            new Setting(Helpers.LOCAL, Kind.choice, "Whether this machine runs the heavy helpers itself: MetricX-24 and LaBSE (the scores of a checked translation), the likeness helper, speech-to-text and the embeddings server. off, for a laptop or a small machine: none of them is installed or started here; one an address names runs there, and one no address names is left out, which the work says. Unset: on.", "", List.of("on", "off")),
+            new Setting(Helpers.HELPERS, Kind.address, "A machine that serves the heavy helpers (researchzosho helpers install on it): each helper it serves is used from there, unless the helper's own setting names another address. Unset: the machine that serves the main model is asked, and its helpers are used when it serves them; off: no machine is asked.", "http://homebox:" + Helpers.PORT),
+            new Setting(Helpers.GPU_NAME, Kind.text, "On a machine that serves the heavy helpers: the card they run on (its index or UUID, as nvidia-smi lists it), or cpu; set by helpers install --gpu or --cpu. Unset: the card of the model server beside them, else the only card.", "2"),
+            new Setting(Helpers.SECRET_NAME, Kind.secret, "The secret that machine serves with; it goes with every call to it.", ""),
+            new Setting(Helpers.Helper.METRICX.setting, Kind.address, "MetricX-24, the second score of a checked translation: an address (a helpers machine's /metricx, or researchzosho translate scorers serve), or off. Unset: the helpers machine, else this machine.", "http://homebox:" + Helpers.PORT + "/metricx"),
+            new Setting(Helpers.Helper.LABSE.setting, Kind.address, "LaBSE, the first score of a checked translation: an address, or off. Unset: the helpers machine, else a container on this machine.", "http://homebox:" + Helpers.PORT + "/labse"),
+            new Setting(Helpers.Helper.LIKENESS.setting, Kind.address, "The likeness helper, which measures how alike two pictures and two faces are: an address, or off. Unset: the helpers machine, else this machine.", "http://homebox:" + Helpers.PORT + "/likeness"),
             new Setting("RESEARCHZOSHO_VISION_DRIVE", Kind.address, "A model server that reads pictures; the main one when unset.", ""),
             new Setting("RESEARCHZOSHO_VISION_MODEL", Kind.text, "The picture-reading model's name.", ""),
             new Setting("RESEARCHZOSHO_PICTURES", Kind.choice, "Pictures in research runs: the workers' image_search and image_judge, and the picture step after them for the people, organisations and places the findings name. off leaves them out of every run. Unset: on.", "", List.of("on", "off")),
@@ -180,6 +188,7 @@ public final class Settings {
         String v = value.strip();
         return switch (s.kind()) {
             case address -> {
+                if (v.equalsIgnoreCase("off") && (Helpers.Helper.ofSetting(s.key()) != null || s.key().equals(Helpers.HELPERS))) yield "";   // a heavy helper's own setting, or the helpers address: an address, or off
                 boolean several = s.key().equals(JOB_DRIVES);
                 for (String part : several ? v.split("\\s*,\\s*") : new String[]{v})
                     if (!part.matches("^https?://\\S+$")) yield s.shortName() + " is an address" + (several ? ", or several with commas between," : "") + " and must start with http:// or https://, for example " + s.example() + ".";

@@ -47,9 +47,13 @@ class CadenceTest {
         assertFalse(idx.search("Antikythera", 5).isEmpty(), "the edit is searchable");
         assertTrue(idx.search("Babylonian tablets", 5).stream().anyMatch(h -> "raw".equals(h.kind())), "the capture is searchable");
         assertEquals(1, idx.search("Beta claim", 5).stream().filter(h -> h.id().equals("F-0002-b")).count(), "the untouched one is still there, once");
-        // an embedder change forces a full rebuild
+        // an index built by an embedder that cannot be compared with the one set now is built again (IndexEmbedderMovedTest has the rest)
         Files.writeString(idx.embedderFile(), "some-other-embedder", StandardCharsets.UTF_8);
-        assertEquals(3, idx.refresh(), "full rebuild: 2 findings + 1 raw");
+        Embeddings.Embedder set = new Embeddings.Embedder() {
+            @Override public float[] embed(String text) { return new float[]{0.6f, 0.8f}; }
+            @Override public String modelId() { return "embed@http://homebox:30001"; }
+        };
+        assertEquals(3, new LibrarianIndex(store, set).refresh(), "full rebuild: 2 findings + 1 raw");
     }
 
     @Test

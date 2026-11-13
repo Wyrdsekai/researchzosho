@@ -55,6 +55,7 @@ public final class Embeddings {
     /** The configured embedder: RESEARCHZOSHO_EMBED (e.g. http://localhost:8213), else none. */
     public static Embedder configured() {
         String e = Config.get("RESEARCHZOSHO_EMBED");
+        if ((e == null || e.isBlank()) && !Helpers.off(Helpers.Helper.EMBED)) e = Helpers.address(Helpers.Helper.EMBED);   // a machine that serves the helpers, when it serves this one
         // "off" is an explicit switch (an EMPTY env var falls through to the config file — a
         // BM25-only A/B arm run that way silently had the embedder on, 2026-09-02).
         if (e == null || e.isBlank() || e.equalsIgnoreCase("off") || e.equalsIgnoreCase("none")) return none();
@@ -105,12 +106,13 @@ public final class Embeddings {
                 for (int from = 0; from < texts.size(); from += BATCH) {
                     var slice = texts.subList(from, Math.min(texts.size(), from + BATCH));
                     List<float[]> got = null;
-                    try {
+                    long t0 = System.currentTimeMillis();
+                    if (!Helpers.away(endpoint)) try {   // a machine that gave no connection a moment ago is not waited for again
                         var body = M.createObjectNode();
                         body.put("model", model);
                         var arr = body.putArray("input");
                         for (String t : slice) arr.add(t == null ? "" : (t.length() > MAX_CHARS ? t.substring(0, MAX_CHARS) : t));
-                        HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(endpoint + "/v1/embeddings"))
+                        HttpResponse<String> resp = HTTP.send(Helpers.request(endpoint + "/v1/embeddings")
                                 .timeout(Duration.ofSeconds(300))
                                 .header("Content-Type", "application/json")
                                 .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))
@@ -132,6 +134,7 @@ public final class Embeddings {
                             got = Arrays.asList(vs);
                         }
                     } catch (Exception e) {
+                        Helpers.failed(endpoint, e, t0);
                         got = null;
                     }
                     if (got == null) { for (int i = 0; i < slice.size(); i++) out.add(null); }
@@ -142,13 +145,15 @@ public final class Embeddings {
 
             @Override public float[] embed(String text) {
                 if (text == null || text.isBlank()) return null;
+                if (Helpers.away(endpoint)) return null;   // the machine gave no connection a moment ago: by words until it is back, with no wait
                 String t = text.length() > MAX_CHARS ? text.substring(0, MAX_CHARS) : text;
+                long t0 = System.currentTimeMillis();
                 try {
                     var body = M.createObjectNode();
                     body.put("model", model);
                     body.put("input", t);
                     // a search of the shelves inside a research run: the wait ends at the run's stop
-                    HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(endpoint + "/v1/embeddings"))
+                    HttpResponse<String> resp = Stopping.send(HTTP, Helpers.request(endpoint + "/v1/embeddings")   // with the helpers' secret when a helpers machine serves it
                             .timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))
@@ -163,6 +168,7 @@ public final class Embeddings {
                     if (norm > 0) for (int i = 0; i < v.length; i++) v[i] /= (float) norm;
                     return v;
                 } catch (Exception e) {
+                    Helpers.failed(endpoint, e, t0);
                     return null;   // an embedder that is down degrades to BM25, never to a crash
                 }
             }

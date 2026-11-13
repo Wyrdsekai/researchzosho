@@ -52,11 +52,14 @@ public final class Embed {
     }
 
     /** The Text Embeddings Inference tag for an NVIDIA card docker can use; "cpu-…" otherwise. */
-    static String teiTag() {
+    static String teiTag() { return teiTag(null); }
+
+    /** The same for one card ({@code card} its index; null: the first card), whose compute capability picks the image. */
+    static String teiTag(String card) {
         try {
             Searx.Result rt = Searx.runner.run(List.of("docker", "info", "--format", "{{.Runtimes}}"));
             if (rt.code() != 0 || !rt.out().contains("nvidia")) return "cpu-" + VERSION;
-            Searx.Result cap = Searx.runner.run(List.of("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"));
+            Searx.Result cap = Searx.runner.run(card == null ? List.of("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader") : List.of("nvidia-smi", "-i", card, "--query-gpu=compute_cap", "--format=csv,noheader"));
             if (cap.code() != 0) return "cpu-" + VERSION;
             return tagFor(cap.out().strip().split("\\R")[0].strip());
         } catch (Exception e) { return "cpu-" + VERSION; }
@@ -152,12 +155,14 @@ public final class Embed {
 
     /** Whether an embeddings server at {@code base} answers the OpenAI-style call. */
     public static boolean answers(String base) {
+        if (Helpers.away(base)) return false;   // it gave no connection a moment ago
+        long t0 = System.currentTimeMillis();
         try {
             HttpClient http = PROBE_HTTP;
-            HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(base.replaceAll("/+$", "") + "/v1/embeddings"))
+            HttpResponse<String> r = http.send(Helpers.request(base.replaceAll("/+$", "") + "/v1/embeddings")
                     .timeout(Duration.ofSeconds(30)).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString("{\"model\":\"embed\",\"input\":[\"ready\"]}")).build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200 && r.body().contains("\"embedding\"");
-        } catch (Exception e) { return false; }
+        } catch (Exception e) { Helpers.failed(base, e, t0); return false; }
     }
 }

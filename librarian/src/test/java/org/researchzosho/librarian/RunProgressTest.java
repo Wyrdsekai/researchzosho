@@ -31,6 +31,34 @@ class RunProgressTest {
     }
     static final long NOW = 1_800_000_000_000L;
 
+    /** A translation's progress: its phase, its units, its tier. */
+    static ObjectNode translation(String quality, String phase, int done, int total, String pass) {
+        ObjectNode j = job("running", "", 0, 0, 1, 7200, 0);
+        ObjectNode p = j.putObject("progress"); p.put("phase", phase).put("units_done", done).put("units_total", total).put("quality", quality);
+        if (pass != null) p.put("pass", pass);
+        return j;
+    }
+
+    @Test
+    void aTranslationIsMeasuredByThePhasesLeftForItsTierNeverByHowLongResearchRunsTake() {
+        // two hours in, research runs here taking twenty minutes: the clock alone said "about 90% done" at the start of the scoring, the
+        // reading and its revision still ahead (0.7.3)
+        assertEquals(42, RunProgress.of(translation("reviewed", "scoring", 0, 400, null), NOW, 1200).percent());
+        assertEquals(62, RunProgress.of(translation("checked", "scoring", 0, 400, null), NOW, 1200).percent());
+        // each tier's phases in the order they come, each step no lower than the one before
+        String[][] reviewed = {{"translating", "0"}, {"translating", "1"}, {"scoring", "0"}, {"scoring", "1"}, {"revising", "0"}, {"revising", "1"}, {"checking", "0"}, {"checking", "1"}, {"revising", "0", "reader"}, {"revising", "1", "reader"}, {"writing", "1"}};
+        String[][] checked = {{"translating", "0"}, {"translating", "1"}, {"scoring", "0"}, {"scoring", "1"}, {"revising", "0"}, {"revising", "1"}, {"checking", "1"}, {"writing", "1"}};
+        for (var tier : List.of(List.of("reviewed", reviewed), List.of("thorough", reviewed), List.of("checked", checked))) {
+            int last = 0;
+            for (String[] step : (String[][]) tier.get(1)) {
+                int pc = RunProgress.of(translation((String) tier.get(0), step[0], Integer.parseInt(step[1]) * 10, 10, step.length > 2 ? step[2] : null), NOW, 1200).percent();
+                assertTrue(pc >= last, tier.get(0) + " " + String.join(" ", step) + ": " + pc + " after " + last);
+                last = pc;
+            }
+            assertEquals(96, last);
+        }
+    }
+
     @Test
     void theStageIsInPlainWordsAndThePercentIsTheLargerOfTheStageAndTheClock() {
         // reading, 3 of 8 parts, 5 minutes into a 25-minute limit: the stage says 24, the clock says 19; the stage wins

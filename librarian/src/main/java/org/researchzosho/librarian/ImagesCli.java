@@ -27,7 +27,7 @@ final class ImagesCli {
             + "       researchzosho images describe <url | path | kept file | entry> [<question…>]\n"
             + "       researchzosho images judge \"<criteria>\" [--like <reference>] <url | path | kept file | entry>…\n"
             + "       researchzosho images like <url | path | kept file | entry> [<words…>] [--what person|place|object|…] [--concept \"<aspect>\"] [--count N] [--keep] [--collection <name>]\n"
-            + "       researchzosho images likeness install | status      (the likeness helper: CLIP for pictures, SFace for faces, on the CPU)\n"
+            + "       researchzosho images likeness install | status | serve [--bind ADDR] [--port N] [--secret-file FILE]      (the likeness helper: CLIP for pictures, SFace for faces, on the CPU; serve gives it to other machines)\n"
             + "  like: a picture as the ask. The seeing model describes the reference, the candidates are found for its words and yours, and each is judged beside it: the same person, place or thing (--what says which; person unless said), or, with --concept, like it in the aspect you name. The reference given as a path is kept on the shelves as yours.\n"
             + "  find: pictures for the words, from Brave when its key is kept and from the library's SearXNG, each said with the page it stands on; --keep fetches them onto the shelves (catalog/images/, shown at /images/<file>), --judge asks the seeing model whether each shows the criteria.\n"
             + "  describe: the seeing model's words about one picture, and its answer to the question when one is given. judge: yes, no or unsure for each picture, with one sentence why.\n"
@@ -46,7 +46,9 @@ final class ImagesCli {
                     String what = args.length > 3 ? args[3] : "status";
                     String refreshed = LikenessHelper.refresh(); if (!refreshed.isEmpty()) System.out.println(refreshed);
                     if (what.equals("status")) { System.out.println(LikenessHelper.status()); return 0; }
+                    if (what.equals("serve")) { try { return HelpersCli.serve(args, 4, List.of(Helpers.Helper.LIKENESS)); } catch (Exception e) { System.err.println(e.getMessage()); return 1; } }
                     if (!what.equals("install")) { System.err.println(USAGE); return 2; }
+                    if (!Helpers.localAllowed()) { System.out.println(Helpers.localRefusedSaid("the likeness helper")); return 1; }
                     if (!LikenessHelper.on()) { System.out.println("The likeness helper is off (" + LikenessHelper.SETTING + "=off); unset that to install it."); return 1; }
                     if (LikenessHelper.installed()) { System.out.println(LikenessHelper.status()); return 0; }
                     System.out.println("Setting the likeness helper up: " + LikenessHelper.PICTURE_MODEL + " for pictures and " + LikenessHelper.FACE_MODEL + " for faces, on the CPU; " + LikenessHelper.SIZES + "; " + LikenessHelper.LICENCES + ". This takes minutes.");

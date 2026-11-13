@@ -39,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 import org.apache.lucene.document.StoredField;
 import org.apache.lucene.index.MultiTerms;
@@ -535,10 +536,112 @@ public final class LibrarianIndex {
         catch (Exception e) { return Instant.EPOCH; }
     }
 
-    private void stamp(Instant at) throws IOException {
+    private void stamp(Instant at) throws IOException { stamp(at, true); }
+
+    /** The stamp; {@code withEmbedder} false leaves the embedder's name and probe as they are, for a refresh that kept an index built by another one. */
+    private void stamp(Instant at, boolean withEmbedder) throws IOException {
         Files.createDirectories(store.luceneDir());
         Files.writeString(lastIndexedFile(), at.toString(), StandardCharsets.UTF_8);
-        Files.writeString(embedderFile(), embedder.modelId(), StandardCharsets.UTF_8);
+        if (!withEmbedder) return;
+        String id = embedder.modelId();
+        boolean changed = !id.equals(indexedWith());
+        Files.writeString(embedderFile(), id, StandardCharsets.UTF_8);
+        if ("none".equals(id)) { Files.deleteIfExists(probeFile()); return; }
+        if (changed || !Files.exists(probeFile())) {   // once for an index, and again when its embedder changes
+            float[] v = probe(embedder);
+            if (v != null) writeProbe(v); else if (changed) Files.deleteIfExists(probeFile());
+        }
+    }
+
+    // ---- the embedder an index was built with, and one that takes its place ----
+
+    /**
+     * One sentence's vector tells one embedding model from another: the same weights behind another address, or served by another
+     * program, give it back alike past 0.99, and two models do not come near. It is kept beside the index (0.7.4), so an embeddings
+     * server that moves, to a machine that serves the helpers or to another port, is known for the same model and the index is kept.
+     */
+    static final String PROBE_TEXT = "The library keeps what it read, and this sentence tells one embedding model from another.";
+    static final double SAME_MODEL = 0.98;
+
+    Path probeFile() { return store.luceneDir().resolve("embedder-probe"); }
+
+    private static float[] probe(Embeddings.Embedder e) {
+        try { float[] v = e.embed(PROBE_TEXT); return v == null || v.length == 0 ? null : v; } catch (Exception x) { return null; }
+    }
+
+    private void writeProbe(float[] v) throws IOException {
+        StringBuilder b = new StringBuilder();
+        for (float x : v) b.append(b.length() == 0 ? "" : " ").append(x);
+        Files.writeString(probeFile(), b.toString(), StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The probe's vector under the embedder the index was built with: the one kept beside the index; for an index built before that
+     * was kept, asked of the address that built it ("embed@http://…"), when it still answers. Null when neither gives it.
+     */
+    private float[] probeThen(String builtWith) {
+        try {
+            if (Files.exists(probeFile())) {
+                String[] parts = Files.readString(probeFile(), StandardCharsets.UTF_8).strip().split("\\s+");
+                float[] v = new float[parts.length];
+                for (int i = 0; i < v.length; i++) v[i] = Float.parseFloat(parts[i]);
+                if (v.length > 1) return v;
+            }
+        } catch (IOException | NumberFormatException ignored) { }
+        int at = builtWith.indexOf('@');
+        if (at <= 0 || !builtWith.substring(at + 1).matches("(?i)https?://.+")) return null;
+        return probe(Embeddings.http(builtWith.substring(at + 1), builtWith.substring(0, at)));
+    }
+
+    private static double cosine(float[] a, float[] b) {
+        if (a == null || b == null || a.length != b.length) return -1;
+        double dot = 0, na = 0, nb = 0;
+        for (int i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+        return na == 0 || nb == 0 ? -1 : dot / Math.sqrt(na * nb);
+    }
+
+    /** An embedder as a person reads it: its address, or its name when it has none. */
+    private static String where(String id) { int at = id.indexOf('@'); return at > 0 ? id.substring(at + 1) : id; }
+
+    /** What the last refresh has to say beside its count, when the embedder is not the one the index was built with; "" otherwise. */
+    private volatile String said = "";
+    public String said() { return said; }
+
+    /** What a refresh does with an index built by another embedder than the one set now. */
+    private enum Moved { SAME, KEEP, REBUILD }
+
+    /**
+     * An index built by another embedder than the one set now. Before 0.7.4 any difference in the name, the address included, built the
+     * whole index again with no word of it, and with the new server not answering built it again with no vectors at all and named the
+     * new server as its builder, so search by meaning was gone until a full rebuild. Now: an embedder that gives the same vectors is
+     * the same model and the index is kept; one that does not answer, or none at all, leaves the index and its vectors as they are;
+     * only a different model, or one that cannot be compared, builds it again, and says so first.
+     */
+    private Moved moved(String built) {
+        String now = embedder.modelId();
+        if ("none".equals(now)) {
+            if (built.isEmpty() || "none".equals(built)) return Moved.SAME;
+            said = "No embeddings server is set now. The index keeps the vectors it was built with (" + where(built) + "), and searches go by words until one is set; researchzosho rebuild makes an index of words alone.";
+            return Moved.KEEP;
+        }
+        float[] v = probe(embedder);
+        if (v == null) {
+            said = "The embeddings server set now, " + where(now) + ", does not answer, so the index stays as " + (built.isEmpty() || "none".equals(built) ? "it is" : where(built) + " built it") + " and only what changed was indexed. Run researchzosho refresh again when it answers.";
+            return Moved.KEEP;
+        }
+        if (built.isEmpty() || "none".equals(built)) {
+            said = "An embeddings server is set now (" + where(now) + ") and the index holds no vectors yet: every entry is indexed again, about twenty minutes for a thousand entries.";
+            return Moved.REBUILD;
+        }
+        float[] then = probeThen(built);
+        if (cosine(then, v) >= SAME_MODEL) {
+            said = "The embeddings moved from " + where(built) + " to " + where(now) + " and give the same vectors, so the index is kept.";
+            return Moved.SAME;
+        }
+        said = "The index was built with the embeddings at " + where(built) + ", and the server set now, " + where(now) + ", "
+                + (then == null ? "cannot be compared with it (the old one no longer answers)" : "gives different vectors (another model)")
+                + ": every entry is indexed again, about twenty minutes for a thousand entries.";
+        return Moved.REBUILD;
     }
 
     /**
@@ -546,13 +649,24 @@ public final class LibrarianIndex {
      * investigations, articles and raw captures newer than the stamp. A full rebuild re-embeds
      * every chunk (13 minutes nightly on the live shelf, 77 with enrichment); most nights a few
      * files changed. Returns how many entries were re-indexed. Falls back to a full rebuild when
-     * there is no index or the embedder changed.
+     * there is no index, or the embedder set now is another model than the one that built it ({@link #moved}).
      */
-    public synchronized int refresh() throws IOException {
+    public synchronized int refresh() throws IOException { return refresh(line -> { }); }
+
+    /** The same; {@code say} hears, before the work, what is done about an index built by another embedder ({@link #said} holds it after). */
+    public synchronized int refresh(Consumer<String> say) throws IOException {
+        said = "";
         try (Directory dir = FSDirectory.open(store.luceneDir())) {
             if (!DirectoryReader.indexExists(dir)) return rebuild();
         }
-        if (!indexedWith().equals(embedder.modelId())) return rebuild();
+        boolean keepStamp = false;
+        String built = indexedWith();
+        if (!built.equals(embedder.modelId())) {
+            Moved m = moved(built);
+            if (!said.isEmpty()) say.accept(said);
+            if (m == Moved.REBUILD) return rebuild();
+            keepStamp = m == Moved.KEEP;
+        }
         Instant since = lastIndexed();
         Instant now = Instant.now();
         int n = 0;
@@ -594,7 +708,7 @@ public final class LibrarianIndex {
             }
         }
         n += dropGone();
-        stamp(now);
+        stamp(now, !keepStamp);
         return n;
     }
 

@@ -25,7 +25,7 @@ import java.util.regex.Pattern;
 final class TranslateCli {
     private TranslateCli() { }
 
-    static final String USAGE = "usage: researchzosho translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality checked|quick|reviewed|thorough] [--model <entry>] [--judge <entry>|auto] [--back-translate on|off] [--notes end|off] [--from <language>] [--out <path>] [--collection <name>] [--no-wait]\n       researchzosho translate scorers [status|install [--cpu]|stop]   ·   researchzosho translate scores [list | withdraw <job id | translation note> | withdraw --unnamed <from> <to>]\n"
+    static final String USAGE = "usage: researchzosho translate <file> --to <language> [--as md|txt|pdf|docx|epub] [--quality checked|quick|reviewed|thorough] [--model <entry>] [--judge <entry>|auto] [--back-translate on|off] [--notes end|off] [--from <language>] [--out <path>] [--collection <name>] [--no-wait]\n       researchzosho translate scorers [status|install [--cpu]|stop|serve [--bind ADDR] [--port N] [--secret-file FILE]]   ·   researchzosho translate scores [list | withdraw <job id | translation note> | withdraw --unnamed <from> <to>]\n"
             + "  Translates a txt, md, pdf, docx or epub file into the language (" + Translation.languagesSaid() + ") and writes it beside the original, in the same format unless --as says another.\n"
             + "  checked, the default, is one pass with the program's checks and scores (LaBSE, and MetricX-24 when installed) and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading by the judge seat of the flagged units and a sample of the rest; thorough reads every unit. --model names the entry that translates; --judge the entry that reads, or auto for the strongest other one; a hosted entry is a paid call, its cost said first, within the entry's monthly cap. A note beside the output says what was done and lists what the checks still doubt; the document holds the translation alone, and --notes end numbers those passages and lists them at its end too (the setting translate_notes makes either the default).\n"
             + "  Both files go onto the shelves. The time is said first, from the number of units and the model's measured speed.";
@@ -145,7 +145,9 @@ final class TranslateCli {
                 System.out.println("MetricX-24 (" + TranslationScores.METRICX_MODEL + "): " + (m.isEmpty() ? "installed, in " + TranslationScores.metricxDir() : m) + ".");
                 return 0;
             }
+            case "serve" -> { return HelpersCli.serve(args, 4, List.of(Helpers.Helper.METRICX, Helpers.Helper.LABSE)); }
             case "install" -> {
+                if (!Helpers.localAllowed()) { System.out.println(Helpers.localRefusedSaid("LaBSE and MetricX-24")); return 1; }
                 boolean cpu = Arrays.asList(args).contains("--cpu");
                 if (TranslationScores.labseSetupSaid().isEmpty()) System.out.println("LaBSE is set up already.");
                 else {
@@ -160,7 +162,7 @@ final class TranslateCli {
                 return r.startsWith("!") ? 1 : 0;
             }
             case "stop" -> { System.out.println("LaBSE: " + TranslationScores.stopLabse()); return 0; }
-            default -> { System.err.println("usage: researchzosho translate scorers [status|install [--cpu]|stop]"); return 2; }
+            default -> { System.err.println("usage: researchzosho translate scorers [status|install [--cpu]|stop|serve [--bind ADDR] [--port N] [--secret-file FILE]]"); return 2; }
         }
     }
 

@@ -1137,6 +1137,7 @@ public final class ModelServer {
         String op = a.length > from ? a[from] : "status";
         switch (op) {
             case "install" -> {
+                if (!Helpers.localAllowed()) { out.println(Helpers.localRefusedSaid("a model server")); return 1; }
                 Path file = null; String gpus = "all"; int idle = DEFAULT_IDLE_MINUTES; boolean share = false, own = false;
                 for (int i = from + 1; i < a.length; i++) {
                     switch (a[i]) {

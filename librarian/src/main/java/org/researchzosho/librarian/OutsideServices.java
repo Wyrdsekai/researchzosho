@@ -118,7 +118,7 @@ public final class OutsideServices {
     public static List<Service> known() { return KNOWN; }
 
     /** Secrets that are no outside service's key: the library's own sign-in secrets, which the registry does not list. */
-    public static boolean notAService(String setting) { return setting != null && (setting.contains("_OIDC_") || setting.endsWith("_TOKEN_SECRET")); }
+    public static boolean notAService(String setting) { return setting != null && (setting.contains("_OIDC_") || setting.endsWith("_TOKEN_SECRET") || setting.equals(Helpers.SECRET_NAME)); }   // the helpers' secret is between two machines of one person
 
     /** The service a setting belongs to, or null for a setting that is no outside service's key. */
     public static Service of(String setting) {

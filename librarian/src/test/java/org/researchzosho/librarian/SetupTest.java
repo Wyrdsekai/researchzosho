@@ -37,6 +37,8 @@ class SetupTest {
 
     static final class FakeActs implements Setup.Acts {
         boolean scorers = false; int scorersInstalled = 0; String scorersResult = "ready";   // the scorers' step is offered only when a test turns it on
+        double card = -1;   // the card's memory in GB: not known unless a test says, so the helpers' question is not asked
+        @Override public double cardGb() { return card; }
         @Override public boolean offerScorers() { return scorers; }
         @Override public String installScorers(PrintStream out) { scorersInstalled++; out.println("  (the scorers' install, stood in)"); return scorersResult; }
         boolean claude = true; int installed = 0; List<String> mcpArgs;
@@ -104,6 +106,38 @@ class SetupTest {
             String off = run(home.resolve("three"), "", new FakeProbe("http://localhost:11434", List.of("gemma3:27b"), true), acts3, true, true, true, Map.of("RESEARCHZOSHO_SCORERS", "off"));
             assertFalse(off.contains("MetricX-24"), off);
         } finally { TranslationScores.FREE = free; TranslationScores.METRICX_INSTALL = metricx; TranslationScores.LABSE_UP = labseUp; Searx.runner = docker; }
+    }
+
+    static FakeActs bigCard() { var a = new FakeActs(); a.card = 24; return a; }
+
+    /** On a machine with no card worth the name, setup asks whether the heavy helpers run here; no, and a machine that serves them is named. */
+    @Test
+    void aMachineWithNoCardWorthTheNameIsAskedWhereTheHeavyHelpersRun(@TempDir Path home) throws Exception {
+        String real = System.getProperty("user.home");
+        var serves = Helpers.SERVES;
+        System.setProperty("user.home", home.toString()); Config.invalidate();
+        try {
+            Helpers.SERVES = b -> b.equals("http://homebox:8217") ? Map.of("metricx", "google/metricx-24-hybrid-large-v2p6 on cuda", "labse", "sentence-transformers/LaBSE") : null;
+            var acts = new FakeActs(); acts.card = 0;
+            var out = new ByteArrayOutputStream();
+            new Setup(new BufferedReader(new StringReader("n\nhttp://homebox:8217\nour words\n")), new PrintStream(out, true), new FakeProbe("", List.of(), false), acts, false).helpersStep();
+            String said = out.toString();
+            assertTrue(said.contains("This machine has no graphics card. The heavy helpers (MetricX-24 and LaBSE"), said);
+            assertTrue(said.contains("It serves labse, metricx; none of them runs here."), said);
+            assertEquals("off", Config.get(Helpers.LOCAL)); assertEquals("http://homebox:8217", Config.get(Helpers.HELPERS)); assertEquals("our words", Config.get(Helpers.SECRET_NAME));
+            // asked once: with the answer set, setup says nothing more of it
+            out.reset();
+            new Setup(new BufferedReader(new StringReader("")), new PrintStream(out, true), new FakeProbe("", List.of(), false), acts, false).helpersStep();
+            assertEquals("", out.toString());
+            // a card with room, or one not known: not asked
+            Config.set(Helpers.LOCAL, "");
+            new Setup(new BufferedReader(new StringReader("")), new PrintStream(out, true), new FakeProbe("", List.of(), false), bigCard(), false).helpersStep();
+            new Setup(new BufferedReader(new StringReader("")), new PrintStream(out, true), new FakeProbe("", List.of(), false), new FakeActs(), false).helpersStep();
+            assertEquals("", out.toString());
+            // yes, run them here: the setting says on, nothing else is asked
+            new Setup(new BufferedReader(new StringReader("y\n")), new PrintStream(out, true), new FakeProbe("", List.of(), false), acts, false).helpersStep();
+            assertEquals("on", Config.get(Helpers.LOCAL));
+        } finally { Helpers.SERVES = serves; Helpers.forget(); System.setProperty("user.home", real); Config.invalidate(); }
     }
 
     @Test

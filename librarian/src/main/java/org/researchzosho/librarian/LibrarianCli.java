@@ -164,6 +164,8 @@ public final class LibrarianCli {
               jobs [<J-…>]                 every research run, queued and running first, then the last finished. One id: its state, progress, wait, and where its report went
               jobs <J-…> --choose <n|name> · --yes | --no   answer a run that waits: for one of its named choices, or whether to research it at all
               jobs <J-…> --withdraw-scores   a translation's units off the record its checks' thresholds and length band are measured from
+              jobs <J-…> --stop             stop a job of any kind: a queued one never starts, a running one ends within seconds, also in the middle of
+                                           a step, and stays stopped through a restart of the service
               seeks [list | read <group> [<J-…>] | merge <group> | drop <group>]
                                            the same question researched several times apart (research ask … --seek <group>): the seeks, one's report, the merge, the end
               stats [<n>]                  the research runs side by side: turns, rounds, citation checks, sources, fetches. The last n rows (default 20) and the totals
@@ -286,6 +288,17 @@ public final class LibrarianCli {
               raw prune                    delete the saved pages the weekly orphans report listed (catalog/orphans.md)
               service install|uninstall|restart [--yes]|status [--exec <launcher>] [--host H] [--port P] [--crew-hour H]
                                            run the service in the background: systemd (Linux), LaunchAgent (macOS), logon task (Windows)
+              service stop [--stop-jobs] · service start · service status
+                                           stop the service (or a serve running in a terminal, by its pid record) and start it again; each says
+                                           how it stands after. A running job resumes at the next start; --stop-jobs stops it for good
+              helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--only metricx,labse,…] [--yes]
+                                           the heavy helpers (MetricX-24, LaBSE, the likeness helper, speech-to-text, embeddings) set up and served
+                                           from the machine with the card, as a user service on port 8217 with a secret; --on does it over ssh from
+                                           here and sets this library to use them. A library whose model is served from that machine finds them by itself
+              helpers [status] · helpers secret · helpers port [--gpu N | --cpu | --beside-port N] · helpers uninstall [--gpu N | --cpu] · helpers serve [--bind ADDR] [--port 8217] [--secret-file FILE] [--gpu N | --cpu]
+                                           where each runs for this library; the kept secret; a set's port; the services removed (the models stay); --separate
+                                           adds a set of its own per card, on the next port from 8218; the server in a
+                                           terminal. settings set helpers <address|off> names a machine or stops the look; local_helpers off runs none here
               mcp                          MCP over stdio with ONLY the library tools (for Claude Code and other hosts)
               mcp add <name> -- <command…> | add <name> <https address> [--header-key <setting>] | add exa | add tavily · list · tools <name> · call <name> <tool> [json]
               mcp remove <name> · allow|forbid <name> <tool> · readers <name> on|off · cap <name> <calls>|off
@@ -691,6 +704,8 @@ public final class LibrarianCli {
         String verb = args.length > 1 ? args[1] : "";
         // updating replaces the program, not the library: a program that keeps ResearchZosho up to date asks before any library exists
         if (verb.equals("init") || verb.equals("update")) return false;
+        // serving the heavy helpers to other machines: a machine that only serves them has no library of its own
+        if (args.length > 3 && args[3].equals("serve") && (verb.equals("translate") && args[2].equals("scorers") || verb.equals("images") && args[2].equals("likeness"))) return false;
         return !verb.equals("service") || args.length > 2 && args[2].equals("install");
     }
 
@@ -723,6 +738,7 @@ public final class LibrarianCli {
         }
         try {
             if (verb.equals("model")) return ModelServer.command(args, 2, System.out);   // the machine's model server: no library needed
+            if (verb.equals("helpers")) return HelpersCli.run(args, 2);   // a machine that only serves the heavy helpers has no library of its own
             if (needsLibrary(args) && !Files.isDirectory(store.root())) {
                 // an MCP client starting `researchzosho mcp` on a machine with no library (npx @wyrdsekai/researchzosho-mcp,
                 // 2026-09-11) never sees a refusal on stdout: the library is made, and stderr says so
@@ -766,7 +782,7 @@ public final class LibrarianCli {
                 }
                 case "refresh" -> {
                     // what changed on disk since the last pass, and what is gone — seconds, where a rebuild re-embeds everything
-                    int n = new LibrarianIndex(store).refresh();
+                    int n = new LibrarianIndex(store).refresh(System.out::println);   // an index built by another embeddings server: what is done about it, said before the work
                     store.regenerateIndex();
                     System.out.println("refreshed " + n + " entr" + (n == 1 ? "y" : "ies") + " (changed or removed files); catalog/INDEX.md regenerated");
                     return 0;
@@ -871,6 +887,7 @@ public final class LibrarianCli {
                             return 0;
                         }
                         case "start" -> {
+                            if (!Helpers.localAllowed()) { System.out.println(Helpers.localRefusedSaid("the embeddings server")); return 1; }
                             boolean cpu = Arrays.asList(args).contains("--cpu");
                             int port = Embed.DEFAULT_PORT;
                             for (int i = 3; i < args.length; i++) if (args[i].matches("\\d+")) port = Integer.parseInt(args[i]);
@@ -1882,11 +1899,12 @@ public final class LibrarianCli {
                 case "service" -> {
                     String op = args.length > 2 ? args[2] : "status";
                     String exec = null, host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT, hour = 3;
-                    boolean yes = false;
+                    boolean yes = false, stopJobs = false;
                     try {
                         for (int i = 3; i < args.length; i++) {
                             switch (args[i]) {
                                 case "--yes", "-y" -> yes = true;
+                                case "--stop-jobs" -> stopJobs = true;   // service stop: the running jobs stop for good too, rather than resuming at the next start
                                 case "--exec" -> exec = flagValue(args, i++);
                                 case "--host" -> host = flagValue(args, i++);   // 0.0.0.0: the LAN may reach it; the reader list decides who may do what
                                 case "--port" -> port = flagInt(args, i++);
@@ -1895,7 +1913,7 @@ public final class LibrarianCli {
                             }
                         }
                     } catch (IllegalArgumentException e) {
-                        System.err.println("usage: researchzosho service install|uninstall|restart [--yes]|status [--exec <launcher>] [--host H] [--port N] [--crew-hour H] — " + e.getMessage()); return 2;
+                        System.err.println(Service.USAGE + " — " + e.getMessage()); return 2;
                     }
                     var plan = Service.plan(Service.os(), op.equals("install") ? Service.resolveExec(exec) : (exec == null ? "researchzosho" : exec),
                             host, port, hour, Path.of(System.getProperty("user.home")));
@@ -1906,6 +1924,7 @@ public final class LibrarianCli {
                         String going = runningResearch();
                         if (going != null) System.out.println("A research run is going: " + going + ". It stops for the restart and resumes where it was when the service is back.");
                     }
+                    if (op.equals("stop")) serviceStopJobs(stopJobs);
                     int rc = Service.run(op, plan, System.out);
                     if (rc == 0 && op.equals("install") && !Service.hostFlag(host, "x", "").isEmpty()) {
                         System.out.println("  the pages answer on this computer's network address too. " + (WebAccess.signInRequired() ? "A browser needs a reader token to send questions." : WebAccess.OPEN_NOTICE + " " + WebAccess.OPEN_HOWTO));
@@ -2229,11 +2248,7 @@ public final class LibrarianCli {
                 try {
                     var r = new LibraryProtocol(store).job(a);
                     String id = args[3];
-                    System.out.println(r.path("state").asText().equals("stopped") ? id + " was waiting to start. It is stopped and will not start."
-                            : r.path("kind").asText().equals("crews") ? "Stopping " + id + ", the nightly tasks. They end after the task they are on now, which can take a few minutes. The tasks already done stay done. The command researchzosho jobs shows it as stopped."
-                            : r.path("filed").asBoolean(false) ? "Stopping " + id + ". It had finished its research and begun filing its report before you stopped it, so the report stays in your library. "
-                              + "What stops is the checking of the report's claims that comes after the filing: it ends with the step it is on now, and the nightly housekeeping checks the rest. The command researchzosho jobs " + id + " shows the report."
-                            : "Stopping " + id + ". It ends within a few seconds, also when it is waiting for the model, a web page or a search. Nothing from it is filed. The command researchzosho jobs shows it as stopped.");
+                    System.out.println(stopSaid(id, r));
                 }
                 catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
             }
@@ -2802,6 +2817,14 @@ public final class LibrarianCli {
             JsonNode r;
             try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
             System.out.println("Taken: " + r.path("choice").asText() + ". Research run " + id + " is " + r.path("state").asText() + ".");
+            return 0;
+        }
+        // a job stopped: a queued one never starts, a running one ends within seconds, also in the middle of a step, and stays stopped through a restart
+        if (!id.isEmpty() && args.length > 3 && args[3].equals("--stop")) {
+            a.put("op", "stop");
+            JsonNode r;
+            try { r = new LibraryProtocol(store).job(a); } catch (ProtocolError e) { System.err.println(e.getMessage()); return 1; }
+            System.out.println(stopSaid(id, r));
             return 0;
         }
         // a translation's units taken off the record the checks' thresholds are measured from, as `translate scores withdraw <job>` does
@@ -3858,6 +3881,67 @@ public final class LibrarianCli {
             default -> { return 2; }
         }
         return 0;
+    }
+
+    /** What a stop did, in the sentence `research stop` and `jobs <id> --stop` both say: by what the job was doing and its kind. */
+    static String stopSaid(String id, JsonNode r) {
+        String kind = r.path("kind").asText("");
+        if (r.path("state").asText().equals("stopped")) return id + " was waiting to start. It is stopped and will not start.";
+        if (kind.equals("crews")) return "Stopping " + id + ", the nightly tasks. They end after the task they are on now, which can take a few minutes. The tasks already done stay done. The command researchzosho jobs shows it as stopped.";
+        if (r.path("filed").asBoolean(false)) return "Stopping " + id + ". It had finished its research and begun filing its report before you stopped it, so the report stays in your library. "
+                + "What stops is the checking of the report's claims that comes after the filing: it ends with the step it is on now, and the nightly housekeeping checks the rest. The command researchzosho jobs " + id + " shows the report.";
+        if (kind.equals("research")) return "Stopping " + id + ". It ends within a few seconds, also when it is waiting for the model, a web page or a search. Nothing from it is filed. The command researchzosho jobs shows it as stopped.";
+        return "Stopping " + id + ". It ends within a few seconds, also in the middle of a step: a call to the model is closed and a scorer's work is ended. Nothing from it is written. "
+                + "If the service stops first, the job stays stopped and is not started again. The command researchzosho jobs shows it as stopped.";
+    }
+
+    /** How long `service stop --stop-jobs` waits for the running jobs to end themselves before the service stops; a test shortens it. */
+    static volatile Duration JOBS_SETTLE = Duration.ofSeconds(15);
+
+    /**
+     * Before `service stop`: the jobs that are running, said with what becomes of them. Without {@code stopJobs} each resumes where it was
+     * at the next start; with it each is asked to stop for good (the stop is kept, so it holds even when the service ends first) and given
+     * a few seconds to end before the service stops.
+     */
+    static void serviceStopJobs(boolean stopJobs) {
+        List<String> going = runningJobs();
+        if (going.isEmpty()) return;
+        if (!stopJobs) {
+            System.out.println((going.size() == 1 ? "A job is running: " + going.get(0) + ". It stops with the service and resumes where it was at the next start, unless you stop it (researchzosho jobs "
+                    + going.get(0).replaceFirst(" .*", "") + " --stop)." : going.size() + " jobs are running: " + String.join(", ", going) + ". They stop with the service and resume where they were at the next start, unless you stop them (researchzosho jobs <J-…> --stop).")
+                    + " researchzosho service stop --stop-jobs stops " + (going.size() == 1 ? "it" : "them") + " for good with the service.");
+            return;
+        }
+        try {
+            LibraryStore store = LibraryStore.open();
+            Jobs jobs = new Jobs(store, x -> "");
+            List<String> ids = new ArrayList<>();
+            for (String g : going) { String id = g.replaceFirst(" .*", ""); if (jobs.stopRun(id, System.getProperty("user.name", "person")) != null) ids.add(id); }
+            long until = System.currentTimeMillis() + JOBS_SETTLE.toMillis();
+            while (System.currentTimeMillis() < until) {
+                boolean going2 = false;
+                for (String id : ids) { var j = jobs.get(id); if (j != null && "running".equals(j.path("state").asText())) going2 = true; }
+                if (!going2) break;
+                Thread.sleep(250);
+            }
+            System.out.println("Stopped for good, with the service: " + String.join(", ", ids) + ". " + (ids.size() == 1 ? "It is" : "They are") + " not started again at the next start.");
+        } catch (Exception e) { System.out.println("The running jobs could not be asked to stop (" + e.getMessage() + "); they resume at the next start."); }
+    }
+
+    /** The jobs running now in the library the service opens, each as "J-0001 (translate_document, 12 min in)"; empty when none or the library cannot be read. */
+    static List<String> runningJobs() {
+        List<String> out = new ArrayList<>();
+        try {
+            LibraryStore store = LibraryStore.open();
+            if (!Files.isDirectory(store.root().resolve("catalog"))) return out;
+            for (var j : new Jobs(store, x -> "").active()) {
+                if (!"running".equals(j.path("state").asText())) continue;
+                String started = j.path("started_at").asText("");
+                long min = started.isEmpty() ? -1 : Duration.between(Instant.parse(started), Instant.now()).toMinutes();
+                out.add(j.path("job_id").asText() + " (" + j.path("kind").asText() + (min >= 0 ? ", " + min + " min in" : "") + ")");
+            }
+        } catch (Exception ignored) { }
+        return out;
     }
 
     /** The research run going in this machine's library, as "J-0042, 12 min in"; null when none is going or there is no library. */

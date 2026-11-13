@@ -21,6 +21,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.TreeSet;
 
 import java.io.File;
 import java.net.ConnectException;
@@ -101,6 +102,14 @@ public final class Setup {
         default String modelOffer() { return null; }
         /** Set the model server on demand up; the model's name, or "!reason". */
         default String modelServe(PrintStream out) { return "!not on this machine"; }
+        /** Sets the heavy helpers up on {@code host} over ssh, as {@code helpers install --on <host> --yes} does; its exit code. */
+        default int installHelpersOn(String host, PrintStream out) {
+            try { return HelpersRemote.installOn(new HelpersRemote.Options(host, HelperServer.all(), false, true, null, false), null, out); }
+            catch (IOException e) { out.println("  " + e.getMessage()); return 1; }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return 1; }
+        }
+        /** This machine's card's memory in GB, 0 for none; below 0 when it is not known, and the question of the heavy helpers is not asked. */
+        default double cardGb() { return -1; }
         /** Whether setup offers the translation's scorers (LaBSE, MetricX-24) where they are missing. */
         default boolean offerScorers() { return true; }
         /** Set the missing scorers up, saying each step; "ready", or what stood in the way. */
@@ -196,6 +205,7 @@ public final class Setup {
             @Override public String startSearxng(int port) { return Searx.start(port); }
             @Override public String startEmbed(int port) { return Embed.start(port, false); }
             @Override public boolean embedGpu() { return Embed.gpu(); }
+            @Override public double cardGb() { return Models.cardGb(); }
             @Override public String modelOffer() { return ModelServer.offer(); }
             @Override public String modelServe(PrintStream out) { return ModelServer.install(null, "all", ModelServer.DEFAULT_IDLE_MINUTES, false, out); }
             @Override public boolean haveClaude() { return have("claude"); }
@@ -297,6 +307,61 @@ public final class Setup {
         if (line == null) return dflt == null ? "" : dflt;
         line = line.strip();
         return line.isEmpty() ? (dflt == null ? "" : dflt) : line;
+    }
+
+    /** Below this much card memory, in GB, setup asks whether the heavy helpers run here: MetricX-24 alone wants about 5 GB of a card. */
+    static final double CARD_WORTH_THE_NAME_GB = 6;
+
+    /**
+     * The heavy helpers on a machine with no card worth the name (0.7.4): whether they run here, on the processor, or not at all, and the
+     * machine that serves them when there is one. Not asked where the answer is set already or the card is not known.
+     */
+    void helpersStep() throws IOException {
+        double gb = acts.cardGb();
+        if (gb < 0 || gb >= CARD_WORTH_THE_NAME_GB || !Config.get(Helpers.LOCAL, "").isBlank()) return;
+        out.println("  This machine has " + (gb == 0 ? "no graphics card" : "a graphics card with " + Math.round(gb) + " GB") + ". The heavy helpers (MetricX-24 and LaBSE, which score a checked translation,");
+        out.println("  the likeness helper, speech-to-text, an embeddings server) would run on its processor, which can take it for hours on a long translation.");
+        // the machine that serves the model, asked first: a helpers server there is used without a question
+        String cand = Helpers.candidate();
+        Helpers.Look look = cand == null ? null : Helpers.found();
+        if (look != null && look.state().equals(Helpers.Look.NEEDS_SECRET)) {
+            out.println("  " + HelpersCli.needsSecretSaid(look.base()));
+            String secret = ask("  Its secret? (or leave blank)", "");
+            if (!secret.isBlank()) { Config.set(Helpers.SECRET_NAME, secret.strip()); Helpers.forget(); look = Helpers.found(); }
+            if (look != null && look.state().equals(Helpers.Look.NEEDS_SECRET) && !secret.isBlank()) out.println("  It refuses that secret; researchzosho settings set helpers_secret <the secret> sets the right one later.");
+        }
+        if (look != null && look.state().equals(Helpers.Look.FOUND)) {
+            Config.set(Helpers.LOCAL, "off");
+            out.println("  The machine that serves your model serves the heavy helpers too (" + look.base() + "): they are used from there, and none runs here (local_helpers off).");
+            out.println();
+            return;
+        }
+        boolean here = yesNo("  Run them on this machine anyway?", false);
+        Config.set(Helpers.LOCAL, here ? "on" : "off");
+        if (here) { out.println("  They run here. researchzosho settings set local_helpers off stops that later."); out.println(); return; }
+        // the model's machine has none: setting them up there is offered, over ssh with the person's keys, and done only on a yes
+        if (look != null && look.state().equals(Helpers.Look.NOTHING)) {
+            String host = Helpers.hostOf(cand);
+            out.println("  (There: what is missing of MetricX-24, LaBSE and the likeness helper, about 15 GB at most, served with a secret on port " + Helpers.PORT + " by a user service; ResearchZosho itself first when it is not there.)");
+            if (yesNo("  Your model is served from " + host + ". Set the heavy helpers up there too, over ssh?", false)) {
+                int rc = acts.installHelpersOn(host, out);
+                if (rc != 0) out.println("  They were not set up there. researchzosho helpers install --on " + host + " tries again; researchzosho settings set helpers <address> names another machine.");
+                out.println();
+                return;
+            }
+        }
+        String at = ask("  A machine that serves them? (the address researchzosho helpers serve printed there, such as http://homebox:" + Helpers.PORT + "; or leave blank)", "");
+        if (at.isBlank()) { out.println("  None of them runs here; the work says what it went without. researchzosho settings set helpers <address> names a machine later."); out.println(); return; }
+        at = at.strip();
+        if (!at.matches("(?i)https?://.+")) at = "http://" + at;   // typed as homebox:8217: the address it means
+        Config.set(Helpers.HELPERS, at);
+        String secret = ask("  Its secret (the one it serves with; or leave blank)", "");
+        if (!secret.isBlank()) Config.set(Helpers.SECRET_NAME, secret.strip());
+        Helpers.forget();
+        var serves = Helpers.SERVES.apply(Helpers.base() == null ? at : Helpers.base());
+        out.println(serves == null || serves.isEmpty() ? "  It does not answer now (or refused the secret); the work says so when it needs one. researchzosho helpers says how it stands."
+                : "  It serves " + String.join(", ", new TreeSet<>(serves.keySet())) + "; none of them runs here.");
+        out.println();
     }
 
     /** The fallback of the embeddings step: an address the person has, or words only. */
@@ -469,11 +534,19 @@ public final class Setup {
         }
         out.println();
 
+        // 3b. the heavy helpers, asked on a machine with no card worth the name: a laptop runs none of them, and one that serves them is named
+        helpersStep();
+
         // 4. embeddings
         String embed = Config.get("RESEARCHZOSHO_EMBED");
+        String servedEmbed = Helpers.address(Helpers.Helper.EMBED);
         boolean haveEmbed = embed != null && !embed.isBlank() && !embed.equalsIgnoreCase("off") && probe.embeds(embed, key);
         if (!haveEmbed && base != null && probe.embeds(base, key)) { embed = base; haveEmbed = true; }
-        if (haveEmbed) {
+        if (!haveEmbed && servedEmbed != null) {
+            out.println("  Search by meaning is on: embeddings from the machine that serves the helpers, " + servedEmbed + ".");
+        } else if (!haveEmbed && !Helpers.localAllowed()) {
+            askEmbedAddress(key);   // this machine starts none: an address the person has, or words only
+        } else if (haveEmbed) {
             out.println("  Search by meaning is on: embeddings at " + embed + ".");
             Config.set("RESEARCHZOSHO_EMBED", embed);
         } else {
@@ -493,7 +566,7 @@ public final class Setup {
         out.println();
 
         // 4b. the translation's scorers, both, where the disk allows; the sizes said first
-        String missing = acts.offerScorers() && TranslationScores.setupAllowed() ? TranslationScores.missingSaid() : "";
+        String missing = acts.offerScorers() && TranslationScores.setupAllowed() && Helpers.localAllowed() ? TranslationScores.missingSaid() : "";
         if (!missing.isEmpty()) {
             long free = TranslationScores.freeBytes();
             if (free >= 0 && free < TranslationScores.NEEDS_BYTES) {

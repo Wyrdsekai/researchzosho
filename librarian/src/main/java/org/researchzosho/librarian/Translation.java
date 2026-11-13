@@ -8,6 +8,7 @@ import org.researchzosho.Config;
 import org.researchzosho.drive.DeclineJudge;
 import org.researchzosho.drive.Declined;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.Stopping;
 import org.researchzosho.librarian.DocUnits.Chapter;
 import org.researchzosho.librarian.DocUnits.Doc;
 import org.researchzosho.librarian.DocUnits.Unit;
@@ -30,6 +31,10 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -350,12 +355,38 @@ public final class Translation {
      * What a translation would be, before it runs: the file, its format, its language, its units and characters, the time at each tier,
      * what setting the scorers up takes, and for a hosted entry its cost at list prices.
      */
+    /** Where a scorer runs, for a plan: at another machine's address and answering (AT), named and not answering (DOWN), refusing the secret (REFUSED), or left out on a machine that runs no heavy helper (AWAY). */
+    public record Placed(String name, String address, String state) {
+        static final String AT = "at", DOWN = "down", REFUSED = "refused", AWAY = "away", NEEDS_SECRET = "needs secret";
+    }
+
+    /** The scorers' places for a run of tier {@code q}: none for the quick tier, none for a scorer that runs on this machine or is off. */
+    static List<Placed> placed(String q) {
+        List<Placed> out = new ArrayList<>();
+        if (q.equals(QUICK)) return out;
+        String needs = Helpers.needsSecret();   // a helpers server on the model's machine that this library has no secret for: said, with the line that sets it
+        if (needs != null) out.add(new Placed("", needs, Placed.NEEDS_SECRET));
+        for (Helpers.Helper h : List.of(Helpers.Helper.LABSE, Helpers.Helper.METRICX)) {
+            if (Helpers.off(h)) continue;
+            String name = h == Helpers.Helper.LABSE ? "LaBSE" : "MetricX-24", at = Helpers.address(h);
+            if (at != null) out.add(new Placed(name, at, Helpers.health(h, at) != null ? Placed.AT : Helpers.refusesSecret(at) ? Placed.REFUSED : Placed.DOWN));
+            else if (!Helpers.localAllowed()) out.add(new Placed(name, "", Placed.AWAY));
+        }
+        return out;
+    }
+
     public record Plan(String name, String format, String from, String to, String as, String quality, int units, int chars, long quickSeconds, long checkedSeconds, long reviewedSeconds, long thoroughSeconds, boolean measured,
                        String judge, boolean judgeHosted, double judgeCost, long judgeTokens, String translator, boolean translatorHosted, double translatorCost, long translatorTokens, String setupSaid,
-                       PdfReading.Preflight reading, String eyes, double eyeSecondsPerPage, int names, Languages.Guess fromGuess, long judgeReplyTokens) {
+                       PdfReading.Preflight reading, String eyes, double eyeSecondsPerPage, int names, Languages.Guess fromGuess, long judgeReplyTokens, List<Placed> placed) {
+        /** A plan with no scorer placed elsewhere: what a plan of a release before 0.7.4 held. */
+        public Plan(String name, String format, String from, String to, String as, String quality, int units, int chars, long quickSeconds, long checkedSeconds, long reviewedSeconds, long thoroughSeconds, boolean measured,
+                    String judge, boolean judgeHosted, double judgeCost, long judgeTokens, String translator, boolean translatorHosted, double translatorCost, long translatorTokens, String setupSaid,
+                    PdfReading.Preflight reading, String eyes, double eyeSecondsPerPage, int names, Languages.Guess fromGuess, long judgeReplyTokens) {
+            this(name, format, from, to, as, quality, units, chars, quickSeconds, checkedSeconds, reviewedSeconds, thoroughSeconds, measured, judge, judgeHosted, judgeCost, judgeTokens, translator, translatorHosted, translatorCost, translatorTokens, setupSaid, reading, eyes, eyeSecondsPerPage, names, fromGuess, judgeReplyTokens, List.of());
+        }
         public Plan(String name, String format, String from, String to, String as, String quality, int units, int chars, long quickSeconds, long checkedSeconds, long reviewedSeconds, long thoroughSeconds, boolean measured,
                     String judge, boolean judgeHosted, double judgeCost, long judgeTokens, String translator, boolean translatorHosted, double translatorCost, long translatorTokens, String setupSaid) {
-            this(name, format, from, to, as, quality, units, chars, quickSeconds, checkedSeconds, reviewedSeconds, thoroughSeconds, measured, judge, judgeHosted, judgeCost, judgeTokens, translator, translatorHosted, translatorCost, translatorTokens, setupSaid, null, null, 0, 0, null, 0);
+            this(name, format, from, to, as, quality, units, chars, quickSeconds, checkedSeconds, reviewedSeconds, thoroughSeconds, measured, judge, judgeHosted, judgeCost, judgeTokens, translator, translatorHosted, translatorCost, translatorTokens, setupSaid, null, null, 0, 0, null, 0, List.of());
         }
         /**
          * What the program takes the document's language to be, when its words do not say so clearly and the person did not name it: the
@@ -379,7 +410,22 @@ public final class Translation {
         public String said() { return said(Chrome.ENGLISH); }
         public String said(Chrome c) {
             return clauses(c, guessed(c.t("{0} checked, the default; quick {1}, reviewed {2}, thorough {3}", duration(checkedSeconds, c), duration(quickSeconds, c), duration(reviewedSeconds, c), duration(thoroughSeconds, c)), c),
-                    languageSaid(c), namesSaid(c), TranslationScores.setupIn(setupSaid, c), translatorCostSaid(c), costSaid(c));
+                    languageSaid(c), namesSaid(c), TranslationScores.setupIn(setupSaid, c), placedSaid(c), translatorCostSaid(c), costSaid(c));
+        }
+        /** Where the scorers run when that is another machine, or why one is left out: each a clause. */
+        String placedSaid(Chrome c) {
+            List<String> out = new ArrayList<>(), away = new ArrayList<>();
+            for (Placed p : placed) switch (p.state()) {
+                case Placed.AT -> out.add(c.t("{0} scores it at {1}", p.name(), p.address()));
+                case Placed.DOWN -> out.add(c.t("{0} at {1} does not answer now: the run waits a while for it, then goes on without it and says so in its note", p.name(), p.address()));
+                case Placed.REFUSED -> out.add(c.t("{0} at {1} refuses this library's secret, so the run goes without it; researchzosho settings set helpers_secret <the secret it serves with> sets it", p.name(), p.address()));
+                case Placed.NEEDS_SECRET -> out.add(c.t("a helpers server answers at {0}, on the machine that serves the model, and needs its secret: researchzosho helpers secret prints it there, and researchzosho settings set helpers_secret <the secret> sets it here", p.address()));
+                default -> away.add(p.name());
+            }
+            String port = String.valueOf(Helpers.PORT);
+            if (away.size() == 1) out.add(c.t("{0} is not run on this machine and no address names one, so the run goes without it; researchzosho settings set helpers http://<machine>:{1} names a machine that serves it", away.get(0), port));
+            else if (away.size() > 1) out.add(c.t("{0} and {1} are not run on this machine and no address names them, so the run goes without them; researchzosho settings set helpers http://<machine>:{2} names a machine that serves them", away.get(0), away.get(1), port));
+            return clauses(c, out.toArray(new String[0]));
         }
         /** The times, with the note that they are a first guess when nothing was timed on this model: one sentence with its place, so each language sets the note as it writes a bracket. */
         private String guessed(String times, Chrome c) { return measured ? times : c.t("{0} (a first guess: nothing has been timed on this model yet)", times); }
@@ -389,7 +435,7 @@ public final class Translation {
         public String saidFor(Chrome c) {
             String d = duration(seconds(), c);
             String time = switch (quality) { case QUICK -> c.t("{0} quick", d); case REVIEWED -> c.t("{0} reviewed", d); case THOROUGH -> c.t("{0} thorough", d); default -> c.t("{0} checked", d); };
-            return clauses(c, guessed(time, c), languageSaid(c), namesSaid(c), quality.equals(QUICK) ? "" : TranslationScores.setupIn(setupSaid, c), translatorCostSaid(c), reads(quality) ? costSaid(c) : "");
+            return clauses(c, guessed(time, c), languageSaid(c), namesSaid(c), quality.equals(QUICK) ? "" : TranslationScores.setupIn(setupSaid, c), quality.equals(QUICK) ? "" : placedSaid(c), translatorCostSaid(c), reads(quality) ? costSaid(c) : "");
         }
         /** The reader's cost, said first, when it is a hosted model. */
         public String costSaid() { return costSaid(Chrome.ENGLISH); }
@@ -498,7 +544,7 @@ public final class Translation {
         long tTokens = Math.max(1, chars / 3) + 120L * ((units + 24) / 25);   // the translator reads the document once with its instructions, and writes it once
         double tCost = tHosted ? t.cost(tTokens, 0, Math.max(1, chars / 3)) : 0;
         String setup = q.equals(QUICK) ? "" : SETUP_SAID.get();
-        return new Plan(name, doc.format(), doc.lang(), code, fmt, q, units, chars, quick, checked, reviewed, thorough, measured, e == null ? "" : e.name(), hosted, cost, tokens, t == null ? "" : t.name(), tHosted, tCost, tTokens, setup, pre, eyes, eyeSecondsPerPage, asked.size(), doc.guess(), replyTokens);
+        return new Plan(name, doc.format(), doc.lang(), code, fmt, q, units, chars, quick, checked, reviewed, thorough, measured, e == null ? "" : e.name(), hosted, cost, tokens, t == null ? "" : t.name(), tHosted, tCost, tTokens, setup, pre, eyes, eyeSecondsPerPage, asked.size(), doc.guess(), replyTokens, placed(q));
     }
 
     /** Tokens of a prompt's instructions, before its units: the reader's check (about 3,000 characters) and the names step's call (about 2,000). */
@@ -704,7 +750,28 @@ public final class Translation {
         String n = notes(notes);
         if (n == null) throw new IOException(NOTES_SAID);
         Consumer<ObjectNode> told = !cp.keeps() ? progress : p -> { if (progress != null) progress.accept(p); cp.position(p.deepCopy(), said(p)); };   // where it stands, after each step of units
-        try (var lane = Checkpoint.lane("main")) { return running(store, in, to, format, quality, out, collection, seats, told, stop, cp, n.equals(NOTES_END), jobId == null ? "" : jobId, from == null ? "" : from); }
+        // under its stop (Stopping): a call to the model in the middle of a step, the translation, a check, the reader's pass, a revision,
+        // ends within a second of a stop, its connection closed, as a research run's does; the scoring step ends its scorers' work itself
+        try (var lane = Checkpoint.lane("main")) {
+            return Stopping.within(stop, () -> {
+                try { return running(store, in, to, format, quality, out, collection, seats, told, stop, cp, n.equals(NOTES_END), jobId == null ? "" : jobId, from == null ? "" : from); }
+                catch (IOException e) { throw new Carried(e); }
+            });
+        }
+        catch (Carried c) { throw c.io; }
+        catch (Stopping.Requested r) { throw new StoppedInStep(); }
+    }
+
+    /** What a translation stopped in the middle of a step says: the step's work under way is given up, the steps before it kept as a stop between steps keeps them. */
+    static final String STOPPED_IN_STEP = "Stopped in the middle of a step; nothing was written.";
+
+    /** A stop in the middle of a step: never taken for a scorer's or a call's failure. */
+    static final class StoppedInStep extends IOException { StoppedInStep() { super(STOPPED_IN_STEP); } }
+
+    /** An IOException carried out of the stop's scope unchanged. */
+    private static final class Carried extends RuntimeException {
+        final IOException io;
+        Carried(IOException io) { super(io.getMessage(), io); this.io = io; }
     }
 
     private static Outcome running(LibraryStore store, Path in, String to, String format, String quality, Path out, String collection, Seats seats, Consumer<ObjectNode> progress, BooleanSupplier stop, Checkpoint cp, boolean notesAtEnd, String jobId, String from) throws IOException {
@@ -915,9 +982,13 @@ public final class Translation {
         return prev[b.length()];
     }
 
-    private static void tell(Consumer<ObjectNode> progress, String phase, int done, int total, String quality) {
+    private static void tell(Consumer<ObjectNode> progress, String phase, int done, int total, String quality) { tell(progress, phase, done, total, quality, ""); }
+
+    /** The same, with {@code pass} "reader" for the revision of what the reader flagged, which comes after the reading (the progress counts it there). */
+    private static void tell(Consumer<ObjectNode> progress, String phase, int done, int total, String quality, String pass) {
         if (progress == null) return;
         ObjectNode p = M.createObjectNode(); p.put("phase", phase); p.put("units_done", done); p.put("units_total", total); p.put("quality", quality);
+        if (!pass.isEmpty()) p.put("pass", pass);
         progress.accept(p);
     }
 
@@ -1030,7 +1101,7 @@ public final class Translation {
             if (revised == null || revised.isBlank()) { List<Flag> st = new ArrayList<>(); for (Flag f : found) st.add(f.revisedTo(true)); byUnit.put(i, st); continue; }
             List<Flag> mechAfter = mechanical(i, source, revised, unitGlossary(glossary, names, i), binding, names, band, "");
             Map<Integer, Double> l2 = new TreeMap<>(), m2 = new TreeMap<>();
-            score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, () -> false, cp, "revised" + i);
+            score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, stop, cp, "revised" + i);
             Double lb = c.labse.get(i), la = l2.get(i), mb = c.metricx.get(i), ma = m2.get(i);
             boolean mechBefore = found.stream().anyMatch(f -> !f.score()), mechCleared = mechAfter.isEmpty();
             boolean better = (la != null && lb != null && la > lb) || (ma != null && mb != null && ma < mb);
@@ -1085,13 +1156,13 @@ public final class Translation {
                 StringBuilder why = new StringBuilder(); for (Flag f : found) why.append(why.length() == 0 ? "" : " ").append(f.line()).append('.');
                 String revised = revise(seats, source, earlier, why.toString(), language, promptGlossary(glossary, names, i));
                 m++;
-                tell(progress, "revising", m, judged.size(), q);
+                tell(progress, "revising", m, judged.size(), q, "reader");
                 List<Flag> settled = new ArrayList<>();
                 if (revised == null || revised.isBlank()) { for (Flag f : found) settled.add(f.serious() ? f.revisedTo(true) : f); byUnit.computeIfAbsent(i, x -> new ArrayList<>()).addAll(settled); continue; }
                 List<Flag> after = new ArrayList<>(mechanical(i, source, revised, unitGlossary(glossary, names, i), binding, names, band, ""));
                 after.addAll(judge(seats, units, Map.of(i, revised), List.of(i), language, glossary, binding, names, false, c.readerAside));
                 Map<Integer, Double> l2 = new TreeMap<>(), m2 = new TreeMap<>();
-                score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, () -> false, cp, "read" + i);
+                score(sc, units, Map.of(i, revised), List.of(i), l2, m2, x -> { }, stop, cp, "read" + i);
                 Double lb = c.labse.get(i), la = l2.get(i), mb = c.metricx.get(i), ma = m2.get(i);
                 words.put(i, revised); if (la != null) c.labse.put(i, la); if (ma != null) c.metricx.put(i, ma);
                 c.changes.add(new Change(i, lb, la, mb, ma, true, seats.checkerName()));
@@ -1173,7 +1244,9 @@ public final class Translation {
                 Scorer s = k == 0 ? sc.labse() : sc.metricx();
                 if (s == null || failed[k]) { if (failed[k]) keep.put(k == 0 ? "lf" : "mf", true); continue; }
                 List<Double> got;
-                try { got = s.score(pairs); } catch (IOException e) { failed[k] = true; keep.put(k == 0 ? "lf" : "mf", true); continue; }
+                try { got = scoredUnlessStopped(sc, s, pairs, stop); }
+                catch (StoppedInStep stopped) { throw stopped; }   // the person's stop, not the scorer's failure: the step ends, nothing of it kept
+                catch (IOException e) { failed[k] = true; keep.put(k == 0 ? "lf" : "mf", true); continue; }
                 ArrayNode list = keep.putArray(k == 0 ? "l" : "m");
                 for (int j = 0; j < step.size(); j++) { Double v = j < got.size() ? got.get(j) : null; if (v == null) list.addNull(); else list.add(v); }
                 for (int j = 0; j < step.size() && j < got.size(); j++) if (got.get(j) != null) (k == 0 ? labse : metricx).put(step.get(j), got.get(j));
@@ -1181,6 +1254,37 @@ public final class Translation {
             }
             cp.put(key, keep);
             scored.accept(from + step.size());
+        }
+    }
+
+    /** How often the scoring step looks whether the run was stopped, in milliseconds. */
+    static final long STOP_LOOK_MS = 250;
+
+    /**
+     * One scorer's scores of a step's pairs, the run's stop looked at four times a second while they come: a stop ends the scorers' work
+     * under way ({@link TranslationScores.Scorers#abort}: MetricX-24's process ended, a call to a scorer elsewhere abandoned) and the step
+     * with {@link #STOPPED_IN_STEP}, nothing of the step kept. Before 0.7.4 the stop was looked at only between steps, and a step of
+     * MetricX-24 on a processor ran on for minutes after it (a translation stopped in its scoring kept scoring).
+     */
+    static List<Double> scoredUnlessStopped(Scorers sc, Scorer s, List<String[]> pairs, BooleanSupplier stop) throws IOException {
+        CompletableFuture<List<Double>> f = new CompletableFuture<>();
+        Thread t = new Thread(() -> { try { f.complete(s.score(pairs)); } catch (Throwable e) { f.completeExceptionally(e); } }, "translation-scoring");
+        t.setDaemon(true);
+        t.start();
+        while (true) {
+            if (stop.getAsBoolean()) {
+                sc.abort();   // the scorer ends its own work: MetricX-24's process ended, a call elsewhere abandoned; the thread it ran on ends with it
+                throw new StoppedInStep();
+            }
+            try { return f.get(STOP_LOOK_MS, TimeUnit.MILLISECONDS); }
+            catch (TimeoutException notYet) { /* look again */ }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); sc.abort(); throw new StoppedInStep(); }
+            catch (ExecutionException e) {
+                Throwable c = e.getCause();
+                if (c instanceof IOException io) throw io;
+                if (c instanceof RuntimeException r) throw r;
+                throw new IOException(c);
+            }
         }
     }
 

@@ -28,7 +28,7 @@ public final class Readiness {
         if (!loopback && blank(setting.apply(Proxy.SETTING))) out.add("No proxy is trusted (" + Proxy.SETTING + "), so behind a proxy or a load balancer every browser looks like the proxy and no one is on https. Name the proxy's address or network there when there is one.");
         String half = Oidc.halfConfigured();
         if (half != null) out.add(half);
-        if (blank(setting.apply("RESEARCHZOSHO_EMBED"))) out.add("No embeddings server is set, so search by meaning is off. RESEARCHZOSHO_EMBED names one.");
+        if (blank(setting.apply("RESEARCHZOSHO_EMBED")) && Helpers.address(Helpers.Helper.EMBED) == null) out.add("No embeddings server is set, so search by meaning is off. RESEARCHZOSHO_EMBED names one.");
         if (blank(setting.apply("RESEARCHZOSHO_SERPER_KEY")) && blank(setting.apply("RESEARCHZOSHO_SERPAPI_KEY")) && blank(setting.apply("RESEARCHZOSHO_BRAVE_KEY")) && blank(setting.apply("RESEARCHZOSHO_SEARXNG")))
             out.add("No web search is set, so research reads the built-in fallback search alone. A Brave, Serper or SerpApi key, or a SearXNG address, opens the web.");
         return out;

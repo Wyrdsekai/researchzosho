@@ -19,7 +19,7 @@ public final class SearchByMeaning {
     public record Standing(String state, String sentence) { }
 
     /** The setting; a test hands in its own. */
-    static volatile Supplier<String> setting = () -> Config.get("RESEARCHZOSHO_EMBED");
+    static volatile Supplier<String> setting = () -> { String e = Config.get("RESEARCHZOSHO_EMBED"); return e == null || e.isBlank() ? Helpers.address(Helpers.Helper.EMBED) : e; };   // unset: the machine that serves the helpers, when it serves this one
     /** Whether the configured embedder gives a vector back; a test hands in its own. */
     static volatile Predicate<String> answers = base -> { float[] v = Embeddings.configured().embed("ready"); return v != null && v.length > 0; };
 

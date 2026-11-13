@@ -126,13 +126,16 @@ public final class RunProgress {
         double uf = ut > 0 ? Math.min(1.0, ud / (double) ut) : 0;
         String tier = p.path("quality").asText("");   // a translation: one pass is most of a quick run, over half of a checked one, under half of a reviewed one
         boolean readTier = tier.equals("reviewed") || tier.equals("thorough"), quickTier = tier.equals("quick");
+        // a translation's phases, in order for its tier: checked translating · scoring · the program's revision · writing; reviewed and
+        // thorough add the reading (back-translation and the reader's pass) and the revision of what the reader flags after it
+        boolean afterReading = p.path("pass").asText("").equals("reader");
         double byStage = switch (p.path("phase").asText("")) {
             case "planning" -> 3;
             case "reading" -> 1 + uf;
             case "translating" -> 2 + (quickTier ? 92 : readTier ? 40 : 60) * uf;
-            case "scoring" -> (readTier ? 42 : 62) + 8 * uf;
-            case "checking" -> (readTier ? 55 : 75) + (readTier ? 25 : 10) * uf;
-            case "revising" -> (readTier ? 82 : 86) + 10 * uf;
+            case "scoring" -> (readTier ? 42 : 62) + (readTier ? 8 : 10) * uf;
+            case "checking" -> readTier ? 56 + 24 * uf : 94;   // checked: a back-translation, when one is asked, comes after the revision
+            case "revising" -> !readTier ? 72 + 22 * uf : afterReading ? 82 + 12 * uf : 50 + 6 * uf;
             case "writing" -> 96;
             case "workers" -> round <= 1 ? 5 + 50 * f : 57 + 13 * f;   // the first pass is most of the reading; a second pass is shorter and starts after the first check
             case "critic" -> round <= 1 ? 56 : 71;
@@ -141,6 +144,9 @@ public final class RunProgress {
             case "filing" -> 96;
             default -> 1;
         };
+        // a translation is measured by its phases alone: the clock below is a research run's (its limit, or how long research runs take
+        // here), and a translation measured by it said "about 90% done" at the start of its scoring with the reader's pass still ahead
+        if (!tier.isEmpty()) return (int) Math.max(1, Math.min(99, Math.round(byStage)));
         double byClock = 0;
         long deadline = millis(p.path("deadline_at").asText(""));
         if (deadline > startedMs && startedMs > 0) byClock = 95.0 * Math.min(1.0, (nowMs - startedMs) / (double) (deadline - startedMs));   // saving goes on a little past the limit

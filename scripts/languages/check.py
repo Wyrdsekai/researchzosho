@@ -6,20 +6,24 @@ usage: scripts/languages/check.py [code ...]      (every language when none is n
 
 A file can ship when it has exactly the reference's keys and, in every value, what must stay as written: the {0} placeholders, HTML
 tags and entities, text in backticks, --flags, /commands, the command's own name, setting names, addresses, and the marker the model
-writes ([general knowledge]). A LOOK line is a name, path or file name that is not in the translation as written: read each one.
+writes ([general knowledge]). A hint in angle brackets inside an address (http://<machine>:8217) is for the person to replace, so its
+words are translated and only its place is compared. A LOOK line is a name, path or file name that is not in the translation as written: read each one.
 Exit 0 when every file checked can ship."""
 import collections, glob, json, os, re, sys
 
 CHROME = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'librarian', 'src', 'main', 'resources', 'org', 'researchzosho', 'librarian', 'chrome')
 KEEP = [(r'\{\d+\}', 'placeholder'), (r'</?(?:a|b|i|em|strong|code|br|span|p|kbd|small|ul|li|div)\b[^>]*>', 'HTML tag'), (r'&[a-z]+;|&#\d+;', 'entity'),
         (r'`[^`]*`', 'code span'), (r'(?<![\w-])--[a-z][a-z0-9-]*', 'flag'), (r'(?<![\w/.:<])/[a-z][a-z_-]{2,}(?![\w/.])', 'slash command'),
-        (r'\bresearchzosho\b|\bzosho\b', 'the command'), (r'\b[A-Z][A-Z0-9]+_[A-Z0-9_]+\b', 'setting name'), (r'https?://[^\s)\]」』"]+', 'address'),
+        (r'\bresearchzosho\b|\bzosho\b', 'the command'), (r'\b[A-Z][A-Z0-9]+_[A-Z0-9_]+\b', 'setting name'), (r'https?://(?:<[^>]*>|[^\s)\]」』"])+', 'address'),
         (r'\[general knowledge\]', 'the marker the model writes')]
 SOFT = [(r'\b[a-z]+_[a-z_]+\b', 'a name with an underscore'), (r'(?<![\w/])~?/[\w~-]+(?:/[\w~-]+)+', 'a path'),
         (r'\b[\w-]+\.(?:md|json|jsonl|txt|pdf|docx|epub|html|yaml|sh|py|gguf)\b', 'a file name')]
 
 
-def bag(rx, s): return collections.Counter(re.findall(rx, s))
+def bag(rx, s, what=''):
+    found = re.findall(rx, s)
+    if what == 'address': found = [re.sub(r'<[^>]*>', '<>', f) for f in found]   # a <hint> inside an address: its place is kept, its words are the language's
+    return collections.Counter(found)
 
 
 def check(path, ref):
@@ -36,7 +40,7 @@ def check(path, ref):
         if '⟦' in v or '⟧' in v: faults.append(('the meaning marker ⟦…⟧ belongs to the key only', k0))
         if re.search(r'[(（][yYsSjJoOдДнН]/[nN][)）]\s*$', v): faults.append(('a yes/no hint at the end: the program adds it', k0))
         for rx, what in KEEP:
-            a, b = bag(rx, k), bag(rx, v)
+            a, b = bag(rx, k, what), bag(rx, v, what)
             if a != b: faults.append(('%s changed: %s missing, %s added' % (what, dict(a - b) or '', dict(b - a) or ''), k0))
         for rx, what in SOFT:
             a, b = bag(rx, k), bag(rx, v)

@@ -74,6 +74,9 @@ tasks.test {
     // offer, which would count as a SearXNG of the library's own), and the fallback is offered as off; a test of either sets its own.
     // SuiteHomeTest pins both.
     systemProperty("researchzosho.searxng", "http://localhost:2")
+    // and the look for a helpers server on the model's machine is off (Helpers.LOOK): a test that names its stand-in model server by a
+    // machine's name would otherwise ask that machine's port 8217. A test of the look stands it in, or calls Helpers.lookNow itself.
+    systemProperty("researchzosho.helpers.find", "off")
     environment("RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT", "off")
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
