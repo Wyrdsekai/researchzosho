@@ -74,7 +74,7 @@ compose and the fleet script also say it outright with `RESEARCHZOSHO_FETCH_PRIV
 fetches them, so it can read a wiki or a NAS on your own network.
 
 **What each library spends.** Each library counts its own searches and pages read through the paid services, in its own
-volume, and a monthly limit (`serper_monthly_limit`, `serpapi_monthly_limit`, `brave_monthly_limit`,
+settings volume, and a monthly limit (`serper_monthly_limit`, `serpapi_monthly_limit`, `brave_monthly_limit`,
 `firecrawl_monthly_limit`) holds for that library alone: set it in the library's settings, or in the compose's
 environment as `RESEARCHZOSHO_SERPER_MONTHLY_LIMIT` and the like for every library at once.
 
@@ -82,7 +82,17 @@ environment as `RESEARCHZOSHO_SERPER_MONTHLY_LIMIT` and the like for every libra
 
 A library is its volume, and one daemon holds a lease on it. Stop a container with `docker stop`, never with a
 kill: a daemon killed outright leaves its lease in the volume, and the next one on that volume waits until the
-lease lapses, a few minutes, saying so in its log. `scripts/fleet.sh backup <name>` is a tar of the library and its settings; a
+lease lapses, a few minutes, saying so in its log. A second daemon started on the same volume while the first runs is refused
+the lease and stops. A daemon that finds another live process holding its lease (it was paused past the lease, and another
+took the volume) stops working on the library at once: it takes no new job, stops its running ones without writing anything
+of them, so they resume in the process that holds the library or at the next start, answers every request that would write
+with 503 and the sentence `/healthz` gives, and ends with one line that names the holder and a code that is not zero. A lease
+that only ran out, with nobody else holding it, is taken again and work goes on. Each library's settings volume, `/config`, holds its settings file (`/config/config`), the addresses of
+its databases, and its settings folder (`/config/home`, `RESEARCHZOSHO_HOME`): the month's count of searches and pages
+through the paid services, the helpers' secret and the helpers server found, the shared-link settings, the update's state,
+the log files when the log is not stdout, and the caches of the help pages, the site list and the name spellings. The
+image sets `RESEARCHZOSHO_HOME`, and both compose files and the fleet script say it too. An image older than 0.7.5 keeps
+that folder inside the container and loses it when the container is made again. `scripts/fleet.sh backup <name>` is a tar of the library and its settings; a
 snapshot of the disk under the volume is the same thing at the cloud's level, and a nightly snapshot is
 enough. `scripts/fleet.sh move <name> <user@host>` stops the library here, carries its volumes to the other
 server over ssh, starts it there with the same image and settings, and points the router at it; the route
@@ -104,11 +114,50 @@ It prints the address to point `*.example.com` at and the disks to mount. On the
 above. A second VM is a second copy of this with its own libraries; the first router's route table names
 where each library is. Snapshots of the disks are the backups.
 
+## Scoring translations
+
+A checked translation scores every line with LaBSE and MetricX-24. The image runs neither: it has no Python and no
+Docker, so it sets `RESEARCHZOSHO_LOCAL_HELPERS=off` (both compose files and the fleet script say it too), and a library
+in it never tries to set them up. The libraries score on a helpers machine instead, one with a graphics card: run
+`researchzosho helpers install` there, and `researchzosho helpers secret` there prints the secret it serves with. Point
+each library at it in its own settings, which live on its `/config` volume and move with it, then restart the library
+so it reads them:
+
+```
+docker exec rz-alpha researchzosho settings set helpers http://<helpers machine>:8217
+docker exec rz-alpha researchzosho settings set helpers_secret <the secret>
+docker restart rz-alpha
+```
+
+Without a helpers machine, a checked translation runs without scores and its plan says so.
+
 ## The health check, the log, what is missing
 
 `GET /healthz` answers 200 with the version and the library's id when the library opens and the daemon
-holds its lease, 503 with the reason otherwise, with no sign-in: point the load balancer's check at it. The
+holds its lease, 503 with the reason otherwise, with no sign-in: point the load balancer's check at it. A daemon whose
+lease another process has taken answers 503, names the holder and ends; one whose lease only ran out while it was paused
+takes it again and answers 200. The
 container writes its log to stdout (`RESEARCHZOSHO_LOG` says otherwise), and at start it names each
 setting that is missing, in one sentence each: no model answering, no account for the keeper, pages open
 with the sign-in off, no trusted proxy, no embeddings server, no web search, a half-set identity provider.
 `docker logs rz-alpha` shows them.
+
+## What holds today: one library, one process, one machine
+
+The lease, the id counter and the other locks between processes are the operating system's file locks, and the lease's
+check that its holder is alive looks the process up on this machine. Both hold on one machine, on a local disk or a Docker
+volume. They do not hold on every network file system, so a library's volume is used by one machine at a time.
+
+The spend ledger (`catalog/spend.jsonl`), the crews log (`catalog/crews.log`) and the search log are appended to without a
+lock between processes. One process writes them; two processes writing one library could mix their lines.
+
+A process keeps these for itself, so one process serves one library:
+
+- the settings: one settings file, read once and kept in memory; a setting another process changes is read again only by
+  the few settings read live, so restart the library after `settings set`;
+- the settings folder (`RESEARCHZOSHO_HOME`): the month's count of paid searches and pages, the helpers' secret, the
+  update's state, the reading preferences and the taste records;
+- the library that a model call outside a chat turn or a job is counted against;
+- the MCP tools it offers and its trust in the caller a key or a session proved, and where the command line streams an answer;
+- the helpers machines found and the machines found not answering, the queue of jobs and the set of running ones, the
+  chat pages open now, and the locks between the threads of one process.

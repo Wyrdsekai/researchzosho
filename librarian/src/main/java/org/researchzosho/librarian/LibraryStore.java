@@ -197,12 +197,20 @@ public final class LibraryStore {
         return "J-" + String.format("%04d", issue("J", root.resolve("catalog").resolve("jobs")));
     }
 
+    /**
+     * The guard the ledger is read, raised and written under, between processes: the command line and the service never issue one id
+     * twice ({@link FileLocks}; a process that died holding it lets it go as it ends).
+     */
+    Path serialsGuard() { return root.resolve("catalog").resolve("serials.lock"); }
+
     private int issue(String prefix, Path dir) throws IOException {
-        Map<String, Integer> ledger = ledger();
-        int next = Math.max(maxSerial(dir, prefix), ledger.getOrDefault(prefix, 0)) + 1;
-        ledger.put(prefix, next);
-        writeLedger(ledger);
-        return next;
+        return FileLocks.under(serialsGuard(), () -> {
+            Map<String, Integer> ledger = ledger();
+            int next = Math.max(maxSerial(dir, prefix), ledger.getOrDefault(prefix, 0)) + 1;
+            ledger.put(prefix, next);
+            writeLedger(ledger);
+            return next;
+        });
     }
 
     /**
@@ -211,9 +219,12 @@ public final class LibraryStore {
      * report keeps its own number (a seek's report and the merged report were both I-0158, 2026-10-22).
      */
     public synchronized void startSerialsAt(int from) throws IOException {
-        Map<String, Integer> ledger = ledger();
-        for (String p : new String[]{"F", "I"}) if (ledger.getOrDefault(p, 0) < from) ledger.put(p, from);
-        writeLedger(ledger);
+        FileLocks.under(serialsGuard(), () -> {
+            Map<String, Integer> ledger = ledger();
+            for (String p : new String[]{"F", "I"}) if (ledger.getOrDefault(p, 0) < from) ledger.put(p, from);
+            writeLedger(ledger);
+            return null;
+        });
     }
 
     private Map<String, Integer> ledger() throws IOException {
@@ -231,7 +242,7 @@ public final class LibraryStore {
         StringBuilder sb = new StringBuilder("# highest serial ever issued per prefix — never reuse an id\n");
         for (var e : ledger.entrySet()) sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
         Files.createDirectories(serialsFile().getParent());
-        Files.writeString(serialsFile(), sb.toString(), StandardCharsets.UTF_8);
+        AtomicWrite.text(serialsFile(), sb.toString());   // whole or not at all: a process that dies in the write never leaves the counter empty, to start again at 1
     }
 
     private static int maxSerial(Path dir, String prefix) throws IOException {
@@ -259,6 +270,7 @@ public final class LibraryStore {
         Finding check = Finding.parse(text);
         if (!check.id().equals(f.id())) throw new IllegalStateException("id drifted in round-trip");
         Path p = findingsDir().resolve(f.id() + ".md");
+        NotHolder.check(p);
         Files.createDirectories(p.getParent());
         Finding before = null;
         if (Files.exists(p)) { try { before = Finding.parse(Files.readString(p, StandardCharsets.UTF_8)); } catch (Exception ignored) { } }
@@ -271,6 +283,7 @@ public final class LibraryStore {
         String text = inv.format();
         Investigation check = Investigation.parse(text);
         Path p = investigationsDir().resolve(inv.id() + ".md");
+        NotHolder.check(p);
         Files.createDirectories(p.getParent());
         Investigation before = null;
         if (Files.exists(p)) { try { before = Investigation.parse(Files.readString(p, StandardCharsets.UTF_8)); } catch (Exception ignored) { } }
@@ -373,6 +386,7 @@ public final class LibraryStore {
      * the frontier, the shelves file and the changes log are read-modify-write (Wyrdsekai, 2026-09-07).
      */
     public <T> T locked(String name, Locked<T> work) throws IOException {
+        NotHolder.check(root);   // every step under it writes: none goes into a library another process holds now
         String key = root.toAbsolutePath() + "|" + name;
         ReentrantLock jvm = JVM_LOCKS.computeIfAbsent(key, k -> new ReentrantLock());
         jvm.lock();
@@ -407,6 +421,7 @@ public final class LibraryStore {
     /** Log one circulation event (a desk query, a push, a submission). TSV: instant, kind, detail. */
     public synchronized void circulate(String kind, String detail) {
         try {
+            NotHolder.check(circulationFile());
             Files.createDirectories(circulationFile().getParent());
             String line = Instant.now() + "\t" + kind + "\t"
                     + detail.strip().replaceAll("\\s+", " ") + "\n";
@@ -473,6 +488,7 @@ public final class LibraryStore {
             sb.append("\n## Problems (fail-closed reads — fix the files)\n\n");
             for (String prob : scan.problems()) sb.append("- ").append(prob).append('\n');
         }
+        NotHolder.check(indexFile());
         Files.createDirectories(indexFile().getParent());
         Files.writeString(indexFile(), sb.toString(), StandardCharsets.UTF_8);
     }

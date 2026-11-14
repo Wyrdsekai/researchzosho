@@ -167,7 +167,7 @@ none is named; `researchzosho settings set auto off` restores the old behaviour.
 A library can keep several models by name and run each question on the one you pick:
 
 ```
-researchzosho models add deepseek openrouter deepseek/deepseek-v4.1-flash --prices 0.032/0.144/0.002
+researchzosho models add deepseek openrouter deepseek/deepseek-v4.1-flash      # prices read from openrouter.ai's list
 researchzosho models add fable anthropic claude-fable-5-1 --prices 10/50/0.25 --cap 50
 researchzosho models key openrouter <key>        # or --file ~/openrouterapi.txt
 researchzosho models                             # lists them; models test <name> asks the host
@@ -179,8 +179,21 @@ session; `/model` alone lists them), and `model` on the MCP research tool. A key
 host only. The library's own drive and model are the entry called `default`.
 
 Each report says under its question who researched it and what it cost at the entry's prices, from the tokens the server
-counted. `researchzosho spend` adds the runs up by host and by model, this month and in all. An entry with `--cap <dollars>`
-refuses a run that would start past that figure in the month, and says so.
+counted. `researchzosho spend` adds the runs up by host and by model, this month and in all, and says apart what the calls
+outside a run came to: a chat turn, the nightly work, the steps of a job around its run. It also adds everything up by use:
+the chat, the nightly work, research, translation, pictures and other work. A call is counted when it costs money, on a hosted
+service or a named model with prices; a model on your own machine with no prices leaves nothing to count. An entry with
+`--cap <dollars>` refuses a run that would start past that figure in the month, counting the chat's calls on it too, and says so.
+
+Prices are dollars per million tokens, sent/written/cached. On OpenRouter they need not be typed: `models add` with no
+`--prices` reads them from openrouter.ai's public model list (no key is sent), keeps them with the date, and says them;
+`models list` shows the date beside them, and `researchzosho models set <name> --prices list` reads the list again.
+Prices you set by hand are kept until you ask for the list's. When the list cannot be read or does not hold the model,
+the entry is added without prices and `models add` says so. A call to an entry with no prices is paid at prices it does
+not state: every place that says what a run cost gives the tokens the server counted instead of a dollar figure, and
+`spend` lists those runs apart rather than adding them in as nothing. A cap counts dollars, so on an entry with no
+prices it counts nothing: `models add`, `models list`, `spend` and a translation's plan say so, and the run goes ahead,
+since you named the model.
 
 The log's `usage ←` lines say what each call cost in tokens and how much the cache served;
 `researchzosho stats` adds them up for a run. Every hosted model sees what the research reads, so
@@ -1362,7 +1375,7 @@ table puts them, and `--do` files that research question about each one.
 ## 8b. Translating a document
 
 A document of your own, translated into another language and written out as a file: `researchzosho translate
-<file> --to Japanese`. The formats read are txt, md, pdf, docx and epub; the file is written beside the original in the
+<file> --to Japanese`. The formats read are txt, md, pdf, docx and epub (a comic is at the end of this section); the file is written beside the original in the
 same format (`--as md|txt|pdf|docx|epub` chooses another), and a note beside it, `<name>.<lang>.translation.md`, says
 what was done. Both the original and the translation go onto the shelves, the translation under the original's
 collection with a link to it. From the chat: "translate this file into Japanese" with a file attached, or naming a
@@ -1374,13 +1387,40 @@ the judge seat reads. The checked tier scores every unit with LaBSE and MetricX-
 setup` asks first with the sizes (about 1.9 GB and 5.7 GB), the daemon sets them up in the background when it starts, so an
 update brings them too and refreshes MetricX's script when a release changes it, the Translate fold has a button, and
 `researchzosho translate scorers install` does it by hand;
-`RESEARCHZOSHO_SCORERS=off` leaves them out on a small machine. A name no entry matches, or an
+`RESEARCHZOSHO_SCORERS=off` leaves them out on a small machine: no score is made, the daemon does not set them up, a
+LaBSE answering on this machine is not used, no helpers machine is asked for them, and the plan says so. A name no entry matches, or an
 entry whose host has no key yet, is answered before anything runs: the models that can run now, the line that adds the
 entry named (DeepSeek, Kimi, Claude, GPT, Gemini, GLM and MiniMax are known) and the line that keeps the host's key, with
 where the key comes from; the Settings page does both under Models. A paid call refused during a run ends it with what
 the status means (the key, the credit, the rate limit, the model id) and the models the run can be sent again with. On the Keep page, the
-Translate fold takes a file, the language, the format, the tier and the box for the notes at the end, and files the work
+Translate fold takes a file, the language, the language it is written in when you want to name it, the format, the tier and the box for the notes at the end, and files the work
 as a run; the run's page has the file, the note and the download links. A program uses the tool `library_translate`.
+
+Every place that shows a translation job says who does what in it: who translates (the model entry, its model and the
+machine it runs on, or the host for a hosted model with its estimate at list prices), who reads at the reviewed and
+thorough tiers, where each scorer scores or why it is left out, the tier, the languages, the format and where the doubts
+go. Once the job has ended, a hosted model's line also says what its calls cost, or, for an entry with no prices, the
+tokens sent and written, never a dollar figure. `researchzosho jobs` and the Runs page
+say it in a few words ("by gemma26, read by kimi"); `researchzosho jobs J-0042`, the run's page, the chat and
+`library_job` say it whole. The facts are kept with the job when it is filed, so a restart, or a model changed
+afterwards, does not change what the job says.
+
+A direction gives the translation a voice, in your own words: "translate as if you were a british victorian era
+person", "this is a comedy so keep things whimsical". On the command line it is `--direction "<your words>"`; on the
+Translate form, the box for it; a program sends `direction` on `library_translate`, the Java client's
+`translate(raw, to, as, quality, notes, direction)` and the Python SDK's `translate(raw, to, direction=…)`. In the chat,
+say it in your own words with the ask ("translate this file into English for a ten-year-old", 「このファイルを英語に訳して、
+洒落が多いので気をつけて」). The chat reads the usual ways of putting it itself; words of the ask it cannot place go to the
+chat's model, which copies out the part that says how the translation should read, and nothing else. The chat shows the
+direction it took in a question before the job starts. When no model answers, the reply says which of your words were not
+used; say them again after "direction:" to give them as one. The translator, the reviser and the reader are told it. It changes the voice, never what is kept: numbers, dates, addresses, citations, marks, the names
+decided for the document and the glossary are kept and checked as in any run, and the reader flags a unit that does not
+follow the direction, which is then revised with it. A translation in another voice stands further from its source, so
+the scores are made and shown, but a score or a length outside its band revises nothing and is not listed as a doubt,
+and the job's paragraphs do not go on the record the thresholds are measured from. Where the direction asks for
+something a unit cannot carry over, such as a pun, the translator translates the sense and names the place; the note
+lists those places under "Where the direction could not be kept". The note starts with the direction, word for word. A
+direction is at most 400 characters; a longer one is refused with its length.
 
 A PDF's plan says first how its pages are read: by their text, by eye and by which model (about how long, or that
 it has not been timed yet), and which pages cannot be read and why. A PDF whose text cannot be read is not
@@ -1407,7 +1447,7 @@ Finnish, Czech, Romanian, Hungarian, Turkish, Indonesian, Vietnamese, Croatian; 
 Japanese, Chinese, Korean, Arabic, Persian, Hebrew, Thai, Greek, Hindi and the other scripts of India). A file that names
 its language (an EPUB, a Word file, a PDF) is taken at its word when the text agrees or is too short to say. When the words
 do not say it clearly, the plan says what the program took and that you can name it: `--from <language>`, "from German"
-in the chat (said in the language you chat in: 「ドイツ語から」), `from` on the tool. A document is refused as already in the language asked for only when its words say so
+in the chat (said in the language you chat in: 「ドイツ語から」), the choice "it is written in" on the Translate form, `from` on the tool. A document is refused as already in the language asked for only when its words say so
 plainly.
 
 Names and recurring terms are made consistent after the first pass, by what the translation itself writes. The program
@@ -1531,6 +1571,220 @@ model says it is a first guess. The chat asks which tier, or whether to go ahead
 is long; the command line prints the estimate and proceeds; with the library's service running, the command files
 the run and waits on it (`--no-wait` returns the run's id), and with no service it runs in the terminal. A long
 document runs as a job with its progress in units, on the Runs page and in `researchzosho jobs`.
+
+### A comic: manga, manhwa, manhua, a webtoon, a comic book, a graphic novel
+
+`researchzosho translate volume.cbz --to English` translates a comic. The pages are read, the lines are translated a
+page at a time, and the translation is lettered into the speech balloons. What comes back is a comic in the same
+container, written beside the original as `volume.en.cbz`, and a note, `volume.en.translation.md`.
+
+What is a comic. A CBZ, a CBR, a ZIP or a folder whose files are page pictures is a comic by itself; the pages go in
+the natural order of their names (`2.jpg` before `10.jpg`). A PDF is a document unless you say it is a comic
+(`--comic on`; "this is a manga" in the chat), or unless the comic helper is set up already and finds balloons on a
+sample of its pages. `--comic off` ("it is not a comic") says an archive of pictures is a document. A CBR needs
+`bsdtar`, `7z` or `unrar` on the machine; where none is there, one sentence names what to install.
+
+A comic in a PDF. A page that is one picture, as a scanned page is, is taken as that picture at its own pixels,
+with nothing resampled. A page that holds pictures alone, all at one resolution (a scan with the sheet's margin
+round it, a page in two halves, a cover cut into strips), is drawn at that resolution, a pixel of the picture a
+pixel of the page. Any other page is drawn with its long side about 2,000 pixels. The PDF that goes out has its
+pages the size they were in the PDF that came in.
+
+Languages. A comic is read from Japanese, Chinese, Korean, English, German, French, Spanish, Portuguese, Italian and
+Russian, and from the other languages written in the Latin, Cyrillic or Greek alphabet; it is lettered in any of the
+same. A language written from right to left (Arabic, Hebrew), Thai and the scripts of India are refused before any
+work, with the reason, and so is a comic that is already in the language asked for. Vietnamese is neither read nor
+lettered: the reader and the fonts lack its letters. Chinese is written in simplified characters. A long word is
+broken at a line's end only where the language has hyphenation patterns in the table below.
+
+The language of the comic. You can name it: `--from Korean` on the command line, "from Korean" in the chat, the
+choice on the form, `from` in a program's call. When you do not, the program finds it. The helper looks at three pages
+spread through the volume and says which writing they are lettered in: kana mean Japanese, hangul Korean, Chinese
+characters alone Chinese; for an alphabet the words read on those pages say which language it is. The plan says what
+was found before anything starts ("the comic helper read its lettering as Korean") and how to name another when that
+is wrong. Where the helper is not set up yet, or the file is a CBR, the language is found when the run starts.
+
+Columns and lines. A balloon that the original lettered in columns is lettered in columns when the translation is
+Chinese or Japanese. Korean and every language of an alphabet are lettered in lines, whatever the original. The note
+says for each page which it was. In a comic that is not Japanese a caption box, the box of narration, is read and
+lettered as a balloon is, and so is a sentence lettered on open ground of one colour outside any balloon.
+
+The lettering read twice. The helper reads every block of lettering. For a comic that is not Japanese, at the checked
+tier and above, a translator that sees pictures then reads each speech balloon a second time: the helper cuts the
+balloon out of the page, covers the lettering of every other balloon that falls into the picture, and the translator
+is asked, one balloon a call, to write out what is lettered there. Its answer becomes the balloon's text when it is
+in the comic's writing, was not cut off, and is not less than half as long as what the helper read, nor more than
+twice as long where the helper is at least 0.8 sure of the balloon (a reading it is not sure of is no measure of
+the balloon's length); otherwise the helper's reading stands. It stands too where the
+helper's reader is at least 0.93 sure of a balloon (it gives each a number from 0 to 1) and the answer differs from
+its reading in a letter or a digit: there the helper's letters are the right ones more often, and the translator
+still corrects the marks. Both readings
+are kept with the job, so a run that was interrupted asks for none of them again. The plan says before the run whether
+the lettering will be read twice and counts the calls in its time; the note says for each page how many balloons were
+read twice and how many readings differ, and lists under Readings in doubt each balloon the two read differently in
+letters, with both readings. Japanese lettering is read by the helper alone at every tier: a model that sees reads it
+worse than the helper's own reader does. The quick tier, and a translator that does not see pictures, leave any comic
+at the helper's reading. Drawn sound words and text outside a balloon are read by the helper alone.
+
+Which way the pages are read. A Japanese comic is read from the right, a Chinese one from the right when its lettering
+runs in columns, and every other comic from the left, unless you say otherwise. An English, French or Korean edition
+of a manga keeps its pages running from the right, and nothing on a page says so: say it. On the command line
+`--reads right-to-left` (or `--reads left-to-right`; `rtl` and `ltr` are taken too); on the form the choice beside
+the languages; in the chat "it reads right to left" or 右から左に読みます, and calling a comic that is not Japanese a
+manga says the same; in a program's call `reads`. What you say is taken for any comic, a Japanese one too. The plan
+and the note say which way the pages are read and whether that was said or found, and a run that was interrupted goes
+on reading the same way.
+
+Where a line ends. A language of an alphabet is lettered in capitals, and a long word is broken only by its
+hyphenation patterns. Chinese, Japanese and Korean have no capitals: a line of Chinese or Japanese ends where a phrase
+ends when it can, and never where the rules of line breaking forbid it; Korean ends a line at a space. The helper is
+given the names and terms of the volume as the translation writes them, and ends no line inside one where the balloon
+leaves it another way. The note says how many lines end inside a phrase, in which balloons, and where a name could not
+be kept whole.
+
+A web comic's strip. A webtoon is often one very tall picture an episode. A picture more than 2.2 times as high as it
+is wide is taken for a strip: the helper cuts it between its panels into pieces, each piece is read, translated and
+lettered as a page, and the pieces are joined again into one picture of the strip's own name, size and format. The
+plan counts the pictures in the file; once the run has cut the strips, its progress counts the pieces, and the note
+names a piece by its strip ("page 3, part 2 of 7") and says how many cuts fell in a gutter and how many had to run
+through art, a balloon or lettering.
+
+The comic helper. Reading a page and lettering it are done by a helper that runs on the library's machine, on its
+processor; no page leaves the machine for it. It is not part of the download. The first time a comic is translated
+the program says what a set-up fetches and asks once; `--yes` answers for a script, and `researchzosho translate
+comics install` sets it up on its own. `researchzosho translate comics status --list` names each piece, and
+`researchzosho helpers` has a line for it. `RESEARCHZOSHO_COMIC=off` leaves it out, and a comic is then not translated.
+
+A helper that an earlier version set up is not asked about again when a new version adds to it (a font, a reader for
+another writing): what is missing is fetched as the first step of the next comic, and the run says each piece. You are
+asked again only when that is more than 300 MB, or when the helper's Python environment has to be made anew.
+
+A set-up ends by loading every piece once: each Python package, the model that finds the balloons, every reader, every
+font, the hyphenation patterns and the word list. The helper is set up only when each of them loaded. When one does
+not, the set-up names it with its reason, and `researchzosho translate comics install` asked again installs that
+package anew or fetches that file again. The same command, asked of a helper that is set up, loads every piece once
+more and puts right what does not load: it is what to run when a comic stops with "The comic helper cannot read this
+comic". `researchzosho translate comics status` loads every piece too, which takes a few seconds, names one that does
+not load and changes nothing; the helper's line in `researchzosho helpers` only says whether it was set up. Everything
+the helper keeps, the files its set-up works with among them, is under its own folder. A comic's
+translation that was ended by force leaves its page pictures in the machine's temporary folder; the next comic, the
+service's next start or `researchzosho translate comics status` removes them.
+
+It needs Python 3.9 to 3.14, and its packages go into an environment of its own. The set-up takes the newest Python the
+machine has: `python3.14` down to `python3.9` on the PATH, in Homebrew's folders and python.org's on macOS, or through
+the `py` launcher on Windows. Where none fits (only Python 3.15, say, for which ONNX Runtime has no build yet), one sentence
+says what the machine has and what to install, and nothing is fetched. `brew install python@3.13`, or Python 3.13 from
+python.org, is enough.
+
+| what is fetched | size | licence |
+| --- | --- | --- |
+| the model that finds the text and the speech balloons on a page (comic-text-and-bubble-detector) | 44 MB | Apache 2.0 |
+| the model that reads Japanese lettering (manga-ocr-base) | 444 MB | Apache 2.0 |
+| the model that finds the lines of a block of lettering (PP-OCRv5 mobile text detector) | 5 MB | Apache 2.0 |
+| the model that reads lettering in the Latin alphabet (PP-OCRv5 mobile reader, Latin alphabet) | 8 MB | Apache 2.0 |
+| the model that reads lettering in the Cyrillic alphabet (PP-OCRv5 mobile reader, Cyrillic alphabet) | 8 MB | Apache 2.0 |
+| the model that reads Greek lettering (PP-OCRv5 mobile reader, Greek) | 8 MB | Apache 2.0 |
+| the model that reads Korean lettering (PP-OCRv5 mobile reader, Korean) | 14 MB | Apache 2.0 |
+| the model that reads Chinese lettering (PP-OCRv5 mobile reader, Chinese) | 17 MB | Apache 2.0 |
+| the lettering font for the Latin alphabet (Comic Neue Bold) | 56 KB | SIL Open Font License 1.1 |
+| the lettering font for the Cyrillic and Greek alphabets (Comic Relief Bold) | 95 KB | SIL Open Font License 1.1 |
+| the lettering font for Japanese (Noto Sans CJK JP Medium) | 17 MB | SIL Open Font License 1.1 |
+| the lettering font for simplified Chinese (Noto Sans CJK SC Medium) | 17 MB | SIL Open Font License 1.1 |
+| the lettering font for traditional Chinese (Noto Sans CJK TC Medium) | 17 MB | SIL Open Font License 1.1 |
+| the lettering font for Korean (Noto Sans CJK KR Medium) | 17 MB | SIL Open Font License 1.1 |
+| hyphenation patterns for English, German, French, Spanish, Italian, Portuguese and Russian | 424 KB together | the GNU all-permissive licence, MIT, BSD 3-clause, LPPL 1.2 or later |
+| the list of Chinese words, so that a line does not end in the middle of one (jieba word list, simplified and traditional Chinese) | 9 MB | MIT |
+| Python packages in an environment of the helper's own: PyTorch for processors, manga-ocr, fugashi, the Japanese dictionary unidic-lite, ONNX Runtime, OpenCV, Pillow, NumPy, PyYAML, BudouX | about 450 MB to download, 1.7 GB on the disk | BSD 3-clause, Apache 2.0, MIT, MIT-CMU; OpenCV's package carries FFmpeg libraries under the LGPL, which the helper does not use |
+
+In all about 1.1 GB to download and 2.3 GB on the disk, kept under `~/.researchzosho/comic`.
+
+How a page is translated. One call a page, which names the comic's language and the one asked for. When the model
+sees pictures it is given the page itself, each block of lettering boxed and numbered, beside the text read from it;
+when it does not, the plan says so and the page is translated from its text. With the page go the names already
+written by earlier pages and the page before as translated, and for a Japanese comic the readings printed beside its
+words. Each balloon keeps its own number, and an answer that leaves a balloon's number out is not taken: the page is
+asked again, and after a second miss its balloons are translated one at a call. A direction for the voice works as
+for any document: `--direction "this is a comedy, keep it whimsical"`.
+
+Names. The program finds the strings the speech repeats before the first page, and in a Japanese comic the words with
+a reading printed beside them. The pages after the first that writes a name are given the words to write it the same
+way; after the first pass the names are decided as for any document, and a balloon that writes one otherwise is
+revised. The glossary overrules all of it. How a name is written goes by the two languages:
+
+- From Japanese into a language of the Latin alphabet, a name is written from its printed reading (さいとう is Saito,
+  帝大 with テーダイ beside it is Teidai), and a name that does not hold that spelling is not taken.
+- From Japanese into Chinese, a name written in kanji keeps its characters, as Chinese writes them. Into Korean it is
+  written in hangul from its reading.
+- Into Japanese, a name from abroad is written in katakana; a Chinese name keeps its characters.
+- For any other pair, the name is written as the language asked for writes it.
+
+The tiers. Quick reads, translates and letters. Checked, the default, adds the translator's own reading of each
+balloon for a comic that is not Japanese, the program's checks on every balloon (a translation is there, it is written
+in the language asked for and is not its source copied out, every number written in digits is there, the names are as
+decided), a revision of what they flag, a sample translated back into the comic's own language, and the fit. Reviewed and thorough add a second reading,
+a page at a call with its picture: of the flagged balloons and a fifth of the rest, or of every balloon. No score is
+made for a comic: LaBSE and MetricX-24 were measured on paragraphs, and on a balloon's few words they flag nothing
+true.
+
+The fit. A page is lettered at one size, chosen from its balloons and its own lettering; a balloon whose text takes no
+more is set smaller, and the note counts those. A line that could only be set much smaller than the rest of its page,
+or that did not go into its balloon at all, goes back to the translator once to be said in fewer characters. The
+shorter line is kept when the checks find nothing new in it and it is set larger for it; otherwise the line stands as
+it was translated. A line that is small only because its whole page is, the original lettering being small, is not
+sent back: said shorter it would be set no larger. The note lists each line that went back, before and after. For Chinese, Japanese and Korean lettering a line also goes back when it could only
+be set under 20 px on a page 2,000 px high, the smallest size at which their characters read without effort.
+
+The note has, for every page, a table of its blocks: the lettering as read (for a Japanese comic, with its readings;
+for any other, with the helper's own figure for how sure it was of the block, from 0 to 1, a hint that decides
+nothing), the translation, the size it was set at and whether in columns, the gloss of each drawn sound word and the translation
+of each text outside a balloon. It says which language the lettering was read in and how that was known. It lists
+what the checks still doubt by page and block, the balloons the helper and the translator read differently, the names
+decided, the lines that went back for the fit, and what was not done. On the shelves the volume's script, page by page and block by block, is the translation's entry, with the
+archive as its file.
+
+The run. It is a job like any translation: `researchzosho jobs <id>` and the Runs page show it by page ("Reading the
+comic's pages, 21 of 30", "Translating the pages, 3 of 30"), a stop takes effect within seconds, and a run that was
+interrupted goes on from the page it had reached, or from the piece of a strip. On one machine a page of a Japanese
+comic took about 12 seconds at the checked tier, of which reading it took about 5. A comic read twice takes a call
+more for each balloon: 1.1 to 1.6 seconds a balloon on one machine's own model, with 5 to 8 balloons a page; the plan
+counts 1.35 seconds and 6.5 balloons until a comic read twice has been timed on the model.
+
+Elsewhere. On the Keep page the Translate fold takes a CBZ, a CBR or a ZIP, up to 512 MB (`researchzosho settings set
+translate_upload_mb <megabytes>` changes that), with a choice that says a file is a comic or a document and a choice
+for the language it is written in; where the comic helper is not set up, the page says what a set-up fetches and one
+button sets it up and translates the comic that was sent. In the chat, "translate this manga into English" with the
+file attached does the same, and asks for a yes before a set-up; manga, manhwa, manhua, webtoon, comic, graphic novel
+and bande dessinée all say the file is a comic, and "from Korean" names its language. A program sends
+`library_translate` with `comic`, `from`, `reads` and, on the person's yes, `setup`; the Java client and the Python
+SDK have the four arguments, and the answer's `comic` says the language found and the way the pages are read, each
+with how it is known, and whether the lettering is read a second time.
+
+What it does not do in this version:
+
+- A drawn sound word is left as art and glossed in the note. So is a balloon whose lettering is drawn into the art:
+  it is translated in the note and the page keeps it as it is. Text outside a balloon, a sign or a caption, is
+  translated in the note and not lettered.
+- In a Japanese comic a reading printed outside a balloon is not read, and its lettering is read once: a misreading
+  stands, marked in the note where the helper says to look. So it is for any comic at the quick tier, or with a
+  translator that does not see pictures. Where the lettering is read twice, a misreading the two readers share
+  stands, and where they differ and the helper is under 0.93 sure the translator's reading is used even when the
+  helper's was the right one.
+- Blocks are read in bands across the page, not panel by panel. On a page where a tall panel stands beside short
+  ones, a sentence that runs over several balloons can come out of order.
+- A logo, a sign or a telephone's ring drawn like lettering can be taken for speech and lettered. A small balloon
+  can be taken for text outside a balloon and left as it is.
+- In a comic lettered all in capitals, and in a Korean one, no name is found before the pages are translated (a
+  name is told by its capital letter): names are decided only where the pages' own calls name them.
+- The translator's own slips stand where no check sees them: a name written a little off, a wrong word.
+- A text box that lies over two balloons is made two blocks only where each balloon's paper is whole. Where hand
+  lettering breaks the paper up, the two stay one block, and the second balloon is left as it is.
+- Where hand lettering runs over its balloon's outline, the outline is painted away with it.
+- A short form of a name can be mistranslated, such as 帝大出 for a graduate of 帝都大学: no check catches it.
+- Two balloons that touch are cut apart in a straight line.
+- The sizes and thresholds were set on a handful of comics: one manga volume, one colour comic in eleven languages,
+  two Korean web comics, a manga's Korean and Chinese editions and two American comic books of the 1940s.
+- Chinese in traditional characters cannot be asked for: a translation into Chinese is in simplified characters.
+- Arabic, Hebrew, Thai and the scripts of India are neither read nor lettered.
 
 ## 8c. Pictures
 
@@ -3033,6 +3287,22 @@ three ends with one line that says what was done and how it stands now, and `ser
 Before it stops, `service stop` names each running job and says what becomes of it: it resumes where it was at the
 next start, unless you stop it with `researchzosho jobs <J-id> --stop` or give `--stop-jobs`.
 
+**Two services on one library folder.** One process serves a library at a time: it holds the library's lease
+(`catalog/serve.lock`). When a service finds another process holding it (a second service or a `researchzosho serve` in a
+terminal pointed at the same library folder, or another computer on a shared folder that took it while this one slept),
+it stops working on the library. Its running jobs stop and resume in the other process or at the next start, a change
+from the pages or a program is refused with a sentence that names the other process, and the service ends with one line
+in its log:
+
+```
+Stopped: another process holds this library's lease (pid 4242 on homebox, until 2026-11-13T10:22:31Z), and the jobs this one was running resume there or at the next start.
+```
+
+The service manager starts it again, and each start is refused while that process holds the library ("another daemon is
+serving this library: pid 4242 on homebox …"). Stop one of the two, with `researchzosho service stop` where the other runs
+or by ending the `serve` in its terminal, or give each its own library folder (`RESEARCHZOSHO_LIBRARY`). A laptop that
+slept past its lease, with nothing else taking the library meanwhile, takes it again when it wakes and carries on.
+
 The service listens on `127.0.0.1:4649`. It runs the housekeeping at three each morning;
 `--crew-hour` changes the hour. It writes its log to `~/.researchzosho/logs/librarian-serve.log`.
 On Linux, `loginctl enable-linger <you>` keeps it running while you are logged out.
@@ -3159,7 +3429,9 @@ researchzosho helpers uninstall                 # the service goes; the models s
 model is served from that machine), else the card this program's model server was installed with, else the only
 card; with several cards and nothing deciding it asks, and with `--yes` it stops. With a card, MetricX-24 gets torch's
 CUDA build (Linux and Windows x86_64; a processor build already there is replaced). An existing LaBSE or embeddings
-container keeps its cards.
+container keeps its cards. `--no-cpu-fallback` keeps MetricX-24 off the processor: when its card has no room it is not
+loaded, the service serves the rest and says why, and it is tried again when a library asks, at most every three
+minutes; meanwhile a translation goes on without it and its plan and note say so.
 
 **A set per card.** One set serves every library by default. Two libraries whose models sit on different cards can each
 have their own: `helpers install --separate` (or `--on homebox --separate`) adds a set on this call's card, on the next

@@ -137,6 +137,8 @@ public final class Patrons {
     public static final String KEY = "key", KEY_READ = "key-read";
 
     public static void check(LibraryStore store, Patron patron, Level need) throws IOException {
+        String gaveUp = need == Level.write ? NotHolder.why(store.root()) : null;
+        if (gaveUp != null) throw ProtocolError.unavailable(gaveUp);   // another process holds the library: no request writes to it through this one
         if (KEY_READ.equals(patron.runtime()) && need == Level.write) throw ProtocolError.forbidden("This key reads only. A key that writes is made on the Keep page, or with researchzosho keys new --write.");
         if (patron.person()) return;   // the keeper of the library, on their own machine
         // through the shared door only a listed reader gets in, whatever the default says: the door faces the world, the main port faces the house

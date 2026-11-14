@@ -88,7 +88,7 @@ class ChatCommandsMoreTest {
         assertTrue(say(store, me, "/tonight").length() > 10);
         String crews = say(store, me, "/crews now");
         assertTrue(crews.startsWith("The housekeeping runs now, as J-"), crews);
-        assertTrue(say(store, me, "/spend").startsWith("What research runs cost"));
+        assertTrue(say(store, me, "/spend").startsWith("What the model calls cost"));
         assertTrue(say(store, me, "/update").contains("researchzosho update now"));
         assertTrue(say(store, me, "/forecasts").length() > 5);
         assertTrue(say(store, me, "/dna").length() > 5);

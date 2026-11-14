@@ -43,6 +43,14 @@ public final class Helpers {
     public static final String HELPERS = "RESEARCHZOSHO_HELPERS", SECRET_NAME = "RESEARCHZOSHO_HELPERS_SECRET", LOCAL = "RESEARCHZOSHO_LOCAL_HELPERS";
     /** On a machine that serves the helpers: the card they run on, as {@code --gpu} or {@code --cpu} chose it last (an index, a UUID, or cpu). */
     public static final String GPU_NAME = "RESEARCHZOSHO_HELPERS_GPU";
+    /**
+     * On a machine that serves the helpers: whether MetricX-24 may move to the processor when its card has no room (0.7.5). Unset or on:
+     * as before; off ({@code --no-cpu-fallback}): it never does, and waits for room on its card. The service's unit carries the flag.
+     */
+    public static final String CPU_FALLBACK_NAME = "RESEARCHZOSHO_HELPERS_CPU_FALLBACK";
+
+    /** Whether this machine is set to refuse MetricX-24's move to the processor. */
+    static boolean noCpuFallback() { return Config.get(CPU_FALLBACK_NAME, "").strip().equalsIgnoreCase("off"); }
     /** The port {@code helpers serve} listens on unless told otherwise. */
     public static final int PORT = 8217;
 
@@ -406,6 +414,21 @@ public final class Helpers {
      * Null when it does not answer. A status line that said "does not answer now" of an embeddings server in use came from here: its
      * proxy answered the health in plain words, which read as no answer.
      */
+    /**
+     * Why a helper the helpers machine lists does not serve now, as its front says it (0.7.5): the text of a 503 there ("not loaded: no
+     * room on card 3 (0.4 GB free)", "not loaded: its process ended (exit 1)"), or null when it answers otherwise or not at all.
+     */
+    static String unavailable(String address) {
+        if (away(address)) return null;
+        long t0 = NOW.getAsLong();
+        try {
+            HttpResponse<String> r = HTTP.send(request(address + "/health").timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() != 503) return null;
+            String why = M.readTree(r.body() == null || r.body().isBlank() ? "{}" : r.body()).path("error").asText("");
+            return why.isBlank() ? null : why;
+        } catch (Exception e) { failed(address, e, t0); return null; }
+    }
+
     static String health(Helper h, String address) {
         String line = health(address);
         if (line == null && (h == Helper.LABSE || h == Helper.EMBED) && !away(address) && Embed.answers(address)) return "";

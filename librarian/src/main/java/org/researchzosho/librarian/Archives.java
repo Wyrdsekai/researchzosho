@@ -5,6 +5,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -172,9 +173,12 @@ public final class Archives {
 
     // ---- zip ----
 
-    static Unpacked zip(Path archive, Sink sink) throws IOException {
+    static Unpacked zip(Path archive, Sink sink) throws IOException { return zip(archive, sink, StandardCharsets.UTF_8); }
+
+    /** The same, the entries' names read in {@code names}: a zip made on an older system writes them in its own code page, and they are no UTF-8. */
+    static Unpacked zip(Path archive, Sink sink, Charset names) throws IOException {
         int read = 0;
-        try (ZipInputStream z = new ZipInputStream(new BufferedInputStream(Files.newInputStream(archive)))) {
+        try (ZipInputStream z = new ZipInputStream(new BufferedInputStream(Files.newInputStream(archive)), names)) {
             ZipEntry e;
             while ((e = z.getNextEntry()) != null) {
                 read++;

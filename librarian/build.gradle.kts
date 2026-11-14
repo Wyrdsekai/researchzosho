@@ -77,7 +77,15 @@ tasks.test {
     // and the look for a helpers server on the model's machine is off (Helpers.LOOK): a test that names its stand-in model server by a
     // machine's name would otherwise ask that machine's port 8217. A test of the look stands it in, or calls Helpers.lookNow itself.
     systemProperty("researchzosho.helpers.find", "off")
+    // and the comic helper's search for a Python (ComicHelper.PYTHONS) finds a Python 3.13 it never runs: a suite on a box with no
+    // Python 3.9 to 3.14 would otherwise refuse every comic's plan. ComicPythonTest stands the search in itself.
+    systemProperty("researchzosho.comic.pythons", "off")
+    // and openrouter.ai's price list is not read when a test adds an OpenRouter entry with no prices (PriceList.FETCH): a test of the
+    // reading serves the list on the loopback and stands the fetch in.
+    systemProperty("researchzosho.pricelist", "off")
     environment("RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT", "off")
+    // and the settings folder follows user.home, which each test sets: a developer's RESEARCHZOSHO_HOME never reaches the suite
+    environment("RESEARCHZOSHO_HOME", "")
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)
@@ -180,6 +188,8 @@ tasks.register("printCp") {
 // A run from the source tree has no jar manifest; the version goes into a resource so the pages and --version can say it.
 // The documentation is not put into the program: Help reads the tree's own, or fetches the release's from GitHub, so a docs change never needs a build.
 tasks.processResources {
+    // the comic helper's Python files are run from the source tree by their own tests, which leaves bytecode beside them: never shipped
+    exclude("**/__pycache__/**")
     val v = project.version.toString()
     inputs.property("version", v)
     doLast { file("$destinationDir/org/researchzosho/version.txt").apply { parentFile.mkdirs(); writeText(v) } }

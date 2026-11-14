@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.researchzosho.librarian.Translation;
 import org.researchzosho.librarian.LibraryProtocol;
 import org.researchzosho.librarian.Patrons;
 import org.researchzosho.librarian.ProtocolError;
@@ -230,20 +231,29 @@ public final class McpServer {
                 + "and glossary term on both sides, a length band, no unit dropped), the scores and a revision of what was flagged; quick is the one pass alone; reviewed and thorough add a second reading. "
                 + "What the checks still doubt after the revision is listed in the translation note, and the document holds the translation alone; notes=end numbers those passages and lists them at the end of the document too. "
                 + "Pass notes=end when the person asks for the doubts (the notes) at the end of the document and notes=off when they ask for none; without it the library's setting translate_notes decides, and the answer's notes says which the run was filed with. "
-                + "The answer is the plan: the units, the characters and the time; library_job follows the run, whose result "
+                + "The answer is the plan: the units, the characters and the time, and translation: who translates, who reads and where the scores are made, with a sentence for the person in translation.said; library_job follows the run, whose result "
                 + "names the file, the translation note beside it and both documents on the shelves. op=glossary lists the glossary, or with term and rendering adds to it. "
+                + "A comic is translated too (manga, manhwa, manhua, a web comic's strips, a comic book, a graphic novel: a CBZ, a CBR, a ZIP or a folder of page pictures by itself; a PDF with comic=on): its pages are read by the comic helper on the library's machine and the translation is set into the speech balloons. "
+                + "It is read from, and lettered in, Japanese, Chinese, Korean and the languages of the Latin, Cyrillic and Greek alphabets; from names the language of its lettering, and without it the helper finds the language on a sample of the pages (the answer's comic.from and comic.from_how say which language and how it is known; pass from when the person says it is another). "
+                + "A Japanese comic is read from the right, a Chinese one from the right when its lettering runs in columns, any other from the left: pass reads=right-to-left when the person says the comic reads from the right, as an English, French or Korean edition of a manga does (the answer's comic.reads and comic.reads_how say which way and whether it was said or found). The answer's comic.second_reading says whether the translator reads each balloon's lettering a second time (twice, for a comic that is not Japanese at checked and above when the translator sees pictures), or why the comic helper alone reads it (quick, blind, japanese), or at-start while that is to be found. "
+                + "Where the comic helper is not set up the call is answered with the error confirm, whose message says what a set-up fetches (about a gigabyte) and whose comic_helper lists each piece with its size and licence: show the person the message, and on their yes send the same call with setup=true. "
                 + "Paths are only accepted from the keeper (the terminal, the pages); raw names a document on the shelves.",
                 schema(new String[]{},
                         enumProp("op", "translate (default) | glossary.", "translate", "glossary"),
                         prop("path", "string", "The file to translate, on this machine (absolute path)."),
                         prop("raw", "string", "A document on the shelves, by its entry (the raw name library_search or library_read gives)."),
                         prop("to", "string", "The language to translate into: a name (Japanese) or a code (ja)."),
-                        enumProp("as", "The format written: md | txt | pdf | docx | epub (default: the input's).", "md", "txt", "pdf", "docx", "epub"),
+                        prop("from", "string", "The language the document is written in, or a comic is lettered in: a name (Korean) or a code (ko). Default: what the program finds, from the document's text or, for a comic, on a sample of its pages."),
+                        enumProp("reads", "For a comic: the way its pages are read, when the person says it: right-to-left (an edition of a manga in any language) | left-to-right. Default: what the program finds, Japanese from the right, Chinese by its columns, any other language from the left.", "right-to-left", "left-to-right"),
+                        enumProp("as", "The format written: md | txt | pdf | docx | epub (default: the input's); for a comic cbz | pdf.", "md", "txt", "pdf", "docx", "epub", "cbz"),
+                        enumProp("comic", "Whether the file is a comic: on (it is, whatever the program finds; a PDF of page pictures needs this) | off (it is a document). Default: an archive or a folder of page pictures is a comic by itself.", "on", "off"),
+                        prop("setup", "boolean", "The person's yes to setting the comic helper up, after a call answered with confirm: the run sets it up first, then translates the comic."),
                         enumProp("quality", "checked (default: one pass, the program's checks, the scores, a revision of what they flag) | quick (one pass) | reviewed (checked, then a second reading of the flagged units and a sample of the rest) | thorough (checked, then every unit read).", "checked", "quick", "reviewed", "thorough"),
                         prop("model", "string", "The model entry that translates (researchzosho models names them); default the library's model. A hosted entry is a paid call: the answer says its cost first (model_cost_dollars), and the run stays inside the entry's monthly cap."),
                         prop("judge", "string", "For checked: the model entry that reads source and translation side by side, or auto for the strongest other entry, local before hosted; default the library's judge seat, else the translator's model in fresh calls with a sample translated back and compared. A hosted entry is a paid call: the answer says its cost first (judge_cost_dollars)."),
                         prop("back_translation", "boolean", "For checked: translate a sample of units back and compare them with the source; on by itself when the same model checks its own work, off otherwise."),
                         enumProp("notes", "Where what the checks still doubt is written: off (the document holds the translation alone; the translation note lists the doubts) | end (besides, each such passage numbered in brackets and listed at the end of the document). Default: the setting translate_notes, else off.", "off", "end"),
+                        prop("direction", "string", "The person's own words for the translation's voice, tone or wording, when they give one (\"as if you were Shakespeare\", \"it is a comedy, keep it whimsical\", \"mind the puns\"), at most " + Translation.DIRECTION_MAX + " characters. The translator, the reviser and the reader are told it; numbers, dates, addresses, citations, names and glossary terms are kept and checked as in any run; a score or a length outside its band revises nothing, and the translation note lists where the translator could not keep it."),
                         prop("collection", "string", "The collection the translation is shelved under (default: the original's)."),
                         prop("term", "string", "For op=glossary: the term as it stands in a source."),
                         prop("rendering", "string", "For op=glossary: the rendering chosen for the term in the language (to)."),
@@ -975,8 +985,8 @@ public final class McpServer {
                         enumProp("op", "plan (default) | run.", "plan", "run"),
                         patronProp())));
         tools.add(tool("library_spend",
-                "WHAT RESEARCH RUNS COST, at each model's list prices: the library's arithmetic on the servers' usage counts, not a bill. This month and in all, by host and by named model, "
-                + "with the cap where one is set, as hosts[] and entries[] and as text. Write access, as the settings.",
+                "WHAT THE MODEL CALLS COST, at each model's list prices: the library's arithmetic on the servers' usage counts, not a bill. This month and in all, by host and by named model, "
+                + "with the cap where one is set, as hosts[] and entries[], and by what the calls were for (chat, nightly, research, translation, picture, other) as uses[]; and as text. Write access, as the settings.",
                 schema(new String[]{}, patronProp())));
         tools.add(tool("library_status",
                 "library_id, library_name, contract, counts by kind and state, last_updated.",

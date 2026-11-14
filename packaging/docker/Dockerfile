@@ -27,8 +27,14 @@ RUN tar xzf /tmp/researchzosho-${VERSION}.tar.gz -C /opt && rm /tmp/researchzosh
     && ln -s /opt/researchzosho/bin/zosho /usr/local/bin/zosho
 COPY entrypoint.sh /usr/local/bin/researchzosho-entrypoint
 RUN chmod +x /usr/local/bin/researchzosho-entrypoint
+# the settings file and the settings folder (the month's paid searches, the helpers' secret, the update's state, the caches) both on
+# the /config volume, so a container recreated or moved to another server keeps them; and no heavy helper on the node itself (the image
+# has neither Python nor Docker, so LaBSE and MetricX-24 could not be set up here): a checked translation scores on a helpers machine,
+# named in the library's settings (helpers, helpers_secret), as docs/CLOUD.md says
 ENV RESEARCHZOSHO_LIBRARY=/library \
-    RESEARCHZOSHO_CONFIG=/config/config
+    RESEARCHZOSHO_CONFIG=/config/config \
+    RESEARCHZOSHO_HOME=/config/home \
+    RESEARCHZOSHO_LOCAL_HELPERS=off
 VOLUME ["/library", "/config"]
 EXPOSE 4649
 ENTRYPOINT ["researchzosho-entrypoint"]

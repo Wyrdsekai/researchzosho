@@ -193,11 +193,60 @@ public final class LibrarianClient {
      * them either way; null for the library's setting translate_notes. The result's {@code notes} says which the run was filed with; a word
      * that is neither is refused with {@code invalid_args}.
      */
-    public JsonNode translate(String raw, String to, String as, String quality, String notes) {
+    public JsonNode translate(String raw, String to, String as, String quality, String notes) { return translate(raw, to, as, quality, notes, null); }
+
+    /**
+     * The same, with {@code direction} the person's own words for the translation's voice, tone or wording ("as if you were Shakespeare",
+     * "this is a comedy, keep it whimsical"), at most 400 characters; null for none. The translator, the reviser and the reader are told it;
+     * numbers, dates, addresses, citations, names and glossary terms are kept and checked as in any run. The answer's {@code direction} and
+     * the job's {@code translation.direction} say what was filed; a longer one is refused with {@code invalid_args}.
+     */
+    public JsonNode translate(String raw, String to, String as, String quality, String notes, String direction) { return translate(raw, to, as, quality, notes, direction, null, false); }
+
+    /**
+     * The same, for a comic (manga, manhwa, manhua, a web comic's strips, a comic book, a graphic novel): a CBZ, a CBR or a ZIP of page
+     * pictures is one by itself, and {@code comic} says so for a file that is not ("on": a PDF of page pictures is a comic; "off": the
+     * file is a document; null: what the library finds). Its pages are read by the comic helper on the library's machine, in the language
+     * the helper finds on them, and the translation is set into the speech balloons; the answer's {@code comic} says how many pages it
+     * has, whether the helper is set up, and the language of its lettering ({@code from}, and {@code from_how}: named, sampled, or
+     * at-start when it is found as the run starts). Where the helper is not set up, the call is refused with {@code confirm}: the
+     * exception's message says what a set-up fetches (about a gigabyte), {@link LibraryException#error} holds each piece with its size
+     * and licence under {@code comic_helper}, and the same call with {@code setup} true is the person's yes: the run sets the helper up
+     * first. {@code as} is cbz or pdf for a comic.
+     */
+    public JsonNode translate(String raw, String to, String as, String quality, String notes, String direction, String comic, boolean setup) {
+        return translate(raw, to, as, quality, notes, direction, comic, setup, null);
+    }
+
+    /**
+     * The same, with {@code from} the language the document is written in, or the comic is lettered in (a name or a code: "Korean",
+     * "ko"); null for what the library finds, from a document's text or on a sample of a comic's pages. A comic is read from Japanese,
+     * Chinese, Korean and the languages of the Latin, Cyrillic and Greek alphabets, and lettered in the same; a language outside those,
+     * and a file already in the language asked for, are refused with {@code invalid_args} and the reason.
+     */
+    public JsonNode translate(String raw, String to, String as, String quality, String notes, String direction, String comic, boolean setup, String from) {
+        return translate(raw, to, as, quality, notes, direction, comic, setup, from, null);
+    }
+
+    /**
+     * The same, with {@code reads} the way a comic's pages are read when the person says it: "right-to-left" (an English, French or
+     * Korean edition of a manga keeps its pages running from the right) or "left-to-right" ("rtl" and "ltr" are taken too); null for
+     * what the library finds: a Japanese comic from the right, a Chinese one from the right when its lettering runs in columns, any
+     * other from the left. The answer's {@code comic.reads} says the way (rtl, ltr, or "" while it is to be found) and
+     * {@code comic.reads_how} how it is known (said, found, at-start); a word that is neither is refused with {@code invalid_args}.
+     * {@code comic.second_reading} says whether the translator reads each balloon's lettering a second time (twice; at-start while
+     * that is to be found; or quick, blind, japanese: the comic helper alone reads it, and why).
+     */
+    public JsonNode translate(String raw, String to, String as, String quality, String notes, String direction, String comic, boolean setup, String from, String reads) {
         ObjectNode a = obj().put("raw", raw).put("to", to);
+        if (from != null && !from.isBlank()) a.put("from", from.strip());
+        if (reads != null && !reads.isBlank()) a.put("reads", reads.strip());
         if (as != null && !as.isBlank()) a.put("as", as.strip());
         if (quality != null && !quality.isBlank()) a.put("quality", quality.strip());
         if (notes != null && !notes.isBlank()) a.put("notes", notes.strip());
+        if (direction != null && !direction.isBlank()) a.put("direction", direction);
+        if (comic != null && !comic.isBlank()) a.put("comic", comic.strip());
+        if (setup) a.put("setup", true);
         return post("translate", a);
     }
 
@@ -239,7 +288,7 @@ public final class LibrarianClient {
         if (res.statusCode() >= 400) {
             JsonNode err = body.path("error");
             throw new LibraryException(err.path("code").asText("unavailable"), res.statusCode(),
-                    err.path("message").asText("HTTP " + res.statusCode()));
+                    err.path("message").asText("HTTP " + res.statusCode()), err);
         }
         return body;
     }

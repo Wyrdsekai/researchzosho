@@ -79,9 +79,12 @@ class DriveSlotPinTest {
             JsonNode b = bodies.get(bodies.size() - 1);
             assertFalse(b.has("id_slot"), "a picture names no slot: " + b.path("id_slot"));
             assertFalse(b.path("cache_prompt").asBoolean(true), "and llama.cpp does not reuse a cached prompt for it");
+            // a picture read is as cold as a request can be made: temperature 0, and a seed named, the same every time (two machines got two readings of one balloon's picture, 2026-11-14)
+            assertEquals(0.0, b.path("temperature").asDouble(-1)); assertTrue(b.has("seed"), "a picture's reading names a seed: " + b); assertEquals(DriveClient.PICTURE_SEED, b.path("seed").asLong(-1));
             c.classify(hello(), 8);
             assertFalse(bodies.get(bodies.size() - 1).has("id_slot"), "words alone name none either");
             assertFalse(bodies.get(bodies.size() - 1).has("cache_prompt"), "and keep the server's own caching");
+            assertFalse(bodies.get(bodies.size() - 1).has("seed"), "and no seed");
         } finally { s.stop(0); }
         // the time limit counts a picture as about 1,500 tokens, never as its base64
         ObjectNode body = M.createObjectNode(); body.set("messages", picture());
@@ -100,6 +103,7 @@ class DriveSlotPinTest {
             DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m");
             c.classify(picture(), 8);
             assertFalse(bodies.get(bodies.size() - 1).has("cache_prompt"), "only llama.cpp is told not to reuse its cache");
+            assertFalse(bodies.get(bodies.size() - 1).has("seed"), "and only llama.cpp is named a seed: another server may refuse a field it does not know");
         } finally { s.stop(0); }
     }
 }

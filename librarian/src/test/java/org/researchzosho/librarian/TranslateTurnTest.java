@@ -116,7 +116,7 @@ class TranslateTurnTest {
             // the file attached to the turn, as the page keeps it; the time said first, the tier asked
             session.att = M.createObjectNode().put("name", "saros notes.md").put("path", f.toString());
             String reply = lib.say("translate this file into Japanese");
-            assertTrue(reply.startsWith("\"saros notes.md\" has 4 units with words (") && reply.contains("written in English. Into Japanese as md: ") && reply.contains(" checked, the default; quick ") && reply.contains(", thorough ") && reply.contains("(a first guess: nothing has been timed on this model yet). Checked, quick, reviewed or thorough? ") && reply.contains("(J-0001; the choice starts it)"), reply);
+            assertTrue(reply.startsWith("\"saros notes.md\" has 4 units with words (") && reply.contains("written in English. Into Japanese as md: ") && reply.contains(" checked, the default; quick ") && reply.contains(", thorough ") && reply.contains("(a first guess: nothing has been timed on this model yet). Translated by local-model on this machine. Scores: LaBSE on this machine; MetricX-24 left out: it is not installed. Checked, quick, reviewed or thorough? ") && reply.contains("(J-0001; the choice starts it)"), "the time, who translates and where the scores are made, then the question: " + reply);
             List<ObjectNode> active = new Jobs(store, j -> "").active();
             assertEquals(1, active.size()); assertEquals(Jobs.OFFERED, active.get(0).path("state").asText()); assertEquals(Translation.JOB_KIND, active.get(0).path("kind").asText()); assertEquals(f.toString(), active.get(0).path("args").path("path").asText());
             String taken = lib.say("thorough");
@@ -161,22 +161,22 @@ class TranslateTurnTest {
             assertEquals(0, new Jobs(store, j -> "").active().size(), "nothing was filed");
             Config.set(DriveClient.hostKeySetting("openrouter.ai"), "sk-or-test");
             String said = lib.say("translate " + f + " into German, quick, translated by gemma26, checked by kimi");
-            assertTrue(said.contains("Translated by gemma26. Checked by kimi.") && said.contains("Translating it now, quick (J-0001)"), said);
+            assertTrue(said.contains("Translated by gemma26 (gemma-4-26b-a4b on homebox).") && !said.contains("read by kimi") && said.contains("Translating it now, quick (J-0001)"), "the quick tier reads nothing, so no reader is named: " + said);
             ObjectNode job = new Jobs(store, j -> "").get("J-0001");
             assertEquals("kimi", job.path("args").path("judge").asText()); assertEquals("gemma26", job.path("args").path("model_entry").asText());
             // the model this chat talks to translates when the words name none
             session.model("gemma26");
             said = lib.say("translate " + f + " into French, quick");
-            assertTrue(said.contains("Translated by gemma26.") && said.contains("(J-0002)"), said);
+            assertTrue(said.contains("Translated by gemma26 (gemma-4-26b-a4b on homebox).") && said.contains("(J-0002)"), said);
             assertEquals("gemma26", new Jobs(store, j -> "").get("J-0002").path("args").path("model_entry").asText());
             assertEquals("", new Jobs(store, j -> "").get("J-0002").path("args").path("judge").asText(""));
             // auto for the reader is kept as the word the run reads
             said = lib.say("translate " + f + " into Italian, quick, checked by the strongest other model");
-            assertTrue(said.contains("Checked by the strongest other model the library has."), said);
+            assertTrue(said.contains("Translated by gemma26 (gemma-4-26b-a4b on homebox).") && !said.contains("read by"), "auto is kept for the run; the quick tier names no reader: " + said);
             assertEquals("auto", new Jobs(store, j -> "").get("J-0003").path("args").path("judge").asText());
             // the names as people say them resolve to the entries: "Kimi K3" is kimi (moonshotai/kimi-k3)
             said = lib.say("i would like " + f + " translated into Spanish using gemma26 and having Kimi K3 do a thorough check");
-            assertTrue(said.contains("Translated by gemma26. Checked by kimi.") && said.contains("thorough"), said);
+            assertTrue(said.contains("Translated by gemma26 (gemma-4-26b-a4b on homebox); read by kimi (moonshotai/kimi-k3, hosted at openrouter.ai).") && said.contains("the reader kimi is a hosted model: about $") && said.contains("thorough"), "the reader's cost said once, by the plan: " + said);
             assertEquals("kimi", new Jobs(store, j -> "").get("J-0004").path("args").path("judge").asText()); assertEquals("thorough", new Jobs(store, j -> "").get("J-0004").path("args").path("quality").asText());
             // a name no entry comes close to: the entries that exist are said, nothing is run
             String no = lib.say("translate " + f + " into Italian, checked by DeepSeek V4.1 Flash");
@@ -191,7 +191,7 @@ class TranslateTurnTest {
             assertEquals(4, new Jobs(store, j -> "").active().size(), "nothing ran without the file");
             session.att = M.createObjectNode().put("name", f.getFileName().toString()).put("path", f.toString());
             String carried = lib.say("this file\n\nI attached " + f.getFileName() + "; it is on the shelves as nothing-yet.md (saros notes).");
-            assertTrue(carried.contains("Into Korean as md") && carried.contains("Checked by kimi.") && carried.contains("(J-0005)"), carried);
+            assertTrue(carried.contains("Into Korean as md") && carried.contains("Translated by gemma26 (gemma-4-26b-a4b on homebox).") && carried.contains("(J-0005)"), carried);
             assertEquals("ko", new Jobs(store, j -> "").get("J-0005").path("args").path("to").asText()); assertEquals("quick", new Jobs(store, j -> "").get("J-0005").path("args").path("quality").asText());
             assertNull(session.translateAsk(), "the kept ask is spent");
             // words about a translation the turn cannot read are answered by the turn, never the model

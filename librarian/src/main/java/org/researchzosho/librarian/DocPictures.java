@@ -110,7 +110,9 @@ public final class DocPictures {
             String description = was != null && !was.description().isBlank() ? was.description() : "";
             if (description.isEmpty() && eyes != null && described < DESCRIBE_AT_MOST) {
                 DriveClient.forgetUsage();
-                description = Images.describe(eyes, b, type, "");
+                boolean own = eyes.hosted();   // a hosted seeing entry's calls go on the tally (pictures), and nowhere else
+                if (own) DriveClient.meteredByCaller(true);
+                try { description = Images.describe(eyes, b, type, ""); } finally { if (own) DriveClient.meteredByCaller(false); }
                 long[] u = DriveClient.lastUsage(); if (u != null) { usage[0] += u[0]; usage[2] += u.length > 1 ? u[1] : 0; }
                 if (!description.isEmpty()) described++;
             }

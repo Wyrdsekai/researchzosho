@@ -76,7 +76,7 @@ class ChromeFilesTest {
 
     /** The classes whose sentences the chat says: its own turns, its commands, and what they say through. */
     static final List<String> CHAT = List.of("TranslateTurn", "ModelsTurn", "ReadInTurn", "ImagesTurn", "Images", "Librarian", "ChatCommands", "Glossary", "ModelEntries",
-            "Translation", "TranslationScores", "TranslationLengths", "ContentOffer", "LikenessHelper", "CrisisHelp", "Chrome", "RunProgress", "RunLimits", "Explain", "McpSources", "HomeCard", "Accounts", "Fields", "Help");
+            "Translation", "TranslationScores", "TranslationLengths", "ComicTranslation", "ComicHelper", "TranslationWho", "ContentOffer", "LikenessHelper", "CrisisHelp", "Chrome", "RunProgress", "RunLimits", "Explain", "McpSources", "HomeCard", "Accounts", "Fields", "Help");
 
     @Test
     void everyTextTheChatAsksForByALiteralIsInEveryFile() throws Exception {

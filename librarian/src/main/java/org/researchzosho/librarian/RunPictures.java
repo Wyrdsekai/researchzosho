@@ -384,15 +384,19 @@ final class RunPictures {
                     else if (pass.reference() != null && Images.sha256(pass.reference().bytes()).equals(sha)) l = new Looked(f, got, null, "the reference itself, kept as " + pass.reference().id());
                     else {
                         DriveClient.forgetUsage();
+                        boolean own = eyes != null && eyes.hosted();   // a hosted seeing entry's calls go on the run's tally as pictures (tally), not into the research run's count too
+                        if (own) DriveClient.meteredByCaller(true);
                         Images.Judged j; String by = Images.BY_NONE, beside = "";
-                        if (pass.reference() != null) {
-                            boolean person = isPersonName(pass.entity());
-                            String what = person ? "person (" + pass.entity() + ")" : pass.entity().isEmpty() ? "thing" : pass.entity();
-                            String name = person ? pass.entity() : null;   // the machine-read naming (a title, an address) outranks the model's face reading
-                            j = Vision.seesTwo(eyes) ? Images.judgeAgainst(eyes, pass.reference(), Images.SAME, what, name, f, got.bytes(), got.contentType()) : Images.judgeByWords(eyes, pass.reference(), Images.SAME, what, name, f, got.bytes(), got.contentType());
-                            pass.against++; by = Images.namedBy(f, name); beside = pass.reference().id();
-                            j = Images.measured(j, measures.get(f), Images.SAME, person, name);   // the helper's number first: a face score outranks the model's reading either way, unless the picture's own words name the person
-                        } else j = Images.judge(eyes, criteria, f, got.bytes(), got.contentType(), true);
+                        try {
+                            if (pass.reference() != null) {
+                                boolean person = isPersonName(pass.entity());
+                                String what = person ? "person (" + pass.entity() + ")" : pass.entity().isEmpty() ? "thing" : pass.entity();
+                                String name = person ? pass.entity() : null;   // the machine-read naming (a title, an address) outranks the model's face reading
+                                j = Vision.seesTwo(eyes) ? Images.judgeAgainst(eyes, pass.reference(), Images.SAME, what, name, f, got.bytes(), got.contentType()) : Images.judgeByWords(eyes, pass.reference(), Images.SAME, what, name, f, got.bytes(), got.contentType());
+                                pass.against++; by = Images.namedBy(f, name); beside = pass.reference().id();
+                                j = Images.measured(j, measures.get(f), Images.SAME, person, name);   // the helper's number first: a face score outranks the model's reading either way, unless the picture's own words name the person
+                            } else j = Images.judge(eyes, criteria, f, got.bytes(), got.contentType(), true);
+                        } finally { if (own) DriveClient.meteredByCaller(false); }
                         long[] u = DriveClient.lastUsage();
                         if (u != null) synchronized (usage) { usage[0] += u[0]; usage[2] += u.length > 1 ? u[1] : 0; }
                         judgedCount.incrementAndGet();

@@ -52,7 +52,8 @@ class HelpersInstallTest {
         @Override public boolean torchSeesCard(HelperCards.Choice card) { return torchSees; }
         String labse = "card 0";
         @Override public String labseOn() { return labse; }
-        @Override public String install(Helper h, HelperCards.Choice card, PrintStream out) { installs.add(h.path + (card.cpu() ? " cpu" : card.card() != null ? " card " + card.card().index() : "")); set.add(h); return "ready"; }
+        boolean noFallbackAsked;
+        @Override public String install(Helper h, HelperCards.Choice card, boolean noFallback, PrintStream out) { noFallbackAsked |= noFallback; installs.add(h.path + (card.cpu() ? " cpu" : card.card() != null ? " card " + card.card().index() : "")); set.add(h); return "ready"; }
         @Override public boolean answers(Helper h) { return answering.contains(h); }
         @Override public long freeBytes() { return 200L << 30; }
         @Override public Service.Os os() { return os; }
@@ -89,16 +90,17 @@ class HelpersInstallTest {
     }
 
     int install(String typed, String... flags) throws Exception {
-        List<Helper> only = HelperServer.all(); boolean onlyGiven = false, yes = false, cpu = false, move = false; String gpu = null;
+        List<Helper> only = HelperServer.all(); boolean onlyGiven = false, yes = false, cpu = false, move = false; String gpu = null; Boolean fallback = null;
         for (int i = 0; i < flags.length; i++) switch (flags[i]) {
             case "--yes" -> yes = true;
             case "--cpu" -> cpu = true;
             case "--gpu" -> gpu = flags[++i];
             case "--move" -> move = true;
+            case "--no-cpu-fallback" -> fallback = false;
             case "--only" -> { onlyGiven = true; only = new ArrayList<>(); for (String n : flags[++i].split(",")) only.add(Helper.of(n)); }
             default -> throw new IllegalArgumentException(flags[i]);
         }
-        return HelpersInstall.install(new HelpersInstall.Options(only, onlyGiven, yes, gpu, cpu, 0, Helpers.PORT, false, move), new BufferedReader(new StringReader(typed)), new PrintStream(out, true, StandardCharsets.UTF_8));
+        return HelpersInstall.install(new HelpersInstall.Options(only, onlyGiven, yes, gpu, cpu, 0, Helpers.PORT, false, move, fallback), new BufferedReader(new StringReader(typed)), new PrintStream(out, true, StandardCharsets.UTF_8));
     }
 
     String said() { String s = out.toString(StandardCharsets.UTF_8); out.reset(); return s; }
@@ -160,7 +162,7 @@ class HelpersInstallTest {
         ran.clear();
         assertEquals(0, install("move\n", "--cpu", "--only", "metricx,labse"));
         String c = said();
-        assertTrue(c.contains("The helpers run on the processor (--cpu): none of them touches a card.\n"), c);
+        assertTrue(c.contains("Asked for the processor (--cpu).\n") && c.contains("Moving them to the processor.\n"), c);
         assertTrue(c.contains("The service researchzosho-helpers was installed with other flags; it was rewritten and restarted on port 8217.\n"), c);
         assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --cpu --only metricx,labse\n"));
         assertTrue(ran.contains("systemctl --user restart researchzosho-helpers"), ran.toString());
@@ -177,7 +179,9 @@ class HelpersInstallTest {
         assertTrue(s.contains("Which? (an index, or cpu) The helpers go on card 2 (NVIDIA RTX A6000, 46.8 GB free), as you chose.\n  MetricX-24: to set up"), s);
         assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --gpu 2\n"));
         assertEquals(1, install("", "--gpu", "3", "--yes"), "a card with no set, with --yes and no --move: nothing moves silently");
-        assertTrue(said().contains("The helpers go on card 3 (NVIDIA RTX 6000 Ada Generation, 43.9 GB free) (--gpu 3).\n"));
+        String refused = said();
+        assertTrue(refused.contains("Asked for card 3 (NVIDIA RTX 6000 Ada Generation, 43.9 GB free) (--gpu 3).\nThe helpers here run on card 2 (port 8217)"), refused);
+        assertFalse(refused.contains("The helpers go on card 3"), "what was asked, not that they go there: " + refused);
         assertEquals(0, install("", "--gpu", "3", "--yes", "--move"));
         assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --gpu 3\n"));
     }
@@ -216,6 +220,24 @@ class HelpersInstallTest {
         String cpu = said();
         assertTrue(cpu.contains("about 1 GB for its Python packages (torch's CPU build, transformers, sentencepiece))\nFetch and set up MetricX-24 (about 10.4 GB at most) now? [y/N] "), cpu);
         assertEquals(List.of("metricx cpu"), m.installs);
+    }
+
+    @Test void theRefusalOfTheProcessorIsKeptInTheUnitsLineAndTheSetting() throws Exception {
+        assertEquals(0, install("y\n", "--no-cpu-fallback"));
+        String s = said();
+        assertTrue(s.contains("Kept for the service and the next install: helpers_cpu_fallback off.\n"), s);
+        assertTrue(s.contains("MetricX-24 never moves to the processor here: when card 0 has no room it is not loaded, and it is tried again when a library asks, at most every three minutes (--no-cpu-fallback).\n"), s);
+        assertTrue(m.noFallbackAsked, "the first load at install is told too");
+        assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --gpu 0 --no-cpu-fallback\n"), Files.readString(HelpersInstall.unitFile()));
+        assertEquals("off", Config.get(Helpers.CPU_FALLBACK_NAME));
+        // a later install keeps it without being told: the unit is the same
+        Service.EXEC = (cmd, o) -> { ran.add(String.join(" ", cmd)); return 0; };
+        ran.clear();
+        assertEquals(0, install(""));
+        assertTrue(said().contains("The service researchzosho-helpers is installed and running already, as before.\n"));
+        // a set on the processor has no card to fall back from: no flag in its line
+        assertEquals(0, install("move\n", "--cpu"));
+        assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --cpu\n"), Files.readString(HelpersInstall.unitFile()));
     }
 
     @Test void theSecretCommandWithNoneKept() {

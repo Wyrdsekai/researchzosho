@@ -13,7 +13,7 @@
 # are Temurin 21 (the floor this program is compiled for), fetched once into $WYRDSEKAI_JDK_CACHE
 # (default ~/.cache/wyrdsekai-jdks, about 190 MB each). The module list comes from jdeps on the jars, plus the
 # modules a runtime needs that no jar names: character sets and locales for pages in other languages, the
-# elliptic-curve TLS provider, sun.misc for Lucene, the zip file system, management for the JVM's own use.
+# elliptic-curve TLS provider, sun.misc for Lucene, the zip file system, management for the JVM's own use and Lucene's look at it.
 set -euo pipefail
 TOOL=researchzosho
 DIST="${1:?dist dir}"; VER="${2:?version}"; shift 2
@@ -53,7 +53,9 @@ tar xzf "$SRC" -C "$WORK"
 [ -d "$WORK/$TOOL/lib" ] || { echo "$SRC does not unpack to $TOOL/lib" >&2; exit 1; }
 MODS=$("$HOSTJDK/bin/jdeps" --print-module-deps --ignore-missing-deps --multi-release "$JDK_MAJOR" -q "$WORK/$TOOL"/lib/*.jar | tail -1)
 [ -n "$MODS" ] || { echo "jdeps found no modules" >&2; exit 1; }
-EXTRA=jdk.charsets,jdk.localedata,jdk.unsupported,jdk.zipfs,java.management
+# jdk.management: Lucene reads the JVM's options through com.sun.management by reflection, which jdeps cannot see; without it every
+# command that opens the shelves printed "Lucene cannot optimize algorithms ... not based on Hotspot" under its answer (2026-11-13)
+EXTRA=jdk.charsets,jdk.localedata,jdk.unsupported,jdk.zipfs,java.management,jdk.management
 echo "modules: $MODS + $EXTRA (+ jdk.crypto.ec where the JDK still has it)"
 
 # The SQLite driver jar carries native code for about 26 platforms, 1 MB each. A platform's tarball needs its own

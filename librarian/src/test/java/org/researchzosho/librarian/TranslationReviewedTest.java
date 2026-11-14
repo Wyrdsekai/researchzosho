@@ -142,7 +142,7 @@ class TranslationReviewedTest {
         h.start();
         try {
             long[] used = new long[3];
-            Researcher.Drive reader = Translation.metered(Researcher.drive(new DriveClient("http://127.0.0.1:" + h.getAddress().getPort(), "moonshotai/kimi-k3")), used);
+            Researcher.Drive reader = Translation.metered(Researcher.drive(new DriveClient("http://127.0.0.1:" + h.getAddress().getPort(), "moonshotai/kimi-k3")), used, true);
             ObjectMapper om = new ObjectMapper();
             for (int k = 0; k < 2; k++) { ArrayNode messages = om.createArrayNode(); messages.addObject().put("role", "user").put("content", "1. SOURCE: 一 TRANSLATION: one"); reader.prose(messages, 50); }
             assertArrayEquals(new long[]{168758, 25500, 0}, used, "the seat counts prompt, completion, cached");

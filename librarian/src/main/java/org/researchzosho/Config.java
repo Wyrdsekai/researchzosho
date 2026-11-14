@@ -234,14 +234,23 @@ public final class Config {
     }
 
     /**
-     * The per-user state directory: {@code ~/.researchzosho} — or {@code ~/.codezaiku} when that is the one
+     * The per-user state directory: {@code $RESEARCHZOSHO_HOME} when set; else {@code ~/.researchzosho} — or {@code ~/.codezaiku} when that is the one
      * that exists and the new one does not. An install from before the split keeps its config, its logs
      * and its service script rather than silently starting empty. The library itself is a separate
      * directory ({@code RESEARCHZOSHO_LIBRARY}); see {@code LibraryStore.open()}.
      */
     public static Path home() {
+        String set = env(HOME_NAME);   // a container names it on its settings volume; a person's machine leaves it unset
+        if (set != null) return Paths.get(set.strip());
         return stateDir(Paths.get(System.getProperty("user.home", ".")));
     }
+
+    /**
+     * The environment variable that puts the per-machine settings folder somewhere else than {@code ~/.researchzosho}: the container image
+     * sets it on its settings volume ({@code /config/home}), so what lives there (the month's count of paid searches, the helpers'
+     * secret, the update's state, the caches) outlives the container.
+     */
+    public static final String HOME_NAME = "RESEARCHZOSHO_HOME";
 
     /** {@link #home()} for an explicit user home — the seam the service planner and its tests use. */
     public static Path stateDir(Path userHome) {

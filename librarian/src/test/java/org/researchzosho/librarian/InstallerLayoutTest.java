@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import com.sun.management.HotSpotDiagnosticMXBean;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
@@ -12,6 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -27,6 +30,20 @@ class InstallerLayoutTest {
         for (String c : new String[]{"../scripts/" + name, "scripts/" + name}) if (Files.exists(Path.of(c))) return Path.of(c).toAbsolutePath();
         fail(name + " not found from " + Path.of("").toAbsolutePath());
         return null;
+    }
+
+    /**
+     * The runtime each platform's build carries has the module Lucene reads the JVM's options through (com.sun.management, by reflection,
+     * so jdeps never names it): without it every command that opened the shelves printed "WARNING: Lucene cannot optimize algorithms or
+     * calculate object sizes for JVMs that are not based on Hotspot" under its answer, on macOS and on Windows (2026-11-13).
+     */
+    @Test
+    void theRuntimeEachPlatformsBuildCarriesHasTheModuleLuceneReadsTheJvmThrough() throws Exception {
+        String module = HotSpotDiagnosticMXBean.class.getModule().getName();
+        assertEquals("jdk.management", module);
+        Matcher m = Pattern.compile("(?m)^EXTRA=(\\S+)").matcher(Files.readString(script("package-runtime.sh")));
+        assertTrue(m.find(), "package-runtime.sh names the modules no jar names on its EXTRA line");
+        assertTrue(List.of(m.group(1).split(",")).contains(module), m.group(1));
     }
 
     static String install(Path prefix, String base, String version) throws Exception {

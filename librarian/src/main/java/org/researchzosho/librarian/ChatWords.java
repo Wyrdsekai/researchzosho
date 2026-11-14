@@ -43,7 +43,7 @@ final class ChatWords {
     /** The meanings every words file carries. */
     static final List<String> MEANINGS = List.of("tier.quick", "tier.checked", "tier.reviewed", "tier.thorough", "notes.end", "notes.off", "yes", "yes.alone", "no", "none", "this_file",
             "this_report", "lang.en", "lang.ja", "lang.zh", "lang.ko", "lang.de", "lang.fr", "lang.es", "lang.pt", "lang.it", "lang.ru",
-            "translate.ask", "translate.mention", "translate.from", "format.as", "read_in.ask", "dossier.named", "glossary.add", "glossary.list",
+            "translate.ask", "translate.mention", "translate.from", "translate.direction", "translate.filler", "format.as", "read_in.ask", "dossier.named", "glossary.add", "glossary.list",
             "pictures.find", "pictures.keep", "pictures.keep_all", "pictures.judge", "pictures.describe", "pictures.same", "pictures.like",
             "kind.picture", "kind.person", "kind.place", "kind.thing", "kind.animal",
             "models.model", "models.default", "models.hosted", "models.key", "models.ours", "models.using", "models.research", "models.setup", "models.thing", "models.change",

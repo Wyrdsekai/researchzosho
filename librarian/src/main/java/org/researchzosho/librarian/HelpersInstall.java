@@ -45,8 +45,8 @@ final class HelpersInstall {
         String labseOn();
         /** Whether MetricX-24's torch sees the card {@code card} chose. */
         boolean torchSeesCard(HelperCards.Choice card);
-        /** Sets {@code h} up on {@code card}'s choice, saying each step; "ready", or "!" and what stopped it. */
-        String install(Helper h, HelperCards.Choice card, PrintStream out);
+        /** Sets {@code h} up on {@code card}'s choice, saying each step; "ready", or "!" and what stopped it; {@code noFallback}: MetricX-24's first load never on the processor. */
+        String install(Helper h, HelperCards.Choice card, boolean noFallback, PrintStream out);
         /** Whether the embeddings server or speech-to-text answers on this machine. */
         boolean answers(Helper h);
         /** The usable room on the disk under the library's home, or -1 when it cannot be read. */
@@ -69,9 +69,9 @@ final class HelpersInstall {
         }
         @Override public boolean torchSeesCard(HelperCards.Choice card) { return TranslationScores.TORCH_SEES.test(TranslationScores.metricxPython(), card); }
         @Override public String labseOn() { return TranslationScores.labseOn(); }
-        @Override public String install(Helper h, HelperCards.Choice card, PrintStream out) {
+        @Override public String install(Helper h, HelperCards.Choice card, boolean noFallback, PrintStream out) {
             return switch (h) {
-                case METRICX -> TranslationScores.installMetricx(card, out::println);
+                case METRICX -> TranslationScores.installMetricx(card, out::println, noFallback);
                 case LABSE -> { String r = TranslationScores.startLabse(card.dockerGpus(), card.card() == null ? null : card.card().uuid(), out::println); yield r.startsWith("!") ? r : "ready"; }
                 case LIKENESS -> LikenessHelper.INSTALL.get();
                 default -> "!" + h.said + " is not set up by this command";
@@ -134,6 +134,15 @@ final class HelpersInstall {
     /** Bytes as a person reads them: one decimal place of a gigabyte. */
     static String gb(long bytes) { long tenths = Math.round(bytes / (double) (1L << 30) * 10); return tenths % 10 == 0 ? String.valueOf(tenths / 10) : tenths / 10 + "." + tenths % 10; }
 
+    /** Keeps the refusal of the processor as given ({@code --no-cpu-fallback} or {@code --cpu-fallback}; null: as it was), and says a change. */
+    static void keepFallback(Boolean cpuFallback, PrintStream out) throws IOException {
+        if (cpuFallback == null) return;
+        String want = cpuFallback ? "on" : "off", had = Config.get(Helpers.CPU_FALLBACK_NAME, "").strip();
+        if (want.equals(had.isEmpty() ? "on" : had.toLowerCase())) return;
+        Config.set(Helpers.CPU_FALLBACK_NAME, want);
+        out.println("Kept for the service and the next install: helpers_cpu_fallback " + want + ".");
+    }
+
     /** The secret's file on this machine. */
     static Path secretFile() { return Config.home().resolve("helpers.secret"); }
 
@@ -143,9 +152,15 @@ final class HelpersInstall {
     }
 
     /** The options of {@code helpers install} on this machine. */
-    record Options(List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, int besidePort, int port, boolean separate, boolean move) {
-        Options(List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, int besidePort, int port) { this(only, onlyGiven, yes, gpu, cpu, besidePort, port, false, false); }
+    record Options(List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, int besidePort, int port, boolean separate, boolean move, Boolean cpuFallback) {
+        Options(List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, int besidePort, int port) { this(only, onlyGiven, yes, gpu, cpu, besidePort, port, false, false, null); }
+        Options(List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, int besidePort, int port, boolean separate, boolean move) { this(only, onlyGiven, yes, gpu, cpu, besidePort, port, separate, move, null); }
+        /** Whether MetricX-24 is refused the processor: the flag given, else the setting kept on this machine. */
+        boolean noFallback() { return cpuFallback != null ? !cpuFallback : Helpers.noCpuFallback(); }
     }
+
+    /** The unit's flag for the refusal: {@code --no-cpu-fallback} when it is set and the set is on a card (a set on the processor has nothing to fall back from). */
+    static String fallbackFlag(boolean noFallback, HelperCards.Choice card) { return noFallback && !card.cpu() ? " --no-cpu-fallback" : ""; }
 
     /** The set a call works on: its unit and port, its card, whether it runs already, and whether it is the first set (port 8217, the one found by itself). */
     record Target(String unit, int port, HelperCards.Choice card, boolean exists, boolean first) { }
@@ -199,7 +214,7 @@ final class HelpersInstall {
             }
             HelperSets.HelperSet first = HelperSets.first(sets);
             if (named != null && explicit && first != null) {
-                out.println(named.said());
+                out.println("Asked for " + (named.cpu() ? "the processor (--cpu)." : named.card().said() + " (--gpu " + o.gpu() + ")."));   // what was asked: they go there only if moved
                 String said = "The helpers here run on " + first.on() + " (port " + first.port() + ") for every library that uses them, and " + where(named) + " has none: moving them there serves every one of those libraries from "
                         + where(named) + " from then on; --separate keeps them and adds a second set on " + where(named) + ".";
                 if (o.move()) { out.println(said); out.println("Moving them to " + where(named) + " (--move)."); return new Target(first.unit(), first.port(), named, true, true); }
@@ -279,7 +294,7 @@ final class HelpersInstall {
             }
             for (Helper h : missing) {
                 out.println("Setting up " + h.said + "; this takes minutes.");
-                String r = m.install(h, card, out);
+                String r = m.install(h, card, o.noFallback(), out);
                 if (r.equals("ready")) { out.println("  " + h.said + " is ready."); serves.add(h); }
                 else out.println("  " + h.said + " was not set up: " + r.replaceFirst("^!", "") + ". The others are served without it.");
             }
@@ -290,14 +305,16 @@ final class HelpersInstall {
         if (secret.isEmpty()) { secret = HelperServer.newSecret(); HelpersCli.keepSecret(secretFile(), secret); out.println("A secret was made and kept in " + secretFile() + ", which only you can read."); }
         else out.println("The secret is kept in " + secretFile() + ", as before.");
         if (t.first() && !card.kept().isEmpty() && !card.kept().equals(Config.get(Helpers.GPU_NAME, "").strip())) { Config.set(Helpers.GPU_NAME, card.kept()); out.println("The card is kept for the service and the next install (helpers_gpu " + card.kept() + ")."); }
+        keepFallback(o.cpuFallback(), out);
+        if (o.noFallback() && !card.cpu()) out.println("MetricX-24 never moves to the processor here: when " + (card.card() == null ? "the card" : "card " + card.card().index()) + " has no room it is not loaded, and it is tried again when a library asks, at most every three minutes (--no-cpu-fallback).");
         // the service
         if (m.os() != Service.Os.linux) {
             out.println("This system has no service for the helpers yet. To serve them, run this and leave it running:");
-            out.println("researchzosho helpers serve --bind 0.0.0.0 --port " + t.port() + " --secret-file " + secretFile() + card.flag() + (o.onlyGiven() ? " --only " + HelpersCli.flagNames(o.only()) : ""));
+            out.println("researchzosho helpers serve --bind 0.0.0.0 --port " + t.port() + " --secret-file " + secretFile() + card.flag() + fallbackFlag(o.noFallback(), card) + (o.onlyGiven() ? " --only " + HelpersCli.flagNames(o.only()) : ""));
             endLines(out, secret, t);
             return 0;
         }
-        int rc = installUnit(t.unit(), m.launcher(), t.port(), card.flag(), o.onlyGiven() ? o.only() : null, out);
+        int rc = installUnit(t.unit(), m.launcher(), t.port(), card.flag() + fallbackFlag(o.noFallback(), card), o.onlyGiven() ? o.only() : null, out);
         if (rc != 0) return rc;
         // asked at once: a service that runs already answers, and the wait is said only when it does not
         Map<String, String> served = m.ownHealth(t.port(), secret, Duration.ZERO);

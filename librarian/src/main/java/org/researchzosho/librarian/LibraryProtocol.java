@@ -691,7 +691,11 @@ public final class LibraryProtocol {
 
     /**
      * library_translate: a document the person has (txt, md, pdf, docx, epub) translated into a language and written out in a format, as
-     * a job; op=glossary lists the glossary or, with term and rendering, adds to it. A path is the keeper's to give, or a file the
+     * a job; a comic too (a CBZ, a CBR, a ZIP or a folder of page pictures by itself; a PDF with comic=on), whose pages the comic helper
+     * reads in the language {@code from} names or the one it finds on them (the answer's {@code comic.from} and {@code comic.from_how}
+     * say which and how), its pages read the way {@code reads} says (right-to-left, left-to-right) or the way the program finds
+     * ({@code comic.reads}, {@code comic.reads_how}), its lettering read a second time by the translator or by the helper alone ({@code comic.second_reading}): where the helper is not set up the call is answered with {@code confirm}, what a set-up fetches as its message and as data, and
+     * the same call with setup=true is the person's yes; op=glossary lists the glossary or, with term and rendering, adds to it. A path is the keeper's to give, or a file the
      * browser posted; raw names a document on the shelves by its entry. The plan comes back at once: the units, the characters, the time
      * at either tier; library_job follows the run, whose result names the file, its note and the shelves.
      */
@@ -723,7 +727,7 @@ public final class LibraryProtocol {
         if (!path.isEmpty()) {
             file = Path.of(path).toAbsolutePath().normalize();
             if (!Uploads.isUpload(file) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can name a file on this machine, from the terminal or the library's own pages. A document on the shelves can be named by its entry (raw).");
-            if (!Files.isRegularFile(file)) throw ProtocolError.notFound("Nothing is at " + file + ".");
+            if (!Files.isRegularFile(file) && !Files.isDirectory(file)) throw ProtocolError.notFound("Nothing is at " + file + ".");   // a folder of page pictures is a comic
         } else if (!raw.isEmpty()) {
             Path capture = RawCapture.find(store, raw);
             if (capture == null) throw ProtocolError.notFound("No document on the shelves is " + raw + ".");
@@ -739,21 +743,48 @@ public final class LibraryProtocol {
         String notes = Translation.notes(args.path("notes").asText(""));   // where what the checks still doubt is written: end, off, or the setting's choice
         if (notes == null) throw ProtocolError.invalidArgs(Translation.NOTES_SAID);
         if (!Translation.anyModel()) throw ProtocolError.unavailable(Translation.NO_MODEL);
+        String direction;   // the person's direction for the voice, in their words; one past its length is refused with the figures
+        try { direction = Translation.direction(args.path("direction").asText("")); } catch (Translation.Refused e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        // whether the file is a comic: on or off on the person's word (true and false are read too), else what the program finds
+        String comic = args.path("comic").isBoolean() ? (args.path("comic").asBoolean() ? "on" : "off") : args.path("comic").asText("").strip().toLowerCase(Locale.ROOT);
+        if (!comic.isEmpty() && !comic.equals("on") && !comic.equals("off")) throw ProtocolError.invalidArgs("comic is on (the file is a comic, whatever the program finds) or off (it is a document).");
+        // the way a comic's pages are read, when the person says it: right-to-left or left-to-right (rtl and ltr too); else what the program finds
+        String reads = ComicTranslation.readsWord(args.path("reads").asText(""));
+        if (reads == null) throw ProtocolError.invalidArgs("reads is right-to-left or left-to-right (rtl and ltr are taken too): the way a comic's pages are read.");
         Translation.Plan plan;
-        try { plan = Translation.plan(store, file, to, args.path("as").asText(""), args.path("quality").asText(Translation.DEFAULT), Translation.configuredSeat()[1], model, judge, args.path("from").asText("")); }
+        try { plan = Translation.plan(store, file, to, args.path("as").asText(""), args.path("quality").asText(Translation.DEFAULT), Translation.configuredSeat()[1], model, judge, args.path("from").asText(""), comic, reads).withDirection(direction); }
         catch (IOException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
+        // a comic where the comic helper is not set up: a set-up fetches about a gigabyte, which is the person's to say yes to. The chat asks
+        // them in its question; a program is told what would be fetched, and sends setup=true when the person has said yes
+        boolean needsHelper = plan.comic() != null && plan.comic().helper().equals(ComicTranslation.NEEDS);
+        if (needsHelper && !"chat".equals(by) && !args.path("setup").asBoolean(false)) {
+            ObjectNode extra = M.createObjectNode();
+            extra.set("comic_helper", ComicHelper.json());
+            throw ProtocolError.confirm(ComicHelper.questionSaid(Chrome.ENGLISH) + " Nothing was fetched, and the comic was not translated: send the same call with setup=true to set the comic helper up and translate it.", extra);
+        }
         Path out = args.path("out").asText("").isEmpty() ? null : Path.of(args.path("out").asText()).toAbsolutePath().normalize();
         if (out != null && !patron.person()) throw ProtocolError.forbidden("Only the library owner names where the file is written; without out it goes under the library's exports.");
-        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan.to(), plan.as(), plan.quality(), out, args.path("collection").asText(""), out != null ? "cli" : by == null ? "mcp" : by, judge, model, back, notes, args.path("from").asText(""));
+        ObjectNode a = Translation.args(file, file.getFileName().toString(), plan, out, args.path("collection").asText(""), out != null ? "cli" : by == null ? "mcp" : by, judge, model, back, notes, args.path("from").asText(""));
         if (plan.reading() != null) a.set("pdf_preflight", plan.reading().json());   // the job's page says what the reader found, as the plan did
-        String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron.did(), a);
+        if (needsHelper) a.put("comic_setup", "yes");   // the yes was given (setup=true), or the chat's question below asks for it before the job starts
+        // the chat's model read a direction from the person's words, or the comic helper is to be set up: the job waits for their yes to the question that shows it
+        boolean ask = "chat".equals(by) && (!direction.isEmpty() || needsHelper);
+        String question = !ask ? "" : (needsHelper ? ComicHelper.questionSaid(Chrome.now()) + " " : "")
+                + (direction.isEmpty() ? Chrome.now().t("Set the comic helper up and translate the comic? (yes/no)") : Chrome.now().t("That is {0}. Go ahead? (yes/no)", plan.askedSaid(Chrome.now())));   // the time, the direction and a paid cost: the plan's rest is in the answer's other fields
+        Jobs filing = new Jobs(store, j -> "");
+        String id = ask ? filing.submitOffered(Translation.JOB_KIND, patron.did(), a, new Jobs.Offer(null, true, List.of()).withChoices(List.of("yes", "no"), question), System.currentTimeMillis() + Librarian.OFFER_MINUTES * 60_000L)
+                : filing.submit(Translation.JOB_KIND, patron.did(), a);
+        if (ask) { r.put("waits", true); r.put("question", question); }
+        if (!direction.isEmpty()) r.put("direction", direction);
+        r.set("translation", TranslationWho.facts(Translation.JOB_DRAFT.apply(a)));   // who translates, who reads, where the scores are made: as library_job gives it
         r.put("job_id", id); r.put("file", file.getFileName().toString()); r.put("format", plan.format()); r.put("from", plan.from()); r.put("to", plan.to()); r.put("as", plan.as()); r.put("quality", plan.quality()); r.put("notes", notes);
         if (plan.reading() != null) { r.put("reading", plan.readingSaid(Chrome.ENGLISH)); r.set("reading_pages", plan.reading().json()); }
+        if (plan.comic() != null) { r.set("comic", plan.comic().json()); if (needsHelper) r.put("comic_setup", true); }   // a comic: its pages, how it was taken for one, whether the helper is set up, whether the pages go to the translator as pictures
         r.put("units", plan.units()); r.put("characters", plan.chars()); r.put("estimate_seconds", plan.seconds()); r.put("estimate", plan.saidFor()); r.put("estimate_measured", plan.measured()); r.put("estimates", plan.said());
         ObjectNode secs = r.putObject("estimate_seconds_by_tier"); secs.put("quick", plan.quickSeconds()); secs.put("checked", plan.checkedSeconds()); secs.put("reviewed", plan.reviewedSeconds()); secs.put("thorough", plan.thoroughSeconds());
         if (!judge.isEmpty()) { r.put("judge", plan.judge()); r.put("judge_hosted", plan.judgeHosted()); if (plan.judgeHosted()) { r.put("judge_cost_dollars", Math.round(plan.judgeCost() * 100) / 100.0); r.put("judge_tokens", plan.judgeTokens()); } }
         if (!model.isEmpty()) { r.put("model", plan.translator()); r.put("model_hosted", plan.translatorHosted()); if (plan.translatorHosted()) { r.put("model_cost_dollars", Math.round(plan.translatorCost() * 100) / 100.0); r.put("model_tokens", plan.translatorTokens()); } }
-        r.put("summary", (plan.reading() == null ? "" : plan.readingSaid(Chrome.ENGLISH) + " ") + "Filed " + id + ": \"" + file.getFileName() + "\" (" + plan.units() + " units, " + plan.chars() + " characters, written in " + ReadIn.name(plan.from()) + ") into " + ReadIn.name(plan.to()) + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
+        r.put("summary", (plan.reading() == null ? "" : plan.readingSaid(Chrome.ENGLISH) + " ") + "Filed " + id + ": \"" + file.getFileName() + "\" (" + (plan.comic() != null ? "a comic of " + plan.comic().pages() + (plan.comic().pages() == 1 ? " page" : " pages") + ", " + plan.comic().lettering(Chrome.ENGLISH) : plan.units() + " units, " + plan.chars() + " characters, written in " + ReadIn.name(plan.from())) + ") into " + ReadIn.name(plan.to()) + " as " + plan.as() + ", " + plan.quality() + ": " + plan.saidFor() + ".");
         r.put("next", "library_job with job_id follows it; its result names the file (under the library's exports, served at /exports/<name>), the translation note beside it (which lists what the checks still doubt), and both documents on the shelves.");
         store.circulate("translate", patron.label() + " :: " + file.getFileName() + " → " + plan.to() + " (" + plan.quality() + ")");
         return r;
@@ -1541,24 +1572,30 @@ public final class LibraryProtocol {
     }
 
     /**
-     * library_spend: what research runs cost, at each model's list prices — the library's arithmetic on the servers' usage counts, not
-     * a bill — this month and in all, by host and by named model, with a cap where one is set (write access, as the settings).
+     * library_spend: what the model calls cost, at each model's list prices — the library's arithmetic on the servers' usage counts, not
+     * a bill — this month and in all, by host, by named model and by use, with a cap where one is set (write access, as the settings).
      */
     public ObjectNode spend(JsonNode args) throws IOException {
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.write);
         ObjectNode r = envelope();
         ObjectNode sum = Spend.summary(store);
         r.setAll(sum);
-        StringBuilder t = new StringBuilder("What research runs cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".\n");
+        StringBuilder t = new StringBuilder("What the model calls cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".\n");
         for (String part : new String[]{"hosts", "entries"}) {
             if (sum.path(part).isEmpty()) continue;
             t.append(part.equals("hosts") ? "  By host:\n" : "  By named model:\n");
-            for (JsonNode row : sum.path(part)) t.append("    ").append(row.path("name").asText()).append(": ").append(Spend.dollars(row.path("month").asDouble())).append(" this month (").append(row.path("runs_month").asInt()).append(row.path("runs_month").asInt() == 1 ? " run" : " runs").append("), ").append(Spend.dollars(row.path("all").asDouble())).append(" in all (").append(row.path("runs_all").asInt()).append(")").append(row.has("cap") ? ", cap " + Spend.dollars(row.path("cap").asDouble()) + " a month" : "").append('\n');
+            for (JsonNode row : sum.path(part)) t.append("    ").append(Spend.rowSaid(row, Chrome.ENGLISH)).append("\n");
         }
-        if (sum.path("hosts").isEmpty()) t.append("  No run has been recorded yet. A run on a named model with prices is counted when it files its report.\n");
+        if (!sum.path("uses").isEmpty()) {
+            t.append("  By use:\n");
+            for (JsonNode u : sum.path("uses")) t.append("    ").append(Spend.useRowSaid(u, Chrome.ENGLISH)).append("\n");
+        }
+        if (sum.path("hosts").isEmpty()) t.append("  Nothing has been recorded yet. A call to a model with prices, or to a paid service, is counted when its work ends: a chat turn when it is answered, a run when it files its report.\n");
         r.put("text", t.toString());
         double month = 0; for (JsonNode row : sum.path("hosts")) month += row.path("month").asDouble();
-        r.put("summary", sum.path("hosts").isEmpty() ? "No run has been recorded yet." : "Research runs have cost " + Spend.dollars(month) + " this month at list prices, over " + sum.path("hosts").size() + (sum.path("hosts").size() == 1 ? " host." : " hosts."));
+        int unpriced = 0; for (JsonNode row : sum.path("hosts")) unpriced += row.path("unpriced_runs_month").asInt();
+        r.put("summary", sum.path("hosts").isEmpty() ? "Nothing has been recorded yet." : "The model calls have cost " + Spend.dollars(month) + " this month at list prices, over " + sum.path("hosts").size() + (sum.path("hosts").size() == 1 ? " host." : " hosts.")
+                + (unpriced == 0 ? "" : " " + unpriced + (unpriced == 1 ? " run was" : " runs were") + " at prices the entry does not state, so not in that figure."));
         return r;
     }
 
@@ -1701,8 +1738,11 @@ public final class LibraryProtocol {
                 case "list" -> { r.set("default", ModelEntries.defaultNode(M)); r.set("models", ModelEntries.list(M)); r.put("summary", ModelEntries.summary()); r.put("config_file", Config.userConfigPath().toString()); }
                 case "add" -> {
                     String name = args.path("name").asText("").strip();
+                    String pricesAsked = args.hasNonNull("prices") ? args.path("prices").asText().strip() : null;
+                    boolean readList = "list".equalsIgnoreCase(pricesAsked);   // models set <name> --prices list: read the host's list again, asked
+                    ModelEntries.Entry before = name.isEmpty() || name.equalsIgnoreCase(ModelEntries.DEFAULT) ? null : ModelEntries.get(name);
                     ModelEntries.Entry e = ModelEntries.put(name, args.hasNonNull("drive") ? args.path("drive").asText() : null, args.hasNonNull("model") ? args.path("model").asText() : null,
-                            args.hasNonNull("prices") ? args.path("prices").asText() : null, args.hasNonNull("effort") ? args.path("effort").asText() : null,
+                            readList ? null : pricesAsked, args.hasNonNull("effort") ? args.path("effort").asText() : null,
                             args.hasNonNull("cap") ? args.path("cap").asText() : null, args.hasNonNull("note") ? args.path("note").asText() : null, args.hasNonNull("tier") ? args.path("tier").asText() : null, args.hasNonNull("sees") ? args.path("sees").asText() : null);
                     // a local entry is probed for pictures at once (its calls are free) when its server answers now and nothing said; a hosted one is not, since the call is paid
                     String pictures;
@@ -1711,10 +1751,14 @@ public final class LibraryProtocol {
                     else if (args.hasNonNull("drive") && !args.hasNonNull("model") && e.name().equals(ModelEntries.DEFAULT)) pictures = "";
                     else if (MODEL_PROBE.apply(e) == Crews.DriveState.ANSWERS) { Vision.Probe pr = VISION_PROBE.apply(e); ModelEntries.sees(e.name(), pr.sees()); e = e.withSees(pr.sees()); pictures = e.seesText() + " (" + pr.why() + ")."; }
                     else pictures = "sees: not probed, its server does not answer now; researchzosho models test " + e.name() + " asks it when it does.";
+                    String prices = pricesSaid(e, before, pricesAsked, readList);
+                    e = ModelEntries.get(e.name());
                     r.put("name", e.name()); r.put("line", e.line()); r.put("key", ModelEntries.keyWord(e));
+                    if (!ModelEntries.pricedFrom(e.name()).isEmpty()) r.put("prices_read", ModelEntries.pricedFrom(e.name()));
+                    if (!ModelEntries.capCounts(e)) r.put("cap_counts", false);
                     if (e.sees() != null) r.put("sees", e.sees());
                     r.put("sees_text", e.seesText());
-                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : "") + (pictures.isEmpty() ? "" : " " + pictures));
+                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : "") + (pictures.isEmpty() ? "" : " " + pictures) + (prices.isEmpty() ? "" : " " + prices));
                 }
                 case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
                 case "test" -> {   // the entry's server asked for a completion now: answers, is starting, or does not answer
@@ -1748,6 +1792,34 @@ public final class LibraryProtocol {
             }
         } catch (IllegalArgumentException e) { throw ProtocolError.invalidArgs(e.getMessage()); }
         return r;
+    }
+
+    /**
+     * What an entry's prices came to when it was added or changed, in a sentence or two; "" when there is nothing to say. A hosted entry on
+     * a host with a public price list (openrouter.ai) and no prices given reads them from the list, with the date; one priced by hand
+     * keeps its prices unless {@code --prices list} asks for the list's; a list that cannot be read, or does not hold the model, leaves the
+     * entry without prices and says what that means. A cap on an entry with no prices is said to count nothing.
+     */
+    static String pricesSaid(ModelEntries.Entry e, ModelEntries.Entry before, String asked, boolean readList) throws IOException {
+        if (e == null || e.name().equals(ModelEntries.DEFAULT) || !e.hosted()) return "";
+        List<String> out = new ArrayList<>();
+        boolean byHand = before != null && before.prices() != null && ModelEntries.pricedFrom(e.name()).isEmpty();
+        boolean due = before == null || before.prices() == null || !before.model().equals(e.model());   // read on its own only for an entry that is new, has no prices yet, or names another model
+        if (readList && !PriceList.hasList(e)) out.add("Only " + PriceList.HOST + " publishes a price list the program reads; " + e.name() + "'s prices are set by hand: researchzosho models set " + e.name() + " --prices in/out/cache.");
+        else if (readList || (asked == null && PriceList.hasList(e) && !byHand && due)) {
+            PriceList.Read rd = PriceList.read(e.model());
+            if (rd.found()) {
+                ModelEntries.pricesRead(e.name(), rd.prices(), PriceList.HOST, rd.date());
+                double[] p = rd.prices();
+                out.add("Prices as read from " + PriceList.HOST + "'s list on " + rd.date() + ": $" + ModelEntries.Entry.trim(p[0]) + " per million tokens sent, $" + ModelEntries.Entry.trim(p[1]) + " written"
+                        + (p.length > 2 ? ", $" + ModelEntries.Entry.trim(p[2]) + " cached" : "") + "; researchzosho models set " + e.name() + " --prices in/out/cache sets others, and --prices list reads the list again.");
+            } else out.add(rd.why() + ", so " + e.name() + " has no prices: what its calls cost will not be known, and a cap cannot count them. researchzosho models set " + e.name()
+                    + " --prices list reads the list again; --prices in/out/cache sets them by hand.");
+        } else if (asked == null && byHand && PriceList.hasList(e)) out.add(e.name() + " keeps the prices set by hand; researchzosho models set " + e.name() + " --prices list takes " + PriceList.HOST + "'s instead.");
+        ModelEntries.Entry now = ModelEntries.get(e.name());
+        if (!ModelEntries.capCounts(now)) out.add("Its cap of " + Spend.dollars(now.cap()) + " a month counts nothing until " + now.name() + " has prices: the cap adds up dollars, and calls with no prices cost none it can count."
+                + (!out.isEmpty() ? "" : " " + (PriceList.hasList(now) ? "researchzosho models set " + now.name() + " --prices list" : "researchzosho models set " + now.name() + " --prices in/out/cache") + " gives it prices."));   // the way to prices is said once
+        return String.join(" ", out);
     }
 
     public ObjectNode bookmarks(JsonNode args) throws IOException {

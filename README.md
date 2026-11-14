@@ -184,7 +184,8 @@ change one thing. `--yes` takes every default.
 The release installs on Linux, macOS and Windows. If you already use CodeZaiku,
 `codezaiku install researchzosho` fetches the release, checks it, and runs setup.
 
-Settings live in `~/.researchzosho/config` as `key = value` lines, or in the environment. These are
+Settings live in `~/.researchzosho/config` as `key = value` lines, or in the environment. `RESEARCHZOSHO_HOME` puts the
+whole `~/.researchzosho` folder somewhere else; the container image keeps it on its settings volume. These are
 the ones you are most likely to change:
 
 | setting | what it is |

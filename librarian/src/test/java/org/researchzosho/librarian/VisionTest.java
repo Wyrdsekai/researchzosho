@@ -167,7 +167,7 @@ class VisionTest {
         assertNull(ModelEntries.get("deepseek").sees());
         // said outright: no probe
         r = p.models(a.deepCopy().put("op", "add").put("name", "kimi").put("drive", "openrouter").put("model", "moonshotai/kimi-k3").put("sees", "no"));
-        assertEquals(List.of("gemma"), probed); assertTrue(r.path("note").asText().endsWith("does not see images, as said."), r.path("note").asText());
+        assertEquals(List.of("gemma"), probed); assertTrue(r.path("note").asText().contains("does not see images, as said."), r.path("note").asText());   // the prices sentence follows it on openrouter
         // test: the completion probe, then the picture probe, kept on the entry
         r = p.models(a.deepCopy().put("op", "test").put("name", "default"));
         assertEquals(List.of("gemma", "default"), probed); assertEquals("answers", r.path("state").asText()); assertFalse(r.path("sees").asBoolean(true));

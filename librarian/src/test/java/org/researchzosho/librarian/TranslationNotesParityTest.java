@@ -192,7 +192,7 @@ class TranslationNotesParityTest {
             assertEquals(2, seen.size(), "the model was asked, and called the tool: " + reply);
             String id = jobIn(reply, "Translation (J-\\d+):");
             // under the model's words, the library's own line, from the run as filed
-            assertTrue(reply.startsWith("I have filed it.") && reply.contains("Translation " + id + ": " + (notes.equals("end") ? Translation.NOTES_AT_END_SAID : Translation.NOTES_OFF_SAID + " " + TranslateTurn.NOTES_HOW)), reply);
+            assertTrue(reply.startsWith("I have filed it.") && reply.contains("Translation " + id + ": Translated by ") && reply.contains("is not installed. " + (notes.equals("end") ? Translation.NOTES_AT_END_SAID : Translation.NOTES_OFF_SAID + " " + TranslateTurn.NOTES_HOW)), "who translates, then where the doubts go: " + reply);
             assertEquals("chat", new Jobs(store, j -> "").get(id).path("args").path("by").asText());
             ObjectNode ran = walked("the chat's model calling library_translate, notes=" + notes, id, notes.equals("end"));
             if (notes.equals("off")) assertTrue(ran.path("result").asText().contains("say \"with the notes at the end\" when you ask for the translation in the chat"), ran.path("result").asText());
@@ -256,13 +256,15 @@ class TranslationNotesParityTest {
             "LibrarianCli.java", 1,      // the command: TranslateCli.translate
             "TranslateCli.java", 3,      // its arguments, its job when a service runs, its run here
             "Pages.java", 2,             // the Translate form: its arguments and its job
-            "TranslateTurn.java", 4,     // the chat's own turn, the web chat's attachment through it: its arguments and its three ways of filing
-            "LibraryProtocol.java", 2,   // library_translate: its arguments and its job
+            "TranslateTurn.java", 5,     // the chat's own turn, the web chat's attachment through it: its arguments and its three ways of filing; and a comic's job that waits for the yes to setting the comic helper up. A comic has no end to number notes at: its job is filed with notes off whatever the words ask, which ComicSurfacesTest walks both ways
+            "LibraryProtocol.java", 3,   // library_translate: its arguments and its job, filed to wait for the person's yes when the chat's model read a direction
             "Librarian.java", 1,         // the chat's model calling library_translate
             "McpServer.java", 1,         // MCP over stdio, and over HTTP at /rpc
             "LibrarianDaemon.java", 1);  // POST /v1/translate
     static final Pattern ENTRY = Pattern.compile("Translation\\.args\\(|Translation\\.run\\(|submit(?:Offered)?\\(\\s*Translation\\.JOB_KIND|\"translate-doc\"|\\b\\w+\\.translate\\(|::translate\\b");
     static final Pattern FILES_ONE = Pattern.compile("Translation\\.(?:args|run)\\(");
+    /** Translation.args with the plan as its third argument. */
+    static final Pattern PLAN_FORM = Pattern.compile("Translation\\.args\\(\\s*(?:[^,()]|\\([^()]*\\))+,\\s*(?:[^,()]|\\([^()]*\\))+,\\s*plan\\s*,");
 
     @Test void everyWayOfAskingIsWalkedAndCarriesTheNotes() throws Exception {
         Path main = GenealogyBoundaryTest.src().resolve("main").resolve("java");
@@ -279,7 +281,8 @@ class TranslationNotesParityTest {
                 // a call that files a translation passes the person's choice: the form of Translation.args and Translation.run that takes the notes,
                 // or a longer one that takes them and more (the language the person says the document is in; the job's id)
                 Matcher c = FILES_ONE.matcher(src);
-                while (c.find()) if (arguments(src, c.end() - 1) < 12) without.add(name + ":" + (src.substring(0, c.start()).split("\n", -1).length) + " " + c.group());
+                // or the plan's form: the plan in place of the language, the format and the tier, the notes and the rest after it (eleven)
+                while (c.find()) if (arguments(src, c.end() - 1) < (PLAN_FORM.matcher(src).region(c.start(), src.length()).lookingAt() ? 11 : 12)) without.add(name + ":" + (src.substring(0, c.start()).split("\n", -1).length) + " " + c.group());
             }
         }
         assertEquals(new TreeMap<>(ENTRIES), found, "a way of asking for a document's translation was added or taken away: walk it in this test with notes=end and notes=off, and list it in ENTRIES");

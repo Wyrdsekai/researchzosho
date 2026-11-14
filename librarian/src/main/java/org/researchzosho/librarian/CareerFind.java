@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
+import org.researchzosho.drive.DriveClient;
 import org.researchzosho.librarian.CareerCut.Cut;
 import org.researchzosho.librarian.CareerCut.Verdict;
 import org.researchzosho.librarian.CareerSources.Found;
@@ -235,10 +236,12 @@ public final class CareerFind {
         AtomicInteger done = new AtomicInteger();
         progress.at("Reading the companies' openings, 0 of " + look.size() + " done");
         ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, THREADS));
+        DriveClient.Purse purse = DriveClient.purse();   // the job's: the readers' model calls go on the ledger with the job's own
         try {
             List<Future<?>> fs = new ArrayList<>();
             List<String> towns = towns(cut, List.of(Career.location(store, s)));
             for (ObjectNode c : look) fs.add(pool.submit(() -> {
+                DriveClient.useFor(purse);
                 if (stop.getAsBoolean()) return null;
                 String name = c.path("name").asText();
                 Found f = readCompany(c, cut, towns);

@@ -88,6 +88,7 @@ public final class SearchLog {
             if (e.failed()) o.put("status", FAILED);   // a line without it answered: the older lines are read that way
             b.append(M.writeValueAsString(o)).append('\n');
         }
+        NotHolder.check(file(store));
         Files.writeString(file(store), b.toString(), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 

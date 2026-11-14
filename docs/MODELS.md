@@ -176,7 +176,7 @@ changes speed and price more than it changes the answer: the same DeepSeek model
 through OpenRouter, Nebius and Hugging Face. GPT-6 Luna is not reliable from run to run and MiMo, Hy4
 and the big GLM-5.3 trail their smaller or cheaper relatives. Prices are the providers' of 16 October
 2026 and move; `researchzosho models set <name> --prices …` keeps yours current, and `researchzosho spend`
-says what your runs came to.
+says what your runs and your chat came to.
 
 ## Which model decides well (November 2026)
 

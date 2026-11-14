@@ -13,7 +13,7 @@ set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 routes="$here/deploy/caddy/routes"
 domain=${RZ_DOMAIN:-localhost}
-image=${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.4}
+image=${RZ_IMAGE:-ghcr.io/wyrdsekai/researchzosho:0.7.5}
 drive=${RZ_DRIVE:-http://host.docker.internal:8080}
 model=${RZ_MODEL:-}
 trusted=${RZ_TRUSTED_PROXY:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
@@ -36,8 +36,8 @@ case "${1:-}" in
     run docker run -d --name "rz-$name" --network "$network" --restart unless-stopped \
       -v "rz-$name-library:/library" -v "rz-$name-config:/config" \
       -e "RESEARCHZOSHO_DRIVE=$drive" -e "RESEARCHZOSHO_MODEL=$model" -e RESEARCHZOSHO_EMBED=http://embed:80 \
-      -e "RESEARCHZOSHO_TRUSTED_PROXY=$trusted" -e RESEARCHZOSHO_FETCH_PRIVATE=deny -e RESEARCHZOSHO_LOG=stdout \
-      --add-host host.docker.internal:host-gateway "$image" serve --host 0.0.0.0 --port 4649
+      -e "RESEARCHZOSHO_TRUSTED_PROXY=$trusted" -e RESEARCHZOSHO_FETCH_PRIVATE=deny -e RESEARCHZOSHO_LOG=stdout -e RESEARCHZOSHO_HOME=/config/home \
+      -e RESEARCHZOSHO_LOCAL_HELPERS=off --add-host host.docker.internal:host-gateway "$image" serve --host 0.0.0.0 --port 4649
     if [ "${RZ_DRY_RUN:-}" = 1 ]; then echo "+ write $routes/$name.caddy"; else
       mkdir -p "$routes"
       printf '# %s: the library in the container rz-%s on this server, made by scripts/fleet.sh on %s.\n%s%s.{$RZ_DOMAIN} {\n    reverse_proxy rz-%s:4649\n}\n' "$name" "$name" "$(date -u +%Y-%m-%d)" "$(scheme)" "$name" "$name" > "$routes/$name.caddy"
@@ -72,7 +72,7 @@ case "${1:-}" in
       docker run --rm -v "rz-$name-library:/library:ro" -v "rz-$name-config:/config:ro" alpine tar czf - -C / library config \
         | ssh "$to" "docker volume create rz-$name-library >/dev/null && docker volume create rz-$name-config >/dev/null && docker run --rm -i -v rz-$name-library:/library -v rz-$name-config:/config alpine tar xzf - -C /"
     fi
-    run ssh "$to" "docker run -d --name rz-$name --restart unless-stopped -p 4649 -v rz-$name-library:/library -v rz-$name-config:/config -e RESEARCHZOSHO_DRIVE=$drive -e RESEARCHZOSHO_MODEL=$model -e RESEARCHZOSHO_TRUSTED_PROXY=$trusted -e RESEARCHZOSHO_FETCH_PRIVATE=deny -e RESEARCHZOSHO_LOG=stdout $image serve --host 0.0.0.0 --port 4649"
+    run ssh "$to" "docker run -d --name rz-$name --restart unless-stopped -p 4649 -v rz-$name-library:/library -v rz-$name-config:/config -e RESEARCHZOSHO_DRIVE=$drive -e RESEARCHZOSHO_MODEL=$model -e RESEARCHZOSHO_TRUSTED_PROXY=$trusted -e RESEARCHZOSHO_FETCH_PRIVATE=deny -e RESEARCHZOSHO_LOG=stdout -e RESEARCHZOSHO_HOME=/config/home -e RESEARCHZOSHO_LOCAL_HELPERS=off $image serve --host 0.0.0.0 --port 4649"
     host=${to#*@}
     port=$(if [ "${RZ_DRY_RUN:-}" = 1 ]; then echo 4649; else ssh "$to" "docker port rz-$name 4649" | head -1 | sed 's/.*://'; fi)
     if [ "${RZ_DRY_RUN:-}" = 1 ]; then echo "+ write $routes/$name.caddy -> $host:$port"; else

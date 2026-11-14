@@ -1043,6 +1043,17 @@ final class DocNames {
      */
     static Decided forRun(LibraryStore store, Checkpoint cp, Researcher.Drive drive, List<Candidate> all, Set<String> persons, String sha, String to, String language,
                           Map<Integer, String> sources, Map<Integer, String> translations) {
+        return forRun(store, cp, drive, all, persons, sha, to, language, sources, translations, Map.of());
+    }
+
+    /**
+     * The same, {@code given} the answers the run's own first pass already holds for some strings: a comic's pages are translated one
+     * call a page, and each call names, for the strings of its page, the words it wrote ({@link ComicTranslation}). Those answers come
+     * first, before an earlier run's kept ones; the model is asked only for the strings neither has; and every answer, given or not, is
+     * verified against the first pass as any other is. Nothing is decided by being given.
+     */
+    static Decided forRun(LibraryStore store, Checkpoint cp, Researcher.Drive drive, List<Candidate> all, Set<String> persons, String sha, String to, String language,
+                          Map<Integer, String> sources, Map<Integer, String> translations, Map<String, Answer> given) {
         Set<String> strings = new LinkedHashSet<>(); for (Candidate c : all) strings.add(c.text());
         Map<Integer, String> translated = new LinkedHashMap<>(); for (var e : sources.entrySet()) if (translations.get(e.getKey()) != null) translated.put(e.getKey(), e.getValue());
         Map<String, List<Integer>> holders = new LinkedHashMap<>();
@@ -1059,7 +1070,7 @@ final class DocNames {
         if (answers.isEmpty()) {
             Map<String, Answer> before = store == null ? Map.of() : kept(store, sha, to);
             answers = new LinkedHashMap<>();
-            for (String s : asked) if (before.containsKey(s)) { answers.put(s, before.get(s)); reused = true; }
+            for (String s : asked) { if (given.containsKey(s)) answers.put(s, given.get(s)); else if (before.containsKey(s)) { answers.put(s, before.get(s)); reused = true; } }
             List<String> left = new ArrayList<>(asked); left.removeAll(answers.keySet());
             if (!left.isEmpty()) answers.putAll(extract(drive, left, holders, sources, translations, language));
             cp.put("names_answers", answersJson(answers));

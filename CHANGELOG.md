@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.7.5
+
+What's new: translate manga and comics, with the translation set into the speech balloons; tell a translation how it should sound; see who translated and checked a job and what it cost.
+
+### Added
+
+- Manga and comics. `researchzosho translate volume.cbz --to English` translates a comic and puts the translation into its speech balloons: manga, manhwa, manhua, webtoons, comic books and graphic novels. It takes a CBZ, a CBR, a ZIP, a folder of page images, or a PDF with `--comic on`. It works from and into Japanese, Chinese, Korean, English, German, French, Spanish, Italian, Portuguese, Russian and other languages written in the Latin, Cyrillic or Greek alphabet. Arabic, Hebrew, Thai, Vietnamese and the scripts of India are not supported yet. The first time, it asks before downloading the tools that read the pages (about 1.1 GB; 2.3 GB on disk). It works from the Translate page, the chat and the API as well.
+- It finds which language a comic is in by looking at a few pages, and tells you before it starts; `--from Korean` says it yourself. A manga translated into another language still reads from right to left: say so with `--reads right-to-left`.
+- Chinese and Japanese are set in columns where the original was in columns. A webtoon's long strip is translated and comes back as one picture.
+- Printed lettering is read best. Lettering in a handwriting style, and old hand-lettered comics, come out with more mistakes; the note beside the translation lists the balloons it was unsure of.
+- Tell a translation how it should sound, in your own words: `--direction "this is a comedy, so keep it light"`, the box on the Translate page, or in the chat ("translate this file into English as if you were Shakespeare"). The note lists the jokes and puns it could not carry over.
+- A translation job says which model translated it, which model checked it, and for a paid model what it was expected to cost and what it cost.
+- Adding an OpenRouter model (`researchzosho models add <name> openrouter <model>`) fills in its prices for you.
+- A helpers machine can be told never to fall back to its processor, which can slow the whole machine down: `researchzosho helpers install --no-cpu-fallback`.
+
+### Changed
+
+- The Translate page takes files up to 512 MB (it was 64 MB).
+- The Translate page lets you say which language the file is written in.
+- `researchzosho spend` counts everything that costs money, chat included, and shows the total for each kind of work.
+- A container install keeps its settings when the container is made again.
+
+### Fixed
+
+- The Translate page's "Translate the file" button did nothing on a machine where a translation scorer was not installed.
+- A paid model with no prices was reported as costing $0.00, and a spending limit on it did nothing without saying so.
+- A date such as 10月 translated as "October", or a number such as 8千 written as 8,000, was flagged as a mistake.
+- Two copies of the program pointed at the same library could get in each other's way. The second one now stops and says which one is using the library.
+- `RESEARCHZOSHO_SCORERS=off` now turns scoring off completely.
+- On macOS and Windows a warning about "Lucene" no longer appears under every command.
+
 ## 0.7.4
 
 What's new: the heavy helpers can run on another machine, set up there with one command; the service stops and starts from the command line; and a job stops within seconds, also in the middle of a step.

@@ -100,6 +100,16 @@ class HelpersRemoteTest {
         assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.3, older than 0.7.4: updating it there (researchzosho update now).\n  homebox: researchzosho: updating 0.7.3 to 0.7.4\n"), out.toString());
     }
 
+    @Test void aProgramThereThatDoesNotKnowTheFallbackFlagIsUpdatedBeforeItIsHandedIt() throws Exception {
+        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.5" : null;
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"))));
+        answers.put("RESEARCHZOSHO_VERSION='0.7.5' researchzosho update now 0.7.5", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.4 to 0.7.5\n"))));
+        assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", HelperServer.all(), false, true, "2", false, false, false, false), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
+        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.5' researchzosho update now 0.7.5", "researchzosho --version", "researchzosho helpers install --yes --gpu 2 --no-cpu-fallback"), commands().subList(0, 4), "0.7.4 knows helpers install and not this flag: updated first, never handed a flag it would refuse");
+        assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.4, older than 0.7.5: updating it there (researchzosho update now).\n"), out.toString());
+        assertTrue(out.toString().contains("or updated when it is older than 0.7.5."), "the question says the release this ask needs: " + out);
+    }
+
     @Test void sshThatCannotLogInSaysSoInOneLineWithTheTwoCommandsByHand() throws Exception {
         answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(255, "someone@homebox: Permission denied (publickey).\n"))));
         assertEquals(1, on("someone@homebox", "", true, null));
@@ -130,6 +140,12 @@ class HelpersRemoteTest {
         assertTrue(s.contains("Set here: helpers http://192.168.1.20:8218, and its secret (helpers_secret), read from homebox and not shown.\nhttp://192.168.1.20:8218 answers from here with the secret: it serves metricx.\n"), s);
         assertTrue(s.contains("as a set of its own, on a port of its own from 8218 (or the set already on that card),"), s);
         assertFalse(s.contains(KEPT_WORDS), "the secret is never printed here");
+    }
+
+    @Test void theRefusalOfTheProcessorIsPassedThrough() throws Exception {
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"))));
+        assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", HelperServer.all(), false, true, "3", false, false, false, false), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
+        assertTrue(commands().contains("researchzosho helpers install --yes --gpu 3 --no-cpu-fallback"), commands().toString());
     }
 
     @Test void aTargetThatIsNotOneIsRefusedBeforeAnySsh() throws Exception {

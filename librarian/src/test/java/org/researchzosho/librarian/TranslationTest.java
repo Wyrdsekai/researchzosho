@@ -256,6 +256,30 @@ class TranslationTest {
         assertTrue(assertThrows(IOException.class, () -> Translation.plan(store, in, "ja", "", "checked", "x", "nobody")).getMessage().startsWith("No model entry matches \"nobody\"."));
     }
 
+    /**
+     * A major flag of the back-translation is neither revised nor left standing: the note listed it as "minor, left as it is", which it
+     * is not (read on a comic's note, 2026-11-13; the document's note said the same).
+     */
+    @Test void aMajorFlagOfTheBackTranslationIsListedAsNotRevisedAndNotAsMinor(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Path in = fixture(Files.createDirectories(tmp.resolve("docs")));
+        Script sc = new Script();
+        sc.verdict = s -> "accuracy/mistranslation major | 訳 | the meaning differs";   // at the checked tier the one model reads the back-translated sample only
+        Outcome o = Translation.run(store, in, "ja", "", "", null, null, seats(sc), null, () -> false);
+        assertEquals(3, o.backTranslated());
+        List<Flag> back = o.flags().stream().filter(f -> f.by().startsWith("back-translation")).toList();
+        assertFalse(back.isEmpty(), o.flags().toString());
+        assertTrue(back.stream().allMatch(f -> f.serious() && !f.revised() && !f.stands()), "a back-translation's flag is listed: no revision follows it and it is not counted as standing: " + back);
+        int rows = 0;
+        for (String row : Files.readString(o.note()).split("\n")) if (row.contains("| back-translation (")) {
+            rows++;
+            assertTrue(row.endsWith("| listed, not revised: a back-translation's flag says where to look |"), row);
+        }
+        assertEquals(back.size(), rows, "each of them has its row in the note's table");
+        assertEquals("minor, left as it is", Translation.afterSaid(new Flag(0, "style", "register", "minor", "", "a touch informal", "checker", false, false)));
+        assertEquals("listed, not revised", Translation.afterSaid(new Flag(0, "accuracy", "omission", "major", "", "a clause is missing", "checker", false, false)));
+    }
+
     @Test void checkedTierScoresEveryUnitFlagsByTheMeasuredThresholdAndKeepsARevisionOnlyWhenItsScoreImproves(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Path in = fixture(Files.createDirectories(tmp.resolve("docs")));

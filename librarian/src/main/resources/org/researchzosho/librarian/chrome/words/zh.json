@@ -25,6 +25,8 @@
  "translate.ask": ["把{what}翻译成 {lang}", "把{what}翻译为 {lang}", "把{what}译成 {lang}", "把{what}翻成 {lang}", "将{what}翻译成 {lang}", "将{what}翻译为 {lang}", "将{what}译成 {lang}", "请把{what}翻译成 {lang}", "请将{what}翻译成 {lang}", "帮我把{what}翻译成 {lang}", "帮我把{what}译成 {lang}", "请帮我把{what}翻译成 {lang}", "麻烦把{what}翻译成 {lang}", "把{what}翻译成 {lang}吧", "把{what}翻译成 {lang}版", "翻译{what}成 {lang}"],
  "translate.mention": ["翻译", "译成", "翻成", "译为"],
  "translate.from": ["从{lang}", "原文是{lang}", "原文为{lang}", "源语言是{lang}", "源语言为{lang}", "源语言：{lang}"],
+ "translate.direction": ["re:(?<direction>(?:用|以|按照|按|照)[^\\s，。！？!?,、把]{1,30}?(?:的)?(?:风格|風格|口吻|语气|語氣|文风|文風|笔调|筆調|腔调|腔調))", "re:(?<direction>像[^\\s，。！？!?,、把]{1,30}?(?:一样|一樣|那样|那樣)(?:地)?)", "re:(?<![^\\s，。！？!?,、\\n])(?<direction>[^\\s，。！？!?,、\\n]*?(?:双关|雙關|谐音|諧音|文字游戏|文字遊戲|俏皮话|俏皮話|笑话|笑話|幽默|喜剧|喜劇)[^。！？!?\\n]*?(?:注意|保留|小心|保持|留意)[^。！？!?\\n，,]*)", "re:(?<direction>(?:请保持|保持|要)(?:轻松|輕鬆|幽默|俏皮|诙谐|詼諧|口语化|口語化|活泼|活潑)[^。！？!?\\n，,]*)", "re:(?:要求|指示)\\s*[:：]\\s*(?<direction>[^\\n]+)"],
+ "translate.filler": ["re:(?:请|請|谢谢|謝謝|一下|吧|帮我|幫我|麻烦|麻煩|你|了)"],
  "format.as": ["{fmt}格式", "存成{fmt}", "保存为{fmt}", "输出为{fmt}", "输出成{fmt}", "导出为{fmt}", "转成{fmt}", "做成{fmt}"],
  "read_in.ask": ["用 {lang} 读{what}", "用 {lang} 读一下{what}", "用 {lang} 阅读{what}", "用 {lang} 看{what}", "用 {lang} 看看{what}", "用 {lang} 显示{what}", "用 {lang} 打开{what}", "{what}用 {lang} 读", "{what}用 {lang} 显示", "把{what}翻译成 {lang}", "把{what}译成 {lang}"],
  "dossier.named": ["{subject}的档案", "关于{subject}的档案"],

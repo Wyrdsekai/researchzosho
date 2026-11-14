@@ -291,7 +291,7 @@ public final class LibrarianCli {
               service stop [--stop-jobs] · service start · service status
                                            stop the service (or a serve running in a terminal, by its pid record) and start it again; each says
                                            how it stands after. A running job resumes at the next start; --stop-jobs stops it for good
-              helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--only metricx,labse,…] [--yes]
+              helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback] [--only metricx,labse,…] [--yes]
                                            the heavy helpers (MetricX-24, LaBSE, the likeness helper, speech-to-text, embeddings) set up and served
                                            from the machine with the card, as a user service on port 8217 with a secret; --on does it over ssh from
                                            here and sets this library to use them. A library whose model is served from that machine finds them by itself
@@ -631,6 +631,9 @@ public final class LibrarianCli {
         }
     }
 
+    /** What {@code serve} ends with when another process holds the library: not a success, so a service manager sees it ended. */
+    static final int GAVE_UP = 3;
+
     static int serve(LibraryStore store, String[] args, String baseUrl, String model) throws Exception {
         String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; int hour = 3; Path log = null; int door = -1;
         try {
@@ -668,7 +671,8 @@ public final class LibrarianCli {
         Service.recordPid(store);
         // a release that scores translations sets its scorers up itself after an update: in the background, where they are missing and the disk has the room
         // the helpers installed from the build follow the release: a changed script is copied over and said in one line (0.7.0)
-        try { String rl = LikenessHelper.refresh(); if (!rl.isEmpty()) System.out.println("  likeness helper: " + rl); String rm = TranslationScores.refreshMetricxScript(); if (!rm.isEmpty()) System.out.println("  translation scorers: " + rm); } catch (RuntimeException ignored) { }
+        try { String rl = LikenessHelper.refresh(); if (!rl.isEmpty()) System.out.println("  likeness helper: " + rl); String rm = TranslationScores.refreshMetricxScript(); if (!rm.isEmpty()) System.out.println("  translation scorers: " + rm); String rc = ComicHelper.refresh(); if (!rc.isEmpty()) System.out.println("  comic helper: " + rc); } catch (RuntimeException ignored) { }   // the comic helper only follows the release here: it is set up on a person's yes, never by the service
+        ComicTranslation.sweepWork();   // the folders that comic runs killed by force left in the temporary folder: removed where no process holds their lock
         try { String sc = TranslationScores.setupInBackground("the daemon started and found them missing"); if (!sc.isEmpty()) { System.out.println("  translation scorers: " + sc); Crews.log(store, "upgrade", "translation scorers: " + sc, 0); } } catch (Exception ignored) { }   // the service's record in the state dir, or inside this library when another daemon holds that
         try { String lk = LikenessHelper.setupInBackground("the daemon started and found it missing"); if (!lk.isEmpty()) System.out.println("  likeness helper: " + lk); } catch (RuntimeException ignored) { }
         var id = store.identity();
@@ -682,6 +686,8 @@ public final class LibrarianCli {
         Share.supervise(store, d).start();   // opens the door and runs the tunnel while `share` is on; nothing while it is off
         System.out.println("  " + Share.statusLine());
         d.join();
+        String gaveUp = d.gaveUpLine();   // another process holds the library: said in one line, and an end that is not a success
+        if (gaveUp != null) { System.err.println(gaveUp); return GAVE_UP; }
         return 0;
     }
 
@@ -692,7 +698,8 @@ public final class LibrarianCli {
         long before = 0; LibraryStore watched = null;
         try { watched = LibraryStore.open(); if (Vault.exists(watched)) before = Vault.newest(watched); } catch (Exception ignored) { }
         int rc = dispatch(args, baseUrl, model);
-        if (watched != null && before != 0 && !(args.length > 1 && args[1].equals("vault"))) { try { Vault.followUp(watched, before); } catch (Exception ignored) { } }
+        boolean given = watched != null && NotHolder.why(watched.root()) != null;   // another process holds the library: nothing more is written into it
+        if (watched != null && before != 0 && !given && !(args.length > 1 && args[1].equals("vault"))) { try { Vault.followUp(watched, before); } catch (Exception ignored) { } }
         return rc;
     }
 
@@ -706,6 +713,8 @@ public final class LibrarianCli {
         if (verb.equals("init") || verb.equals("update")) return false;
         // serving the heavy helpers to other machines: a machine that only serves them has no library of its own
         if (args.length > 3 && args[3].equals("serve") && (verb.equals("translate") && args[2].equals("scorers") || verb.equals("images") && args[2].equals("likeness"))) return false;
+        // the comic helper is the machine's, kept beside the settings: its status and its set-up come before any library (a file called comics is still a file to translate)
+        if (verb.equals("translate") && args.length > 2 && args[2].equals("comics") && !Files.exists(Path.of(args[2]))) return false;
         return !verb.equals("service") || args.length > 2 && args[2].equals("install");
     }
 
@@ -932,17 +941,7 @@ public final class LibrarianCli {
                     System.out.print(OutsideServices.text(store));
                     return 0;
                 }
-                case "spend" -> {
-                    ObjectNode sum = Spend.summary(store);
-                    System.out.println("What research runs cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".");
-                    for (String part : new String[]{"hosts", "entries"}) {
-                        if (sum.path(part).isEmpty()) continue;
-                        System.out.println(part.equals("hosts") ? "  By host:" : "  By named model:");
-                        for (JsonNode r : sum.path(part)) System.out.println("    " + r.path("name").asText() + ": " + Spend.dollars(r.path("month").asDouble()) + " this month (" + r.path("runs_month").asInt() + " run" + (r.path("runs_month").asInt() == 1 ? "" : "s") + "), " + Spend.dollars(r.path("all").asDouble()) + " in all (" + r.path("runs_all").asInt() + ")" + (r.has("cap") ? ", cap " + Spend.dollars(r.path("cap").asDouble()) + " a month" : ""));
-                    }
-                    if (sum.path("hosts").isEmpty()) System.out.println("  No run has been recorded yet. A run on a named model with prices (researchzosho models) is counted when it files its report.");
-                    return 0;
-                }
+                case "spend" -> { return spendCommand(store); }
                 case "podcast" -> { return podcastCommand(store, args); }
                 case "owned" -> { return ownedCommand(store, args); }
                 case "myshelf" -> { return myShelfCommand(store, args); }
@@ -2647,6 +2646,31 @@ public final class LibrarianCli {
 
     /** {@code researchzosho settings}: the library's settings as a person reads them; set and unset write the config file. */
     /** researchzosho models [list | add <name> <address|word> <model> [--prices in/out/cache] [--effort e] [--cap dollars] [--note text] | remove <name> | key <host|word> <key | --file path> | test <name>] */
+    /** {@code researchzosho spend}: what the model calls cost at list prices, by host, by named model and by use; runs at prices an entry does not state apart, in tokens. */
+    static int spendCommand(LibraryStore store) {
+        ObjectNode sum = Spend.summary(store);
+        System.out.println("What the model calls cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is " + sum.path("month").asText() + ".");
+        for (String part : new String[]{"hosts", "entries"}) {
+            if (sum.path(part).isEmpty()) continue;
+            System.out.println(part.equals("hosts") ? "  By host:" : "  By named model:");
+            for (JsonNode r : sum.path(part)) System.out.println("    " + Spend.rowSaid(r, Chrome.ENGLISH));   // runs at prices the entry does not state apart, in tokens; a cap with nothing to count said
+        }
+        if (!sum.path("uses").isEmpty()) {   // what the calls were for: the chat, the nightly work, research, translation, pictures, other work
+            System.out.println("  By use:");
+            for (JsonNode u : sum.path("uses")) System.out.println("    " + Spend.useRowSaid(u, Chrome.ENGLISH));
+        }
+        if (sum.path("hosts").isEmpty()) System.out.println("  Nothing has been recorded yet. A call to a model with prices (researchzosho models), or to a paid service, is counted when its work ends: a chat turn when it is answered, a run when it files its report.");
+        return 0;
+    }
+
+    /** Beside an entry's line: where its prices were read and when, and that a cap with no prices to count with counts nothing. */
+    static String pricesNote(JsonNode m) {
+        String read = m.path("prices_read").asText(""), name = m.path("name").asText("");
+        int cut = read.indexOf(' ');
+        return (read.isEmpty() ? "" : "; prices as read from " + (cut < 0 ? read : read.substring(0, cut) + "'s list on " + read.substring(cut + 1)))
+                + (m.path("cap_counts").asBoolean(true) ? "" : "; the cap counts nothing until " + name + " has prices (researchzosho models set " + name + " --prices " + ("openrouter.ai".equals(m.path("host").asText()) ? "list" : "in/out/cache") + ")");
+    }
+
     static int modelsCommand(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
         LibraryProtocol p = new LibraryProtocol(store);
@@ -2657,13 +2681,13 @@ public final class LibrarianCli {
                 case "list" -> {
                     JsonNode r = p.models(a.put("op", "list"));
                     System.out.println("The models this library can run on (researchzosho ask … --model <name>; /model <name> in the chat):");
-                    for (JsonNode m : r.path("models")) System.out.println("  " + m.path("line").asText() + "; " + m.path("sees_text").asText("not probed for pictures") + ("missing".equals(m.path("key").asText()) ? "  — no key kept for " + m.path("host").asText() : ""));
+                    for (JsonNode m : r.path("models")) System.out.println("  " + m.path("line").asText() + pricesNote(m) + "; " + m.path("sees_text").asText("not probed for pictures") + ("missing".equals(m.path("key").asText()) ? "  — no key kept for " + m.path("host").asText() : ""));
                     System.out.println(r.path("summary").asText());
-                    System.out.println("researchzosho models add <name> <address or word> <model id> [--prices in/out/cache] [--cap dollars a month] [--sees yes|no] adds one; models key <host> <key> keeps a host's key; models remove <name>; models test <name> asks whether it answers and whether it sees pictures.");
+                    System.out.println("researchzosho models add <name> <address or word> <model id> [--prices in/out/cache] [--cap dollars a month] [--sees yes|no] adds one (on openrouter the prices are read from its public list); models set <name> --prices list reads them again; models key <host> <key> keeps a host's key; models remove <name>; models test <name> asks whether it answers and whether it sees pictures.");
                     return 0;
                 }
                 case "add" -> {
-                    if (args.length < 6) { System.err.println("usage: researchzosho models add <name> <address or word: openrouter, anthropic, openai, gemini, nebius, huggingface> <model id> [--prices in/out/cache] [--effort e] [--cap dollars] [--note text] [--sees yes|no]"); return 2; }
+                    if (args.length < 6) { System.err.println("usage: researchzosho models add <name> <address or word: openrouter, anthropic, openai, gemini, nebius, huggingface> <model id> [--prices in/out/cache] [--effort e] [--cap dollars] [--note text] [--sees yes|no]\n  On openrouter, with no --prices, the prices are read from openrouter.ai's public list; researchzosho models set <name> --prices list reads them again."); return 2; }
                     a.put("op", "add"); a.put("name", args[3]); a.put("drive", args[4]); a.put("model", args[5]);
                     for (int i = 6; i + 1 < args.length; i += 2) switch (args[i]) { case "--prices" -> a.put("prices", args[i + 1]); case "--effort" -> a.put("effort", args[i + 1]); case "--cap" -> a.put("cap", args[i + 1]); case "--note" -> a.put("note", args[i + 1]); case "--sees" -> a.put("sees", args[i + 1]); default -> { System.err.println("unknown flag " + args[i]); return 2; } }
                     JsonNode r = p.models(a);
@@ -2671,7 +2695,7 @@ public final class LibrarianCli {
                     return 0;
                 }
                 case "set" -> {
-                    if (args.length < 5) { System.err.println("usage: researchzosho models set <name> [--address a] [--model m] [--prices in/out/cache] [--effort e] [--cap dollars] [--note text] [--tier A|B|C] [--sees yes|no]"); return 2; }
+                    if (args.length < 5) { System.err.println("usage: researchzosho models set <name> [--address a] [--model m] [--prices in/out/cache | --prices list] [--effort e] [--cap dollars] [--note text] [--tier A|B|C] [--sees yes|no]"); return 2; }
                     a.put("op", "add"); a.put("name", args[3]);
                     for (int i = 4; i + 1 < args.length; i += 2) switch (args[i]) { case "--tier" -> a.put("tier", args[i + 1]); case "--address", "--drive" -> a.put("drive", args[i + 1]); case "--model" -> a.put("model", args[i + 1]); case "--prices" -> a.put("prices", args[i + 1]); case "--effort" -> a.put("effort", args[i + 1]); case "--cap" -> a.put("cap", args[i + 1]); case "--note" -> a.put("note", args[i + 1]); case "--sees" -> a.put("sees", args[i + 1]); default -> { System.err.println("unknown flag " + args[i]); return 2; } }
                     System.out.println(p.models(a).path("note").asText());
@@ -2843,6 +2867,7 @@ public final class LibrarianCli {
             var j = r.path("job");
             System.out.println(j.path("job_id").asText() + "  " + j.path("state").asText() + "  " + j.path("kind").asText() + (j.path("restarted").asInt(0) > 1 ? "  (interrupted " + j.path("restarted").asInt() + " times)" : ""));
             if (j.hasNonNull("question")) System.out.println("  question: " + j.get("question").asText());
+            if (j.path("translation").isObject()) System.out.println("  " + j.path("translation").path("said").asText(""));   // a document's translation: who translates, who reads, where the scores are made, the tier, the notes, the direction
             if (j.hasNonNull("resumed")) System.out.println("  " + j.get("resumed").asText());   // where a restart or an update interrupted it, and where it picked up
             System.out.println("  queued " + j.path("queued_at").asText() + (j.hasNonNull("started_at") ? " · started " + j.get("started_at").asText() : "") + (j.hasNonNull("ended_at") ? " · ended " + j.get("ended_at").asText() : "") + " · " + elapsed(j.path("elapsed_s").asLong()));
             if (j.hasNonNull("drive")) System.out.println("  drive: " + j.get("drive").asText() + (j.hasNonNull("model") ? "  (model: " + j.get("model").asText() + ")" : ""));
@@ -2880,6 +2905,7 @@ public final class LibrarianCli {
         if (j.path("declined").path("run").asBoolean(false)) b.append(" · declined by the model");
         else if (j.path("declined").isObject()) b.append(" · parts declined by the model");
         if (j.hasNonNull("question")) b.append(" · ").append(Acquisitions.compress(j.get("question").asText(), 70));
+        if (j.path("translation").isObject()) b.append(" · ").append(j.path("translation").path("short").asText(""));   // a document's translation: who translates and who reads, in a few words
         return b.toString();
     }
 

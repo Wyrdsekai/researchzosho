@@ -427,13 +427,17 @@ final class ChatCommands {
                 }
                 case "/spend" -> {
                     ObjectNode sum = Spend.summary(store);
-                    StringBuilder b = new StringBuilder(t("What research runs cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is {0}.", sum.path("month").asText()));
+                    StringBuilder b = new StringBuilder(t("What the model calls cost, at each model's list prices (the library's arithmetic on the servers' usage counts, not a bill). This month is {0}.", sum.path("month").asText()));
                     for (String part : new String[]{"hosts", "entries"}) {
                         if (sum.path(part).isEmpty()) continue;
                         b.append("\n").append(part.equals("hosts") ? t("By host:") : t("By named model:"));
-                        for (JsonNode r : sum.path(part)) b.append("\n- ").append(r.path("name").asText()).append(": ").append(Spend.dollars(r.path("month").asDouble())).append(" ").append(t("this month ({0} runs), {1} in all", r.path("runs_month").asInt(), Spend.dollars(r.path("all").asDouble())));
+                        for (JsonNode r : sum.path(part)) b.append("\n- ").append(Spend.rowSaid(r, Chrome.now()));
                     }
-                    if (sum.path("hosts").isEmpty()) b.append("\n").append(t("No run has been recorded yet. A run on a named model with prices is counted when it files its report."));
+                    if (!sum.path("uses").isEmpty()) {
+                        b.append("\n").append(t("By use:"));
+                        for (JsonNode u : sum.path("uses")) b.append("\n- ").append(Spend.useRowSaid(u, Chrome.now()));
+                    }
+                    if (sum.path("hosts").isEmpty()) b.append("\n").append(t("Nothing has been recorded yet. A call to a model with prices, or to a paid service, is counted when its work ends: a chat turn when it is answered, a run when it files its report."));
                     return b.toString();
                 }
                 case "/update" -> {

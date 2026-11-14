@@ -111,8 +111,8 @@ public final class RunTrace implements AutoCloseable, Declines.Notes {
         if (file == null) return;
         line.put("t", Instant.now().toString());
         line.put("run", runId);
-        try { Files.writeString(file, line.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND); }
-        catch (IOException ignored) { }
+        try { NotHolder.check(file); Files.writeString(file, line.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND); }
+        catch (IOException ignored) { }   // also a library another process holds now: its trace is not this one's to write
     }
 
     /** A runner event: {@code compaction} (pieces, chars before, chars after), and anything else worth a line. */

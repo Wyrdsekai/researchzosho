@@ -374,6 +374,7 @@ public final class Crews {
     static void log(LibraryStore store, String name, String outcome, long ms) {
         try {
             var f = store.root().resolve("catalog").resolve("crews.log");
+            NotHolder.check(f);   // another process holds the library: its log is not this one's to write
             Files.createDirectories(f.getParent());
             Files.writeString(f, Instant.now() + "\t" + name + "\t" + ms + "ms\t" + outcome.replaceAll("\\s+", " ") + "\n",
                     StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);

@@ -19,6 +19,7 @@ import org.apache.pdfbox.util.Matrix;
 import org.apache.pdfbox.util.Vector;
 
 import javax.imageio.ImageIO;
+import java.awt.RenderingHints;
 import java.awt.geom.Point2D;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -185,6 +186,93 @@ public final class PdfGlyphs {
         };
         e.processPage(page);
         return out;
+    }
+
+    /**
+     * The one picture a page is, or null: the page is not turned, draws one picture and nothing else (no glyph, and no line or
+     * fill after the picture), and the picture stands upright and is the page, its four sides within 1.5 % of the page's own. A
+     * scanned comic's page is such a page; so is a page saved from a drawing program as one picture.
+     */
+    static PDImageXObject onlyPicture(PDPage page) throws IOException {
+        if (page.getRotation() % 360 != 0) return null;
+        PDRectangle box = page.getCropBox();
+        List<PDImage> seen = new ArrayList<>();
+        boolean[] more = {false};
+        PDFGraphicsStreamEngine e = new PDFGraphicsStreamEngine(page) {
+            @Override public void drawImage(PDImage image) {
+                seen.add(image);
+                Matrix m = getGraphicsState().getCurrentTransformationMatrix();
+                if (Math.abs(m.getShearX()) > 1e-3 || Math.abs(m.getShearY()) > 1e-3 || m.getScaleX() <= 0 || m.getScaleY() <= 0) { more[0] = true; return; }
+                double x0 = m.getTranslateX(), y0 = m.getTranslateY(), x1 = x0 + m.getScaleX(), y1 = y0 + m.getScaleY(), tx = 0.015 * box.getWidth(), ty = 0.015 * box.getHeight();
+                if (Math.abs(x0 - box.getLowerLeftX()) > tx || Math.abs(y0 - box.getLowerLeftY()) > ty || Math.abs(x1 - box.getUpperRightX()) > tx || Math.abs(y1 - box.getUpperRightY()) > ty) more[0] = true;
+            }
+            private void drawn() { if (!seen.isEmpty()) more[0] = true; }   // a line or a fill over the picture is a part of the page the picture does not hold
+            @Override public void appendRectangle(Point2D p0, Point2D p1, Point2D p2, Point2D p3) { }
+            @Override public void clip(int windingRule) { }
+            @Override public void moveTo(float x, float y) { }
+            @Override public void lineTo(float x, float y) { }
+            @Override public void curveTo(float x1, float y1, float x2, float y2, float x3, float y3) { }
+            @Override public Point2D getCurrentPoint() { return new Point2D.Float(0, 0); }
+            @Override public void closePath() { }
+            @Override public void endPath() { }
+            @Override public void strokePath() { drawn(); }
+            @Override public void fillPath(int windingRule) { drawn(); }
+            @Override public void fillAndStrokePath(int windingRule) { drawn(); }
+            @Override public void shadingFill(COSName shadingName) { drawn(); }
+            @Override protected void showGlyph(Matrix textRenderingMatrix, PDFont font, int code, Vector displacement) { more[0] = true; }
+        };
+        e.processPage(page);
+        return !more[0] && seen.size() == 1 && seen.get(0) instanceof PDImageXObject x && !x.isStencil() ? x : null;
+    }
+
+    /**
+     * The resolution of a page that holds pictures alone, in dots an inch; 0 for any other page. Such a page is not turned, shows no
+     * glyph and paints no line or fill, and its pictures stand upright and are all at one resolution, across and down, within 2 %:
+     * a scan set on a sheet with a margin, a page saved as two halves, a cover cut into strips. Drawn at this resolution a picture's
+     * pixels fall one on one.
+     */
+    static float picturesAloneDpi(PDPage page) throws IOException {
+        if (page.getRotation() % 360 != 0) return 0;
+        List<Double> dpi = new ArrayList<>();
+        boolean[] more = {false};
+        PDFGraphicsStreamEngine e = new PDFGraphicsStreamEngine(page) {
+            @Override public void drawImage(PDImage image) {
+                Matrix m = getGraphicsState().getCurrentTransformationMatrix();
+                if (Math.abs(m.getShearX()) > 1e-3 || Math.abs(m.getShearY()) > 1e-3 || m.getScaleX() <= 0 || m.getScaleY() <= 0 || image.isStencil()) { more[0] = true; return; }
+                dpi.add(image.getWidth() * 72.0 / m.getScaleX()); dpi.add(image.getHeight() * 72.0 / m.getScaleY());
+            }
+            @Override public void appendRectangle(Point2D p0, Point2D p1, Point2D p2, Point2D p3) { }
+            @Override public void clip(int windingRule) { }
+            @Override public void moveTo(float x, float y) { }
+            @Override public void lineTo(float x, float y) { }
+            @Override public void curveTo(float x1, float y1, float x2, float y2, float x3, float y3) { }
+            @Override public Point2D getCurrentPoint() { return new Point2D.Float(0, 0); }
+            @Override public void closePath() { }
+            @Override public void endPath() { }
+            @Override public void strokePath() { more[0] = true; }
+            @Override public void fillPath(int windingRule) { more[0] = true; }
+            @Override public void fillAndStrokePath(int windingRule) { more[0] = true; }
+            @Override public void shadingFill(COSName shadingName) { more[0] = true; }
+            @Override protected void showGlyph(Matrix textRenderingMatrix, PDFont font, int code, Vector displacement) { more[0] = true; }
+        };
+        e.processPage(page);
+        if (more[0] || dpi.isEmpty()) return 0;
+        List<Double> sorted = new ArrayList<>(dpi);
+        sorted.sort(null);
+        double middle = sorted.get(sorted.size() / 2);
+        for (double v : dpi) if (Math.abs(v - middle) > 0.02 * middle) return 0;
+        return (float) middle;
+    }
+
+    /** A page drawn at a resolution of its pictures' own, each of their pixels taken as it is: nothing smoothed between two pixels or along a picture's edge. */
+    static BufferedImage renderExact(PDDocument doc, int page, float dpi) {
+        try {
+            PDFRenderer r = new PDFRenderer(doc);
+            RenderingHints hints = new RenderingHints(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            hints.put(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_OFF);
+            r.setRenderingHints(hints);
+            return r.renderImageWithDPI(page - 1, dpi, ImageType.RGB);
+        } catch (IOException | RuntimeException | OutOfMemoryError e) { return null; }
     }
 
     /** The filters of the pictures on a page that PDFBox cannot decode on this machine (JBIG2, JPEG 2000 without their ImageIO readers). */

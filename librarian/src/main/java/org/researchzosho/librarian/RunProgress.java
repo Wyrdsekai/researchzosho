@@ -24,8 +24,11 @@ public final class RunProgress {
      * run ended with, the error's text when it failed, "" while it runs. {@code drive}: the model server's address the run's record names;
      * {@code model}: the entry the run named, "" for the library's default.
      */
-    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined, String result, String drive, String model) {
+    public record View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined, String result, String drive, String model, String kind, JsonNode translation) {
         public View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined) { this(id, state, stage, elapsedSeconds, percent, question, report, declined, "", "", ""); }
+        public View(String id, String state, String stage, long elapsedSeconds, int percent, String question, String report, String declined, String result, String drive, String model) { this(id, state, stage, elapsedSeconds, percent, question, report, declined, result, drive, model, "", null); }
+        /** Whether the job is a document's translation, with who does what in it ({@link TranslationWho#facts}). */
+        public boolean translates() { return Translation.JOB_KIND.equals(kind) && translation != null && translation.isObject(); }
         public boolean active() { return state.equals("queued") || state.equals("running") || state.equals(Jobs.OFFERED); }
     }
 
@@ -57,7 +60,7 @@ public final class RunProgress {
             default -> stage(p);
         };
         return new View(job.path("job_id").asText(""), state, stage, elapsed, percent, job.path("question").asText(""), job.path("investigation").asText(""), job.path("declined").path("statement").asText(""),
-                job.path("result").asText(""), job.path("drive").asText(""), job.path("model").asText(""));
+                job.path("result").asText(""), job.path("drive").asText(""), job.path("model").asText(""), job.path("kind").asText(""), job.path("translation").isObject() ? job.get("translation") : null);
     }
 
     /** The stage in plain words. */
@@ -73,6 +76,13 @@ public final class RunProgress {
             case "cite-check" -> c.t("Checking citations");
             case "filing" -> c.t("Saving the report and its claims");
             case "reading" -> c.t("Reading the PDF's pages by eye, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "setting-up" -> c.t("Setting the comic helper up");
+            case "strips" -> c.t("Cutting the web comic's strips into pieces, picture {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "pages" -> c.t("Reading the comic's pages, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "reading-twice" -> c.t("Reading the lettering a second time, page {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "page-translating" -> c.t("Translating the pages, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "lettering" -> c.t("Setting the lines into the balloons, page {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "fitting" -> c.t("Saying lines shorter that were too long for their balloons, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "translating" -> c.t("Translating, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "scoring" -> c.t("Scoring the translation, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "checking" -> c.t("Checking the translation, {0} of {1} units read side by side", p.path("units_done").asInt(), p.path("units_total").asInt());
@@ -106,6 +116,13 @@ public final class RunProgress {
             case "cite-check" -> c.t("checking citations");
             case "filing" -> c.t("saving the report and its claims");
             case "reading" -> c.t("reading the PDF's pages by eye, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "setting-up" -> c.t("setting the comic helper up");
+            case "strips" -> c.t("cutting the web comic's strips into pieces, picture {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "pages" -> c.t("reading the comic's pages, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "reading-twice" -> c.t("reading the lettering a second time, page {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "page-translating" -> c.t("translating the pages, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "lettering" -> c.t("setting the lines into the balloons, page {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
+            case "fitting" -> c.t("saying lines shorter that were too long for their balloons, {0} of {1}", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "translating" -> c.t("translating, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "scoring" -> c.t("scoring the translation, {0} of {1} units", p.path("units_done").asInt(), p.path("units_total").asInt());
             case "checking" -> c.t("checking the translation, {0} of {1} units read side by side", p.path("units_done").asInt(), p.path("units_total").asInt());
@@ -129,9 +146,17 @@ public final class RunProgress {
         // a translation's phases, in order for its tier: checked translating · scoring · the program's revision · writing; reviewed and
         // thorough add the reading (back-translation and the reader's pass) and the revision of what the reader flags after it
         boolean afterReading = p.path("pass").asText("").equals("reader");
+        boolean twice = p.path("pass").asText("").equals("twice");   // a comic whose lettering the translator read a second time before the first page's call
         double byStage = switch (p.path("phase").asText("")) {
             case "planning" -> 3;
             case "reading" -> 1 + uf;
+            case "setting-up" -> 1;
+            case "strips" -> 1;   // a web comic's strips cut into pieces, before any is read
+            case "pages" -> 1 + 14 * uf;   // a comic: the helper's reading is about a sixth of a run, the translation of the pages most of the rest
+            case "reading-twice" -> 15 + 25 * uf;   // the translator's reading of each balloon: a call a balloon, taken out of the pages' share below
+            case "page-translating" -> twice ? 40 + (readTier ? 10 : 30) * uf : 15 + (quickTier ? 78 : readTier ? 35 : 55) * uf;
+            case "lettering" -> 93 + 2 * uf;
+            case "fitting" -> 95 + uf;
             case "translating" -> 2 + (quickTier ? 92 : readTier ? 40 : 60) * uf;
             case "scoring" -> (readTier ? 42 : 62) + (readTier ? 8 : 10) * uf;
             case "checking" -> readTier ? 56 + 24 * uf : 94;   // checked: a back-translation, when one is asked, comes after the revision

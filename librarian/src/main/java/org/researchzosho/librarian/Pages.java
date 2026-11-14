@@ -956,10 +956,17 @@ final class Pages {
     /** The Translate form: a file, the language, the format out, the tier; the glossary beneath, with a line to add to it. */
     static String translateForm(LibraryStore store) {
         StringBuilder b = new StringBuilder("<p class=\"k\">").append(t("A document of your own (txt, md, pdf, docx or epub) translated into another language, unit by unit: headings, paragraphs, list items, table cells, captions. The structure is kept; the layout is not. Checked, the default, is one pass with the program's checks and scores and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading of the flagged units and a sample of the rest; thorough reads every unit. What the checks still doubt is listed in the note beside the translation, never in its text; the box below puts it at the end of the document too, numbered. The time is said when the run is filed; the run's page has the file, its note and where both are on the shelves.")).append("</p>");
+        b.append("<p class=\"k\">").append(t("A comic is translated too (manga, manhwa, manhua, a webtoon, a comic book, a graphic novel, a bande dessinée): a CBZ, a CBR or a ZIP of page pictures, or a PDF you say is one, up to {0}. Its pages are read by the comic helper on the library's machine, in Japanese, Chinese, Korean or a language of the Latin, Cyrillic or Greek alphabet, and the translation is set into the speech balloons in any of those. The helper finds the language of the lettering on a sample of the pages; the choice below names it when it finds another.", (Uploads.translateLimit() >> 20) + " MB")).append("</p>");
         b.append("<form method=\"post\" action=\"/translate\" enctype=\"multipart/form-data\" class=\"stack\"><input type=\"file\" name=\"file\" required aria-label=\"").append(esc(t("the file to translate"))).append("\"> ");
         b.append("<select name=\"to\" aria-label=\"").append(esc(t("the language"))).append("\">");
         for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\"").append(e.getKey().equals("ja") ? " selected" : "").append(">").append(esc(Chrome.now().languageLabel(e.getKey()))).append("</option>");
-        b.append("</select> <select name=\"as\" aria-label=\"").append(esc(t("the format"))).append("\"><option value=\"\">").append(t("the same format")).append("</option><option value=\"md\">Markdown</option><option value=\"pdf\">PDF</option><option value=\"docx\">Word</option><option value=\"epub\">EPUB</option><option value=\"txt\">").append(t("plain text")).append("</option></select> ");
+        // the language the file is written in, or a comic is lettered in: found by the program unless the person names it here
+        b.append("</select> <select name=\"from\" aria-label=\"").append(esc(t("the language it is written in"))).append("\"><option value=\"\">").append(t("its own language is found by itself")).append("</option>");
+        for (var e : new TreeMap<>(Translate.LANGUAGES).entrySet()) b.append("<option value=\"").append(e.getKey()).append("\">").append(esc(t("it is written in {0}", Chrome.now().languageLabel(e.getKey())))).append("</option>");
+        // the way a comic's pages are read: found from the pages unless the person says it (an edition of a manga in another language reads from the right)
+        b.append("</select> <select name=\"reads\" aria-label=\"").append(esc(t("the way its pages are read"))).append("\"><option value=\"\">").append(t("which way it reads is found from the pages")).append("</option><option value=\"rtl\">").append(t("it reads from right to left (a manga)")).append("</option><option value=\"ltr\">").append(t("it reads from left to right")).append("</option>");
+        b.append("</select> <select name=\"as\" aria-label=\"").append(esc(t("the format"))).append("\"><option value=\"\">").append(t("the same format")).append("</option><option value=\"md\">Markdown</option><option value=\"pdf\">PDF</option><option value=\"docx\">Word</option><option value=\"epub\">EPUB</option><option value=\"txt\">").append(t("plain text")).append("</option><option value=\"cbz\">CBZ</option></select> ");
+        b.append("<select name=\"comic\" aria-label=\"").append(esc(t("whether the file is a comic"))).append("\"><option value=\"\">").append(t("a comic is recognised by itself")).append("</option><option value=\"on\">").append(t("this file is a comic (manga, a webtoon, a graphic novel)")).append("</option><option value=\"off\">").append(t("this file is a document")).append("</option></select> ");
         b.append("<select name=\"quality\" aria-label=\"").append(esc(t("the tier"))).append("\"><option value=\"checked\" selected>").append(t("checked (the default)")).append("</option><option value=\"quick\">").append(t("quick")).append("</option><option value=\"reviewed\">").append(t("reviewed")).append("</option><option value=\"thorough\">").append(t("thorough")).append("</option></select> ");
         List<ModelEntries.Entry> models = new ArrayList<>(); for (ModelEntries.Entry e : ModelEntries.all().values()) if (!e.name().equals(ModelEntries.DEFAULT)) models.add(e);
         if (!models.isEmpty()) {
@@ -974,8 +981,11 @@ final class Pages {
         // the notes at the end: ticked when the setting makes them the default; the hidden field says the box was on the form, so an unticked box is an off
         b.append("<input type=\"hidden\" name=\"notes_box\" value=\"1\"><label><input type=\"checkbox\" name=\"notes\" value=\"end\"").append(Translation.NOTES_END.equals(Translation.notes("")) ? " checked" : "").append("> ").append(t(Translation.NOTES_BOX)).append("</label> ");
         if (models.stream().anyMatch(e -> !ModelEntries.keyKept(e))) b.append("<small class=\"k\">").append(t("A hosted model runs on its host's key; one without it is listed but no run uses it. The Settings page keeps keys under Models.")).append("</small> ");
-        b.append(scorersLine());
+        // the person's direction for the voice, in their own words: told to the translator, the reviser and the reader
+        b.append("<input name=\"direction\" maxlength=\"").append(Translation.DIRECTION_MAX).append("\" size=\"48\" placeholder=\"").append(esc(t("a direction for its voice, in your words (optional): as if you were Shakespeare"))).append("\" aria-label=\"").append(esc(t("the direction"))).append("\"> ");
         b.append("<input name=\"collection\" placeholder=\"").append(esc(t("a collection to shelve it under (optional)"))).append("\" aria-label=\"").append(esc(t("the collection"))).append("\"> <button>").append(t("Translate the file")).append("</button></form>");
+        b.append(scorersLine());   // after the form, never inside it: a form inside a form ends the outer one in every browser, and the button after it then belongs to no form and does nothing
+        b.append(comicLine());   // the same: a form of its own, after the translate form
         b.append("<h3>").append(t("Glossary")).append("</h3><p class=\"k\">").append(t("A term and the rendering chosen for it in a language, used in every translation into that language and listed in each translation's note.")).append("</p>");
         List<Glossary.Entry> entries = Glossary.list(store);
         if (!entries.isEmpty()) { b.append("<ul class=\"tight\">"); for (Glossary.Entry e : entries) b.append("<li>").append(esc(e.term())).append(" → ").append(esc(e.rendering())).append(" <span class=\"k\">(").append(esc(ReadIn.name(e.lang()))).append(")</span> <form method=\"post\" action=\"/translate\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"glossary-remove\"><input type=\"hidden\" name=\"term\" value=\"").append(esc(e.term())).append("\"><input type=\"hidden\" name=\"lang\" value=\"").append(esc(e.lang())).append("\"><button>").append(t("remove")).append("</button></form></li>"); b.append("</ul>"); }
@@ -986,40 +996,100 @@ final class Pages {
     }
 
     /** The Translate form's post: the uploaded file kept under the library, the plan made, the job filed; or a glossary entry added or removed. */
-    /** The Translate fold's line on the scorers: both there, or what is missing with the button that sets it up, or the setup running. */
+    /**
+     * The Translate fold's line on the scorers: both there, or what is missing on this machine with the button that sets it up, or the
+     * setup running. It is a form of its own and stands after the translate form; a scorer that a helpers machine or an address serves is
+     * not missing ({@link TranslationScores#missingSaid}).
+     */
     static String scorersLine() {
         if (TranslationScores.setupRunning()) return "<p class=\"k\">" + esc(t("LaBSE and MetricX-24 are being set up in the background; the plan says which are there when a run is filed.")) + "</p>";
         String missing = TranslationScores.missingSaid(Chrome.now());
-        if (missing.isEmpty() || !TranslationScores.setupAllowed()) return "";
+        if (missing.isEmpty() || !TranslationScores.setupAllowed() || !Helpers.localAllowed()) return "";   // nothing is set up on a machine that runs no heavy helper itself (local_helpers off)
         return "<form method=\"post\" action=\"/translate\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"scorers\"><span class=\"k\">" + esc(t("A checked translation scores every line with LaBSE and MetricX-24; {0} not set up yet.", missing))
                 + "</span> <button>" + t("Set them up now") + "</button></form>";
     }
 
+    /**
+     * The Translate fold's line on the comic helper: nothing where it is set up or where this machine may not run it (the helper is off,
+     * or the machine runs no heavy helper: {@link ComicHelper#barred}); else what a set-up fetches, in the three sentences every surface
+     * says, with the button that sets it up; or that a set-up runs. A form of its own, after the translate form.
+     */
+    static String comicLine() {
+        if (ComicHelper.setupRunning()) return "<p class=\"k\">" + esc(t("The comic helper is being set up in the background; a comic can be translated when it is done.")) + "</p>";
+        Chrome c = Chrome.now();
+        if (ComicHelper.readyOrQuiet() || !ComicHelper.barred(c).isEmpty()) return "";   // set up, or set up by an earlier release and short only of what the next comic fetches without a question
+        return "<form method=\"post\" action=\"/translate\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"comic-helper\"><span class=\"k\">" + esc(ComicHelper.questionSaid(c)) + "</span> <button>" + t("Set the comic helper up") + "</button></form>";
+    }
+
+    /** The fields of the Translate form that say how a file is translated: carried by the button that sets the comic helper up and translates the comic that was just sent. */
+    static final List<String> TRANSLATE_CHOICES = List.of("to", "from", "reads", "as", "quality", "model", "judge", "back", "notes_box", "notes", "direction", "collection", "comic");
+
+    /**
+     * A comic sent where the comic helper is not set up: what a set-up fetches, and one button that says yes to it and translates the
+     * comic. The file is kept under the library already; the button names it by its name there and carries the form's choices.
+     */
+    static String comicOffer(Path kept, Map<String, String> form) {
+        StringBuilder b = new StringBuilder("<form method=\"post\" action=\"/translate\" class=\"stack\"><input type=\"hidden\" name=\"op\" value=\"comic-go\"><input type=\"hidden\" name=\"kept\" value=\"").append(esc(kept.getFileName().toString())).append("\">");
+        for (String k : TRANSLATE_CHOICES) if (form.containsKey(k)) b.append("<input type=\"hidden\" name=\"").append(k).append("\" value=\"").append(esc(form.get(k))).append("\">");
+        return b.append("<span>").append(esc(ComicHelper.questionSaid(Chrome.now()))).append("</span> <button>").append(t("Set it up and translate the comic")).append("</button></form>").toString();
+    }
+
     static String translatePost(LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
         try {
+            if (form.containsKey(Uploads.REFUSED)) return "<p class=\"notice\">" + esc(form.get(Uploads.REFUSED)) + "</p>" + translateForm(store);   // a file larger than the form takes: nothing of it was kept
             String op = form.getOrDefault("op", "");
+            if (op.equals("comic-helper")) {
+                String r = ComicHelper.setupInBackground();
+                String said = !r.isEmpty() ? t("The comic helper is being set up in the background; a comic can be translated when it is done.") : ComicHelper.installed() ? t("The comic helper is set up.") : ComicHelper.barred(Chrome.now());
+                return "<p class=\"notice\">" + esc(said) + "</p>" + translateForm(store);
+            }
+            if (op.equals("comic-go")) {   // the yes to the set-up, for the comic sent a moment ago: named by its name under the library's own folder, never by a path
+                String name = form.getOrDefault("kept", "");
+                Path kept = name.isEmpty() || name.contains("/") || name.contains("\\") || name.startsWith(".") ? null : Translation.inbox(store).resolve(name);
+                if (kept == null || !Files.isRegularFile(kept)) return "<p class=\"notice\">" + esc(t("That file is no longer kept here; choose it again.")) + "</p>" + translateForm(store);
+                return translateFiled(store, patron, kept, name, form, true);
+            }
             if (op.equals("scorers")) { String r = TranslationScores.setupInBackground("asked from the Translate fold"); return "<p class=\"notice\">" + esc(r.isEmpty() ? t("Both scorers are set up.") : r) + "</p>" + translateForm(store); }
             if (op.equals("glossary-add")) { try { return "<p class=\"notice\">" + esc(Glossary.add(store, form.getOrDefault("term", ""), form.getOrDefault("lang", ""), form.getOrDefault("rendering", ""))) + "</p>" + translateForm(store); } catch (ProtocolError e) { return "<p class=\"notice\">" + esc(e.getMessage()) + "</p>" + translateForm(store); } }
             if (op.equals("glossary-remove")) { Glossary.remove(store, form.getOrDefault("term", ""), form.getOrDefault("lang", "")); return "<p class=\"notice\">" + esc(t("Removed from the glossary.")) + "</p>" + translateForm(store); }
             List<Uploads.Uploaded> files = Uploads.files(form, "file");
             if (files.isEmpty()) return "<p>" + t("Choose a file to translate.") + "</p>" + translateForm(store);
             String name = files.get(0).name();
-            String notes = form.containsKey("notes_box") ? (form.containsKey("notes") ? Translation.NOTES_END : Translation.NOTES_OFF) : form.getOrDefault("notes", "");   // the box as the person left it: ticked, end; unticked, off; no box on the form, the setting's
-            if (Translation.notes(notes) == null) return "<p class=\"notice\">" + esc(t(Translation.NOTES_SAID)) + "</p>" + translateForm(store);   // a post of a program's own with a word that is neither
-            Path kept = Translation.keepCopy(store, files.get(0).path(), name);
-            String to = form.getOrDefault("to", "ja"), as = form.getOrDefault("as", ""), quality = form.getOrDefault("quality", Translation.DEFAULT), collection = form.getOrDefault("collection", "").strip(), judge = form.getOrDefault("judge", "").strip(), model = form.getOrDefault("model", "").strip(), back = form.containsKey("back") ? "on" : "";
-            if (!Translation.anyModel()) return "<p class=\"notice\">" + esc(t(Translation.NO_MODEL)) + "</p>" + translateForm(store);
-            Translation.Plan plan;
-            try { plan = Translation.plan(store, kept, to, as, quality, Translation.configuredSeat()[1], model, judge); }
-            catch (Translation.Refused e) { return "<p class=\"notice\">" + esc(e.in(Chrome.now())) + "</p>" + translateForm(store); }
-            catch (IOException e) { return "<p class=\"notice\">" + esc(e.getMessage()) + "</p>" + translateForm(store); }
-            ObjectNode filed = Translation.args(kept, name, plan.to(), plan.as(), plan.quality(), null, collection, "web", judge, model, back, notes);
-            if (plan.reading() != null) filed.set("pdf_preflight", plan.reading().json());
-            String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron == null ? "" : patron.did(), filed);
-            String read = plan.readingSaid(Chrome.now());
-            return "<p><b>" + t("Filed as {0}.", "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a>") + "</b> " + (read.isEmpty() ? "" : esc(read) + " ") + esc(t("{0}: {1} units with words, {2} characters, written in {3}. Into {4} as {5}, {6}: {7}.", kept.getFileName().toString(), plan.units(), Chrome.now().number(plan.chars()), languageName(plan.from()), languageName(plan.to()), plan.as(), t(plan.quality()), plan.saidFor(Chrome.now())))
-                    + " " + esc(t("All four tiers: {0}.", plan.said(Chrome.now()))) + " " + esc(t(Translation.notesSaid(filed.path("notes").asText(Translation.NOTES_OFF), plan.quality()))) + " " + t("The run's page shows its progress and, when it is done, the file, its note and where both are on the shelves.") + "</p>" + translateForm(store);
+            return translateFiled(store, patron, Translation.keepCopy(store, files.get(0).path(), name), name, form, false);
         } finally { Uploads.drop(form); }
+    }
+
+    /**
+     * A file kept under the library planned and filed as a translation, with the form's choices; the notice it comes to, and the form
+     * again. {@code setup}: the person's yes to setting the comic helper up, which the job then does first.
+     */
+    static String translateFiled(LibraryStore store, Patrons.Patron patron, Path kept, String name, Map<String, String> form, boolean setup) throws IOException {
+        String notes = form.containsKey("notes_box") ? (form.containsKey("notes") ? Translation.NOTES_END : Translation.NOTES_OFF) : form.getOrDefault("notes", "");   // the box as the person left it: ticked, end; unticked, off; no box on the form, the setting's
+        if (Translation.notes(notes) == null) return "<p class=\"notice\">" + esc(t(Translation.NOTES_SAID)) + "</p>" + translateForm(store);   // a post of a program's own with a word that is neither
+        String comic = form.getOrDefault("comic", "").strip();
+        if (!comic.isEmpty() && !comic.equals("on") && !comic.equals("off")) comic = "";
+        String from = form.getOrDefault("from", "").strip();   // the language the person says the file is in; blank for what the program finds
+        String reads = ComicTranslation.readsWord(form.getOrDefault("reads", ""));   // the way they say a comic's pages are read; blank, or a word that is neither, for what the program finds
+        if (reads == null || reads.equals(ComicTranslation.READS_MANGA)) reads = "";
+        String to = form.getOrDefault("to", "ja"), as = form.getOrDefault("as", ""), quality = form.getOrDefault("quality", Translation.DEFAULT), collection = form.getOrDefault("collection", "").strip(), judge = form.getOrDefault("judge", "").strip(), model = form.getOrDefault("model", "").strip(), back = form.containsKey("back") ? "on" : "";
+        if (!Translation.anyModel()) return "<p class=\"notice\">" + esc(t(Translation.NO_MODEL)) + "</p>" + translateForm(store);
+        Translation.Plan plan;
+        try { plan = Translation.plan(store, kept, to, as, quality, Translation.configuredSeat()[1], model, judge, from, comic, reads).withDirection(Translation.direction(form.getOrDefault("direction", ""))); }
+        catch (Translation.Refused e) { return "<p class=\"notice\">" + esc(e.in(Chrome.now())) + "</p>" + translateForm(store); }
+        catch (IOException e) { return "<p class=\"notice\">" + esc(e.getMessage()) + "</p>" + translateForm(store); }
+        boolean isComic = plan.comic() != null;
+        // a comic where the helper is not set up: nothing is filed; the notice says what a set-up fetches and its button says yes and translates this comic
+        if (isComic && plan.comic().helper().equals(ComicTranslation.NEEDS) && !setup) return "<p class=\"notice\">" + esc(t("{0} is a comic, and it is kept here; it is not translated yet.", kept.getFileName().toString())) + "</p>" + comicOffer(kept, form) + translateForm(store);
+        ObjectNode filed = Translation.args(kept, name, plan, null, collection, "web", judge, model, back, notes, from);
+        if (isComic && setup && plan.comic().helper().equals(ComicTranslation.NEEDS)) filed.put("comic_setup", "yes");
+        if (plan.reading() != null) filed.set("pdf_preflight", plan.reading().json());
+        String id = new Jobs(store, j -> "").submit(Translation.JOB_KIND, patron == null ? "" : patron.did(), filed);
+        String who = TranslationWho.said(TranslationWho.facts(Translation.JOB_DRAFT.apply(filed)), Chrome.now(), false, !TranslationWho.planSaysScores(plan, Chrome.now()));   // who translates, who reads, where the scores are made: as the run's page says it, a hosted model's cost said in the plan above
+        String read = plan.readingSaid(Chrome.now());
+        Translation.Plan bare = plan.withDirection("");   // the direction is said once, at the end of the run's description
+        return "<p><b>" + t("Filed as {0}.", "<a href=\"/jobs/" + enc(id) + "\">" + esc(id) + "</a>") + "</b> " + (read.isEmpty() ? "" : esc(read) + " ") + esc(isComic ? t("{0}: {1}, {2}. Into {3} as {4}, {5}: {6}.", kept.getFileName().toString(), n(plan.comic().pages(), "a comic of {0} page", "a comic of {0} pages"), plan.comic().lettering(Chrome.now()), languageName(plan.to()), plan.as(), t(plan.quality()), bare.saidFor(Chrome.now()))
+                : t("{0}: {1} units with words, {2} characters, written in {3}. Into {4} as {5}, {6}: {7}.", kept.getFileName().toString(), plan.units(), Chrome.now().number(plan.chars()), languageName(plan.from()), languageName(plan.to()), plan.as(), t(plan.quality()), bare.saidFor(Chrome.now())))
+                + " " + esc(t("All four tiers: {0}.", bare.timesSaid(Chrome.now()))) + " " + esc(who) + " " + t("The run's page shows its progress and, when it is done, the file, its note and where both are on the shelves.") + "</p>" + translateForm(store);
     }
 
     /** The check's outcome in a sentence, for a page's notice and the commands. */
@@ -1896,15 +1966,35 @@ final class Pages {
         return b.toString();
     }
 
-    /** What the runs cost at each model's list prices, this month and in all; nothing when nothing was spent. */
+    /** Beside a row's dollars: the runs at prices the entry did not state, apart, with the tokens their servers counted; "" for none. */
+    static String unpricedCell(JsonNode row) {
+        String calls = row.has("calls_all") ? "<br><span class=\"k\">" + esc(t("of which outside a run: {0}", t("{0} this month, {1} in all", Spend.dollars(row.path("calls_month").asDouble()), Spend.dollars(row.path("calls_all").asDouble())))) + "</span>" : "";
+        if (row.path("unpriced_calls_all").asInt() > 0) calls += "<br><span class=\"k\">" + esc(t("outside a run, at prices the entry does not state: {0} tokens sent, {1} written this month",
+                Chrome.now().number(row.path("unpriced_calls_sent_month").asLong()), Chrome.now().number(row.path("unpriced_calls_written_month").asLong()))) + "</span>";
+        if (row.path("unpriced_runs_all").asInt() == 0) return calls;
+        return calls + "<br><span class=\"k\">" + esc(t("runs at prices the entry does not state: {0} this month ({1} tokens sent, {2} written), {3} in all", row.path("unpriced_runs_month").asInt(),
+                Chrome.now().number(row.path("unpriced_sent_month").asLong()), Chrome.now().number(row.path("unpriced_written_month").asLong()), row.path("unpriced_runs_all").asInt())) + "</span>";
+    }
+
+    /** What the model calls cost at each model's list prices, this month and in all, by host, named model and use; nothing when nothing was spent. */
     static String spendSection(LibraryStore store) throws IOException {
         StringBuilder b = new StringBuilder();
         ObjectNode sum = Spend.summary(store);
         if (!sum.path("hosts").isEmpty()) {
-            b.append("<h2>").append(t("Spend")).append("</h2><p class=\"k\">").append(t("What research runs cost at each model's list prices, this month ({0}) and in all: the library's arithmetic on the servers' token counts, not a bill.", esc(sum.path("month").asText()))).append("</p><table><tr><th>").append(t("host")).append("</th><th>").append(t("this month")).append("</th><th>").append(t("in all")).append("</th></tr>");
-        for (JsonNode row : sum.path("hosts")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append(" (").append(n(row.path("runs_month").asInt(), "{0} run", "{0} runs")).append(")</td><td>").append(Spend.dollars(row.path("all").asDouble())).append(" (").append(row.path("runs_all").asInt()).append(")</td></tr>");
+            b.append("<h2>").append(t("Spend")).append("</h2><p class=\"k\">").append(t("What the model calls cost at each model's list prices, this month ({0}) and in all: the library's arithmetic on the servers' token counts, not a bill.", esc(sum.path("month").asText()))).append("</p><table><tr><th>").append(t("host")).append("</th><th>").append(t("this month")).append("</th><th>").append(t("in all")).append("</th></tr>");
+        for (JsonNode row : sum.path("hosts")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append(" (").append(n(row.path("runs_month").asInt() - row.path("unpriced_runs_month").asInt(), "{0} run", "{0} runs")).append(")").append(unpricedCell(row)).append("</td><td>").append(Spend.dollars(row.path("all").asDouble())).append(" (").append(row.path("runs_all").asInt() - row.path("unpriced_runs_all").asInt()).append(")</td></tr>");
             b.append("</table><table><tr><th>").append(t("named model")).append("</th><th>").append(t("this month")).append("</th><th>").append(t("in all")).append("</th><th>").append(t("cap")).append("</th></tr>");
-            for (JsonNode row : sum.path("entries")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append("</td><td>").append(Spend.dollars(row.path("all").asDouble())).append("</td><td>").append(row.has("cap") ? Spend.dollars(row.path("cap").asDouble()) : "").append("</td></tr>");
+            for (JsonNode row : sum.path("entries")) b.append("<tr><td>").append(esc(row.path("name").asText())).append("</td><td>").append(Spend.dollars(row.path("month").asDouble())).append(unpricedCell(row)).append("</td><td>").append(Spend.dollars(row.path("all").asDouble())).append("</td><td>")
+                    .append(row.has("cap") ? Spend.dollars(row.path("cap").asDouble()) + (row.path("cap_counts").asBoolean(true) ? "" : esc(t(", which counts nothing until the entry has prices"))) : "").append("</td></tr>");
+            b.append("</table>");
+            // what the calls were for: the chat, the nightly work, research, translation, pictures, other work
+            b.append("<table><tr><th>").append(t("use")).append("</th><th>").append(t("this month")).append("</th><th>").append(t("in all")).append("</th></tr>");
+            for (JsonNode u : sum.path("uses")) {
+                boolean priced = u.path("priced").asBoolean(true);
+                b.append("<tr><td>").append(esc(Spend.useSaid(u.path("for").asText(), Chrome.now()))).append("</td><td>").append(priced ? Spend.dollars(u.path("month").asDouble()) : "")
+                        .append(u.has("unpriced_sent_month") ? (priced ? "<br>" : "") + "<span class=\"k\">" + esc(t("at prices the entry does not state: {0} tokens sent, {1} written this month", Chrome.now().number(u.path("unpriced_sent_month").asLong()), Chrome.now().number(u.path("unpriced_written_month").asLong()))) + "</span>" : "")
+                        .append("</td><td>").append(priced ? Spend.dollars(u.path("all").asDouble()) : "").append("</td></tr>");
+            }
             b.append("</table>");
         }
         return b.toString();
@@ -2207,7 +2297,9 @@ final class Pages {
         ObjectNode filedJob = new Jobs(store, x -> "").get(id);
         PdfReading.Preflight read = filedJob == null ? null : PdfReading.fromJson(filedJob.path("args").get("pdf_preflight"));   // a PDF's translation: what the reader found, as its plan said
         if (read != null) b.append("<p class=\"k\">").append(esc(PdfReading.said(read, Chrome.now()))).append("</p>");
-        if (j.hasNonNull("notes")) { ObjectNode raw = filedJob; b.append("<p class=\"k\">").append(esc(t(Translation.notesSaid(j.path("notes").asText(), raw == null ? "" : Translation.tierOf(raw.path("args")))))).append("</p>"); }   // a document's translation: where what its checks still doubt goes, as filed
+        String who = j.path("translation").isObject() ? TranslationWho.said(j.path("translation"), Chrome.now()) : "";   // a document's translation: who translates, who reads, where the scores are made, the tier, the notes, the direction
+        if (!who.isEmpty() && !j.path("result").asText("").contains(who)) b.append("<p>").append(esc(who)).append("</p>");   // once: a finished run's result says it
+        if (who.isEmpty() && j.hasNonNull("notes")) { ObjectNode raw = filedJob; b.append("<p class=\"k\">").append(esc(t(Translation.notesSaid(j.path("notes").asText(), raw == null ? "" : Translation.tierOf(raw.path("args")))))).append("</p>"); }   // a document's translation: where what its checks still doubt goes, as filed
         if (j.hasNonNull("resumed")) b.append("<p class=\"k\">").append(esc(RunProgress.resumed(j))).append("</p>");   // a restart or an update interrupted it: where it picked up
         if (live && j.path("state").asText().equals("running")) { RunProgress.View v = RunProgress.of(j, System.currentTimeMillis(), RunProgress.typicalSeconds(p, args(patron).path("patron"))); b.append("<p><b>").append(esc(v.stage())).append("</b> · ").append(t("{0} elapsed", esc(RunProgress.elapsed(v.elapsedSeconds())))).append(" · ").append(t("about {0}% done", v.percent())).append(" <progress max=\"100\" value=\"").append(v.percent()).append("\"></progress></p>"); }
         if (live && j.has("progress")) b.append("<p class=\"k\">").append(esc(progressLine(j.get("progress")))).append("</p>");
@@ -3601,7 +3693,7 @@ final class Pages {
                 case "video-recall" -> { return t("A picture in the videos: {0}", Acquisitions.compress(a.path("description").asText(""), 40)); }
                 case "crews" -> { return t("The nightly housekeeping"); }
                 case "translate" -> { return a.path("subject").asText("").isBlank() ? t("Translating the dossier") : t("Translating the dossier of {0}", Acquisitions.compress(a.path("subject").asText(), 40)); }
-                case Translation.JOB_KIND -> { return t("Translating {0} into {1}", Acquisitions.compress(a.path("name").asText(""), 40), ReadIn.name(a.path("to").asText(""))); }
+                case Translation.JOB_KIND -> { return t("Translating {0} into {1}", Acquisitions.compress(a.path("name").asText(""), 40), ReadIn.name(a.path("to").asText(""))) + " · " + TranslationWho.shortSaid(TranslationWho.facts(raw), Chrome.now()); }   // and who translates and reads, in a few words
                 case "merge" -> { return t("Merging the seeks"); }
                 case "family" -> { return t("Family history"); }
                 default -> { }

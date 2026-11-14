@@ -182,6 +182,7 @@ public final class Checkpoint implements AutoCloseable {
     }
 
     private void begin() throws IOException {
+        NotHolder.check(dir);
         Files.createDirectories(dir);
         out = Files.newBufferedWriter(dir.resolve(ARTIFACTS), StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         line("#nonce", M.getNodeFactory().textNode(Fence.nonce()));
@@ -241,6 +242,7 @@ public final class Checkpoint implements AutoCloseable {
 
     private void line(String key, JsonNode value) throws IOException {
         if (out == null) return;
+        NotHolder.check(dir);
         ObjectNode o = M.createObjectNode(); o.put("k", key); o.set("v", value);
         out.write(M.writeValueAsString(o));
         out.write('\n');

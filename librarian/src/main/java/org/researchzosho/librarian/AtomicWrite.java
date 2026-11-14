@@ -10,12 +10,14 @@ import java.nio.file.StandardCopyOption;
 
 /**
  * A file written beside itself and moved into place, so that a program stopped while writing it (the computer went off, the command was
- * interrupted) leaves the old file or the new one, never half of one.
+ * interrupted) leaves the old file or the new one, never half of one. Nothing is written into a library whose lease another process
+ * holds now ({@link NotHolder}).
  */
 public final class AtomicWrite {
     private AtomicWrite() { }
 
     public static void text(Path file, String text) throws IOException {
+        NotHolder.check(file);
         Path tmp = beside(file);
         try { Files.writeString(tmp, text, StandardCharsets.UTF_8); into(tmp, file); }
         finally { Files.deleteIfExists(tmp); }
@@ -23,6 +25,7 @@ public final class AtomicWrite {
 
     /** Each line ended as {@link Files#write(Path, Iterable, java.nio.charset.Charset, java.nio.file.OpenOption...)} ends it. */
     public static void lines(Path file, Iterable<String> lines) throws IOException {
+        NotHolder.check(file);
         Path tmp = beside(file);
         try { Files.write(tmp, lines, StandardCharsets.UTF_8); into(tmp, file); }
         finally { Files.deleteIfExists(tmp); }
@@ -30,6 +33,7 @@ public final class AtomicWrite {
 
     /** Bytes written whole or not at all: a file a page serves is never seen half written. */
     public static void bytes(Path file, byte[] bytes) throws IOException {
+        NotHolder.check(file);
         Path tmp = beside(file);
         try { Files.write(tmp, bytes); into(tmp, file); }
         finally { Files.deleteIfExists(tmp); }
@@ -37,6 +41,7 @@ public final class AtomicWrite {
 
     /** A copy that is whole or not there at all. */
     public static void copy(Path from, Path to) throws IOException {
+        NotHolder.check(to);
         Path tmp = beside(to);
         try { Files.copy(from, tmp, StandardCopyOption.REPLACE_EXISTING); into(tmp, to); }
         finally { Files.deleteIfExists(tmp); }

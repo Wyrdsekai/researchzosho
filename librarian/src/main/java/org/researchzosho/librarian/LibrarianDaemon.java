@@ -20,7 +20,10 @@ import java.util.Map;
 import java.util.Set;
 import java.nio.file.Files;
 import java.util.Locale;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.core.JacksonException;
 import java.io.InputStream;
@@ -194,7 +197,10 @@ public final class LibrarianDaemon {
         if (!named.isEmpty() && entry == null) throw new IllegalStateException("No model is named " + named + " any more. researchzosho models lists the names; ask again with one of them.");
         JOB_MODEL.set(entry == null ? model() : entry.model());
         JOB_ENTRY.set(entry == null ? ModelEntries.defaultEntry() : entry);
-        try { return dispatchNow(job, entry == null ? drive : entry.drive()); }
+        // the job's model calls outside its run's own count (the steps around it, a job with no run) go on the ledger, for what the job is for
+        try (SpendPurse paid = SpendPurse.open(store, SpendPurse.purposeOfJob(job.path("kind").asText()), job.path("job_id").asText(job.path("id").asText("")))) {
+            return dispatchNow(job, entry == null ? drive : entry.drive());
+        }
         finally { JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove(); }
     }
 
@@ -275,7 +281,8 @@ public final class LibrarianDaemon {
             case Translation.JOB_KIND -> {   // a document a person handed over, translated unit by unit and written out in a format, with its note; onto the shelves with the original
                 String jid = job.path("job_id").asText("");
                 try (Checkpoint cp = checkpoint(job, Translation.basis(job))) {   // unit by unit: a restart resumes it where it was
-                    return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid), cp);
+                    return Translation.runJob(store, job, d, model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid), cp,
+                            f -> { try { jobs.facts(jid, f); } catch (IOException ignored) { } });   // who did what, and what a hosted seat cost, on the job's record
                 } catch (RuntimeException e) {   // failed or stopped: a job that does not end done keeps nothing on the record of the checks' thresholds
                     try { TranslationScores.withdraw(store, jid); } catch (IOException ignored) { }
                     throw e;
@@ -582,6 +589,8 @@ public final class LibrarianDaemon {
         McpServer.trustProven(true);   // over /rpc the patron is the one this daemon proved by a key or a session, the keeper included
         LibrarianDaemon d = new LibrarianDaemon(store, s, driveUrl, model);
         d.lease = lease;
+        lease.whenTaken(d::anotherHolds);   // another process holds the library now: this one stops working on it, and ends
+        SpendPurse.outsideWork(store);   // a model call answered at once, outside a chat turn or a job, goes on this library's ledger as other work
         d.loopbackOnly = LocalName.loopbackOnly(s.getAddress());   // listening on the loopback only: it answers only to the loopback's names
         d.followVault();
         d.watchStalls();
@@ -648,12 +657,80 @@ public final class LibrarianDaemon {
     private Lease lease;
     /** The hook that writes why the service stopped, for the jobs it leaves running; a daemon stopped in the program (a test) takes it away. */
     private Thread stopping;
-    public void stop() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); if (lease != null) lease.close(); }
+    /**
+     * Stops the daemon; each piece once, however many times it is asked. A daemon that gave the library up to another process writes nothing
+     * as it stops: no reason for its jobs (the service's stop marker), no lease file of its own to remove.
+     */
+    public void stop() { if (!stopped.compareAndSet(false, true)) return; try { stopNow(); } finally { ended.countDown(); } }
+
+    private final AtomicBoolean stopped = new AtomicBoolean();
+    /** Released when the daemon has stopped, by {@link #stop()} or because another process holds the library. */
+    private final CountDownLatch ended = new CountDownLatch(1);
+
+    private void stopNow() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); SpendPurse.outsideWorkEnds(store); if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
         return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
     }
-    public void join() throws InterruptedException { Thread.currentThread().join(); }
+    /** Waits until the daemon has stopped: for a service, until another process holds the library (or for ever, until the process is ended). */
+    public void join() throws InterruptedException { ended.await(); }
+
+    /** Whether the daemon stopped within {@code ms}. */
+    boolean endedWithin(long ms) throws InterruptedException { return ended.await(ms, TimeUnit.MILLISECONDS); }
+
+    // ---- another process holds the library ----
+
+    /** The sentence said from the moment another live process is found holding the library's lease; null while this process holds it. */
+    private volatile String notHolder;
+    /** The one line the serve command ends with when it stopped because another process holds the library; null otherwise. */
+    private volatile String gaveUpLine;
+    /** How long the daemon gives its running jobs to end once another process holds the library, before it ends anyway; a test shortens it. */
+    static volatile long GIVE_UP_WAIT_MS = 30_000;
+    /** How long it answers reads at least before it ends, so the request that found the loss gets its answer; a test lengthens it. */
+    static volatile long GIVE_UP_LEAST_MS = 1_000;
+
+    /**
+     * Why this process does not hold the library's lease now, in the sentence {@code /healthz} and a refused write say; null when it holds
+     * it. The lease is looked at first: one that only ran out with nobody else holding it (a laptop that slept) is taken again here.
+     */
+    String notHolderWhy() {
+        if (notHolder != null) return notHolder;
+        if (lease == null) return null;
+        try { lease.check(); } catch (IOException ignored) { /* said below as the file that cannot be read */ }
+        if (notHolder != null) return notHolder;
+        String lost = lease.lost();
+        return lost == null ? null : "This process does not hold the library's lease: " + lost + ".";
+    }
+
+    /**
+     * Another live process holds the library's lease (this one was paused past it, or a second service took it after the lapse). From now
+     * this process writes nothing into the library ({@link NotHolder}): it takes no new job, asks its running ones to stop and does not
+     * write their end down, so their records stay running for that process or the next start to resume from their kept work, as after a
+     * service stop; it refuses every request that would write, with this sentence; and once its jobs have ended, within
+     * {@link #GIVE_UP_WAIT_MS}, it stops, and the serve command ends with {@link #gaveUpLine()} and a code that is not zero.
+     */
+    void anotherHolds(Lease.Holder h) {
+        synchronized (this) {
+            if (notHolder != null) return;
+            notHolder = "This process does not hold the library's lease: pid " + h.pid() + " on " + h.host() + " holds it (until " + h.expires() + ").";
+        }
+        NotHolder.giveUp(store.root(), notHolder);
+        jobs.giveUp(notHolder);
+        log.warn("{} It takes no new job, stops its running ones for that process or the next start to resume, refuses every write and ends.", notHolder);
+        if (crews != null) crews.interrupt();
+        if (stallWatch != null) stallWatch.interrupt();
+        gaveUpLine = "Stopped: another process holds this library's lease (pid " + h.pid() + " on " + h.host() + ", until " + h.expires() + "), and the jobs this one was running resume there or at the next start.";
+        Thread t = new Thread(() -> {
+            long now = System.currentTimeMillis(), until = now + GIVE_UP_WAIT_MS, earliest = now + GIVE_UP_LEAST_MS;
+            while ((!jobs.running().isEmpty() && System.currentTimeMillis() < until) || System.currentTimeMillis() < earliest) { try { Thread.sleep(50); } catch (InterruptedException e) { break; } }
+            stop();
+        }, "serve-gave-up");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** The line the serve command ends with when another process holds the library; null when this daemon was not stopped for that. */
+    public String gaveUpLine() { return notHolder == null ? null : gaveUpLine; }
 
     // ---- dispatch ----
 
@@ -712,10 +789,14 @@ public final class LibrarianDaemon {
         // on the loopback only, a request under another name came from a page elsewhere that pointed its own name here (LocalName)
         if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !Proxy.proxied(x) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
         if ("/healthz".equals(path)) { health(x, method); return; }   // a proxy's or a platform's check: no sign-in, no body
+        boolean reads = "GET".equals(method) || "HEAD".equals(method);
+        if (!reads && notHolder == null && lease != null) { try { lease.check(); } catch (IOException ignored) { } }   // a request that may write: is the library still this process's?
+        if (!reads && notHolder != null && Pages.isPage(path)) { refuse(x, notHolder); return; }   // a form writes: refused; the pages themselves are still read
         try {
-            byte[] bodyBytes = x.getRequestBody().readAllBytes();
             String contentType = x.getRequestHeaders().getFirst("Content-Type");
             boolean multipart = contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("multipart/form-data");
+            // a form with files posted to a page is read as it arrives, its files written straight to disk (Uploads.multipart); everything else is small and read whole
+            byte[] bodyBytes = multipart && Pages.isPage(path) ? new byte[0] : x.getRequestBody().readAllBytes();
             String bodyText = multipart ? "" : new String(bodyBytes, StandardCharsets.UTF_8);
             if (A2a.CARD.equals(path) || A2a.PATH.equals(path)) { a2a(x, path, method, bodyText); return; }   // the library as an agent for other agents
             if (path.startsWith("/static/") && "GET".equals(method)) { Pages.staticFile(x, path.substring("/static/".length())); return; }   // a file the program ships for its pages: no sign-in, as the icon
@@ -724,10 +805,22 @@ public final class LibrarianDaemon {
                 if (!OwnPage.allowed(x)) { OwnPage.refuse(x); return; }
                 // the library in a browser: HTML in, form fields (not JSON) in, the reader proved by the cookie; a file posted with a form is written to a folder of its own
                 Map<String, String> form;
+                String refused = null;
                 if (multipart) {
-                    if (bodyBytes.length > Uploads.MAX) throw ProtocolError.invalidArgs("The file is larger than the page takes, 64 MB. Add it at the command line on this machine instead.");
-                    form = Uploads.multipart(bodyBytes, contentType, Files.createTempDirectory(Uploads.DIR));
+                    // the Translate form takes a comic's volume, several hundred megabytes (one setting says how much); every other page what it took before
+                    boolean translate = path.equals("/translate");
+                    long limit = translate ? Uploads.translateLimit() : Uploads.MAX;
+                    String over = translate ? Uploads.translateOverSaid() : "The file is larger than the page takes, 64 MB. Add it at the command line on this machine instead.";
+                    try {
+                        if (Uploads.declared(x.getRequestHeaders().getFirst("Content-Length")) > limit) { Uploads.drain(x.getRequestBody()); throw ProtocolError.invalidArgs(over); }   // said by the post itself: refused before a byte is kept
+                        form = Uploads.multipart(x.getRequestBody(), contentType, Files.createTempDirectory(Uploads.DIR), limit, over);
+                    } catch (ProtocolError e) {
+                        if (!translate) throw e;   // every other page answers as it did
+                        form = new LinkedHashMap<>(); refused = e.getMessage();   // the Translate page says it above its form, as it says its other refusals
+                    }
                 } else form = Pages.form(bodyText, contentType);
+                if (form.containsKey(Uploads.REFUSED)) { form = new LinkedHashMap<>(form); form.remove(Uploads.REFUSED); }   // only this server says a post was refused
+                if (refused != null) form.put(Uploads.REFUSED, refused);
                 x.setAttribute(BODY, bodyText);   // the passkey calls post JSON, not a form
                 Patrons.Patron who;
                 try { who = patron(x, M.createObjectNode()); }
@@ -766,7 +859,8 @@ public final class LibrarianDaemon {
                 }
                 ObjectNode env = McpServer.envelopeFor(req, store);
                 if (env == null) { x.sendResponseHeaders(202, -1); x.close(); return; }
-                reply(x, 200, env);
+                String gaveUp = notHolder;   // a tool that would write, refused because another process holds the library: 503, as over the other routes
+                reply(x, gaveUp != null && env.path("error").path("message").asText("").contains(gaveUp) ? 503 : 200, env);
                 return;
             }
             if (("/favicon.ico".equals(path) || "/favicon.png".equals(path)) && "GET".equals(method)) {
@@ -836,6 +930,8 @@ public final class LibrarianDaemon {
             ObjectNode body = error(e.code, e.getMessage());
             if (e.extra != null) ((ObjectNode) body.get("error")).setAll(e.extra.deepCopy());   // a confirm's helplines, beside the message
             reply(x, status(e.code), body);
+        } catch (NotHolder.Refused e) {
+            reply(x, 503, error("unavailable", e.getMessage()));   // a write into a library another process holds now
         } catch (JacksonException e) {
             reply(x, 400, error("invalid_args", "The request body is not JSON."));
         } catch (Declined d) {
@@ -876,7 +972,8 @@ public final class LibrarianDaemon {
 
     /**
      * GET /healthz: 200 with the version and the library's id and name when the library opens and this daemon holds its lease, 503 with
-     * the reason when the library cannot be read. No sign-in: a proxy or a platform asks it to know whether to send people here.
+     * the reason when the library cannot be read or the lease is another process's, or lapsed (this one was paused past it and another
+     * took the library). No sign-in: a proxy or a platform asks it to know whether to send people here.
      */
     private void health(HttpExchange x, String method) throws IOException {
         if (!"GET".equals(method)) { x.getResponseHeaders().set("Allow", "GET"); x.sendResponseHeaders(405, -1); x.close(); return; }
@@ -884,6 +981,12 @@ public final class LibrarianDaemon {
         o.put("version", Version.string());
         try {
             LibraryStore.Identity id = store.identity();
+            String why = notHolderWhy();
+            if (why != null) {   // a node that does not hold the library's lease does not take people
+                o.put("ok", false); o.put("library_id", id.id()); o.put("why", why);
+                reply(x, 503, o);
+                return;
+            }
             o.put("ok", true); o.put("library_id", id.id()); o.put("library_name", id.name());
             reply(x, 200, o);
         } catch (IOException | RuntimeException e) {
@@ -982,6 +1085,14 @@ public final class LibrarianDaemon {
             case "budget_exceeded" -> 429;
             default -> 503;
         };
+    }
+
+    /** A request that would write, refused because another process holds the library: 503 and the sentence, in plain text. */
+    private static void refuse(HttpExchange x, String why) throws IOException {
+        byte[] b = (why + "\n").getBytes(StandardCharsets.UTF_8);
+        x.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+        x.sendResponseHeaders(503, b.length);
+        try (OutputStream os = x.getResponseBody()) { os.write(b); }
     }
 
     private static ObjectNode error(String code, String message) {

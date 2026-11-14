@@ -38,6 +38,8 @@ final class HelpersRemote {
 
     /** The first release that knows {@code helpers install}. */
     static final String KNOWS_INSTALL = "0.7.4";
+    /** The first release whose {@code helpers install} knows {@code --no-cpu-fallback} and {@code --cpu-fallback}: an older program there would refuse the flag. */
+    static final String KNOWS_FALLBACK = "0.7.5";
     /** The program there is found on the PATH its installer uses, also from a shell that read no profile. */
     static final String PATH_THERE = "PATH=\"$HOME/.local/bin:$PATH\"; export PATH; ";
     static final String INSTALLER = "https://researchzosho.org/install";
@@ -91,8 +93,9 @@ final class HelpersRemote {
     static String hookVersion() { String v = ENV.apply("RESEARCHZOSHO_VERSION"); return v != null && v.matches("\\d+\\.\\d+\\.\\d+") ? v : null; }
 
     /** The options of {@code helpers install --on}: what the install there takes, and whether to ask. */
-    record Options(String target, List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, boolean separate, boolean move) {
-        Options(String target, List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu) { this(target, only, onlyGiven, yes, gpu, cpu, false, false); }
+    record Options(String target, List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, boolean separate, boolean move, Boolean cpuFallback) {
+        Options(String target, List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu) { this(target, only, onlyGiven, yes, gpu, cpu, false, false, null); }
+        Options(String target, List<Helper> only, boolean onlyGiven, boolean yes, String gpu, boolean cpu, boolean separate, boolean move) { this(target, only, onlyGiven, yes, gpu, cpu, separate, move, null); }
     }
 
     /** {@code helpers install --on <target>}: the steps as the class says; the exit code. */
@@ -107,13 +110,14 @@ final class HelpersRemote {
         ModelEntries.Entry main = ModelEntries.defaultEntry();
         String mainHost = Helpers.hostOf(main.drive());
         if (!main.hosted() && mainHost != null && (mainHost.equalsIgnoreCase(host) || mainHost.equalsIgnoreCase(target.replaceFirst("^.*@", "")))) beside = portOf(main.drive());
+        String needs = o.cpuFallback() == null ? KNOWS_INSTALL : KNOWS_FALLBACK;   // the release the program there has to be, by what is asked of it
         // a. what, and how big, and the one question
         List<String> what = new ArrayList<>();
         for (Helper h : o.only()) if (HelpersInstall.SET_UP.contains(h)) what.add(h.said + " (" + HelpersInstall.size(h, !o.cpu()) + ")");
         out.println("On " + target + ": " + (what.isEmpty() ? "" : "what is missing of " + String.join("; ", what) + "; ")
                 + "the embeddings server and speech-to-text when they run there; served with a secret " + (o.separate() ? "as a set of its own, on a port of its own from " + (Helpers.PORT + 1) + " (or the set already on that card)," : "on port " + Helpers.PORT) + " by a user service"
                 + (o.cpu() ? ", on the processor" : o.gpu() != null ? ", on card " + o.gpu() : beside > 0 ? ", on the card of the model server at port " + beside + " there" : "")
-                + ". ResearchZosho itself is installed there first when it is missing (the published installer), or updated when it is older than " + KNOWS_INSTALL + ".");
+                + ". ResearchZosho itself is installed there first when it is missing (the published installer), or updated when it is older than " + needs + ".");
         if (!o.yes()) {
             out.print("Set them up on " + target + " now? [y/N] ");
             out.flush();
@@ -130,22 +134,22 @@ final class HelpersRemote {
             Ran r = SSH.run(ssh(target, PATH_THERE + "curl -fsSL " + INSTALLER + " | " + hooks() + "sh"), line -> out.println("  " + target + ": " + line));
             if (r.code() == 255) return cannotLogIn(target, host, r.out(), out);
             if (r.code() != 0) { out.println("The installer did not finish on " + target + " (exit " + r.code() + "); its lines are above."); return 1; }
-        } else if (Version.compare(have, KNOWS_INSTALL) < 0) {
-            out.println(target + " has ResearchZosho " + have + ", older than " + KNOWS_INSTALL + ": updating it there (researchzosho update now).");
+        } else if (Version.compare(have, needs) < 0) {
+            out.println(target + " has ResearchZosho " + have + ", older than " + needs + ": updating it there (researchzosho update now).");
             String ver = hookVersion();
             Ran r = SSH.run(ssh(target, PATH_THERE + hooks() + "researchzosho update now" + (ver == null ? "" : " " + ver)), line -> out.println("  " + target + ": " + line));
             if (r.code() == 255) return cannotLogIn(target, host, r.out(), out);
             if (r.code() != 0) { out.println("The update did not finish on " + target + " (exit " + r.code() + "); its lines are above."); return 1; }
         } else out.println(target + " has ResearchZosho " + have + ".");
-        if (have == null || Version.compare(have, KNOWS_INSTALL) < 0) {
+        if (have == null || Version.compare(have, needs) < 0) {
             Ran again = SSH.run(ssh(target, PATH_THERE + "researchzosho --version"), null);
             String now = versionIn(again.out());
-            if (now == null || Version.compare(now, KNOWS_INSTALL) < 0) { out.println("ResearchZosho on " + target + " is still " + (now == null ? "not there" : now) + ", so the helpers cannot be set up there from here."); return 1; }
+            if (now == null || Version.compare(now, needs) < 0) { out.println("ResearchZosho on " + target + " is still " + (now == null ? "not there" : now) + ", so the helpers cannot be set up there from here."); return 1; }
             out.println(target + " has ResearchZosho " + now + " now.");
         }
         // c. the install there, its lines passed through
         String select = (o.cpu() ? " --cpu" : o.gpu() != null ? " --gpu " + o.gpu() : "") + (beside > 0 && !o.cpu() && o.gpu() == null ? " --beside-port " + beside : "") + (o.separate() ? " --separate" : "");
-        String flags = " --yes" + select + (o.move() ? " --move" : "") + (o.onlyGiven() ? " --only " + HelpersCli.flagNames(o.only()) : "");
+        String flags = " --yes" + select + (o.move() ? " --move" : "") + (o.cpuFallback() == null ? "" : o.cpuFallback() ? " --cpu-fallback" : " --no-cpu-fallback") + (o.onlyGiven() ? " --only " + HelpersCli.flagNames(o.only()) : "");
         out.println("Setting the helpers up on " + target + " (researchzosho helpers install" + flags + "):");
         Ran r = SSH.run(ssh(target, PATH_THERE + "researchzosho helpers install" + flags), line -> out.println("  " + target + ": " + hidden(line)));
         if (r.code() == 255) return cannotLogIn(target, host, r.out(), out);

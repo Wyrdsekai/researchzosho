@@ -11,6 +11,9 @@ With --serve PORT it loads the model once and answers over HTTP on 127.0.0.1 (--
 time: GET /health gives {"ready": true, "model": ..., "device": ...}; POST /score with {"pairs": [{"source": ..., "hypothesis":
 ...}, ...]} gives {"scores": [7.3, null, ...]}, null for a pair it could not score. The library's own front (researchzosho helpers
 serve) stands before it and asks for the secret; this server answers whoever reaches it.
+
+With --no-cpu-fallback, a card with no room for the model (or a torch that sees no card) is said in one line,
+{"ready": false, "not_loaded": "no room", "free_gb": 0.4}, and the process ends with 3: it never scores on the processor.
 """
 import argparse
 import json
@@ -27,6 +30,7 @@ def main():
     ap.add_argument("--device", default=None, help="cuda or cpu; by default cuda when it is there and has room, else cpu")
     ap.add_argument("--serve", type=int, default=0, help="answer over HTTP on this port instead of reading stdin")
     ap.add_argument("--bind", default="127.0.0.1", help="the address the server listens on")
+    ap.add_argument("--no-cpu-fallback", action="store_true", help="when the card has no room for the model, or torch sees no card, say so and end, never scoring on the processor")
     args = ap.parse_args()
     import torch
     from transformers import AutoTokenizer, MT5ForConditionalGeneration
@@ -38,7 +42,17 @@ def main():
             # the authors read the logit of token 250089 at the one decoder position, clipped to the score's range
             return out.logits[:, 0, 250089].clamp(0, 25)
 
+    def not_loaded(why, free_gb=None):
+        """The model is not loaded, and why, in one line; the process ends with 3, so the one who started it knows it was not a crash."""
+        line = {"ready": False, "not_loaded": why}
+        if free_gb is not None:
+            line["free_gb"] = round(free_gb, 1)
+        print(json.dumps(line), flush=True)
+        sys.exit(3)
+
     device = args.device or ("cuda" if torch.cuda.is_available() else "cpu")
+    if args.no_cpu_fallback and device == "cpu" and args.device != "cpu":
+        not_loaded("no card")   # a processor build of torch, or no card given: never the processor's cores
     tok = AutoTokenizer.from_pretrained(args.tokenizer, cache_dir=args.cache, legacy=False)
     model = MT5ForRegression.from_pretrained(args.model, cache_dir=args.cache, dtype=torch.float32 if device == "cpu" else torch.bfloat16)
     try:
@@ -46,6 +60,14 @@ def main():
     except (torch.cuda.OutOfMemoryError, RuntimeError) as e:  # a shared card with no room: the CPU scores, slower (seen live, 2026-11-07)
         if device == "cpu":
             raise
+        if args.no_cpu_fallback:  # the processor is never used: what the card has free, said, and the process ends
+            del model
+            torch.cuda.empty_cache()
+            try:
+                free = torch.cuda.mem_get_info(0)[0] / 2**30
+            except Exception:
+                free = None
+            not_loaded("no room", free)
         print(json.dumps({"note": "the GPU had no room (" + str(e)[:120] + "); scoring on the CPU"}), file=sys.stderr, flush=True)
         device = "cpu"
         model = model.to("cpu").float()   # off the card first: converting on the card would ask it for the room it has not got

@@ -518,7 +518,8 @@ public class Librarian {
      * the words are a message like any other.
      */
     public String say(String words) throws IOException {
-        try (Closeable turning = session.turn()) { return sayMarked(words); }   // marked for its length: a conversation is not deleted while its reply is being written
+        // marked for its length: a conversation is not deleted while its reply is being written; its model calls go on the ledger as the chat's
+        try (Closeable turning = session.turn(); SpendPurse paid = SpendPurse.open(store, SpendPurse.CHAT, "")) { return sayMarked(words); }
     }
 
     private String sayMarked(String words) throws IOException {
@@ -877,7 +878,7 @@ public class Librarian {
             Map.entry("library_sharpen", "Turn a vague question into precise ones the shelves and the web can answer."),
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
             Map.entry("library_help", "Questions about ResearchZosho itself: what it is, which version runs, what it can and cannot do, how to do something in it, why something does not work. From the program's own documentation and its live state; the question in English words."),
-            Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists; notes=end when the person asks for what the checks doubt (the notes) at the end of the document, notes=off when they ask for no notes, and no notes argument when they say neither. The answer is the plan with the time and any cost; the library says under your reply where the doubts go; the run's result has the file."),
+            Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; a comic (a CBZ, a CBR or a ZIP of page pictures) is translated the same way, its pages read and the translation set into the balloons: comic=on when the person says a PDF is a manga, a manhwa, a manhua, a webtoon, a comic, a graphic novel or a bande dessinée, comic=off when they say a file is a document; from = the language the document is written in or the comic is lettered in, only when the person names it (\"from Korean\"), else the library finds it; reads = right-to-left when the person says the comic reads from the right or calls a comic that is not Japanese a manga, left-to-right when they say it reads from the left, and no reads argument when they say neither; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists; direction = the person's own words for the voice, the tone or the wording when they give one (\"as if you were Shakespeare\", \"it is a comedy, keep it whimsical\", \"mind the puns\"), copied as they wrote them, never your summary, and left out when they give none: a run with one waits for their yes to the question the library shows; notes=end when the person asks for what the checks doubt (the notes) at the end of the document, notes=off when they ask for no notes, and no notes argument when they say neither. The answer is the plan with the time and any cost; the library says under your reply where the doubts go; the run's result has the file."),
             Map.entry("library_images", "Pictures: op=find words=… returns candidates from the web (each with its page, title, engine and a small copy); keep=true puts them on the shelves (/images/<file>); criteria=… has the seeing model judge each (yes, no, unsure, one sentence why). op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
@@ -1067,9 +1068,19 @@ public class Librarian {
     private final List<String> translationsThisTurn = new ArrayList<>();
 
     /** A translation the model filed: where its doubts go is taken from the run as filed and said by the library under the reply, never left to the model's words. */
-    private ObjectNode translated(ObjectNode r) {
+    private ObjectNode translated(ObjectNode r) throws IOException {
         if (!r.hasNonNull("job_id")) return r;   // the glossary, or nothing filed
-        translationsThisTurn.add(t("Translation {0}:", r.path("job_id").asText()) + " " + TranslateTurn.notesFiled(r.path("notes").asText(Translation.NOTES_OFF), r.path("quality").asText("")));
+        String id = r.path("job_id").asText();
+        // who translates, who reads, where the scores are made, as the job keeps it; and a direction the model read from the words, shown in a question the run waits on
+        String who = r.path("translation").isObject() ? TranslationWho.seatsSaid(r.path("translation"), Chrome.now(), !r.path("waits").asBoolean(false)) : "";   // a hosted model's cost said once: in the question when one follows
+        String waits = "";
+        if (r.path("waits").asBoolean(false)) {
+            session.offer(id, CHOICE, r.path("question").asText());
+            session.watch(id);
+            waits = r.path("question").asText();   // the plan's estimate, with the direction as the chat's model read it
+        }
+        translationsThisTurn.add(t("Translation {0}:", id) + (who.isEmpty() ? "" : " " + who) + " " + TranslateTurn.notesFiled(r.path("notes").asText(Translation.NOTES_OFF), r.path("quality").asText("")) + (waits.isEmpty() ? "" : " " + waits));
+        if (!waits.isEmpty()) r.put("waits_said", "The run waits for the person's yes to the question the library shows under your reply, with the direction you read from their words; say so in a sentence.");
         r.put("notes_said", "The library says under your reply where the passages the checks still doubt are listed.");
         return r;
     }
@@ -1380,7 +1391,7 @@ public class Librarian {
                 Path m = file.resolveSibling(file.getFileName().toString() + ".translate");
                 if (!Files.exists(m)) return null;
                 JsonNode n = M.readTree(Files.readString(m));
-                return new TranslateTurn.Ask(n.path("what").asText(), n.path("lang").asText(), n.path("as").asText(), n.path("quality").asText(), n.path("translator").asText(), n.path("judge").asText(), n.path("notes").asText(""));
+                return new TranslateTurn.Ask(n.path("what").asText(), n.path("lang").asText(), n.path("as").asText(), n.path("quality").asText(), n.path("translator").asText(), n.path("judge").asText(), n.path("notes").asText(""), n.path("from").asText(""), n.path("direction").asText(""));
             } catch (IOException e) { return null; }
         }
         public void translateAsk(TranslateTurn.Ask ask) throws IOException {
@@ -1389,7 +1400,7 @@ public class Librarian {
             if (ask == null) { Files.deleteIfExists(m); return; }
             Files.createDirectories(m.getParent());
             ObjectNode n = M.createObjectNode();
-            n.put("what", ask.what()).put("lang", ask.lang()).put("as", ask.as()).put("quality", ask.quality()).put("translator", ask.translator()).put("judge", ask.judge()).put("notes", ask.notes());
+            n.put("what", ask.what()).put("lang", ask.lang()).put("as", ask.as()).put("quality", ask.quality()).put("translator", ask.translator()).put("judge", ask.judge()).put("notes", ask.notes()).put("from", ask.from()).put("direction", ask.direction());
             Files.writeString(m, n.toString());
         }
 
@@ -1625,6 +1636,14 @@ public class Librarian {
         /** The runs the person has not yet been told are done. */
         public List<String> watched() { List<String> out = new ArrayList<>(); for (String l : runLines()) if (!l.isBlank() && !l.startsWith("!")) out.add(l.strip()); return out; }
 
+        /** A translation this conversation started, ended: how, who translated and read it (a hosted model's cost), and where the file is. */
+        static String translationTold(String jobId, RunProgress.View v, String error) {
+            String who = TranslationWho.seatsSaid(v.translation(), Chrome.now());
+            if (v.state().equals("done")) return t("The translation {0} is done after {1}.", jobId, RunProgress.elapsed(v.elapsedSeconds())) + " " + who + " " + t("The run's page has the file, its note and where both are on the shelves.");
+            if (!error.isEmpty()) return t("The translation {0} ended as {1} after {2}.", jobId, t(v.state()), RunProgress.elapsed(v.elapsedSeconds())) + " " + who + " " + t("It failed with: \"{0}\".", error) + " " + t("Say \"what happened\" and I will look.");
+            return t("The translation {0} ended as {1} after {2}.", jobId, t(v.state()), RunProgress.elapsed(v.elapsedSeconds())) + " " + who;
+        }
+
         /** What the notice for a filed report ends with: the chat is short asks around a research run, and a new conversation at this point keeps it so (the keeper, 2026-11-08). */
         static final String NEXT_CONVERSATION = "For the next question, a new conversation keeps things short: the New conversation button, or just ask — a day's quiet starts one on its own.";
 
@@ -1636,7 +1655,8 @@ public class Librarian {
         public String told(String jobId, RunProgress.View v) throws IOException {
             String error = v.state().equals("failed") ? ModelsTurn.firstLine(v.result()) : "";
             ModelEntries.Entry ranOn = error.isEmpty() ? null : ModelsTurn.ranOn(v.model(), v.drive());
-            String notice = v.state().equals("done") && v.report().isEmpty() && !v.declined().isEmpty()
+            String notice = v.translates() ? translationTold(jobId, v, error)   // a document's translation: who did what in it, and what a hosted model cost
+                    : v.state().equals("done") && v.report().isEmpty() && !v.declined().isEmpty()
                     ? t("Research run {0} ended after {1}.", jobId, RunProgress.elapsed(v.elapsedSeconds())) + " " + v.declined()   // the model declined it: nothing to show
                     : v.state().equals("done")
                     ? t("Research run {0} is done after {1}.", jobId, RunProgress.elapsed(v.elapsedSeconds())) + (v.report().isEmpty() ? "" : " " + t("Its report is [{0}].", v.report())) + " " + t("Say \"show it\" to read the answer.")
@@ -1647,7 +1667,7 @@ public class Librarian {
                       + (ranOn != null ? t("It ran on {0} ({1} at {2}) and failed with: \"{3}\".", ranOn.name(), ranOn.model(), ranOn.drive(), error) : v.drive().isEmpty() ? t("It failed with: \"{0}\".", error) : t("It ran on the model server at {0} and failed with: \"{1}\".", v.drive(), error))
                       + " " + t("Say \"what happened\" and I will look.")
                     : t("Research run {0} ended as {1} after {2}. Say \"what happened\" and I will look.", jobId, t(v.state()), RunProgress.elapsed(v.elapsedSeconds()));
-            ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", notice);
+            ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", notice); a.put("by", "library");   // the library's own line, labelled as its other lines are, never as the model's words
             if (gone()) return notice;   // its conversation was deleted while this object held it: announced nowhere, and nothing written back
             append(a);
             List<String> lines = new ArrayList<>();

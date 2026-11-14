@@ -105,10 +105,36 @@ public final class TranslationScores {
         public void abort() { if (labse != null) labse.abort(); if (metricx != null) metricx.abort(); }
     }
 
+    /**
+     * Where LaBSE or MetricX-24 scores for this library, for {@code translate scorers status} (0.7.5), the two lines reading as a pair:
+     * off; at the helpers address, with the front's own line ("scores at http://homebox:8217/metricx (google/… on cuda (card 2, …))"),
+     * or that it does not answer there, or is not loaded there and why; on this machine, set up or not and how; or left out on a machine
+     * that runs none, and why.
+     */
+    static String whereSaid(Helpers.Helper h) {
+        if (off(h)) return "off (" + offSaid(h) + ")";
+        String at = Helpers.address(h);
+        if (at != null) {
+            String line = null, base = Helpers.base();
+            if (base != null && at.equals(base + "/" + h.path)) { Map<String, String> serves = Helpers.SERVES.apply(base); if (serves != null) line = serves.get(h.path); }
+            if (line != null && line.startsWith("not loaded")) return "scores at " + at + ", which has it " + line;
+            String health = Helpers.health(h, at);
+            if (health == null) { String why = Helpers.unavailable(at); return "scores at " + at + (why != null ? ", which has it " + why : ", which does not answer now"); }
+            String said = line != null && !line.isBlank() && !line.equals("answering") ? line : health;
+            return "scores at " + at + (said.isBlank() ? "" : " (" + said + ")");
+        }
+        if (!Helpers.localAllowed()) return "left out: it is not run on this machine (local_helpers off) and no address names one";
+        if (h == Helpers.Helper.LABSE) {
+            String s = labseSetupSaid(), local = labseAddress(false);
+            return !s.isEmpty() ? s : local != null ? "scores on this machine, answering at " + local : "scores on this machine; the server is not answering now, and a checked run starts it";
+        }
+        return metricxInstalled() ? "scores on this machine, installed in " + metricxDir() : METRICX_MISSING_SAID;
+    }
+
     /** Why a scorer did not run, for the note: off, not run on this machine with no address naming one, named and not answering, or not set up here. */
     static String missing(Helpers.Helper h) {
         String name = h == Helpers.Helper.LABSE ? "LaBSE" : "MetricX-24";
-        if (Helpers.off(h)) return name + " is off (" + h.setting + "=off)";
+        if (off(h)) return name + " is off (" + offSaid(h) + ")";
         String at = Helpers.address(h);
         if (at != null) return name + " at " + at + " did not answer";
         if (!Helpers.localAllowed()) return name + " is not run on this machine (local_helpers off) and no address names one";
@@ -119,6 +145,7 @@ public final class TranslationScores {
     static volatile Supplier<Scorers> SCORERS = TranslationScores::configured;
 
     static Scorers configured() {
+        if (off()) return new Scorers(null, null);   // left out, both: nothing is asked, here or anywhere
         String served = Helpers.off(Helpers.Helper.LABSE) ? null : Helpers.address(Helpers.Helper.LABSE);
         Scorer labse;
         if (served != null) labse = new Served(Helpers.Helper.LABSE, served);   // named on another machine: waits for it a bounded time when it does not answer
@@ -128,7 +155,7 @@ public final class TranslationScores {
 
     /** MetricX-24 for a run: off; else served at its address; else this machine's own process when it may run here and is installed; else none. */
     static Scorer metricxScorer() {
-        if (Helpers.off(Helpers.Helper.METRICX)) return null;
+        if (off(Helpers.Helper.METRICX)) return null;
         String at = Helpers.address(Helpers.Helper.METRICX);
         if (at != null) return new Served(Helpers.Helper.METRICX, at);
         return Helpers.localAllowed() && metricxInstalled() ? metricx() : null;
@@ -140,7 +167,7 @@ public final class TranslationScores {
 
     /** The LaBSE server's address when one answers: {@code RESEARCHZOSHO_LABSE} (an address, or off), else the container, started when {@code start} and Docker is there; null when none. */
     public static String labseAddress(boolean start) {
-        if (Helpers.off(Helpers.Helper.LABSE)) return null;
+        if (off(Helpers.Helper.LABSE)) return null;   // a LaBSE that answers on this machine's port is not used either
         String at = Helpers.address(Helpers.Helper.LABSE);
         if (at != null) return Embed.answers(at) ? at : null;
         if (!Helpers.localAllowed()) return null;   // this machine runs no heavy helper: none is started or used here
@@ -180,6 +207,7 @@ public final class TranslationScores {
 
     /** What setting LaBSE up would take, for a plan that says it first; "" when it is already there. */
     public static String labseSetupSaid() {
+        if (off()) return "";   // the plan's own clause says both are off
         if (Helpers.off(Helpers.Helper.LABSE)) return LABSE_OFF_SAID;
         if (Helpers.address(Helpers.Helper.LABSE) != null || !Helpers.localAllowed() || LABSE_UP.getAsBoolean()) return "";   // elsewhere, or not here: the plan's own clause says where
         if (!labseState().equals("absent")) return LABSE_STOPPED_SAID;
@@ -366,7 +394,11 @@ public final class TranslationScores {
             catch (ExecutionException e) { throw new IOException(e.getCause() == null ? "the call failed" : e.getCause().getClass().getSimpleName() + (e.getCause().getMessage() == null ? "" : ": " + e.getCause().getMessage())); }
             finally { call = null; }
             if (r.statusCode() == 401) throw new Refused();
-            if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode());
+            if (r.statusCode() != 200) {   // the front's own reason when it gives one ("not loaded: no room on card 3 (0.4 GB free)"), for the note
+                String why = "";
+                try { why = M.readTree(r.body() == null || r.body().isBlank() ? "{}" : r.body()).path("error").asText(""); } catch (IOException ignored) { }
+                throw new IOException(why.isBlank() ? "HTTP " + r.statusCode() : why);
+            }
             JsonNode j = M.readTree(r.body());
             List<Double> out = new ArrayList<>();
             if (helper == Helpers.Helper.METRICX) { for (JsonNode v : j.path("scores")) out.add(v.isNumber() ? v.asDouble() : null); return out; }
@@ -417,7 +449,23 @@ public final class TranslationScores {
     // ---- the two scorers set up where they are missing: by setup, by the daemon when it starts (so after an update), from the Translate fold ----
 
     /** {@code RESEARCHZOSHO_SCORERS=off} leaves the scorers out; anything else, the default, sets them up where they are missing. */
-    public static boolean setupAllowed() { return !Config.get("RESEARCHZOSHO_SCORERS", "").strip().equalsIgnoreCase("off"); }
+    public static boolean setupAllowed() { return !off(); }
+
+    /** The setting that leaves both scorers out, whatever else is set. */
+    static final String SCORERS_NAME = "RESEARCHZOSHO_SCORERS";
+
+    /**
+     * Whether the scorers are left out, both: {@code RESEARCHZOSHO_SCORERS=off}. Then no scorer runs, here or anywhere (a LaBSE that answers
+     * on this machine's port, a helpers address, a helpers server on the model's machine), none is looked for, none is set up, and a
+     * plan says so.
+     */
+    public static boolean off() { return Config.get(SCORERS_NAME, "").strip().equalsIgnoreCase("off"); }
+
+    /** Whether this scorer is left out: both are ({@link #off()}), or its own setting is off. */
+    static boolean off(Helpers.Helper h) { return off() || Helpers.off(h); }
+
+    /** Why a scorer is left out, as its plan, its status and its note say it: the setting that does it. */
+    static String offSaid(Helpers.Helper h) { return off() ? SCORERS_NAME + "=off" : h.setting + "=off"; }
 
     /** The room the two scorers take on the disk under the library's home: LaBSE's model, MetricX's model and packages, and the fetch that holds the model twice. */
     public static final long NEEDS_BYTES = 16L << 30;
@@ -437,10 +485,17 @@ public final class TranslationScores {
     /** The same, in a language: each scorer and its size in its words, listed as the language lists. */
     public static String missingSaid(Chrome c) {
         List<String> parts = new ArrayList<>();
-        if (labseSetupSaid().startsWith("LaBSE is not set up")) parts.add(c.english() ? "LaBSE (" + LABSE_SIZE + ")" : c.t(LABSE_NEEDS));
-        if (!metricxInstalled()) parts.add(c.english() ? "MetricX-24 (" + METRICX_SIZE + ")" : c.t(METRICX_NEEDS));
+        if (here(Helpers.Helper.LABSE) && labseSetupSaid().startsWith("LaBSE is not set up")) parts.add(c.english() ? "LaBSE (" + LABSE_SIZE + ")" : c.t(LABSE_NEEDS));
+        if (here(Helpers.Helper.METRICX) && !metricxInstalled()) parts.add(c.english() ? "MetricX-24 (" + METRICX_SIZE + ")" : c.t(METRICX_NEEDS));
         return c.english() ? String.join(" and ", parts) : c.and(parts);
     }
+
+    /**
+     * Whether this machine is where a scorer would run, so that its being absent here is something to set up: not turned off, and not
+     * served by an address or a helpers machine. A library whose scores are made on another machine misses nothing by having no
+     * MetricX-24 of its own.
+     */
+    static boolean here(Helpers.Helper h) { return !off(h) && Helpers.address(h) == null; }
 
     /** The two scorers with what they take, each a key of the interface's words. */
     static final String LABSE_NEEDS = "LaBSE (" + LABSE_SIZE + ")", METRICX_NEEDS = "MetricX-24 (" + METRICX_SIZE + ")";
@@ -526,7 +581,7 @@ public final class TranslationScores {
 
     /** What installing MetricX takes, for a plan that says it first; "" when it is installed. */
     public static String metricxSetupSaid() {
-        if (Helpers.off(Helpers.Helper.METRICX) || Helpers.address(Helpers.Helper.METRICX) != null || !Helpers.localAllowed()) return "";   // the plan's own clause says where, or why not
+        if (off(Helpers.Helper.METRICX) || Helpers.address(Helpers.Helper.METRICX) != null || !Helpers.localAllowed()) return "";   // the plan's own clause says where, or why not
         return metricxInstalled() ? "" : METRICX_MISSING_SAID;
     }
 
@@ -606,7 +661,14 @@ public final class TranslationScores {
      * (no wheel for that Python, no room) is said in one line, and the processor build goes in. The model's first load runs under the
      * card's environment, as the served process does, and what it loaded on is said from its own reply. {@code say} gets each line.
      */
-    static String installMetricx(HelperCards.Choice card, Consumer<String> say) {
+    static String installMetricx(HelperCards.Choice card, Consumer<String> say) { return installMetricx(card, say, false); }
+
+    /**
+     * The same; {@code noFallback} ({@code --no-cpu-fallback}, on a card): the first load never moves to the processor. A card with no
+     * room for it then is said plainly, the model's files are fetched all the same and the marker written, so the install goes on and
+     * the service loads it when the card has room.
+     */
+    static String installMetricx(HelperCards.Choice card, Consumer<String> say, boolean noFallback) {
         try {
             Files.createDirectories(metricxDir());
             try (InputStream in = TranslationScores.class.getResourceAsStream("/org/researchzosho/librarian/metricx_score.py")) {
@@ -642,17 +704,34 @@ public final class TranslationScores {
             }
             // the first load fetches the model and the tokenizer, under the card's environment as the served process runs; a load that
             // answers ready leaves the marker, and its reply says what it loaded on
-            ProcessBuilder pb = new ProcessBuilder(pythonCommand(py, "--check")).redirectErrorStream(true);
+            boolean refuse = noFallback && card != null && !card.cpu();
+            ProcessBuilder pb = new ProcessBuilder(refuse ? pythonCommand(py, "--check", "--no-cpu-fallback") : pythonCommand(py, "--check")).redirectErrorStream(true);
             HelperCards.into(pb.environment(), card);
             Process pr = CHECK.start(pb);
             String out;
             try (InputStream in = pr.getInputStream()) { out = new String(in.readAllBytes(), StandardCharsets.UTF_8); }
             if (!pr.waitFor(60, TimeUnit.MINUTES)) { pr.destroyForcibly(); return "!the model did not load within an hour"; }
+            String refused = refuse ? notLoadedIn(out, card) : "";
+            if (!refused.isEmpty()) {   // the card had no room: said, the model is fetched, the service loads it when there is room
+                Files.writeString(metricxReady(), METRICX_MODEL + "\n", StandardCharsets.UTF_8);
+                say.accept("MetricX-24 is set up, and not loaded now: " + refused + ". It is not loaded on the processor (--no-cpu-fallback); the service loads it when the card has room.");
+                return "ready";
+            }
             if (pr.exitValue() != 0 || !out.contains("\"ready\"")) return "!the model could not be loaded: " + last(out);
             Files.writeString(metricxReady(), METRICX_MODEL + "\n", StandardCharsets.UTF_8);
             if (card != null) say.accept(loadedOn(out));
             return "ready";
         } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
+    /** Why the model did not load, from its own line ({"not_loaded": "no room", "free_gb": 0.4}): "no room on card 3 (0.4 GB free)"; "" when it loaded. */
+    static String notLoadedIn(String out, HelperCards.Choice card) {
+        for (String line : out.split("\\R")) {
+            if (!line.contains("\"not_loaded\"")) continue;
+            HelperServer.Managed m = new HelperServer.Managed("metricx", "MetricX-24", port -> List.of(), card);
+            return m.why(line.strip(), 3);
+        }
+        return "";
     }
 
     /** What the model's first load says it loaded on, in a line: the card by its name, or the processor. */

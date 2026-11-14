@@ -52,7 +52,7 @@ public final class ModelEntries {
             return (uncached * prices[0] + cachedTokens * (prices.length > 2 ? prices[2] : prices[0]) + completionTokens * prices[1]) / 1e6;
         }
         public String pricesText() { return prices == null ? "" : trim(prices[0]) + "/" + trim(prices[1]) + (prices.length > 2 ? "/" + trim(prices[2]) : ""); }
-        private static String trim(double d) { String s = String.format(Locale.ROOT, "%.4f", d); s = s.replaceAll("0+$", "").replaceAll("\\.$", ""); return s.isEmpty() ? "0" : s; }
+        static String trim(double d) { String s = String.format(Locale.ROOT, "%.4f", d); s = s.replaceAll("0+$", "").replaceAll("\\.$", ""); return s.isEmpty() ? "0" : s; }
         /** A line a person reads: "deepseek: deepseek/deepseek-v4.1-flash via openrouter.ai — $0.024/0.72 per M". */
         public String line() { return line(Chrome.ENGLISH); }
         public String line(Chrome c) {
@@ -81,7 +81,7 @@ public final class ModelEntries {
             int cut = rest.lastIndexOf('_');
             if (cut <= 0) continue;
             String field = rest.substring(cut + 1);
-            if (!List.of("DRIVE", "MODEL", "PRICES", "EFFORT", "CAP", "NOTE", "TIER", "SEES").contains(field)) continue;
+            if (!List.of("DRIVE", "MODEL", "PRICES", "PRICED", "EFFORT", "CAP", "NOTE", "TIER", "SEES").contains(field)) continue;
             names.add(rest.substring(0, cut).toLowerCase(Locale.ROOT).replace('_', '-'));
         }
         for (String n : names) { if (n.equals(DEFAULT)) continue; Entry e = get(n); if (e != null) out.put(n, e); }
@@ -383,6 +383,7 @@ public final class ModelEntries {
             if (model != null) Config.set(key(n, "MODEL"), model.strip());
         }
         if (prices != null) { if (!prices.isBlank() && prices(prices) == null) throw new IllegalArgumentException("Prices are dollars per million tokens as in/out or in/out/cache, for example 0.024/0.72/0.005."); Config.set(key(n, "PRICES"), prices.strip()); }
+        if (prices != null) Config.set(key(n, "PRICED"), "");   // prices set by hand: no list's, and never overwritten by one without being asked
         if (effort != null) Config.set(key(n, "EFFORT"), effort.strip().toLowerCase(Locale.ROOT));
         if (cap != null) { if (!cap.isBlank() && capOf(cap) < 0) throw new IllegalArgumentException("A cap is dollars a month, for example 20."); Config.set(key(n, "CAP"), cap.strip()); }
         if (note != null) Config.set(key(n, "NOTE"), note.strip());
@@ -393,11 +394,32 @@ public final class ModelEntries {
         return e;
     }
 
+    /**
+     * Where an entry's prices were read and when, "openrouter.ai 2026-11-13"; "" for prices set by hand, or none. An entry priced by hand
+     * is never given a list's prices without being asked ({@code models set <name> --prices list}).
+     */
+    public static String pricedFrom(String name) {
+        String n = name == null ? "" : name.strip().toLowerCase(Locale.ROOT);
+        return n.isEmpty() ? "" : Config.get(key(n, "PRICED"), "").strip();
+    }
+
+    /** Keeps prices read from a host's list, per million tokens {sent, written, cached?}, with where and when they were read. */
+    public static void pricesRead(String name, double[] perMillion, String host, String date) throws IOException {
+        String n = name.strip().toLowerCase(Locale.ROOT);
+        StringBuilder b = new StringBuilder();
+        for (double d : perMillion) b.append(b.length() == 0 ? "" : "/").append(Entry.trim(d));
+        Config.set(key(n, "PRICES"), b.toString());
+        Config.set(key(n, "PRICED"), host + " " + date);
+    }
+
+    /** Whether an entry's cap can count its calls: a cap counts dollars, and an entry with no prices has none to count. */
+    public static boolean capCounts(Entry e) { return e == null || e.cap() <= 0 || e.prices() != null; }
+
     /** Takes an entry out; the default cannot be removed. */
     public static void remove(String name) throws IOException {
         String n = name == null ? "" : name.strip().toLowerCase(Locale.ROOT);
         if (n.isEmpty() || n.equals(DEFAULT)) throw new IllegalArgumentException("The default entry is the drive and model settings; change those instead.");
-        for (String f : new String[]{"DRIVE", "MODEL", "PRICES", "EFFORT", "CAP", "NOTE", "TIER", "SEES"}) Config.set(key(n, f), "");
+        for (String f : new String[]{"DRIVE", "MODEL", "PRICES", "PRICED", "EFFORT", "CAP", "NOTE", "TIER", "SEES"}) Config.set(key(n, f), "");
     }
 
     /** The words setup takes for a host, as an address. */
@@ -441,6 +463,8 @@ public final class ModelEntries {
             ObjectNode o = out.addObject();
             o.put("name", e.name()); o.put("drive", e.drive()); o.put("model", e.model()); o.put("host", e.host()); o.put("hosted", e.hosted());
             if (e.prices() != null) o.put("prices", e.pricesText());
+            if (!pricedFrom(e.name()).isEmpty()) o.put("prices_read", pricedFrom(e.name()));   // where and when the prices were read: "openrouter.ai 2026-11-13"
+            if (!capCounts(e)) o.put("cap_counts", false);   // a cap with no prices to count with
             if (e.effort() != null && !e.effort().isBlank()) o.put("effort", e.effort());
             if (e.cap() > 0) o.put("cap", e.cap());
             o.put("tier", e.tier());

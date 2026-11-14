@@ -286,10 +286,13 @@ public final class PdfReading {
             + "If it holds no writing beyond a word or two, answer only: (no writing)";
 
     /** The page drawn for the eye: the long side about 2,000 pixels (170 dpi for A4), at most 220 dpi; poppler's pdftoppm draws a page whose pictures PDFBox cannot decode. */
-    static byte[] drawn(PDDocument doc, byte[] bytes, int page, boolean undecodable) {
+    static byte[] drawn(PDDocument doc, byte[] bytes, int page, boolean undecodable) { return drawn(doc, bytes, page, undecodable, 220); }
+
+    /** The same, at most {@code most} dots an inch: a comic's small page is drawn to its 2,000 pixels too (a B6 page takes 280 dots an inch). */
+    static byte[] drawn(PDDocument doc, byte[] bytes, int page, boolean undecodable, float most) {
         try {
             var box = doc.getPage(page - 1).getCropBox();
-            float dpi = (float) Math.min(220, 2000 * 72.0 / Math.max(box.getWidth(), box.getHeight()));
+            float dpi = (float) Math.min(most, 2000 * 72.0 / Math.max(box.getWidth(), box.getHeight()));
             BufferedImage img = undecodable ? poppler(bytes, page, dpi) : PdfGlyphs.render(doc, page, dpi);
             if (img == null) return null;
             ByteArrayOutputStream out = new ByteArrayOutputStream();

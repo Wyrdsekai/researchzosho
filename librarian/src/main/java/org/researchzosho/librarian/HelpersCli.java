@@ -30,8 +30,8 @@ final class HelpersCli {
     private HelpersCli() { }
 
     static final String UNIT = "researchzosho-helpers";
-    static final String USAGE = "usage: researchzosho helpers [status]   ·   helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--only metricx,labse,likeness,whisper,embed] [--yes]\n"
-            + "       researchzosho helpers uninstall [--gpu <index> | --cpu]   ·   helpers port [--gpu <index> | --cpu | --beside-port N] [--separate]   ·   helpers secret   ·   helpers serve [--bind ADDR] [--port N] [--secret-file FILE] [--gpu <index> | --cpu] [--only …]\n"
+    static final String USAGE = "usage: researchzosho helpers [status]   ·   helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback | --cpu-fallback] [--only metricx,labse,likeness,whisper,embed] [--yes]\n"
+            + "       researchzosho helpers uninstall [--gpu <index> | --cpu]   ·   helpers port [--gpu <index> | --cpu | --beside-port N] [--separate]   ·   helpers secret   ·   helpers serve [--bind ADDR] [--port N] [--secret-file FILE] [--gpu <index> | --cpu] [--no-cpu-fallback] [--only …]\n"
             + "       researchzosho helpers service install|uninstall|status [the same flags]   (a machine that serves the heavy helpers to the libraries of other machines)";
 
     static int run(String[] args, int from) throws Exception {
@@ -66,7 +66,8 @@ final class HelpersCli {
         if ("off".equals(Helpers.explicitBase())) b.append("\nNo machine is asked for its helpers (helpers off).");
         for (Helper h : Helper.values()) {
             String at = Helpers.address(h), line;
-            if (Helpers.off(h)) line = "off (" + h.setting + "=off)";
+            boolean scorer = h == Helper.LABSE || h == Helper.METRICX;
+            if (scorer ? TranslationScores.off(h) : Helpers.off(h)) line = "off (" + (scorer ? TranslationScores.offSaid(h) : h.setting + "=off") + ")";   // the scorers also by RESEARCHZOSHO_SCORERS=off
             else if (at != null) {
                 String hl = Helpers.health(h, at);
                 // what the helpers machine's front says of it, when it is served there: its line names the card by the index that machine
@@ -77,6 +78,7 @@ final class HelpersCli {
             else line = Helpers.localAllowed() ? "on this machine" : "not run here, and no address names it";
             b.append("\n  ").append(h.said).append(": ").append(line);
         }
+        b.append("\n  the comic helper: ").append(ComicHelper.statusLine());   // not served to other machines in this version: it runs where the library is
         return b.toString();
     }
 
@@ -90,8 +92,10 @@ final class HelpersCli {
      * {@code gpu} and {@code cpu} the card as given (null and false: not given); {@code besidePort} the port of the model server whose
      * card the helpers share; {@code on} an ssh target for {@code helpers install --on}; {@code onlyGiven} whether --only was given.
      */
-    record Flags(String bind, int port, String secret, List<Helper> only, Path secretFile, boolean secretMade, String gpu, boolean cpu, int besidePort, boolean yes, String on, boolean onlyGiven, boolean separate, boolean move) {
-        Flags(String bind, int port, String secret, List<Helper> only, Path secretFile, boolean secretMade) { this(bind, port, secret, only, secretFile, secretMade, null, false, 0, false, null, false, false, false); }
+    record Flags(String bind, int port, String secret, List<Helper> only, Path secretFile, boolean secretMade, String gpu, boolean cpu, int besidePort, boolean yes, String on, boolean onlyGiven, boolean separate, boolean move, Boolean cpuFallback) {
+        Flags(String bind, int port, String secret, List<Helper> only, Path secretFile, boolean secretMade) { this(bind, port, secret, only, secretFile, secretMade, null, false, 0, false, null, false, false, false, null); }
+        /** Whether MetricX-24 may move to the processor when its card has no room: the flag given, else the setting kept on this machine. */
+        boolean noFallback() { return cpuFallback != null ? !cpuFallback : Helpers.noCpuFallback(); }
     }
 
     /** Keeps a secret in a file only its owner reads. */
@@ -105,7 +109,7 @@ final class HelpersCli {
 
     static Flags flags(String[] args, int from, List<Helper> dflt) throws IOException {
         String bind = "127.0.0.1", secret = Config.get(Helpers.SECRET_NAME, "").strip(); int port = Helpers.PORT; List<Helper> only = dflt;
-        Path secretFile = null; boolean made = false, cpu = false, yes = false, onlyGiven = false, separate = false, move = false; String gpu = null, on = null; int beside = 0;
+        Path secretFile = null; boolean made = false, cpu = false, yes = false, onlyGiven = false, separate = false, move = false; Boolean cpuFallback = null; String gpu = null, on = null; int beside = 0;
         for (int i = from; i < args.length; i++) {
             switch (args[i]) {
                 case "--bind" -> bind = LibrarianCli.flagValue(args, i++);
@@ -115,6 +119,8 @@ final class HelpersCli {
                 case "--beside-port" -> beside = Integer.parseInt(LibrarianCli.flagValue(args, i++));
                 case "--yes", "-y" -> yes = true;
                 case "--separate" -> separate = true;   // a set of helpers of its own, on this call's card, beside the one there is
+                case "--no-cpu-fallback" -> cpuFallback = false;   // MetricX-24 never moves to the processor when its card has no room
+                case "--cpu-fallback" -> cpuFallback = true;
                 case "--move" -> move = true;           // without --separate, with --yes: move the one set to the card named
                 case "--on" -> on = LibrarianCli.flagValue(args, i++).strip();
                 case "--secret" -> secret = LibrarianCli.flagValue(args, i++).strip();
@@ -129,7 +135,7 @@ final class HelpersCli {
         }
         if (cpu && gpu != null) throw new IOException("--gpu and --cpu say two things: give one");
         if (separate && move) throw new IOException("--separate and --move say two things: give one");
-        return new Flags(bind, port, secret, only, secretFile, made, gpu, cpu, beside, yes, on, onlyGiven, separate, move);
+        return new Flags(bind, port, secret, only, secretFile, made, gpu, cpu, beside, yes, on, onlyGiven, separate, move, cpuFallback);
     }
 
     /** {@code helpers install}: on this machine, or with {@code --on <target>} on another one over ssh. */
@@ -137,8 +143,8 @@ final class HelpersCli {
         Flags f;
         try { f = flags(args, from, HelperServer.all()); } catch (IOException | NumberFormatException e) { System.err.println(e.getMessage()); System.err.println(USAGE); return 2; }
         BufferedReader in = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
-        if (f.on() != null) return HelpersRemote.installOn(new HelpersRemote.Options(f.on(), f.only(), f.onlyGiven(), f.yes(), f.gpu(), f.cpu(), f.separate(), f.move()), in, System.out);
-        return HelpersInstall.install(new HelpersInstall.Options(f.only(), f.onlyGiven(), f.yes(), f.gpu(), f.cpu(), f.besidePort(), f.port(), f.separate(), f.move()), in, System.out);
+        if (f.on() != null) return HelpersRemote.installOn(new HelpersRemote.Options(f.on(), f.only(), f.onlyGiven(), f.yes(), f.gpu(), f.cpu(), f.separate(), f.move(), f.cpuFallback()), in, System.out);
+        return HelpersInstall.install(new HelpersInstall.Options(f.only(), f.onlyGiven(), f.yes(), f.gpu(), f.cpu(), f.besidePort(), f.port(), f.separate(), f.move(), f.cpuFallback()), in, System.out);
     }
 
     /** Serves the helpers in the foreground until the process is stopped; what it serves and the two settings a library elsewhere needs, said first. */
@@ -151,15 +157,17 @@ final class HelpersCli {
         HelperCards.Choice card = HelperCards.choose(f.gpu(), f.cpu(), f.besidePort(), HelperCards.Undecided.AS_BEFORE, null, System.out);
         if (!card.said().isEmpty()) System.out.println(card.said());
         if (card.stop()) return 1;
+        boolean refuse = f.noFallback() && !card.cpu();
+        if (refuse) System.out.println("MetricX-24 never moves to the processor here: when its card has no room it waits for room (--no-cpu-fallback).");
         List<Process> started = new ArrayList<>();
-        var backends = HelperServer.startBackends(f.only(), started, line -> System.out.println("  " + line), card);
-        if (backends.isEmpty()) { System.out.println("Nothing to serve: none of " + names(f.only()) + " is set up on this machine."); for (Process p : started) p.destroyForcibly(); return 1; }
+        var backends = HelperServer.backends(f.only(), f.onlyGiven(), line -> System.out.println("  " + line), card, f.noFallback());
+        if (backends.isEmpty()) { System.out.println("Nothing to serve: none of " + names(f.only()) + " is set up on this machine."); return 1; }
         HelperServer s;
         try { s = HelperServer.serve(f.bind(), f.port(), secret, backends, started); }
-        catch (IOException e) { System.err.println(e.getMessage()); for (Process p : started) p.destroyForcibly(); return 1; }
+        catch (IOException e) { System.err.println(e.getMessage()); for (HelperServer.Managed m : backends.managed().values()) m.end(); return 1; }
         String host = HelperServer.loopback(f.bind()) ? f.bind() : f.bind().equals("0.0.0.0") || f.bind().equals("::") ? InetAddress.getLocalHost().getHostName() : f.bind();
         String at = "http://" + host + ":" + s.port();
-        System.out.println("Serving " + String.join(", ", backends.keySet()) + " at " + at + " (pid " + ProcessHandle.current().pid() + "; Ctrl-C stops it).");
+        System.out.println("Serving " + String.join(", ", backends.names()) + " at " + at + " (pid " + ProcessHandle.current().pid() + "; Ctrl-C stops it).");
         System.out.println("On the library that uses them: researchzosho settings set helpers " + at + (secret.isEmpty() ? "" : "  and  researchzosho settings set helpers_secret " + (generated ? secret : f.secretFile() != null ? "<the secret in " + f.secretFile() + ">" : "<the secret>")));
         if (generated) System.out.println("  (a secret was made for this run; --secret-file <file> keeps one across runs)");
         if (f.secretMade()) System.out.println("  (a secret was made and kept in " + f.secretFile() + ", which only you can read)");
@@ -186,11 +194,12 @@ final class HelpersCli {
                 if (!card.said().isEmpty()) System.out.println(card.said());
                 if (card.stop()) return 1;
                 if (!card.kept().isEmpty()) Config.set(Helpers.GPU_NAME, card.kept());
+                HelpersInstall.keepFallback(f.cpuFallback(), System.out);
                 // the service listens on every address, so it always has a secret: the one given, else the one kept, else a new one
                 String secret = !f.secret().isEmpty() ? f.secret() : HelpersInstall.keptSecret();
                 if (secret.isEmpty()) secret = HelperServer.newSecret();
                 if (!secret.equals(HelpersInstall.keptSecret())) keepSecret(HelpersInstall.secretFile(), secret);
-                int rc = HelpersInstall.installUnit(Service.resolveExec(null), f.port(), card.flag(), f.onlyGiven() ? f.only() : null, System.out);
+                int rc = HelpersInstall.installUnit(Service.resolveExec(null), f.port(), card.flag() + HelpersInstall.fallbackFlag(f.noFallback(), card), f.onlyGiven() ? f.only() : null, System.out);
                 if (rc == 0) System.out.println("Its secret is kept in " + HelpersInstall.secretFile() + "; on the library that uses them: researchzosho settings set helpers_secret <that secret> (researchzosho helpers secret prints it).");
                 return rc;
             }

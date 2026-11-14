@@ -614,7 +614,10 @@ public final class DriveClient {
         try {
             String payload = json.writeValueAsString(body);
             if (streamingOn()) {
-                ObjectNode streamed = chatStreaming(payload, limitFor(payload.length(), maxTokens));
+                // a paid server's stream ends with what it cost when asked to; a local one is not asked (its calls cost nothing, and an old one may refuse the field)
+                String asked = payload;
+                if (hostedApi()) { ObjectNode sb = body.deepCopy(); sb.putObject("stream_options").put("include_usage", true); asked = json.writeValueAsString(sb); }
+                ObjectNode streamed = chatStreaming(asked, limitFor(payload.length(), maxTokens));
                 if (streamed != null) return wire.restore(streamed);
                 // A failed stream falls through to the plain request rather than failing the turn:
                 // streaming is presentation, and presentation must never cost an answer.
@@ -831,6 +834,41 @@ public final class DriveClient {
     private static final ThreadLocal<long[]> COUNT = new ThreadLocal<>();
     public static void countInto(long[] acc) { if (acc == null) COUNT.remove(); else COUNT.set(acc); }
     public static void stopCounting() { COUNT.remove(); }
+    /**
+     * The piece of work the calls on this thread belong to (a chat turn, the nightly work, a job), which puts what they cost on the
+     * library's ledger when it ends. Every call's token counts reach {@link #counted}, the one place they are all read, which gives them to
+     * the research run's own count when one is open, else to this purse, unless the step that made the call meters it itself.
+     */
+    public interface Purse { void add(String drive, String model, long prompt, long cached, long completion); }
+    private static final ThreadLocal<Purse> PURSE = new ThreadLocal<>();
+    /** The purse this thread's calls go into from now (null for none); the one it replaces is returned, to be put back when the work ends. */
+    public static Purse useFor(Purse p) { Purse was = PURSE.get(); if (p == null) PURSE.remove(); else PURSE.set(p); return was; }
+    /** This thread's purse, for a thread the work starts to carry ({@link #useFor} there); null when none. */
+    public static Purse purse() { return PURSE.get(); }
+    /** Where a call made outside any piece of work goes (a request answered at once, a command): the library this process serves; null for nowhere. */
+    private static volatile Purse OUTSIDE;
+    public static void outsideWork(Purse p) { OUTSIDE = p; }
+    private static final ThreadLocal<int[]> METERED = ThreadLocal.withInitial(() -> new int[1]);
+    /**
+     * A step that meters its own calls and puts them on the ledger itself (a translation's seats, the pictures' eyes) says so around its
+     * calls, so they go into no purse: a call is never counted twice. {@code true} before the call, {@code false} after it.
+     */
+    public static void meteredByCaller(boolean begin) { METERED.get()[0] += begin ? 1 : -1; }
+
+    /**
+     * One call's token counts, where they count, once: nowhere here when the step that made it meters it itself; else the research run's
+     * own count when this thread works for one; else the purse of the work it belongs to, or the library's for calls outside any work.
+     */
+    private void counted(long prompt, long cached, long completion) {
+        if (METERED.get()[0] > 0) return;   // the step that made it puts it on the ledger: first, or a research run's count would hold it too
+        long[] acc = COUNT.get();
+        if (acc != null) { synchronized (acc) { acc[0] += prompt; acc[1] += cached; acc[2] += completion; } return; }
+        Purse p = PURSE.get() != null ? PURSE.get() : OUTSIDE;
+        if (p == null || prompt + completion == 0) return;
+        try { p.add(baseUrl, model, prompt, cached, completion); }
+        catch (RuntimeException e) { log.warn("the spending ledger could not take a call ({})", e.toString()); }   // a record, never a reason to lose the answer
+    }
+
     /** A call a resumed job gave back from its record ({prompt, completion}): what it cost when it was made counts for the run this thread works for. */
     public static void countReplayed(long[] u) {
         long[] acc = COUNT.get();
@@ -854,8 +892,7 @@ public final class DriveClient {
                 SESSION_CACHED_TOKENS.addAndGet(cached);
                 SESSION_PROMPT_TOKENS.addAndGet(u.path("prompt_tokens").asLong(0));
                 SESSION_COMPLETION_TOKENS.addAndGet(u.path("completion_tokens").asLong(0));
-                long[] acc = COUNT.get();
-                if (acc != null) synchronized (acc) { acc[0] += u.path("prompt_tokens").asLong(0); acc[1] += cached; acc[2] += u.path("completion_tokens").asLong(0); }
+                counted(u.path("prompt_tokens").asLong(0), cached, u.path("completion_tokens").asLong(0));
                 LAST_USAGE.set(new long[]{u.path("prompt_tokens").asLong(0), u.path("completion_tokens").asLong(0)});
             } else LAST_USAGE.set(null);
             // the model declined: said once, where the caller can say it; the reply is not handed on as if it were an answer
@@ -1144,6 +1181,13 @@ public final class DriveClient {
 
     public String model() { return model; }
 
+    /**
+     * The seed a picture's reading is asked with on llama.cpp. At temperature 0 the server takes the likeliest token and a seed
+     * decides nothing; it is named so that a server set to sample otherwise still gives one reading of one picture. What it cannot
+     * settle: two machines whose pictures of one balloon differ by a pixel, and a server that answers several requests in one batch.
+     */
+    public static final long PICTURE_SEED = 0;
+
     public String classify(ArrayNode messages, int maxTokens) {
         ObjectNode body = json.createObjectNode();
         body.put("model", model);
@@ -1152,7 +1196,7 @@ public final class DriveClient {
         decisionSettings(body);
         // a picture on llama.cpp never reuses a slot's cached prompt: a cached picture was looked for and not found ("Chunk not found"),
         // and the slot then spun for good erasing one checkpoint (2026-11-04, the 27B on homebox); the picture is read fresh
-        if (carriesPicture(messages) && llamaCpp()) body.put("cache_prompt", false);
+        if (carriesPicture(messages) && llamaCpp()) { body.put("cache_prompt", false); body.put("seed", PICTURE_SEED); }   // and the reading of a picture names its seed: as cold as a request can be made
         body.put("stream", false);
         CLASSIFY_PROBLEM.set("");
         CLASSIFY_UNANSWERED.remove();
@@ -1185,7 +1229,11 @@ public final class DriveClient {
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             long t0 = System.nanoTime();
             HttpResponse<String> resp = sendWaitingWhileLoading(req, limit);
-            try { JsonNode cu = json.readTree(resp.body()).path("usage"); LAST_USAGE.set(cu.isObject() ? new long[]{cu.path("prompt_tokens").asLong(0), cu.path("completion_tokens").asLong(0)} : null); } catch (Exception e) { LAST_USAGE.set(null); }
+            try {
+                JsonNode cu = json.readTree(resp.body()).path("usage");
+                LAST_USAGE.set(cu.isObject() ? new long[]{cu.path("prompt_tokens").asLong(0), cu.path("completion_tokens").asLong(0)} : null);
+                if (cu.isObject() && resp.statusCode() == 200) counted(cu.path("prompt_tokens").asLong(0), cu.path("prompt_tokens_details").path("cached_tokens").asLong(0), cu.path("completion_tokens").asLong(0));
+            } catch (Exception e) { LAST_USAGE.set(null); }
             if (resp.statusCode() != 200) {
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // a decline, never an empty answer
@@ -1570,12 +1618,15 @@ public final class DriveClient {
         var summaries = new TreeMap<Integer, SummaryStream>();
         String finish = "";
         var refusal = new StringBuilder();
+        JsonNode used = null;   // what the stream's last piece says it cost, when the server says it
         String line;
         while ((line = reader.readLine()) != null) {
             if (!line.startsWith("data:")) continue;
             String data = line.substring(5).strip();
             if (data.equals("[DONE]")) break;
-            JsonNode choice0 = json.readTree(data).path("choices").path(0);
+            JsonNode chunk = json.readTree(data);
+            if (chunk.path("usage").isObject()) used = chunk.path("usage");
+            JsonNode choice0 = chunk.path("choices").path(0);
             if (!choice0.path("finish_reason").asText("").isEmpty()) finish = choice0.path("finish_reason").asText("");
             JsonNode delta = choice0.path("delta");
             if (delta.path("refusal").isTextual()) refusal.append(delta.path("refusal").asText(""));
@@ -1617,6 +1668,10 @@ public final class DriveClient {
                     }
                 }
             }
+        }
+        if (used != null) {   // a streamed call counts as a plain one does
+            counted(used.path("prompt_tokens").asLong(0), used.path("prompt_tokens_details").path("cached_tokens").asLong(0), used.path("completion_tokens").asLong(0));
+            LAST_USAGE.set(new long[]{used.path("prompt_tokens").asLong(0), used.path("completion_tokens").asLong(0)});
         }
         ObjectNode msg = json.createObjectNode();
         msg.put("role", "assistant");

@@ -509,6 +509,7 @@ public final class Jobs {
 
     /** A research ask ended having spent {@code turns}: the day's accounting, by patron. Visible, never a refusal. */
     public synchronized void recordTurns(String patronDid, int turns) throws IOException {
+        NotHolder.check(budgetDir());
         Files.createDirectories(budgetDir());
         Files.writeString(budgetDir().resolve(LocalDate.now(ZoneId.systemDefault()) + ".tsv"),
                 (patronDid == null ? "" : patronDid) + "\t" + Math.max(0, turns) + "\n",
@@ -643,6 +644,20 @@ public final class Jobs {
         writeActive(j);
     }
 
+    /**
+     * Facts a running job keeps on its record beside its progress, each field set as given: a translation's seats as the run made them and
+     * what a hosted seat cost ({@link TranslationWho}). Nothing for a job that is not running.
+     */
+    public synchronized void facts(String id, ObjectNode f) throws IOException {
+        if (f == null || f.isEmpty()) return;
+        Path a = activeDir().resolve(id + ".json");
+        if (!Files.exists(a)) return;
+        ObjectNode j = read(a);
+        if (!"running".equals(j.path("state").asText())) return;
+        j.setAll(f);
+        writeActive(j);
+    }
+
     /** The model declined the run, or parts of it ({@link Researcher.Result#declinedView}): onto the running job's record, for every view of it. */
     public synchronized void declined(String id, ObjectNode d) throws IOException {
         if (d == null) return;
@@ -667,6 +682,7 @@ public final class Jobs {
     }
 
     private synchronized void writeActive(ObjectNode j) throws IOException {
+        NotHolder.check(activeDir());
         Files.createDirectories(activeDir());
         Path target = activeDir().resolve(j.get("job_id").asText() + ".json");
         Path tmp = activeDir().resolve("." + j.get("job_id").asText() + ".json.part");
@@ -680,6 +696,7 @@ public final class Jobs {
 
     /** Move a finished job out of the active set into its month, and raise the landed marker. */
     private synchronized void finish(ObjectNode j) throws IOException {
+        NotHolder.check(dir());
         String id = j.get("job_id").asText();
         String month = Instant.parse(j.path("ended_at").asText(Instant.now().toString())).atZone(ZoneId.systemDefault()).toLocalDate().toString().substring(0, 7);
         Path target = doneDir().resolve(month);
@@ -890,6 +907,19 @@ public final class Jobs {
     /** Set by {@link #stop()}: the loops take no further job. */
     private volatile boolean stopped;
 
+    /**
+     * Why this process no longer works on the library, once another process holds its lease ({@link #giveUp}); null while it does. Then
+     * the loops take no further job, every running job is asked to stop, and a job that ends is not written down: its record stays as it
+     * was, running, so the process that holds the library, or the next start, resumes it from its kept work, as after a service stop.
+     */
+    private volatile String gaveUp;
+
+    /** Another process holds the library: no job is taken, the running ones stop, and nothing of them is written down here. */
+    public void giveUp(String why) { gaveUp = why; stopped = true; }
+
+    /** Why this process gave the library up; null while it works on it. */
+    public String gaveUp() { return gaveUp; }
+
     /** Whether every thread of this queue has ended: after {@link #stop()}, once a run in the middle of a step has let go of it. */
     boolean quiet() { for (Thread t : threads) if (t.isAlive()) return false; return true; }
 
@@ -912,8 +942,8 @@ public final class Jobs {
      */
     Path stopMarker(String id) { return activeDir().resolve(id + ".stop"); }
 
-    /** Whether a stop was asked for {@code id}. */
-    public boolean stopRequested(String id) { return Files.exists(stopMarker(id)); }
+    /** Whether a stop was asked for {@code id}, or this process gave the library up. */
+    public boolean stopRequested(String id) { return gaveUp != null || Files.exists(stopMarker(id)); }
 
     /**
      * Stop a job. A queued one is finished at once as {@code stopped}; a running one gets the marker and ends within seconds, also in the
@@ -958,6 +988,7 @@ public final class Jobs {
      * a stop take one lock ({@link #underFilingLock}), so that one of them comes first, never both at once.
      */
     public boolean beginFiling(String id) throws IOException {
+        if (gaveUp != null) return false;   // another process holds the library: nothing of the run is filed here
         return underFilingLock(id, () -> {
             if (stopRequested(id)) return false;
             synchronized (this) {
@@ -1079,6 +1110,7 @@ public final class Jobs {
                 // the bookkeeping must never depend on the file still being where it was: another
                 // process may have moved it (a client migrating the layout under a running daemon,
                 // 2026-09-03 — the worker thread died on the null and took the queue with it)
+                if (gaveUp != null) continue;   // another process holds the library: the job's record stays running, for it to resume
                 ObjectNode after = get(id);
                 if (after != null) j = after;
                 boolean stopped = stopRequested(id);
@@ -1157,6 +1189,7 @@ public final class Jobs {
         JsonNode ja = j.path("args");
         if (ja.hasNonNull("title")) r.put("title", ja.get("title").asText());
         if (Translation.JOB_KIND.equals(j.path("kind").asText()) && ja.hasNonNull("notes")) r.put("notes", ja.get("notes").asText());   // a document's translation: where what its checks still doubt goes, as filed
+        if (Translation.JOB_KIND.equals(j.path("kind").asText())) r.set("translation", TranslationWho.facts(j));   // and who does what in it, from the facts its record keeps
         if (ja.path("priority").asBoolean(false)) r.put("priority", true);
         if (ja.hasNonNull("delta_of")) r.put("delta_of", ja.get("delta_of").asText());
         if (ja.hasNonNull("content_check")) r.put("content_check", ja.get("content_check").asText());
