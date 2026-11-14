@@ -32,7 +32,7 @@ final class TranslateCli {
             + "  Translates a txt, md, pdf, docx or epub file into the language (" + Translation.languagesSaid() + ") and writes it beside the original, in the same format unless --as says another.\n"
             + "  checked, the default, is one pass with the program's checks and scores (LaBSE, and MetricX-24 when installed) and a revision of what they flag; quick is the one pass alone; reviewed adds a second reading by the judge seat of the flagged units and a sample of the rest; thorough reads every unit. --model names the entry that translates; --judge the entry that reads, or auto for the strongest other one; a hosted entry is a paid call, its cost said first, within the entry's monthly cap. A note beside the output says what was done and lists what the checks still doubt; the document holds the translation alone, and --notes end numbers those passages and lists them at its end too (the setting translate_notes makes either the default).\n"
             + "  --direction gives the translation a voice in your own words, up to " + Translation.DIRECTION_MAX + " characters (\"as if you were Shakespeare\", \"this is a comedy, keep it whimsical\"): the translator, the reviser and the reader are told it; numbers, dates, addresses, citations, names and glossary terms are kept and checked as in any run, a score or a length outside its band revises nothing, and the note lists where the translator could not keep it.\n"
-            + "  A comic is translated too (manga, manhwa, manhua, a web comic's strips, a comic book, a graphic novel): a CBZ, a CBR, a ZIP or a folder of page pictures by itself, a PDF whose pages are pictures with --comic on (--comic off says a file is a document). Its pages are read by the comic helper on this machine, from Japanese, Chinese, Korean or a language of the Latin, Cyrillic or Greek alphabet: the language --from names, or the one the helper finds on a sample of the pages, which the command says before it starts. A Japanese comic is read from the right, a Chinese one from the right when its lettering runs in columns, any other from the left; --reads right-to-left says an edition of a manga in another language keeps its pages running from the right (--reads left-to-right the other way; rtl and ltr are taken too). The translation is set into the balloons, in any of those languages, and written as a CBZ beside the original (a PDF for a PDF; --as chooses). The helper is set up on your yes the first time, after the command has said what that fetches; --yes answers for a script.\n"
+            + "  A comic is translated too (manga, manhwa, manhua, a web comic's strips, a comic book, a graphic novel): a CBZ, a CBR, a ZIP or a folder of page pictures by itself, a PDF whose pages are pictures with --comic on (--comic off says a file is a document). Its pages are read by the comic helper, on this machine or on the one that serves its heavy helpers (researchzosho helpers), from Japanese, Chinese, Korean or a language of the Latin, Cyrillic or Greek alphabet: the language --from names, or the one the helper finds on a sample of the pages, which the command says before it starts. A Japanese comic is read from the right, a Chinese one from the right when its lettering runs in columns, any other from the left; --reads right-to-left says an edition of a manga in another language keeps its pages running from the right (--reads left-to-right the other way; rtl and ltr are taken too). The translation is set into the balloons, in any of those languages, and written as a CBZ beside the original (a PDF for a PDF; --as chooses). The helper is set up on your yes the first time, after the command has said what that fetches; --yes answers for a script.\n"
             + "  Both files go onto the shelves. The time is said first, from the number of units and the model's measured speed.";
 
     static int translate(LibraryStore store, String[] args) throws Exception {
@@ -111,16 +111,24 @@ final class TranslateCli {
             System.out.println("Filed as " + id + "; the service runs it. Waiting (Ctrl-C leaves it running; researchzosho jobs " + id + " shows it).");
             String lastSaid = "";
             boolean foundSaid = !plan.from().isEmpty();   // a language the run finds at its start is said once, from the job's record, where the service keeps it
-            long filedAt = System.currentTimeMillis();
+            long queuedSince = -1;   // since when this command has seen the job queued without a break: a job a restarted service put back in line is queued again
+            boolean toldWaiting = false;
             while (true) {
-                Thread.sleep(2000);
+                Thread.sleep(WAIT_POLL_MS);
                 ObjectNode j = jobs.get(id);
                 if (j == null) { System.err.println("The job " + id + " is gone from the library's records."); return 1; }
                 String state = j.path("state").asText("");
-                if (state.equals("queued") && System.currentTimeMillis() - filedAt > 60_000) {
-                    // nothing picked it up in a minute: the service records a pid but does not serve this library, or is busy; it runs here instead
-                    Jobs.Stop st = jobs.stopRun(id, "the terminal");
-                    if (st != null && st.state().equals("stopped")) { System.out.println("No service picked it up in a minute. Running it here, in this terminal."); served = false; break; }
+                long now = System.currentTimeMillis();
+                if (!state.equals("queued")) queuedSince = -1;
+                else if (queuedSince < 0) queuedSince = now;
+                else if (now - queuedSince > TAKE_OVER_MS) {
+                    // queued a minute: run here only when no live process can be running it. A service that holds the library's lease has the job
+                    // in its line (a busy one, or one that restarted and resumes it) and runs it; a pid recorded by a service that does not serve
+                    // this library holds no lease here, and then this command takes the lease, claims the job under its lock, and runs it
+                    Lease.Holder h = Lease.holder(store);
+                    if (h != null && h.live()) {
+                        if (!toldWaiting) { System.out.println("  The service (pid " + h.pid() + ") holds this library and has the job in its line; waiting for it to run it (Ctrl-C leaves it there)."); toldWaiting = true; }
+                    } else if (takeOver(store, jobs, id)) { System.out.println("No service picked it up in a minute. Running it here, in this terminal."); served = false; break; }
                 }
                 if (!foundSaid && !j.path("ran").path("from").asText("").isEmpty()) { System.out.println("  " + foundSaid(j.path("ran").path("from").asText())); foundSaid = true; }
                 if (state.equals("running")) { String said = progressWords(j.path("progress")); if (!said.isEmpty() && !said.equals(lastSaid)) { System.out.println("  " + said); lastSaid = said; } }
@@ -137,11 +145,27 @@ final class TranslateCli {
             ObjectNode sp = Translation.tally(store, "", seats, o.seconds());
             ObjectNode ran = Translation.JOB_DRAFT.apply(a);   // the run as a job's record would hold it: who did what, and what a hosted seat cost
             ran.set("ran", TranslationWho.ran(seats, seat[0], plan.quality()));
-            if (o.comic() != null) ((ObjectNode) ran.get("ran")).put("second_reading", o.comic().twice().made()).put("from", o.from());
+            if (o.comic() != null) ((ObjectNode) ran.get("ran")).put("second_reading", o.comic().twice().made()).put("from", o.from()).put("pages_on", o.comic().helperOn());
             ran.set("spent", sp);
             System.out.println(Translation.result(store, o, false, "cli", TranslationWho.said(TranslationWho.facts(ran), Chrome.ENGLISH)));
             return 0;
         } catch (IOException e) { System.err.println(e.getMessage()); return 1; }
+    }
+
+    /** How often the waiting command reads the job's record, and how long a job stays queued before it looks at running it itself; a test shortens them. */
+    static volatile long WAIT_POLL_MS = 2_000, TAKE_OVER_MS = 60_000;
+
+    /**
+     * The job made this command's to run, when no live process can be running it: the library's lease taken (refused while a service
+     * holds it: false, and the service runs the job), and under it the job stopped as filed, under the job's own lock, so that no service
+     * can start it after; true when it was still queued and is now this command's. The lease is let go again before the run: the job's
+     * record is no longer queued, and a service that starts during the run serves the library and leaves the job alone.
+     */
+    static boolean takeOver(LibraryStore store, Jobs jobs, String id) {
+        Lease lease;
+        try { lease = Lease.acquire(store); } catch (IOException held) { return false; }
+        try (lease) { Jobs.Stop st = jobs.stopRun(id, "the terminal"); return st != null && st.state().equals("stopped"); }
+        catch (IOException e) { return false; }
     }
 
     /** What is said when no model answers where a run in this terminal would ask one. */
@@ -152,6 +176,8 @@ final class TranslateCli {
      * {@code status} says how it stands, loading every piece of a helper that is set up once and naming one that does not load
      * ({@code --list} names each thing a set-up fetches with its size and its licence); {@code install}
      * says the list, asks once ({@code --yes} answers) and sets it up. Its files are brought to this release's first, as the scorers' script is.
+     * Where the machine that serves this library's heavy helpers serves it (0.7.6), {@code status} says what that machine says of it and
+     * {@code install} says the command that sets it up there; nothing of it is loaded or fetched here.
      */
     static int comics(String[] args) throws Exception {
         String op = args.length > 3 ? args[3].toLowerCase(Locale.ROOT) : "status";
@@ -160,6 +186,8 @@ final class TranslateCli {
         ComicTranslation.sweepWork();   // what comic runs that were killed left in the temporary folder
         switch (op) {
             case "status" -> {
+                // served by the machine that serves this library's heavy helpers: what that machine says of it, and nothing loaded here
+                if (ComicHelper.remote() != null) { String barred = ComicHelper.barred(Chrome.now()); System.out.println(barred.isEmpty() ? ComicHelper.status() : barred); return barred.isEmpty() ? 0 : 1; }
                 // of a helper that is set up, every piece is loaded once: the marker and the files' presence said "set up" of a helper
                 // whose package or file had gone bad since, and the run's own sentences send a person here to see how it stands. The
                 // status looks and changes nothing; install is the repair, and the sentence names it
@@ -176,6 +204,12 @@ final class TranslateCli {
             case "install" -> {
                 String barred = ComicHelper.barred(Chrome.now());
                 if (!barred.isEmpty()) { System.out.println(barred); return 1; }
+                String at = ComicHelper.remote();
+                if (at != null) {   // its set-up is the helpers machine's: said with the command, and nothing fetched here
+                    String host = ComicHelper.hostSaid(at);
+                    System.out.println("The comic helper of this library is served by " + host + " (" + at + "), where it is set up: nothing of it is set up on this machine. researchzosho helpers install --on " + host + " brings it to this release there with the other helpers.");
+                    return 0;
+                }
                 boolean again = false;
                 if (ComicHelper.installed()) {
                     // asked of a helper that is set up: every piece loaded once more. A helper whose package or file went bad after its

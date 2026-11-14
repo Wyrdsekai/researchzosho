@@ -90,7 +90,7 @@ final class ComicNote {
                     default -> japanese ? ", as a Japanese comic's are" : o.from().equals("zh") ? (d.reads().rtl() ? ", its lettering running in columns" : ", its lettering running in lines") : ", as " + source + " is read";
                 })
                 .append(switch (d.taken()) { case ComicTranslation.SAID -> "; a comic on the person's word"; case ComicTranslation.FOUND -> "; taken for a comic because the comic helper found speech balloons on its pages"; default -> ""; }).append(")\n");
-        b.append("- Pages read by: the comic helper on this machine").append(d.helper().isEmpty() ? "" : " (" + d.helper() + ")").append(". Found: ").append(plural(d.speech(), "speech balloon", "speech balloons")).append(japanese ? ", " : " ")
+        b.append("- Pages read by: the comic helper on ").append(d.helperOn().isEmpty() ? "this machine" : d.helperOn()).append(d.helper().isEmpty() ? "" : " (" + d.helper() + ")").append(". Found: ").append(plural(d.speech(), "speech balloon", "speech balloons")).append(japanese ? ", " : " ")
                 .append(japanese ? plural(d.outside(), "text outside a balloon", "texts outside a balloon") + ", " + plural(d.sound(), "drawn sound word", "drawn sound words")
                         : "and " + plural(d.outside() + d.sound(), "text outside a balloon", "texts outside a balloon") + " (signs, captions on the art, drawn sound words)")   // only a Japanese comic's sound words are told from its other lettering on the art with any care
                 .append(japanese ? ", " + plural(d.readings(), "reading printed beside a word", "readings printed beside words") : "").append(".")   // readings are printed beside words in Japanese alone

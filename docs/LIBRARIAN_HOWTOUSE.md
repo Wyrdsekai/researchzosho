@@ -1650,8 +1650,9 @@ names a piece by its strip ("page 3, part 2 of 7") and says how many cuts fell i
 through art, a balloon or lettering.
 
 The comic helper. Reading a page and lettering it are done by a helper that runs on the library's machine, on its
-processor; no page leaves the machine for it. It is not part of the download. The first time a comic is translated
-the program says what a set-up fetches and asks once; `--yes` answers for a script, and `researchzosho translate
+processor; no page leaves the machine for it. A library whose heavy helpers run on another machine (section 15b) has
+its comics read and lettered there instead, when that machine serves the comic helper. It is not part of the download.
+On the library's machine, the first time a comic is translated the program says what a set-up fetches and asks once; `--yes` answers for a script, and `researchzosho translate
 comics install` sets it up on its own. `researchzosho translate comics status --list` names each piece, and
 `researchzosho helpers` has a line for it. `RESEARCHZOSHO_COMIC=off` leaves it out, and a comic is then not translated.
 
@@ -1697,6 +1698,19 @@ python.org, is enough.
 | Python packages in an environment of the helper's own: PyTorch for processors, manga-ocr, fugashi, the Japanese dictionary unidic-lite, ONNX Runtime, OpenCV, Pillow, NumPy, PyYAML, BudouX | about 450 MB to download, 1.7 GB on the disk | BSD 3-clause, Apache 2.0, MIT, MIT-CMU; OpenCV's package carries FFmpeg libraries under the LGPL, which the helper does not use |
 
 In all about 1.1 GB to download and 2.3 GB on the disk, kept under `~/.researchzosho/comic`.
+
+The comic helper on the helpers machine. `researchzosho helpers install` there (or `helpers install --on homebox` from
+the library's machine) sets it up with the other helpers, the same pieces and sizes as above, and serves it with them
+on port 8217, with the same secret. Nothing of it is set up on the library's machine, and nothing is asked there: a
+library with `local_helpers off` uses it as it is. Each comic job gets a process of its own there for its whole run,
+which loads its models once; a job's pages go there with each request and its set pages come back, and nothing of them
+stays there. The machine reads one comic at once for each 8 GB of its memory and each four processor threads, four at
+most; a job beyond that waits for one to end, up to half an hour. A stop ends the job's process there within seconds,
+and a process left with no request for ten minutes is ended. Where that machine does not answer, has not set the
+helper up or refuses the library's secret, a comic's plan says so in one sentence before any work, with the command
+that puts it right. `researchzosho translate comics status` says what that machine says of its helper, `translate
+comics install` names the command that sets it up there, `researchzosho helpers` has a line for it with the others,
+and the plan and the note say "the comic helper on homebox".
 
 How a page is translated. One call a page, which names the comic's language and the one asked for. When the model
 sees pictures it is given the page itself, each block of lettering boxed and numbered, beside the text read from it;
@@ -3404,8 +3418,9 @@ them on the library's computer.
 
 ## 15b. Heavy helpers on another machine
 
-MetricX-24, LaBSE, the likeness helper, speech-to-text and the embeddings server take a laptop's processor for hours.
-Put them on the machine with the card, from the laptop:
+MetricX-24, LaBSE, the likeness helper, speech-to-text and the embeddings server take a laptop's processor for hours,
+and the comic helper's set-up is 2.3 GB a laptop may not have room for. Put them on the machine with the card, from the
+laptop:
 
 ```
 researchzosho helpers install --on homebox      # over ssh with your own keys; asks once, with the sizes
@@ -3419,7 +3434,7 @@ when they already run there, keeps a secret, and starts a user service on port 8
 On the big machine itself, the same in one command, which ends with the line to paste on the library's machine:
 
 ```
-researchzosho helpers install                   # --only metricx,labse  --gpu 2 | --cpu  --beside-port 8212  --yes
+researchzosho helpers install                   # --only metricx,labse,comic  --gpu 2 | --cpu  --beside-port 8212  --yes
 researchzosho helpers secret                    # the kept secret, alone on a line
 researchzosho helpers uninstall                 # the service goes; the models stay
 ```
@@ -3444,9 +3459,16 @@ address or a local name) asks that machine's port 8217 and uses the helpers serv
 is said, with the line that sets it. A hosted service is never asked; `settings set helpers off` stops the look.
 `researchzosho helpers` says where each helper runs.
 
+**Comics.** The comic helper is one of the helpers (`comic`), set up with them, about 1.1 GB to download and 2.3 GB on
+the disk; it runs on the machine's processor whatever card the set is on, a process for each library's comic job
+(section 8b, the comic helper on the helpers machine). A machine whose ResearchZosho is older than 0.7.6, the first release that serves it,
+is brought to it by `--on` before its install. A library whose helpers machine serves it reads its comics there; one
+whose helpers machine does not (an earlier release, or `--only` without it) uses its own, or, with `local_helpers off`,
+says which command puts it there.
+
 The secret goes only to addresses this program serves; the calls are plain http, so use a network you trust or an
 https proxy. One helper can be named on its own (`RESEARCHZOSHO_METRICX`, `_LABSE`, `_LIKENESS`, `_WHISPER`, `_EMBED`,
-an address or `off`). macOS and Windows have no helpers service yet: there `helpers install` says to run `helpers
+an address or `off`; the comic helper's own is `comic`, on or off). macOS and Windows have no helpers service yet: there `helpers install` says to run `helpers
 serve`. With `settings set local_helpers off` a machine runs none of them, and a helper no address names is left out,
 as a translation's plan and note say. A helpers machine that stops answering stays the one named.
 

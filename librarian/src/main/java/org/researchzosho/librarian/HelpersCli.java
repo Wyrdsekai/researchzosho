@@ -25,12 +25,13 @@ import java.util.Locale;
  *       (a systemd user unit; on Linux, where a machine that serves the heavy helpers usually is).</li>
  * </ul>
  * {@code translate scorers serve} is {@code helpers serve --only metricx,labse}; {@code images likeness serve} is {@code --only likeness}.
+ * The comic helper is one of them since 0.7.6 ({@code comic}).
  */
 final class HelpersCli {
     private HelpersCli() { }
 
     static final String UNIT = "researchzosho-helpers";
-    static final String USAGE = "usage: researchzosho helpers [status]   ·   helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback | --cpu-fallback] [--only metricx,labse,likeness,whisper,embed] [--yes]\n"
+    static final String USAGE = "usage: researchzosho helpers [status]   ·   helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback | --cpu-fallback] [--only metricx,labse,likeness,whisper,embed,comic] [--yes]\n"
             + "       researchzosho helpers uninstall [--gpu <index> | --cpu]   ·   helpers port [--gpu <index> | --cpu | --beside-port N] [--separate]   ·   helpers secret   ·   helpers serve [--bind ADDR] [--port N] [--secret-file FILE] [--gpu <index> | --cpu] [--no-cpu-fallback] [--only …]\n"
             + "       researchzosho helpers service install|uninstall|status [the same flags]   (a machine that serves the heavy helpers to the libraries of other machines)";
 
@@ -65,6 +66,7 @@ final class HelpersCli {
         if (needs != null) b.append("\n").append(needsSecretSaid(needs));
         if ("off".equals(Helpers.explicitBase())) b.append("\nNo machine is asked for its helpers (helpers off).");
         for (Helper h : Helper.values()) {
+            if (h == Helper.COMIC) { b.append("\n  ").append(h.said).append(": ").append(ComicHelper.statusLine()); continue; }   // its own line: where it is served, else how it stands set up here
             String at = Helpers.address(h), line;
             boolean scorer = h == Helper.LABSE || h == Helper.METRICX;
             if (scorer ? TranslationScores.off(h) : Helpers.off(h)) line = "off (" + (scorer ? TranslationScores.offSaid(h) : h.setting + "=off") + ")";   // the scorers also by RESEARCHZOSHO_SCORERS=off
@@ -78,7 +80,6 @@ final class HelpersCli {
             else line = Helpers.localAllowed() ? "on this machine" : "not run here, and no address names it";
             b.append("\n  ").append(h.said).append(": ").append(line);
         }
-        b.append("\n  the comic helper: ").append(ComicHelper.statusLine());   // not served to other machines in this version: it runs where the library is
         return b.toString();
     }
 
@@ -129,7 +130,7 @@ final class HelpersCli {
                     if (Files.isRegularFile(secretFile)) secret = Files.readString(secretFile, StandardCharsets.UTF_8).strip();
                     else { secret = HelperServer.newSecret(); keepSecret(secretFile, secret); made = true; }
                 }
-                case "--only" -> { onlyGiven = true; only = new ArrayList<>(); for (String n : LibrarianCli.flagValue(args, i++).split(",")) { Helper h = Helper.of(n.strip()); if (h == null) throw new IOException("no helper is called " + n.strip() + ": metricx, labse, likeness, whisper or embed"); only.add(h); } }
+                case "--only" -> { onlyGiven = true; only = new ArrayList<>(); for (String n : LibrarianCli.flagValue(args, i++).split(",")) { Helper h = Helper.of(n.strip()); if (h == null) throw new IOException("no helper is called " + n.strip() + ": metricx, labse, likeness, whisper, embed or comic"); only.add(h); } }
                 default -> throw new IOException("not a flag here: " + args[i]);
             }
         }

@@ -131,6 +131,9 @@ docker restart rz-alpha
 
 Without a helpers machine, a checked translation runs without scores and its plan says so.
 
+A comic is read and lettered by the same machine's comic helper, which `helpers install` sets up there with the
+others; no comic is translated in the image without one, and a comic's plan says what to run.
+
 ## The health check, the log, what is missing
 
 `GET /healthz` answers 200 with the version and the library's id when the library opens and the daemon

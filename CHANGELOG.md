@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.6
+
+What's new: comics can be translated by a library whose heavy helpers run on another machine; fixes for helpers machines and for a job that could run twice.
+
+### Fixed
+
+- After an update to 0.7.5, a machine that runs the heavy helpers for another machine's library could stop scoring translations: MetricX-24 there was "not loaded". That machine kept an older copy of MetricX-24's script, which did not understand the setting that keeps it off the processor. A helpers machine now updates its helpers' scripts every time it starts them.
+- Comics can now be translated by a library whose heavy helpers run on another machine. `researchzosho helpers install` there, or `researchzosho helpers install --on <user@host>` from the library's machine, sets up the tool that reads and letters comic pages on that machine with the others (about 1.1 GB to download, 2.3 GB on disk), and nothing has to be installed for comics on the library's machine. Before, a library set to run no heavy helpers itself could not translate comics at all.
+- `researchzosho helpers install --on <user@host>` first updates a helpers machine on 0.7.5 or earlier to this release, the first one that can serve comics and keep MetricX-24 off its processor.
+- A `researchzosho translate` command waiting for its job could run that job a second time while the service, restarted in the middle of it, resumed it: the document was translated twice (charged twice on a paid model) and written twice. A waiting command now runs a job itself only when no service is working on the library; otherwise it waits for the service and says so.
+
+If a helpers machine of yours shows MetricX-24 as not loaded after the update to 0.7.5, update it to 0.7.6 (`researchzosho update now` there) and the helpers start as they should.
+
 ## 0.7.5
 
 What's new: translate manga and comics, with the translation set into the speech balloons; tell a translation how it should sound; see who translated and checked a job and what it cost.

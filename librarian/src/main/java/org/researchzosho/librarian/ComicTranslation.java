@@ -40,7 +40,8 @@ import java.util.regex.Pattern;
 
 /**
  * A comic translated (0.7.5): manga, manhwa, manhua, a web comic's strips, a graphic novel, a comic book, as a CBZ, a CBR, a ZIP or a
- * folder of page pictures, or a PDF whose pages are pictures. The pages are read by the comic helper on this machine
+ * folder of page pictures, or a PDF whose pages are pictures. The pages are read by the comic helper on this machine, or since 0.7.6 by
+ * the one of the machine that serves the library's heavy helpers
  * ({@link ComicHelper}: the lettering, the balloons, and for Japanese the readings printed beside the words); each speech balloon's
  * text is a unit of the translation, as a paragraph is a document's; the program's own translator translates a page at a call, and
  * the helper sets the translation back into the balloons. The same job as any document's translation ({@link Translation}), which
@@ -236,7 +237,8 @@ final class ComicTranslation {
      * a second time by the translator ({@link #TWICE}; once, and why: {@link #ONCE_QUICK}, {@link #ONCE_BLIND}, {@link #ONCE_JAPANESE};
      * or {@link #TWICE_LATER}, found when the run starts).
      */
-    public record Planned(int pages, String container, String why, int sampled, int withBalloons, String helper, String picture, String translator, Source source, Reads reads, String second) {
+    public record Planned(int pages, String container, String why, int sampled, int withBalloons, String helper, String picture, String translator, Source source, Reads reads, String second, String helperOn) {
+        public Planned(int pages, String container, String why, int sampled, int withBalloons, String helper, String picture, String translator, Source source, Reads reads, String second) { this(pages, container, why, sampled, withBalloons, helper, picture, translator, source, reads, second, ""); }
         /** What the plan says of who reads the lettering: the translator a second time, or the helper alone and why; "" for a Japanese comic, which the helper alone reads in every run. */
         public String secondSaid(Chrome c) {
             return switch (second) {
@@ -290,6 +292,7 @@ final class ComicTranslation {
         public ObjectNode json() {
             ObjectNode o = M.createObjectNode();
             o.put("pages", pages); o.put("container", container); o.put("taken", why); o.put("helper", helper); o.put("pictures", picture);
+            o.put("helper_on", helperOn);   // the machine whose comic helper reads the pages, as a sentence names it: "" for the library's own (0.7.6)
             if (why.equals(FOUND)) { o.put("pages_looked_at", sampled); o.put("pages_with_balloons", withBalloons); }
             o.put("from", source.code()); o.put("from_how", source.how());   // the language of the lettering: named by the person, read from a sample, or to be found when the run starts
             o.set("source", source.json());
@@ -325,7 +328,7 @@ final class ComicTranslation {
         }
         if (kind.equals(ComicPages.PDF)) {
             if (on) return new Taken(SAID, 0, 0);
-            if (off || !ComicHelper.on() || !Helpers.localAllowed() || !ComicHelper.installed()) return null;
+            if (off || !ComicHelper.usable()) return null;   // the helper reads the PDF where it can now: here, set up, or on the machine that serves it
             int[] found = looked(file);
             return found != null && found[0] > 0 && found[1] * 2 > found[0] ? new Taken(FOUND, found[0], found[1]) : null;
         }
@@ -400,7 +403,7 @@ final class ComicTranslation {
      * does not unpack), when the look fails, and when it finds no lettering: the run then looks itself, at its start, on its own pages.
      */
     static Source sampled(Path file) {
-        if (!ComicHelper.on() || !Helpers.localAllowed() || !ComicHelper.installed()) return Source.LATER;
+        if (!ComicHelper.usable()) return Source.LATER;
         Path dir = null;
         try {
             String key = sourceKey(file);
@@ -576,7 +579,9 @@ final class ComicTranslation {
         long rTokens = !Translation.reads(q) ? 0 : (long) (pages * PAGE_SENT * (every ? 1.0 : 0.6)), rWritten = !Translation.reads(q) ? 0 : (long) (pages * PAGE_WRITTEN * (every ? 1.0 : 0.6));
         double cost = hosted ? e.cost(rTokens, 0, rWritten) : 0;
         // the helper needs the person's yes only where a set-up is theirs to say yes to: one that an earlier release set up fetches what this one adds as the run's first step
-        Planned comic = new Planned(pages, container, taken.why(), taken.sampled(), taken.withBalloons(), ComicHelper.readyOrQuiet() ? READY : NEEDS, picture, t != null ? t.name() : ModelEntries.DEFAULT, source, reads(said == null ? "" : said.reads(), source), second(source, q, picture));
+        String remote = ComicHelper.remote();   // barred above said it when that machine cannot read it now
+        Planned comic = new Planned(pages, container, taken.why(), taken.sampled(), taken.withBalloons(), ComicHelper.readyOrQuiet() ? READY : NEEDS, picture, t != null ? t.name() : ModelEntries.DEFAULT, source, reads(said == null ? "" : said.reads(), source), second(source, q, picture),
+                remote == null ? "" : ComicHelper.hostSaid(remote));
         return new Translation.Plan(name, container, source.code(), code, fmt, q, 0, 0, quick, checked, reviewed, thorough, measured, e == null ? "" : e.name(), hosted, cost, rTokens, t == null ? "" : t.name(), tHosted, tCost, tTokens, "",
                 null, null, 0, 0, null, rWritten, List.of(), "", comic);
     }
@@ -597,7 +602,7 @@ final class ComicTranslation {
      * ({@link ComicHelper.Needs#asks}): the fonts and readers it lacks are fetched as the run's first step, and the progress says so.
      */
     static void helperReady(Said said, Consumer<ObjectNode> progress, String quality) throws IOException {
-        if (ComicHelper.installed()) return;
+        if (ComicHelper.remote() != null || ComicHelper.installed()) return;   // a helper another machine serves is set up there: nothing is fetched here
         ComicHelper.Needs needs = ComicHelper.needs();
         if (!said.setup() && needs.asks()) throw new IOException("The comic helper is not set up on this machine, and this comic was sent without a yes to setting it up. " + ComicHelper.questionSaid(Chrome.ENGLISH)
                 + " researchzosho translate comics install sets it up; then send the comic again.");
@@ -752,6 +757,7 @@ final class ComicTranslation {
      * be told ("name the language and send it again"), or with a pointer to a status that said "set up" (macOS, 2026-11-14).
      */
     static String unloadableSaid(ComicHelper.Failed f) {
+        if (!f.on().isEmpty()) return "The comic helper on " + f.on() + " cannot read this comic: " + f.getMessage() + ". researchzosho translate comics install, run on " + f.on() + ", loads every piece of the helper there once and puts right what does not load; then send the comic again.";
         return "The comic helper cannot read this comic: " + f.getMessage() + ". researchzosho translate comics install loads every piece of the helper once and puts right what does not load; then send the comic again.";
     }
 
@@ -1566,7 +1572,7 @@ final class ComicTranslation {
     public record Done(int pages, List<String> unread, int speech, int outside, int sound, int readings, boolean pictures, String picturesWhy, int set, Map<String, Integer> notSet, int smallestPx, int largestPx,
                        List<Fitted> fitted, List<String> namesRefused, Map<String, String> readingSpellings, String helper, List<String> leftOut, boolean hyphenated, List<List<Row>> rows, List<String> pageNames, String container, String taken,
                        int otherFont, int belowFloor, List<Block> units, int namesWritten, boolean readerPictures, List<Integer> askedAgain, List<Integer> byBalloon,
-                       Source source, List<String> pageLabels, int strips, int pieces, int inColumns, Fit fit, boolean capitals, Map<String, Integer> cuts, int insidePhrase, String phrases, int kept, Reads reads, int keepBroken, Twice twice, int leftAsArt, int heldByPage, int ownSize, int brokenWords) {
+                       Source source, List<String> pageLabels, int strips, int pieces, int inColumns, Fit fit, boolean capitals, Map<String, Integer> cuts, int insidePhrase, String phrases, int kept, Reads reads, int keepBroken, Twice twice, int leftAsArt, int heldByPage, int ownSize, int brokenWords, String helperOn) {
         /** A page of the job as a sentence names it: "page 4", or "page 3, part 2 of 7". {@code p} from 0. */
         String pageSaid(int p) { return "page " + pageLabels.get(p); }
         /** Pages of the job in a row, by their numbers from 1: "pages 2, 3 and 6" as before for a volume of pages, each named whole where a strip's pieces are among them. */
@@ -1660,7 +1666,7 @@ final class ComicTranslation {
             String sourceCode = source.code();
             if (!reader.languages().isEmpty() && !reader.languages().contains(sourceCode)) {
                 List<String> reads = new ArrayList<>(); for (String l : reader.languages()) reads.add(ReadIn.name(l));
-                throw new IOException("The comic helper on this machine has no reader for " + ReadIn.name(sourceCode) + (source.how().equals(BY_PERSON) ? "" : ", the language it found the lettering in") + ". It reads: " + Chrome.ENGLISH.and(reads) + ". If the comic is in one of those, name it: " + NAME_IT + ".");
+                throw new IOException("The comic helper " + (reader.where().isEmpty() ? "on this machine" : "on " + reader.where()) + " has no reader for " + ReadIn.name(sourceCode) + (source.how().equals(BY_PERSON) ? "" : ", the language it found the lettering in") + ". It reads: " + Chrome.ENGLISH.and(reads) + ". If the comic is in one of those, name it: " + NAME_IT + ".");
             }
             // the way the pages are read: the person's word for any comic; else by the language, and for a Chinese comic by whether its lettering
             // runs in columns, decided once for the comic from the look at a sample (left to the helper each Chinese page votes by its own
@@ -1936,7 +1942,7 @@ final class ComicTranslation {
             Done comic = new Done(volume.pages().size(), unread, speech, outside, sound, readings, pictures, blindWhy[0], setCount, notSet, setCount == 0 ? 0 : smallest, largest, List.copyOf(fitted), List.copyOf(names.refused), spellings, reader.loaded(), leftOut,
                     hyphenated && ComicHelper.hyphenated().contains(code), rows, pageNames, volume.container(), taken.why(), otherFont, belowFloor, List.copyOf(units),
                     (int) names.written.values().stream().filter(a -> !a.kind().equals(DocNames.NONE)).count(), Translation.reads(q) && pictures && readerSees(seats), List.copyOf(askedAgain), List.copyOf(byBalloon),
-                    source, List.copyOf(labels), cut.strips().size(), cut.pieces(), inColumns, fit, pair.capitals(), cut.cuts(), insidePhrase, phrases, keep.size(), new Reads(pair.rtl() ? RTL : LTR, reads.known() ? reads.how() : READS_FOUND), keepBroken, twice, leftAsArt, heldByPage, ownSize, brokenWords);
+                    source, List.copyOf(labels), cut.strips().size(), cut.pieces(), inColumns, fit, pair.capitals(), cut.cuts(), insidePhrase, phrases, keep.size(), new Reads(pair.rtl() ? RTL : LTR, reads.known() ? reads.how() : READS_FOUND), keepBroken, twice, leftAsArt, heldByPage, ownSize, brokenWords, reader.where());
             Path noteFile = Translation.noteFor(output);
             Translation.Outcome o = new Translation.Outcome(output, noteFile, title, title, sourceCode, code, fmt, q, units.size(), words.size(), keptOriginal, checks.flags, marked, seconds,
                     seats.translatorModel(), seats.translatorName(), seats.checkerModel(), seats.checkerName(), seats.sameModel(), seats.why(), checks.backTranslated,

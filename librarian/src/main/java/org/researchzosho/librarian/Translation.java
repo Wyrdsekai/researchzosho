@@ -2339,7 +2339,7 @@ public final class Translation {
             // a comic whose language the run finds at its start tells it with its progress: the job's record holds it from that moment, so every place that shows the job says which language
             Consumer<ObjectNode> told = p -> { if (p != null && p.hasNonNull("found")) { ((ObjectNode) ran.get("ran")).put("from", p.path("found").asText()); facts.accept(ran); } if (progress != null) progress.accept(p); };
             Outcome o = run(store, in, a.path("to").asText(), a.path("as").asText(""), quality, out, a.path("collection").asText(""), seats, told, stop, cp, notes == null ? NOTES_OFF : notes, job.path("job_id").asText(""), a.path("from").asText(""), comic);
-            if (o.comic() != null) { ((ObjectNode) ran.get("ran")).put("second_reading", o.comic().twice().made()).put("from", o.from()); facts.accept(ran); }   // a comic: whether the translator read the lettering a second time and which language it was read in, as the run found them
+            if (o.comic() != null) { ((ObjectNode) ran.get("ran")).put("second_reading", o.comic().twice().made()).put("from", o.from()).put("pages_on", o.comic().helperOn()); facts.accept(ran); }   // a comic: whether the translator read the lettering a second time and which language it was read in, as the run found them
             ObjectNode spent = M.createObjectNode(), sp = tally(store, job.path("job_id").asText(""), seats, o.seconds());
             spent.set("spent", sp);
             if (!sp.isEmpty()) facts.accept(spent);

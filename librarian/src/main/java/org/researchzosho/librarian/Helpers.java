@@ -25,7 +25,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 /**
- * Where the heavy helpers run (0.7.4): MetricX-24, LaBSE, the likeness helper, speech-to-text and the embeddings server. Each can be
+ * Where the heavy helpers run (0.7.4): MetricX-24, LaBSE, the likeness helper, speech-to-text, the embeddings server, and since 0.7.6
+ * the comic helper ({@link ComicHelper}, which reads a comic's pages and letters them; its own setting is {@code RESEARCHZOSHO_COMIC},
+ * on or off, and it is served under {@code /comic} by {@link ComicSessions}). Each can be
  * served by another machine and named by an address, in one way: its own setting ({@code RESEARCHZOSHO_METRICX}, {@code _LABSE},
  * {@code _LIKENESS}, {@code _WHISPER}, {@code _EMBED}: an address, or off), else the machine that serves several at once
  * ({@code RESEARCHZOSHO_HELPERS}, the address of {@code researchzosho helpers serve} there), each helper under its own path
@@ -60,7 +62,8 @@ public final class Helpers {
         LABSE("labse", "RESEARCHZOSHO_LABSE", "LaBSE"),
         LIKENESS("likeness", "RESEARCHZOSHO_LIKENESS", "the likeness helper"),
         WHISPER("whisper", "RESEARCHZOSHO_WHISPER", "speech-to-text"),
-        EMBED("embed", "RESEARCHZOSHO_EMBED", "the embeddings server");
+        EMBED("embed", "RESEARCHZOSHO_EMBED", "the embeddings server"),
+        COMIC("comic", ComicHelper.SETTING, "the comic helper");
         public final String path, setting, said;
         Helper(String path, String setting, String said) { this.path = path; this.setting = setting; this.said = said; }
         public static Helper of(String name) { for (Helper h : values()) if (h.path.equalsIgnoreCase(name)) return h; return null; }
@@ -284,8 +287,8 @@ public final class Helpers {
 
     /**
      * Whether an address is one this program serves, so the helpers' secret goes with it: under the helpers address {@code helpers}
-     * names; under the one found on the model's machine only when that answered as our front asking for it; a MetricX-24 or likeness
-     * address (only this program serves those); or a helper's own address in the form {@code helpers serve} gives it (…/labse,
+     * names; under the one found on the model's machine only when that answered as our front asking for it; a MetricX-24, likeness or
+     * comic helper address (only this program serves those); or a helper's own address in the form {@code helpers serve} gives it (…/labse,
      * …/whisper, …/embed). A server of another program that a setting names, such as an embeddings server, never gets it.
      */
     static boolean ours(String address) {
@@ -297,7 +300,7 @@ public final class Helpers {
         for (Helper h : Helper.values()) {
             String own = Config.get(h.setting, "").strip().replaceAll("/+$", "");
             if (!own.matches("(?i)https?://.+") || !(a.equals(own) || a.startsWith(own + "/"))) continue;
-            if (h == Helper.METRICX || h == Helper.LIKENESS || own.endsWith("/" + h.path)) return true;
+            if (h == Helper.METRICX || h == Helper.LIKENESS || h == Helper.COMIC || own.endsWith("/" + h.path)) return true;
         }
         return false;
     }

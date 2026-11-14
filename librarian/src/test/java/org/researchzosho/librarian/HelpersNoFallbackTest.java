@@ -145,6 +145,29 @@ class HelpersNoFallbackTest {
         assertEquals(starts, started.size());
     }
 
+    /**
+     * The helpers a machine serves follow its release: the scripts the build carries are copied over the ones an earlier release
+     * installed before MetricX-24 or the likeness helper is started. Only a library's own start and `translate scorers` did it, and a
+     * machine that serves helpers and holds no library ran 0.7.4's MetricX-24 script under 0.7.5, which was handed --no-cpu-fallback,
+     * did not know it and ended with code 2: MetricX-24 not loaded on the helpers machine (2026-11-14).
+     */
+    @Test void theHelpersAMachineServesFollowItsReleaseBeforeTheyStart() throws Exception {
+        Files.writeString(TranslationScores.metricxScript(), "# MetricX-24's script as an earlier release installed it\n");
+        byte[] shipped;
+        try (InputStream in = TranslationScores.class.getResourceAsStream("/org/researchzosho/librarian/metricx_score.py")) { shipped = in.readAllBytes(); }
+        next = "loads";
+        List<String> said = new CopyOnWriteArrayList<>();
+        HelperServer.Backends b = HelperServer.backends(List.of(Helper.METRICX), false, said::add, CARD, true);
+        for (HelperServer.Managed m : b.managed().values()) closing.add(m::end);
+        assertArrayEquals(shipped, Files.readAllBytes(TranslationScores.metricxScript()), "the script this release carries, before the process that runs it is started");
+        assertTrue(said.contains("The translation scorers' MetricX script is from an earlier release; refreshed."), said.toString());
+        // and a script that is this release's already is left as it is, with nothing said
+        said.clear();
+        HelperServer.Backends again = HelperServer.backends(List.of(Helper.METRICX), false, said::add, CARD, true);
+        for (HelperServer.Managed m : again.managed().values()) closing.add(m::end);
+        assertFalse(said.stream().anyMatch(l -> l.contains("refreshed")), said.toString());
+    }
+
     @Test void theOptionReachesTheCommandOnlyOnACard() throws Exception {
         front(true, CARD); front(false, CARD); front(true, CPU);
         assertTrue(started.get(0).contains("--no-cpu-fallback"), "with the option, on a card: never the processor: " + started.get(0));

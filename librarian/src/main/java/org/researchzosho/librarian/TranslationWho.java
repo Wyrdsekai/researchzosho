@@ -12,7 +12,7 @@ import java.util.Locale;
 
 /**
  * Who does what in a translation job, as every place that shows the job says it: for a comic who reads its pages (the comic helper, on
- * this machine, and the translator a second time where a run does that); who translates (the entry, its model and where it runs, a hosted one with its estimate), who reads at the reviewed and thorough tiers, where each scorer scores or why it is left out, the tier,
+ * this machine or on the one that serves the heavy helpers, and the translator a second time where a run does that); who translates (the entry, its model and where it runs, a hosted one with its estimate), who reads at the reviewed and thorough tiers, where each scorer scores or why it is left out, the tier,
  * the notes, the format, the languages and the person's direction.
  *
  * <p>The facts, never a sentence, are kept in the job's record: when it is filed, from its plan ({@code args.who}); when it starts, the
@@ -28,7 +28,7 @@ public final class TranslationWho {
     private static final ObjectMapper M = new ObjectMapper();
 
     /** Where a scorer stands for a job: on this machine, at another machine's address, or left out and why. */
-    /** Who reads a comic's pages, as a fact: the comic helper on this machine, the one way there is in this version. */
+    /** Who reads a comic's pages, as a fact: the comic helper; on this machine, or (0.7.6) on the machine {@code pages_on} names, the one that serves the library's heavy helpers. */
     static final String COMIC_HELPER = "comic-helper";
     static final String HERE = "here", AT = "at", DOWN = "down", NOT_LOADED = "not loaded", REFUSED = "refused", AWAY = "away", OFF = "off", NOT_INSTALLED = "not installed";
 
@@ -89,7 +89,8 @@ public final class TranslationWho {
         if (plan.judgeHosted() && Translation.reads(plan.quality())) { r.put("estimate_dollars", cents(plan.judgeCost())); r.put("priced", re != null && re.prices() != null); r.put("tokens", plan.judgeTokens()); r.put("reply_tokens", plan.judgeReplyTokens()); }
         o.set("reader", r);
         o.set("scorers", plan.comic() != null ? M.createArrayNode() : scorers(plan.quality(), plan.placed()));   // a comic's balloons are not scored
-        if (plan.comic() != null) o.put("pages", COMIC_HELPER);   // who reads the pages: the comic helper, on this machine
+        if (plan.comic() != null) o.put("pages", COMIC_HELPER);   // who reads the pages: the comic helper
+        if (plan.comic() != null && !plan.comic().helperOn().isEmpty()) o.put("pages_on", plan.comic().helperOn());   // on the machine that serves the heavy helpers, not this one
         if (plan.comic() != null && plan.comic().second().equals(ComicTranslation.TWICE)) o.put("second_reading", true);   // and the translator, each balloon's lettering a second time
         o.put("from", plan.from());
         o.put("as", plan.as());
@@ -167,6 +168,9 @@ public final class TranslationWho {
         }
         if (who.path("scorers").isArray()) o.set("scorers", who.path("scorers").deepCopy());
         if (who.hasNonNull("pages")) o.put("pages", who.path("pages").asText());
+        // where the comic helper reads the pages: as the run found it once it started, else as the plan knew it when the job was filed
+        String on = ran.has("pages_on") ? ran.path("pages_on").asText("") : who.path("pages_on").asText("");
+        if (!on.isEmpty()) o.put("pages_on", on);
         // whether the translator reads the lettering a second time: as the run found it once it has read the pages, else as the plan knew it when the job was filed
         if (ran.has("second_reading") ? ran.path("second_reading").asBoolean(false) : who.path("second_reading").asBoolean(false)) o.put("second_reading", true);
         o.put("said", said(o, Chrome.ENGLISH));
@@ -227,7 +231,12 @@ public final class TranslationWho {
     /** The same; {@code scores} false leaves out where the scores are made, for an answer whose plan says it ({@link #planSaysScores}). */
     public static String seatsSaid(JsonNode f, Chrome c, boolean costs, boolean scores) {
         List<String> out = new ArrayList<>();
-        if (COMIC_HELPER.equals(f.path("pages").asText(""))) out.add(f.path("second_reading").asBoolean(false) ? c.t("The pages are read by the comic helper on this machine, and the translator reads the lettering a second time.") : c.t("The pages are read by the comic helper on this machine."));
+        if (COMIC_HELPER.equals(f.path("pages").asText(""))) {
+            String on = f.path("pages_on").asText("");
+            boolean twice = f.path("second_reading").asBoolean(false);
+            if (on.isEmpty()) out.add(twice ? c.t("The pages are read by the comic helper on this machine, and the translator reads the lettering a second time.") : c.t("The pages are read by the comic helper on this machine."));
+            else out.add(twice ? c.t("The pages are read by the comic helper on {0}, and the translator reads the lettering a second time.", on) : c.t("The pages are read by the comic helper on {0}.", on));
+        }
         String t = seatSaid(f.path("translator"), c, costs);
         JsonNode r = f.path("reader");
         if (!r.isObject()) out.add(c.t("Translated by {0}.", t));

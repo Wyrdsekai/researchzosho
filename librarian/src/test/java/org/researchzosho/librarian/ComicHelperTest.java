@@ -558,8 +558,10 @@ class ComicHelperTest {
         assertTrue(ComicHelper.install(l -> { }).startsWith("!The comic helper is off"));
         Config.set(ComicHelper.SETTING, "");
         Config.set(Helpers.LOCAL, "off");
-        assertTrue(ComicHelper.barred(Chrome.ENGLISH).startsWith("This machine is set to run no heavy helper (local_helpers off), and the comic helper runs only on the library's own machine in this version"), ComicHelper.barred(Chrome.ENGLISH));
-        assertTrue(ComicHelper.statusLine().startsWith("not run here (local_helpers off)"));
+        // a machine set to run no heavy helper, and no machine named that serves it (0.7.6: one that serves it is used; ComicHelperRemoteTest)
+        assertEquals("This machine is set to run no heavy helper (local_helpers off), and no machine serves this library the comic helper: researchzosho helpers install --on <user@host> sets it up on a machine of yours with the other helpers, or researchzosho settings set local_helpers on allows it here.", ComicHelper.barred(Chrome.ENGLISH));
+        assertEquals("not run here (local_helpers off), and no machine serves it to this library", ComicHelper.statusLine());
+        assertTrue(ComicHelper.install(l -> { }).startsWith("!This machine is set to run no heavy helper (local_helpers off)"), "nothing is set up here");
         Config.set(Helpers.LOCAL, "");
         assertEquals("", ComicHelper.barred(Chrome.ENGLISH));
         assertEquals("on this machine, not set up yet (researchzosho translate comics install)", ComicHelper.statusLine());

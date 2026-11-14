@@ -21,7 +21,7 @@ import java.util.Map;
 
 /**
  * {@code researchzosho helpers install} (0.7.4): one command on the machine that serves the heavy helpers, for what a person did in five
- * steps. It sets up what is missing of MetricX-24, LaBSE and the likeness helper (their own install paths, each one's size said first,
+ * steps. It sets up what is missing of MetricX-24, LaBSE, the likeness helper and since 0.7.6 the comic helper (their own install paths, each one's size said first,
  * one question before anything is fetched), serves an embeddings server and speech-to-text when they already answer here, keeps a
  * secret ({@code <home>/helpers.secret}), installs and starts the helpers' user service on every address of the machine, port 8217,
  * asks its own health, and ends with what it serves and the one line to paste on the library's machine. Run again, it adds what is
@@ -35,8 +35,8 @@ import java.util.Map;
 final class HelpersInstall {
     private HelpersInstall() { }
 
-    /** The heavy helpers this command sets up itself, in the order it says them; the embeddings server and speech-to-text it serves when they answer. */
-    static final List<Helper> SET_UP = List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS);
+    /** The heavy helpers this command sets up itself, in the order it says them (the comic helper since 0.7.6); the embeddings server and speech-to-text it serves when they answer. */
+    static final List<Helper> SET_UP = List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS, Helper.COMIC);
 
     /** What the command reads of this machine and does to it; a test stands it in. */
     interface Machine {
@@ -64,6 +64,7 @@ final class HelpersInstall {
                 case METRICX -> TranslationScores.metricxInstalled();
                 case LABSE -> !TranslationScores.labseState().equals("absent") || Embed.answers("http://127.0.0.1:" + TranslationScores.LABSE_PORT);
                 case LIKENESS -> LikenessHelper.installed();
+                case COMIC -> ComicHelper.installed();
                 default -> answers(h);
             };
         }
@@ -74,6 +75,7 @@ final class HelpersInstall {
                 case METRICX -> TranslationScores.installMetricx(card, out::println, noFallback);
                 case LABSE -> { String r = TranslationScores.startLabse(card.dockerGpus(), card.card() == null ? null : card.card().uuid(), out::println); yield r.startsWith("!") ? r : "ready"; }
                 case LIKENESS -> LikenessHelper.INSTALL.get();
+                case COMIC -> ComicHelper.install(line -> out.println("  " + line));   // its own set-up, each step said; Python found as it finds it on any machine
                 default -> "!" + h.said + " is not set up by this command";
             };
         }
@@ -118,18 +120,33 @@ final class HelpersInstall {
     /** What one helper's setup fetches, as the install commands say it. */
     static String size(Helper h) { return size(h, false); }
 
-    /** The same, MetricX-24's with torch's CUDA build when {@code cuda}. */
-    static String size(Helper h, boolean cuda) {
+    /** The same, MetricX-24's with torch's CUDA build when {@code cuda}. The comic helper's is what this machine still lacks of it. */
+    static String size(Helper h, boolean cuda) { return size(h, cuda, true); }
+
+    /** The same; {@code here} false for another machine, of which nothing is known: the comic helper's whole set-up. */
+    static String size(Helper h, boolean cuda, boolean here) {
         return switch (h) {
             case METRICX -> TranslationScores.METRICX_MODEL + ", " + TranslationScores.metricxSize(cuda);
             case LABSE -> TranslationScores.LABSE_MODEL + ", " + TranslationScores.LABSE_SIZE + ", fetched once by the embeddings image through Docker";
             case LIKENESS -> LikenessHelper.PICTURE_MODEL + " and " + LikenessHelper.FACE_MODEL + ", " + LikenessHelper.SIZES;
+            case COMIC -> { long[] b = comicBytes(here); yield "its models, lettering fonts and Python packages, about " + ComicHelper.size(b[0]) + " to download and " + ComicHelper.size(b[1]) + " on the disk, on the processor"; }
             default -> "";
         };
     }
 
-    /** About what a helper's setup takes on the disk at most, for the check and the question: MetricX-24's by its torch build, LaBSE's model, the likeness helper's packages and weights. */
-    static long bytes(Helper h, boolean cuda) { return switch (h) { case METRICX -> TranslationScores.metricxBytes(cuda); case LABSE -> (long) (1.9 * (1L << 30)); case LIKENESS -> 2L << 30; default -> 0; }; }
+    /** What the comic helper's set-up downloads and takes on the disk, in bytes: on this machine, what it lacks; on another, all of it. */
+    static long[] comicBytes(boolean here) {
+        if (here) { ComicHelper.Needs n = ComicHelper.needs(); return new long[]{n.download(), n.disk()}; }
+        long items = 0; for (ComicHelper.Item i : ComicHelper.manifest()) items += i.bytes();
+        return new long[]{items + ComicHelper.PACKAGES_DOWNLOAD, items + ComicHelper.PACKAGES_DISK};
+    }
+
+    /**
+     * About what a helper's setup takes on the disk at most, for the check and the question: MetricX-24's by its torch build, LaBSE's
+     * model, the likeness helper's packages and weights; the comic helper's what this machine lacks of it, counted so that the question
+     * says the comic helper's own figure (its sizes are in decimal gigabytes, as its own question says them; the others' are not).
+     */
+    static long bytes(Helper h, boolean cuda) { return switch (h) { case METRICX -> TranslationScores.metricxBytes(cuda); case LABSE -> (long) (1.9 * (1L << 30)); case LIKENESS -> 2L << 30; case COMIC -> Math.round(comicBytes(true)[1] / 1e9 * (1L << 30)); default -> 0; }; }
 
     /** Bytes as a person reads them: one decimal place of a gigabyte. */
     static String gb(long bytes) { long tenths = Math.round(bytes / (double) (1L << 30) * 10); return tenths % 10 == 0 ? String.valueOf(tenths / 10) : tenths / 10 + "." + tenths % 10; }
@@ -269,13 +286,14 @@ final class HelpersInstall {
         for (Helper h : o.only()) {
             if (SET_UP.contains(h)) {
                 if (h == Helper.LIKENESS && !LikenessHelper.on()) { out.println("  the likeness helper: off here (" + LikenessHelper.SETTING + "=off), left out"); continue; }
+                if (h == Helper.COMIC && !ComicHelper.on()) { out.println("  the comic helper: off here (" + ComicHelper.SETTING + "=off), left out"); continue; }
                 if (!m.installed(h)) { out.println("  " + h.said + ": to set up (" + size(h, cuda) + ")"); missing.add(h); need.put(h, bytes(h, cuda)); }
                 else if (h == Helper.METRICX && cuda && !m.torchSeesCard(card)) {
                     out.println("  MetricX-24: set up, but its torch cannot see a card, so it gets " + TranslationScores.torchSwapSize());
                     missing.add(h); need.put(h, TranslationScores.TORCH_SWAP_BYTES);
                 }
                 else if (h == Helper.LABSE && several) { String on = m.labseOn(); out.println("  LaBSE: one container on this machine" + (on.isEmpty() ? "" : ", on " + on) + "; every set uses it"); serves.add(h); }
-                else if (h == Helper.LIKENESS && several) { out.println("  the likeness helper: set up already; it runs on the processor in each set"); serves.add(h); }
+                else if ((h == Helper.LIKENESS || h == Helper.COMIC) && several) { out.println("  " + h.said + ": set up already; it runs on the processor in each set"); serves.add(h); }
                 else { out.println("  " + h.said + ": set up already"); serves.add(h); }
             } else if (m.answers(h)) { out.println("  " + h.said + ": answers here, so it is served too"); serves.add(h); }
             else out.println("  " + h.said + ": not running here, so it is left out" + (h == Helper.EMBED ? " (researchzosho embed start starts one)" : " (researchzosho video install sets it up)"));
@@ -389,7 +407,7 @@ final class HelpersInstall {
      * containers and the secret stay.
      */
     static int uninstall(String card, PrintStream out) throws IOException, InterruptedException {
-        String stays = " The models stay as they are: researchzosho translate scorers status and researchzosho images likeness status say what is set up, and the secret stays in " + secretFile() + ".";
+        String stays = " The models stay as they are: researchzosho translate scorers status, researchzosho images likeness status and researchzosho translate comics status say what is set up, and the secret stays in " + secretFile() + ".";
         List<HelperSets.HelperSet> sets = MACHINE.os() == Service.Os.linux ? HelperSets.sets() : List.of();
         if (card != null) sets = sets.stream().filter(x -> x.card().equals(card)).toList();
         if (sets.isEmpty()) { out.println((card == null ? "No helpers service is installed here." : "No set of helpers runs on " + (card.equals("cpu") ? "the processor" : "card " + card) + " here.") + stays); return 0; }

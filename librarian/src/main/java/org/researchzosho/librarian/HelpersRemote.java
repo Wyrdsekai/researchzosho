@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
  * {@code researchzosho helpers install --on <ssh target>} (0.7.4): the heavy helpers set up on another machine of the person's from
  * this one, over ssh with the person's own keys. In order, each step said as it happens: what will be set up there and how big, and
  * one question; the program there (installed by the published installer when it is missing, updated when it is older than the first
- * release that knows {@code helpers install}); {@code helpers install --yes} there, its lines passed through; the secret read back
+ * release that knows {@code helpers install}, or than the first that knows what is asked of it: {@code --no-cpu-fallback}, the comic
+ * helper); {@code helpers install --yes} there, its lines passed through; the secret read back
  * (never printed here), {@code helpers} and {@code helpers_secret} set on this machine, the health asked from here with it, and the
  * helpers' status as the last thing.
  *
@@ -38,8 +39,13 @@ final class HelpersRemote {
 
     /** The first release that knows {@code helpers install}. */
     static final String KNOWS_INSTALL = "0.7.4";
-    /** The first release whose {@code helpers install} knows {@code --no-cpu-fallback} and {@code --cpu-fallback}: an older program there would refuse the flag. */
-    static final String KNOWS_FALLBACK = "0.7.5";
+    /**
+     * The first release that can be handed {@code --no-cpu-fallback} and {@code --cpu-fallback}: 0.7.4 refuses the flag, and 0.7.5 takes it
+     * but its helpers server runs the MetricX-24 script an earlier release installed, which does not know the option and ends with code 2.
+     */
+    static final String KNOWS_FALLBACK = "0.7.6";
+    /** The first release that serves the comic helper to other machines: an earlier one refuses --only comic, and serves the others without it. */
+    static final String KNOWS_COMIC = "0.7.6";
     /** The program there is found on the PATH its installer uses, also from a shell that read no profile. */
     static final String PATH_THERE = "PATH=\"$HOME/.local/bin:$PATH\"; export PATH; ";
     static final String INSTALLER = "https://researchzosho.org/install";
@@ -110,10 +116,12 @@ final class HelpersRemote {
         ModelEntries.Entry main = ModelEntries.defaultEntry();
         String mainHost = Helpers.hostOf(main.drive());
         if (!main.hosted() && mainHost != null && (mainHost.equalsIgnoreCase(host) || mainHost.equalsIgnoreCase(target.replaceFirst("^.*@", "")))) beside = portOf(main.drive());
-        String needs = o.cpuFallback() == null ? KNOWS_INSTALL : KNOWS_FALLBACK;   // the release the program there has to be, by what is asked of it
+        String needs = KNOWS_INSTALL;   // the release the program there has to be, by what is asked of it
+        if (o.cpuFallback() != null && Version.compare(KNOWS_FALLBACK, needs) > 0) needs = KNOWS_FALLBACK;
+        if (o.only().contains(Helper.COMIC) && Version.compare(KNOWS_COMIC, needs) > 0) needs = KNOWS_COMIC;
         // a. what, and how big, and the one question
         List<String> what = new ArrayList<>();
-        for (Helper h : o.only()) if (HelpersInstall.SET_UP.contains(h)) what.add(h.said + " (" + HelpersInstall.size(h, !o.cpu()) + ")");
+        for (Helper h : o.only()) if (HelpersInstall.SET_UP.contains(h)) what.add(h.said + " (" + HelpersInstall.size(h, !o.cpu(), false) + ")");
         out.println("On " + target + ": " + (what.isEmpty() ? "" : "what is missing of " + String.join("; ", what) + "; ")
                 + "the embeddings server and speech-to-text when they run there; served with a secret " + (o.separate() ? "as a set of its own, on a port of its own from " + (Helpers.PORT + 1) + " (or the set already on that card)," : "on port " + Helpers.PORT) + " by a user service"
                 + (o.cpu() ? ", on the processor" : o.gpu() != null ? ", on card " + o.gpu() : beside > 0 ? ", on the card of the model server at port " + beside + " there" : "")

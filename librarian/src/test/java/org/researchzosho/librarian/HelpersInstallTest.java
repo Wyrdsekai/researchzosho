@@ -61,7 +61,7 @@ class HelpersInstallTest {
         @Override public Map<String, String> ownHealth(int port, String secret, Duration wait) {
             healthSecret = secret;
             Map<String, String> m = new LinkedHashMap<>();
-            for (Helper h : List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS, Helper.EMBED)) if (set.contains(h) || answering.contains(h)) m.put(h.path, h == Helper.METRICX ? "google/metricx-24-hybrid-large-v2p6 on cuda (card 0, NVIDIA GeForce RTX 4060 Ti)" : "answering");
+            for (Helper h : List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS, Helper.EMBED, Helper.COMIC)) if (set.contains(h) || answering.contains(h)) m.put(h.path, h == Helper.METRICX ? "google/metricx-24-hybrid-large-v2p6 on cuda (card 0, NVIDIA GeForce RTX 4060 Ti)" : h == Helper.COMIC ? "the comic helper on cpu, 2 comics at once (4 threads each)" : "answering");
             return m;
         }
     }
@@ -113,8 +113,10 @@ class HelpersInstallTest {
                 + "  MetricX-24: to set up (google/metricx-24-hybrid-large-v2p6, about 4.7 GB for the model (its weights as 32-bit floats; the repository holds them twice over, and a fetch of both is 9.2 GB) and, for its Python packages with torch's CUDA build (torch, NVIDIA's CUDA libraries, triton, transformers, sentencepiece), a 2.8 GB download that takes 5.2 GB on the disk)\n"), s);
         assertTrue(s.contains("\n  LaBSE: to set up (sentence-transformers/LaBSE, about 1.9 GB, fetched once by the embeddings image through Docker)\n"), s);
         assertTrue(s.contains("\n  speech-to-text: not running here, so it is left out (researchzosho video install sets it up)\n  the embeddings server: answers here, so it is served too\n"), s);
-        assertTrue(s.contains("\nFetch and set up MetricX-24 (about 14.4 GB at most), LaBSE (about 1.9 GB at most) and the likeness helper (about 2 GB at most) now, about 18.3 GB at most in all? [y/N] "), s);
-        assertEquals(List.of("metricx card 0", "labse card 0", "likeness card 0"), m.installs);
+        // the comic helper with the others (0.7.6), its own figures said, and asked in the one question
+        assertTrue(s.contains("\n  the comic helper: to set up (its models, lettering fonts and Python packages, about 1.1 GB to download and 2.3 GB on the disk, on the processor)\n"), s);
+        assertTrue(s.contains("\nFetch and set up MetricX-24 (about 14.4 GB at most), LaBSE (about 1.9 GB at most), the likeness helper (about 2 GB at most) and the comic helper (about 2.3 GB at most) now, about 20.6 GB at most in all? [y/N] "), s);
+        assertEquals(List.of("metricx card 0", "labse card 0", "likeness card 0", "comic card 0"), m.installs);
         String secret = Files.readString(HelpersInstall.secretFile()).strip();
         assertTrue(secret.matches("[0-9a-f]{48}"));
         assertTrue(s.contains("A secret was made and kept in " + HelpersInstall.secretFile() + ", which only you can read.\n"), s);
@@ -125,14 +127,14 @@ class HelpersInstallTest {
         assertTrue(unit.contains(" /opt/rz/bin/researchzosho helpers serve --bind 0.0.0.0 --port 8217 --secret-file " + HelpersInstall.secretFile() + " --gpu 0\n"), unit);
         assertTrue(s.contains("Installed and started the service researchzosho-helpers: it serves on port 8217 of every address of this machine, also after a restart"), s);
         assertEquals(secret, m.healthSecret, "its own health asked with the secret");
-        assertTrue(s.contains("It serves metricx (google/metricx-24-hybrid-large-v2p6 on cuda (card 0, NVIDIA GeForce RTX 4060 Ti)), labse (answering), likeness (answering), embed (answering).\n"), s);
+        assertTrue(s.contains("It serves metricx (google/metricx-24-hybrid-large-v2p6 on cuda (card 0, NVIDIA GeForce RTX 4060 Ti)), labse (answering), likeness (answering), embed (answering), comic (the comic helper on cpu, 2 comics at once (4 threads each)).\n"), s);
         assertTrue(s.endsWith("A library whose model is served from this machine finds these helpers by itself. On the library's machine, this sets the secret:\nresearchzosho settings set helpers_secret " + secret + "\n"), s);
         // the second run: nothing fetched, nothing asked, the secret and the service kept, and it says so
         Service.EXEC = (cmd, o) -> { ran.add(String.join(" ", cmd)); return 0; };
         ran.clear(); m.installs.clear();
         assertEquals(0, install(""));
         String again = said();
-        assertTrue(again.contains("  MetricX-24: set up already\n  LaBSE: set up already\n  the likeness helper: set up already\n"), again);
+        assertTrue(again.contains("  MetricX-24: set up already\n  LaBSE: set up already\n  the likeness helper: set up already\n") && again.contains("\n  the comic helper: set up already\n"), again);
         assertTrue(again.contains("The helpers go on card 0 (NVIDIA GeForce RTX 4060 Ti, 8.9 GB free), where they run already (port 8217).\n"), again);
         assertFalse(again.contains("[y/N]"), "nothing to fetch: no question");
         assertTrue(again.contains("The secret is kept in " + HelpersInstall.secretFile() + ", as before.\n"), again);
@@ -205,7 +207,7 @@ class HelpersInstallTest {
     }
 
     @Test void anInstalledMetricxWhoseTorchCannotSeeTheCardGetsTheCudaBuildCountedInTheQuestion() throws Exception {
-        m.set.addAll(List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS)); m.torchSees = false;
+        m.set.addAll(List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS, Helper.COMIC)); m.torchSees = false;
         assertEquals(0, install("y\n"));
         String s = said();
         assertTrue(s.contains("  MetricX-24: set up, but its torch cannot see a card, so it gets torch's CUDA build in place of its processor build: a 2.8 GB download, about 4 GB more on the disk\n"), s);
@@ -238,6 +240,22 @@ class HelpersInstallTest {
         // a set on the processor has no card to fall back from: no flag in its line
         assertEquals(0, install("move\n", "--cpu"));
         assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --cpu\n"), Files.readString(HelpersInstall.unitFile()));
+    }
+
+    /** The comic helper with the others (0.7.6): --only comic sets it up alone, and a machine where it is off leaves it out and says so. */
+    @Test void theComicHelperIsSetUpByTheOneCommandAndOnlyComicWorksForIt() throws Exception {
+        assertEquals(0, install("y\n", "--only", "comic"));
+        String s = said();
+        assertTrue(s.contains("\n  the comic helper: to set up (its models, lettering fonts and Python packages, about 1.1 GB to download and 2.3 GB on the disk, on the processor)\nFetch and set up the comic helper (about 2.3 GB at most) now? [y/N] "), s);
+        assertFalse(s.contains("MetricX-24") || s.contains("LaBSE"), s);
+        assertEquals(List.of("comic card 0"), m.installs);
+        assertTrue(Files.readString(HelpersInstall.unitFile()).contains(" --gpu 0 --only comic\n"), Files.readString(HelpersInstall.unitFile()));
+        assertTrue(s.contains("It serves comic (the comic helper on cpu, 2 comics at once (4 threads each)).\n"), s);
+        m.installs.clear();
+        Config.set(ComicHelper.SETTING, "off");
+        assertEquals(1, install("", "--only", "comic"));
+        assertTrue(said().contains("  the comic helper: off here (RESEARCHZOSHO_COMIC=off), left out\nNothing is set up to serve, so no service was installed.\n"));
+        assertTrue(m.installs.isEmpty());
     }
 
     @Test void theSecretCommandWithNoneKept() {

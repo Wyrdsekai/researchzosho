@@ -16,10 +16,15 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -65,8 +70,9 @@ import java.util.regex.Pattern;
  *
  * <p>One process a job, modelled on MetricX-24's: started at the first page, one request a line on its stdin and one answer a line on
  * its stdout ({@code comic/serve.py}), the answers read by a thread of the process's own, a wait that always ends, one restart when the
- * process dies, ended when the job closes it or a stop is asked. The seam for a helper served by another machine is {@link Reader}:
- * the translation asks it and nothing else; only the local process stands behind it in this version.
+ * process dies, ended when the job closes it or a stop is asked. The translation asks {@link Reader} and nothing else: this local
+ * process, or since 0.7.6 the comic helper of the machine that serves this library's heavy helpers ({@link Remote}, served there by
+ * {@link ComicSessions}), chosen as the other heavy helpers are ({@link Helpers#address}, {@code local_helpers}).
  */
 final class ComicHelper {
     private ComicHelper() { }
@@ -147,9 +153,11 @@ final class ComicHelper {
      * One thing the manifest names: its name there; its kind (model, font, hyphenation, words: a language's word list); what a person calls it ({@code title}, a proper
      * name, and {@code said}, in plain words); its licence in a few words; a hyphenation entry's language and a font's writing systems
      * (a list with spaces between: latin, cyrillic, greek, japanese, chinese-simplified, chinese-traditional, korean); the bytes of
-     * its files together, and where they lie under the models folder.
+     * its files together, and where they lie under the models folder; and for a reader, the writing it reads ({@code reads}).
      */
-    record Item(String name, String kind, String title, String said, String licence, String language, String script, long bytes, List<String> paths) { }
+    record Item(String name, String kind, String title, String said, String licence, String language, String script, long bytes, List<String> paths, String reads) {
+        Item(String name, String kind, String title, String said, String licence, String language, String script, long bytes, List<String> paths) { this(name, kind, title, said, licence, language, script, bytes, paths, ""); }
+    }
 
     private static volatile List<Item> manifest;
     /** The files the manifest names, each with its checksum, in one string: what the marker's {@code files} line is the hash of. */
@@ -175,7 +183,7 @@ final class ComicHelper {
                 long bytes = 0; List<String> paths = new ArrayList<>();
                 for (JsonNode f : e.path("files")) { bytes += f.path("size").asLong(); paths.add(f.path("path").asText()); files.append(f.path("path").asText()).append(' ').append(f.path("sha256").asText()).append('\n'); }
                 out.add(new Item(e.path("name").asText(), e.path("kind").asText("model"), e.path("title").asText(e.path("name").asText()), e.path("said").asText(""), e.path("licence_said").asText(e.path("licence").asText("")),
-                        e.path("language").asText(""), e.path("script").asText(""), bytes, List.copyOf(paths)));
+                        e.path("language").asText(""), e.path("script").asText(""), bytes, List.copyOf(paths), e.path("reads").asText("")));
             }
         } catch (IOException e) { /* a build without it: nothing to fetch, and the install says the file is missing */ }
         fetched = files.toString();
@@ -247,18 +255,123 @@ final class ComicHelper {
     }
 
     /**
-     * Why the helper cannot be used on this machine whatever is fetched, in a sentence; "" when it can: it is off, the machine is set to
-     * run no heavy helper, or its environment is still to be made and no Python on the machine is one its packages install on. Said
-     * before the question and before anything is fetched, wherever a set-up is offered.
+     * Why this library cannot have its comics read whatever is fetched here, in a sentence; "" when it can. The helper is off; the
+     * machine that serves this library's heavy helpers serves it (0.7.6) and does not answer, has not set it up, or refuses this
+     * library's secret; this machine is set to run no heavy helper and no other serves it; or its environment here is still to be made
+     * and no Python on the machine is one its packages install on. Said before the question and before anything is fetched, wherever a
+     * set-up is offered, and by a plan before any work.
      */
     static String barred(Chrome c) {
-        if (!on()) return c.t("The comic helper is off ({0}=off), and a comic's pages are read by nothing else: turn it on with researchzosho settings set comic on, and ask again.", SETTING);
-        if (!Helpers.localAllowed()) return c.t("This machine is set to run no heavy helper (local_helpers off), and the comic helper runs only on the library's own machine in this version: researchzosho settings set local_helpers on allows it here.");
+        if (!on()) return offSaid(c);
+        String at = remote();
+        if (at != null) return remoteBarred(c, there(at));
+        if (!Helpers.localAllowed()) return noneSaid(c);
+        return pythonBarred(c);
+    }
+
+    /**
+     * The same for this machine's own helper, whatever machine this library's comics are read on: off, the machine set to run no heavy
+     * helper, or no Python here that its packages install on. What a set-up on this machine is held to (a machine that serves the
+     * helpers sets up its own, also when its own library's comics are read elsewhere).
+     */
+    static String localBarred(Chrome c) {
+        if (!on()) return offSaid(c);
+        if (!Helpers.localAllowed()) return noneSaid(c);
+        return pythonBarred(c);
+    }
+
+    private static String offSaid(Chrome c) { return c.t("The comic helper is off ({0}=off), and a comic's pages are read by nothing else: turn it on with researchzosho settings set comic on, and ask again.", SETTING); }
+
+    private static String pythonBarred(Chrome c) {
         if (Config.get(PYTHON_SETTING, "").isBlank() && !installed() && venvToMake()) {
             Pythons p = PYTHONS.get();
             if (p.chosen() == null) return pythonSaid(c, Os.now(), p.seen(), brew());
         }
         return "";
+    }
+
+    /**
+     * A machine set to run no heavy helper whose comic helper no other machine serves: none is named, or the helpers machine named
+     * serves the others but not this one (an earlier release there, or a set-up without it). Said with the command that puts it there.
+     */
+    static String noneSaid(Chrome c) {
+        String base = Helpers.base();
+        if (base == null) return c.t("This machine is set to run no heavy helper (local_helpers off), and no machine serves this library the comic helper: researchzosho helpers install --on <user@host> sets it up on a machine of yours with the other helpers, or researchzosho settings set local_helpers on allows it here.");
+        return c.t("This machine is set to run no heavy helper (local_helpers off), and {0}, which serves this library's heavy helpers, does not serve the comic helper (an earlier release there, or one set up without it): researchzosho helpers install --on {0} sets it up there.", hostSaid(base));
+    }
+
+    /** Why the comic helper of the helpers machine cannot read a comic now, in a sentence with the command that puts it right; "" when it can. */
+    static String remoteBarred(Chrome c, There t) {
+        return switch (t.state()) {
+            case There.SERVED -> "";
+            case There.ABSENT -> c.t("The comic helper is not set up on {0}, the machine that serves this library's heavy helpers: researchzosho helpers install --on {0} sets it up there with the others.", t.host());
+            case There.REFUSED -> c.t("{0}, the machine that serves this library's comic helper, refuses this library's secret: researchzosho settings set helpers_secret <the secret it serves with> sets it here (researchzosho helpers secret prints it on {0}).", t.host());
+            default -> c.t("{0}, the machine that serves this library's comic helper, does not answer now ({1}), so no comic can be read: researchzosho helpers install --on {0} starts its helpers again from here.", t.host(), t.address());
+        };
+    }
+
+    // ---- the comic helper of another machine ----
+
+    /**
+     * Where this library's comic helper is served by another machine: its address there ({@code http://homebox:8217/comic}), or null
+     * when it runs on this machine or nowhere. Chosen as every heavy helper is ({@link Helpers#address}): a helpers machine's, when that
+     * machine says it serves it, or when it does not answer at all (it stays the one named, and the plan says it does not answer).
+     */
+    static String remote() { return on() ? Helpers.address(Helpers.Helper.COMIC) : null; }
+
+    /** The machine of an address as a sentence names it: its host ("homebox"), or the address when it has none. */
+    static String hostSaid(String address) { String h = Helpers.hostOf(address); return h == null || h.isEmpty() ? address : h; }
+
+    /**
+     * How the comic helper at another machine stands: served there, with the line its front gives it; listed there and not set up;
+     * refusing this library's secret; or not answering. Its address, and the machine as a sentence names it.
+     */
+    record There(String state, String address, String host, String line) {
+        static final String SERVED = "served", ABSENT = "absent", REFUSED = "refused", SILENT = "silent";
+        boolean served() { return state.equals(SERVED); }
+    }
+
+    /** How long what {@link #there} found is kept: a plan asks several times within a second, and a machine set up meanwhile is seen within half a minute. */
+    static final long THERE_KEPT_MS = 30_000;
+    private static final Map<String, Object[]> THERE = new LinkedHashMap<>();
+
+    /** Forgets what the helpers machines said of their comic helper; for tests and after a setting changes. */
+    static void forgetThere() { synchronized (THERE) { THERE.clear(); } }
+
+    /** One look at the comic helper's own health at {@code address}, with the secret; kept {@link #THERE_KEPT_MS}. */
+    static There there(String address) {
+        String a = address.replaceAll("/+$", "");
+        synchronized (THERE) { Object[] kept = THERE.get(a); if (kept != null && System.currentTimeMillis() - (long) kept[0] < THERE_KEPT_MS) return (There) kept[1]; }
+        There t = thereNow(a);
+        synchronized (THERE) { if (THERE.size() > 16) THERE.clear(); THERE.put(a, new Object[]{System.currentTimeMillis(), t}); }
+        return t;
+    }
+
+    private static There thereNow(String a) {
+        String host = hostSaid(a);
+        if (Helpers.away(a)) return new There(There.SILENT, a, host, "");
+        long t0 = System.currentTimeMillis();
+        try {
+            HttpResponse<String> r = THERE_HTTP.send(Helpers.request(a + "/health").timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() == 401) return new There(There.REFUSED, a, host, "");
+            if (r.statusCode() == 200) { String line = ""; try { line = M.readTree(r.body()).path("line").asText(""); } catch (IOException ignored) { } return new There(There.SERVED, a, host, line); }
+            // 503: listed there and not set up; 404: a front of an earlier release, which does not serve it
+            return new There(r.statusCode() == 503 || r.statusCode() == 404 ? There.ABSENT : There.SILENT, a, host, "");
+        } catch (IOException e) { Helpers.failed(a, e, t0); return new There(There.SILENT, a, host, ""); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return new There(There.SILENT, a, host, ""); }
+    }
+
+    private static final HttpClient THERE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+
+    /**
+     * Whether a comic's pages can be read now with nothing set up first: by the comic helper of the machine that serves this library's
+     * heavy helpers, or by this machine's own, set up. What a look at a PDF and a plan's look at the language go by.
+     */
+    static boolean usable() {
+        if (!on()) return false;
+        String at = remote();
+        if (at != null) return there(at).served();
+        return Helpers.localAllowed() && installed();
     }
 
     // ---- the Python its environment is made with ----
@@ -495,7 +608,7 @@ final class ComicHelper {
     static boolean setUpBefore() { return Files.isRegularFile(ready()); }
 
     /** Whether a comic can be translated with no question about the helper: it is set up, or what it lacks is fetched without one ({@link Needs#asks}). */
-    static boolean readyOrQuiet() { return installed() || !needs().asks(); }
+    static boolean readyOrQuiet() { return remote() != null || installed() || !needs().asks(); }   // a helper served by another machine is never set up here: what stops it is said by barred
 
     /**
      * What the person is told before the one question, in three sentences for somebody with a comic to read and no wish to study a
@@ -662,7 +775,7 @@ final class ComicHelper {
     static synchronized String setupInBackground() {
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "running";
-        if (installed() || !barred(Chrome.ENGLISH).isEmpty()) return "";
+        if (remote() != null || installed() || !barred(Chrome.ENGLISH).isEmpty()) return "";   // a helper another machine serves is set up there
         t = new Thread(() -> { String r = install(line -> log.info("comic helper: {}", line)); log.info("comic helper: {}", r); }, "comic-helper-setup");
         t.setDaemon(true); setupThread = t; t.start();
         return "started";
@@ -714,7 +827,7 @@ final class ComicHelper {
      */
     static synchronized String installNow(Consumer<String> say) {
         try {
-            String barred = barred(Chrome.ENGLISH);
+            String barred = localBarred(Chrome.ENGLISH);   // this machine's own helper, whatever machine this library's comics are read on
             if (!barred.isEmpty()) return "!" + barred;
             Needs n = needs();
             long free = FREE.getAsLong();
@@ -747,7 +860,7 @@ final class ComicHelper {
             List<String> anew = unloaded();
             if (venvToMake()) {
                 Python base = PYTHONS.get().chosen();
-                if (base == null) return "!" + barred(Chrome.ENGLISH);
+                if (base == null) return "!" + localBarred(Chrome.ENGLISH);
                 if (Files.exists(venv)) { say.accept("The helper's environment was made by Python " + venvVersion() + ", which its packages do not install on; making it again."); Checkpoint.deleteTree(venv); }
                 say.accept("Making the helper's own Python environment in " + venv + ", with Python " + base.version() + (base.executable().isBlank() ? "" : " (" + base.executable() + ")") + ".");
                 Searx.Result v;
@@ -987,6 +1100,8 @@ final class ComicHelper {
     static String status() {
         String barred = barred(Chrome.ENGLISH);
         if (!barred.isEmpty()) return barred;
+        String at = remote();
+        if (at != null) { There t = there(at); return "The comic helper of this library is served by " + t.host() + ", at " + at + (t.line().isEmpty() ? "" : " (" + t.line() + ")") + ": a comic's pages are read and lettered there, and nothing of it is set up on this machine. researchzosho translate comics status, run on " + t.host() + ", says how it stands there."; }
         if (installed()) {
             long bytes = 0; for (Item i : manifest()) bytes += i.bytes();
             return "The comic helper is set up at " + dir() + ": it reads a comic's pages (the lettering in the comic's own language, the balloons) and sets a translation into the balloons, on this machine's processor with " + threads() + " threads. Its models, fonts and patterns take " + size(bytes) + " there.";
@@ -1000,10 +1115,24 @@ final class ComicHelper {
     /** What {@code translate comics status} says of a helper that is set up and a piece of which does not load: the piece, the helper's reason, and what puts it right. */
     static String broken(Checked c) { return "The comic helper at " + dir() + " does not work as it stands: " + c.said() + ". A comic that needs that piece cannot be translated until it does."; }
 
-    /** The helper's line in {@code researchzosho helpers}: from its marker and its files, with nothing loaded, since that list is every helper's and is read at a glance. */
+    /**
+     * The helper's line in {@code researchzosho helpers}: where another machine serves it, its address and what that machine says of it,
+     * as the other helpers' lines; else from its marker and its files, with nothing loaded, since that list is every helper's and is
+     * read at a glance.
+     */
     static String statusLine() {
         if (!on()) return "off (" + SETTING + "=off)";
-        if (!Helpers.localAllowed()) return "not run here (local_helpers off); it runs only on the library's own machine in this version";
+        String at = remote();
+        if (at != null) {
+            There t = there(at);
+            return switch (t.state()) {
+                case There.SERVED -> "at " + at + " (" + (t.line().isEmpty() ? "answering" : t.line()) + ")";
+                case There.ABSENT -> "at " + at + ", where it is not set up (researchzosho helpers install --on " + t.host() + " sets it up)";
+                case There.REFUSED -> "at " + at + ", which refuses this library's secret";
+                default -> "at " + at + ", which does not answer now";
+            };
+        }
+        if (!Helpers.localAllowed()) { String base = Helpers.base(); return "not run here (local_helpers off), and " + (base == null ? "no machine serves it to this library" : hostSaid(base) + " does not serve it (researchzosho helpers install --on " + hostSaid(base) + " sets it up there)"); }
         return installed() ? "on this machine, set up at " + dir() : needs().asks() ? "on this machine, not set up yet (researchzosho translate comics install)"
                 : setUpBefore() ? "on this machine, set up at " + dir() + " for an earlier release; what this release adds is fetched with the next comic" : "on this machine, its set-up begun and not finished; the next comic finishes it";
     }
@@ -1016,11 +1145,17 @@ final class ComicHelper {
      * this machine (a reader's file missing or changed, a package that does not import).
      */
     static final class Failed extends IOException {
-        private final String type;
+        private final String type, on;
         Failed(String message) { this(message, ""); }
-        Failed(String message, String type) { super(message); this.type = type == null ? "" : type; }
+        Failed(String message, String type) { this(message, type, ""); }
+        /** The same from the comic helper of another machine: {@code on} is that machine, as a sentence names it. */
+        Failed(String message, String type, String on) { super(message); this.type = type == null ? "" : type; this.on = on == null ? "" : on; }
         /** Whether it is no page's failure but the helper's own: every page would get it, and researchzosho translate comics install is what puts it right. */
         boolean unloadable() { return type.equals("Unloadable"); }
+        /** The helper's name for the kind of failure. */
+        String type() { return type; }
+        /** The machine whose comic helper said it; "" for this machine's own. */
+        String on() { return on; }
     }
 
     /** One piece of a web comic's strip: its file, and where its top edge lies in the strip. */
@@ -1029,7 +1164,7 @@ final class ComicHelper {
     /** One block of a page cut out for a model that sees: the helper's id for the block, and the picture's file, a PNG. */
     record Crop(String id, Path file) { }
 
-    /** What reads a comic's pages and sets text into them. The local process in this version; a helper served by another machine can stand here later. */
+    /** What reads a comic's pages and sets text into them: the process on this machine ({@link Local}), or the comic helper of the machine that serves this library's heavy helpers ({@link Remote}). */
     interface Reader extends AutoCloseable {
         /**
          * Which writing system the pictures given are lettered in: {@code script} (japanese, korean, chinese, latin, cyrillic, greek, or
@@ -1083,13 +1218,15 @@ final class ComicHelper {
         String loaded();
         /** The languages the helper says it reads, as codes, from its first line; empty before the first request, and for a helper that names none. */
         default List<String> languages() { return List.of(); }
+        /** The machine the helper runs on, as a sentence names it ("homebox"); "" for this machine. */
+        default String where() { return ""; }
         /** A stop: nothing more is asked, the process is ended. */
         void abort();
         @Override void close();
     }
 
-    /** What reads the pages; a test stands in one whose process is a stand-in. */
-    static volatile Supplier<Reader> READER = () -> new Local(ComicHelper::serveCommand);
+    /** What reads the pages: the helpers machine's comic helper where it serves this library ({@link #remote}), else this machine's process; a test stands in one whose process is a stand-in. */
+    static volatile Supplier<Reader> READER = () -> { String at = remote(); return at != null ? new Remote(at) : new Local(ComicHelper::serveCommand); };
     static Reader reader() { return READER.get(); }
 
     /** No answer from the helper for this long on one request is a helper that has stopped answering; and the wait for a fresh process's first line, which comes after the models' load. */
@@ -1280,6 +1417,212 @@ final class ComicHelper {
         @Override public void abort() {
             aborted = true;
             end(process);
+        }
+    }
+
+    /** How long a job waits for room on a helpers machine that reads as many comics as it takes, asking again every two seconds. */
+    static volatile Duration ROOM_WAIT = Duration.ofMinutes(30);
+    /** How often a job that waits for room asks again. */
+    static volatile Duration ROOM_EVERY = Duration.ofSeconds(2);
+
+    /**
+     * The comic helper of the machine that serves this library's heavy helpers (0.7.6), at {@code address} ({@code
+     * http://homebox:8217/comic}), with the helpers' secret. Each method is one request of the same name there ({@link ComicSessions}):
+     * the pictures it names go with it, and the pictures the helper wrote come back and are written where the method says, byte for byte,
+     * so the translation cannot tell it from the process here. The job's session is opened at the first request (when the machine
+     * reads as many comics as it takes, the request waits for room, up to {@link #ROOM_WAIT}) and closed with the job; one ended there
+     * after its idle time is opened again. The wait for an answer is the local process's two waits together ({@link #FIRST} and
+     * {@link #STALL}), the run's stop looked at four times a second; a stop ends the session there at once.
+     */
+    static final class Remote implements Reader {
+        private final String address, host;
+        private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        private String session;
+        private volatile String open;
+        private volatile boolean aborted;
+        private String loaded = "";
+        private List<String> languages = List.of();
+
+        Remote(String address) { this.address = address.replaceAll("/+$", ""); this.host = hostSaid(this.address); }
+
+        @Override public String where() { return host; }
+        @Override public synchronized String loaded() { return loaded; }
+        @Override public synchronized List<String> languages() { return languages; }
+
+        @Override public synchronized JsonNode script(List<Path> images) throws IOException {
+            try (Reply r = call("script", M.createObjectNode(), images)) { return r.json(); }
+        }
+
+        @Override public synchronized JsonNode read(Path image, String language, String order) throws IOException {
+            ObjectNode req = M.createObjectNode();
+            if (language != null && !language.isBlank()) req.put("language", language);
+            if (order != null && !order.isBlank()) req.put("order", order);
+            try (Reply r = call("read", req, List.of(image))) {
+                JsonNode page = r.json().path("page");
+                if (!page.isObject()) throw new Failed("the helper gave no page for " + image.getFileName(), "", host);
+                return page;
+            }
+        }
+
+        @Override public synchronized JsonNode cut(Path image, Path out) throws IOException {
+            try (Reply r = call("cut", M.createObjectNode(), List.of(image))) {
+                ObjectNode j = r.json();
+                if (j.path("pieces").size() > 0) Files.createDirectories(out);   // an ordinary page is no strip, and nothing is written for it
+                for (JsonNode piece : j.path("pieces")) ((ObjectNode) piece).put("file", r.take(piece.path("file").asText(""), out).toString());
+                return j;
+            }
+        }
+
+        @Override public synchronized void join(List<Piece> pieces, int width, int height, Path out) throws IOException {
+            ObjectNode req = M.createObjectNode(); req.put("width", width); req.put("height", height); req.put("out", ComicWire.nameFor(out, "joined"));
+            ArrayNode tops = req.putArray("tops"); List<Path> files = new ArrayList<>();
+            for (Piece p : pieces) { tops.add(p.top()); files.add(p.file()); }
+            try (Reply r = call("join", req, files)) { r.takeAs(r.json().path("out").asText(""), out); }
+        }
+
+        @Override public synchronized JsonNode set(Path image, JsonNode page, ObjectNode texts, String script, List<String> keep, Path out) throws IOException {
+            ObjectNode req = M.createObjectNode(); req.set("page", page); req.set("texts", texts); req.put("script", script); req.put("out", ComicWire.nameFor(out, "set"));
+            if (keep != null && !keep.isEmpty()) { ArrayNode whole = req.putArray("keep"); for (String k : keep) whole.add(k); }
+            try (Reply r = call("set", req, List.of(image))) { r.takeAs(r.json().path("out").asText(""), out); return r.json().path("report"); }
+        }
+
+        @Override public synchronized List<Crop> crops(Path image, JsonNode page, List<String> ids, Path out) throws IOException {
+            ObjectNode req = M.createObjectNode(); req.set("page", page);
+            ArrayNode which = req.putArray("ids"); for (String id : ids) which.add(id);
+            try (Reply r = call("crops", req, List.of(image))) {
+                List<Crop> crops = new ArrayList<>();
+                JsonNode cs = r.json().path("crops");
+                if (cs.size() > 0) Files.createDirectories(out);
+                for (JsonNode c : cs) if (!c.path("id").asText("").isEmpty() && !c.path("file").asText("").isEmpty()) crops.add(new Crop(c.path("id").asText(), r.take(c.path("file").asText(), out)));
+                return crops;
+            }
+        }
+
+        @Override public synchronized void picture(Path image, List<Map.Entry<String, double[]>> boxes, Path out) throws IOException {
+            ObjectNode req = M.createObjectNode(); req.put("out", ComicWire.nameFor(out, "picture"));
+            ArrayNode bs = req.putArray("boxes");
+            for (Map.Entry<String, double[]> b : boxes) { ArrayNode one = bs.addArray(); one.add(b.getKey()); ArrayNode box = one.addArray(); for (double v : b.getValue()) box.add(v); }
+            try (Reply r = call("picture", req, List.of(image))) { r.takeAs(r.json().path("out").asText(""), out); }
+        }
+
+        /** A reply: what the helper there answered, and the files it sent, in a folder of the moment that goes when the reply is closed. */
+        private record Reply(ObjectNode json, ComicWire.Body body, Path dir) implements AutoCloseable {
+            /** The file of {@code name} moved into {@code folder} under its own name; the reply's own failure when it did not come. */
+            Path take(String name, Path folder) throws IOException { return takeAs(name, folder.toAbsolutePath().resolve(ComicWire.safeName(name) ? name : "unnamed")); }
+            Path takeAs(String name, Path to) throws IOException {
+                Path f = ComicWire.safeName(name) ? body.named(name) : null;
+                if (f == null) throw new Failed("the comic helper's answer lacks the picture " + name.replaceAll("[^\\p{L}\\p{N}._ -]", "?"));
+                if (to.toAbsolutePath().getParent() != null) Files.createDirectories(to.toAbsolutePath().getParent());
+                Files.move(f, to, StandardCopyOption.REPLACE_EXISTING);
+                return to.toAbsolutePath();
+            }
+            @Override public void close() { try { Checkpoint.deleteTree(dir); } catch (IOException ignored) { /* a folder of the moment under the system's own */ } }
+        }
+
+        /** What the helper there said, with the commands of a helper here said as that machine's. */
+        private String said(String m) {
+            String s = m == null || m.isBlank() ? "the helper gave no reason" : m;
+            return s.replace("researchzosho translate comics install", "researchzosho translate comics install on " + host).replace("researchzosho translate comics status", "researchzosho translate comics status on " + host);
+        }
+
+        /** One request: the session opened when there is none; the pictures sent; the reply read, or the failure it is. */
+        private Reply call(String op, ObjectNode req, List<Path> files) throws IOException {
+            String over = ComicWire.over(files, host);
+            if (!over.isEmpty()) throw new Failed(over, "", host);   // that page's failure, said; the run goes on
+            List<String> names = ComicWire.names(files, "picture");
+            for (int attempt = 0; ; attempt++) {
+                if (aborted) throw new IOException("The comic helper was stopped.");
+                String s = open();
+                Path dir = Files.createTempDirectory("rz-comic-reply");
+                Path body = dir.resolve("reply.parts");
+                Duration wait = FIRST.plus(STALL);
+                HttpResponse<Path> r;
+                long t0 = System.currentTimeMillis();
+                try {
+                    HttpRequest rq = Helpers.request(address + "/" + s + "/" + op).timeout(wait).header("Content-Type", ComicWire.TYPE).POST(ComicWire.publisher(req, files, names)).build();
+                    r = Stopping.send(http, rq, HttpResponse.BodyHandlers.ofFile(body), wait, "The comic helper on " + host);
+                } catch (Stopping.Requested stop) { Checkpoint.deleteTree(dir); abort(); throw stop; }
+                catch (HttpTimeoutException e) { Checkpoint.deleteTree(dir); abort(); throw new IOException("The comic helper on " + host + " gave no answer for " + TranslationScores.Metricx.said(wait) + " to one request, so the job was given up there."); }
+                catch (IOException e) { Checkpoint.deleteTree(dir); Helpers.failed(address, e, t0); throw new IOException(silentSaid()); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); Checkpoint.deleteTree(dir); abort(); throw new IOException("The wait for the comic helper on " + host + " was interrupted."); }
+                int code = r.statusCode();
+                if (code == 401) { Checkpoint.deleteTree(dir); throw new IOException(remoteBarred(Chrome.ENGLISH, new There(There.REFUSED, address, host, ""))); }
+                ComicWire.Body b;
+                try (InputStream in = Files.newInputStream(body)) { b = ComicWire.read(in, dir.resolve("files")); }
+                catch (IOException unread) {
+                    Checkpoint.deleteTree(dir);
+                    if (code == 503 || code == 404) throw new IOException(remoteBarred(Chrome.ENGLISH, new There(There.ABSENT, address, host, "")));   // the front lists it as not set up, or is of a release that does not serve it
+                    throw new IOException("The comic helper on " + host + " gave an answer that could not be read (HTTP " + code + ": " + unread.getMessage() + ").");
+                }
+                Files.deleteIfExists(body);
+                ObjectNode j = b.json();
+                JsonNode helper = j.remove("helper");
+                if (helper != null) {
+                    if (!helper.path("loaded").asText("").isEmpty()) loaded = helper.path("loaded").asText();
+                    List<String> reads = new ArrayList<>(); for (JsonNode l : helper.path("languages")) reads.add(l.asText());
+                    if (!reads.isEmpty()) languages = List.copyOf(reads);
+                }
+                String message = j.path("error").path("message").asText("");
+                if (code == 404 && j.path("gone").asBoolean(false) && attempt == 0) { Checkpoint.deleteTree(dir); session = null; open = null; log.info("comic helper on {}: {}; opening another", host, message); continue; }
+                if (code == 413) { Checkpoint.deleteTree(dir); throw new Failed(said(message) + " (the comic helper on " + host + ")", "", host); }
+                if (code != 200) { Checkpoint.deleteTree(dir); throw new IOException("The comic helper on " + host + " refused the request (HTTP " + code + "): " + said(message) + "."); }
+                if (!j.path("ok").asBoolean(false)) {
+                    Checkpoint.deleteTree(dir);
+                    if (j.path("error").path("helper").asBoolean(false)) throw new IOException("The comic helper on " + host + ": " + said(message));
+                    throw new Failed(said(message), j.path("error").path("type").asText(""), host);
+                }
+                return new Reply(j, b, dir);
+            }
+        }
+
+        /** The sentence for a helpers machine that gave no answer. */
+        private String silentSaid() { return remoteBarred(Chrome.ENGLISH, new There(There.SILENT, address, host, "")); }
+
+        /** The job's session there: opened at its first request, waiting for room while the machine reads as many comics as it takes. */
+        private String open() throws IOException {
+            if (session != null) return session;
+            long until = System.currentTimeMillis() + ROOM_WAIT.toMillis();
+            boolean told = false;
+            while (true) {
+                HttpResponse<String> r;
+                long t0 = System.currentTimeMillis();
+                try { r = Stopping.send(http, Helpers.request(address + "/open").timeout(Duration.ofSeconds(30)).POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(30), "The comic helper on " + host); }
+                catch (IOException e) { Helpers.failed(address, e, t0); throw new IOException(silentSaid()); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("The wait for the comic helper on " + host + " was interrupted."); }
+                if (r.statusCode() == 401) throw new IOException(remoteBarred(Chrome.ENGLISH, new There(There.REFUSED, address, host, "")));
+                JsonNode j;
+                try { j = M.readTree(r.body() == null || r.body().isBlank() ? "{}" : r.body()); } catch (IOException e) { j = M.createObjectNode(); }
+                if (r.statusCode() == 200 && j.path("session").asText("").matches("[0-9a-f]{48}")) { session = j.path("session").asText(); open = session; return session; }
+                if (r.statusCode() == 503 && j.path("busy").asBoolean(false)) {
+                    if (System.currentTimeMillis() >= until) throw new IOException("The comic helper on " + host + " was reading " + j.path("running").asInt() + (j.path("running").asInt() == 1 ? " other comic" : " other comics") + ", as many as it reads at once, for " + TranslationScores.Metricx.said(ROOM_WAIT) + ": send this comic again when they are done.");
+                    if (!told) { log.info("comic helper on {}: {} comics are being read there, the most it reads at once; waiting for room", host, j.path("running").asInt()); told = true; }
+                    try { Stopping.sleep(ROOM_EVERY.toMillis()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IOException("The wait for the comic helper on " + host + " was interrupted."); }
+                    continue;
+                }
+                if (r.statusCode() == 503 || r.statusCode() == 404) throw new IOException(remoteBarred(Chrome.ENGLISH, new There(There.ABSENT, address, host, "")));
+                throw new IOException("The comic helper on " + host + " refused to open a session (HTTP " + r.statusCode() + "): " + said(j.path("error").path("message").asText("")) + ".");
+            }
+        }
+
+        /** Tells the machine there to end the session: at once ({@code stop}), or after its process quits ({@code close}). */
+        private void tell(String s, String what) {
+            try { http.send(Helpers.request(address + "/" + s + "/" + what).timeout(Duration.ofSeconds(10)).POST(HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.discarding()); }
+            catch (IOException e) { log.info("comic helper on {}: the {} did not reach it ({}); its session ends there after {} without a request", host, what, e.getMessage(), ComicSessions.minutes(ComicSessions.IDLE)); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
+
+        /** A stop: nothing more is asked, and the session there is ended at once, its process with it. */
+        @Override public void abort() {
+            aborted = true;
+            String s = open; open = null;
+            if (s != null) tell(s, "stop");
+        }
+
+        /** The job is done with it: its session there is closed, and its process asked to quit. */
+        @Override public void close() {
+            String s = open; open = null;
+            synchronized (this) { session = null; }
+            if (s != null && !aborted) tell(s, "close");
         }
     }
 

@@ -21,6 +21,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -1053,8 +1054,10 @@ public final class Jobs {
             } catch (InterruptedException e) { return; }
             String drive = driveOf(index);   // the model the library is set to now: a job started after `model use` takes the new one
             long wait = 0;
+            boolean took = false;   // this worker claimed the job: only then is it this worker's to take off the running set
             try {
                 ObjectNode j;
+                ModelEntries.Entry entry;
                 synchronized (this) {   // two workers must not take the same filed job
                     j = get(id);
                     if (j == null || !"queued".equals(j.path("state").asText()) || running.contains(id)) continue;
@@ -1063,7 +1066,7 @@ public final class Jobs {
                     if ("crews".equals(kind) && index != 0) { defer = true; wait = 2_000; }
                     // a run on a named model (researchzosho models) waits for that model's own server, by its own model id, not the library's
                     String named = j.path("args").path("model_entry").asText("");
-                    ModelEntries.Entry entry = named.isEmpty() ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.research(j.path("args").path("quick").asBoolean(false))).entry() : ModelEntries.get(named);
+                    entry = named.isEmpty() ? null : named.equalsIgnoreCase(Auto.NAME) ? Auto.choose(store, Auto.Job.research(j.path("args").path("quick").asBoolean(false))).entry() : ModelEntries.get(named);
                     if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
                     String waitOn = entry != null ? entry.drive() : drive;
                     boolean answers = entry != null ? Crews.driveState(entry.drive(), entry.model(), Duration.ofSeconds(20)) == Crews.DriveState.ANSWERS : drive.isEmpty() || Crews.driveAnswersNow(drive);
@@ -1086,21 +1089,15 @@ public final class Jobs {
                         finish(j); j = null; wait = 0;
                         if (queue.isEmpty()) continue;
                     }
-                    if (j != null) {
-                        j.remove("waiting");
-                        j.put("state", "running");
-                        // a job that resumes keeps the time it first started; the time it resumed is when its progress is measured from
-                        if (j.path("interruptions").isArray() && j.hasNonNull("started_at")) j.put("resumed_at", Instant.now().toString());
-                        else j.put("started_at", Instant.now().toString());
-                        if (entry != null) j.put("drive", entry.drive()); else if (!drive.isEmpty()) j.put("drive", drive);   // the job record names the server it ran on
-                        writeActive(j);
-                        running.add(id);
-                    }
                 }
                 if (j == null) {   // deferred: wait OUTSIDE the lock, then poll again
                     if (wait > 0) Thread.sleep(wait);
                     continue;
                 }
+                CLAIMING.accept(id);
+                j = claim(id, entry, drive);   // queued to running under the job's own lock, which every process takes: one of them, once
+                if (j == null) continue;   // another process took it, or stopped it, since it was looked at
+                took = true;
                 String result;
                 boolean error = false;
                 try { result = runner.run(j, drive); }
@@ -1125,9 +1122,37 @@ public final class Jobs {
                 // the ledger could not be written, or worse — the worker survives; the next job still runs
                 Crews.log(store, "jobs", "bookkeeping failed for " + id + ": " + e, 0);
             } finally {
-                running.remove(id);
+                if (took) running.remove(id);
             }
         }
+    }
+
+    /** Called between a worker's look at a queued job and its claim of it; a test puts another process's step there. */
+    static volatile Consumer<String> CLAIMING = id -> { };
+
+    /**
+     * A queued job made this worker's: under the job's lock, the one a stop and a terminal's run of the job take in every process
+     * ({@link #underFilingLock}), the record is read again and set running only when it is still queued and no worker of this process has
+     * it. Null when it is not: another process started it, or it was stopped, since the worker looked. Before 0.7.6 the look and the
+     * claim were one step under this process's own lock alone, and a terminal could take a job the restarted service was claiming at the
+     * same moment: both ran it.
+     */
+    private ObjectNode claim(String id, ModelEntries.Entry entry, String drive) throws IOException {
+        return underFilingLock(id, () -> {
+            synchronized (this) {
+                ObjectNode j = get(id);
+                if (j == null || !"queued".equals(j.path("state").asText()) || running.contains(id) || !Files.exists(activeDir().resolve(id + ".json"))) return null;
+                j.remove("waiting");
+                j.put("state", "running");
+                // a job that resumes keeps the time it first started; the time it resumed is when its progress is measured from
+                if (j.path("interruptions").isArray() && j.hasNonNull("started_at")) j.put("resumed_at", Instant.now().toString());
+                else j.put("started_at", Instant.now().toString());
+                if (entry != null) j.put("drive", entry.drive()); else if (!drive.isEmpty()) j.put("drive", drive);   // the job record names the server it ran on
+                writeActive(j);
+                running.add(id);
+                return j;
+            }
+        });
     }
 
     // ---- views ----

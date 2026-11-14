@@ -38,7 +38,8 @@ import java.util.function.Consumer;
 /**
  * The heavy helpers served to other machines (0.7.4): {@code researchzosho helpers serve} on a machine that can carry them. One address,
  * one port ({@link Helpers#PORT} unless told), one secret: each helper under its own path ({@code /metricx}, {@code /labse},
- * {@code /likeness}, {@code /whisper}, {@code /embed}), and {@code GET /health} naming what is served and where it runs. Behind it the
+ * {@code /likeness}, {@code /whisper}, {@code /embed}, and since 0.7.6 {@code /comic}, which this front serves itself:
+ * {@link ComicSessions}), and {@code GET /health} naming what is served and where it runs. Behind it the
  * helpers stay on this machine's loopback: MetricX-24 and the likeness helper in their own Python environments, in their serving mode
  * (started here, on the card when there is one with room, else the processor), and the LaBSE, embeddings and speech-to-text servers as
  * they already run here. Every request carries the secret ({@code Authorization: Bearer}); a server listening beyond this
@@ -52,14 +53,16 @@ final class HelperServer implements AutoCloseable {
     private final Map<String, Managed> managed;
     /** Helpers this set was installed to serve that are not set up here: listed, each with why. */
     private final Map<String, String> absent;
+    /** The comic helper's sessions, when it is served here (0.7.6); null when it is not. */
+    private final ComicSessions comic;
     private final Map<String, String> health;
     private volatile long healthAt = System.currentTimeMillis();
     private final List<Process> processes;
     private final byte[] secret;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
 
-    private HelperServer(HttpServer server, Map<String, String> backends, Map<String, Managed> managed, Map<String, String> absent, Map<String, String> health, List<Process> processes, String secret) {
-        this.server = server; this.backends = backends; this.managed = managed; this.absent = absent; this.health = health; this.processes = processes;
+    private HelperServer(HttpServer server, Map<String, String> backends, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic, Map<String, String> health, List<Process> processes, String secret) {
+        this.server = server; this.backends = backends; this.managed = managed; this.absent = absent; this.comic = comic; this.health = health; this.processes = processes;
         this.secret = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -88,9 +91,11 @@ final class HelperServer implements AutoCloseable {
         Map<String, String> health = new LinkedHashMap<>();
         for (var e : b.proxied().entrySet()) health.put(e.getKey(), healthOf(e.getValue()));
         HttpServer s = HttpServer.create(new InetSocketAddress(InetAddress.getByName(bind), port), 32);
-        HelperServer h = new HelperServer(s, new LinkedHashMap<>(b.proxied()), new LinkedHashMap<>(b.managed()), new LinkedHashMap<>(b.absent()), health, processes, secret);
+        HelperServer h = new HelperServer(s, new LinkedHashMap<>(b.proxied()), new LinkedHashMap<>(b.managed()), new LinkedHashMap<>(b.absent()), b.comic(), health, processes, secret);
         s.createContext("/", h::handle);
-        s.setExecutor(Executors.newFixedThreadPool(8, r -> { Thread t = new Thread(r, "helpers-serve"); t.setDaemon(true); return t; }));
+        // sixteen: a comic's request holds its thread while the helper works on its pages (seconds; minutes for a first load), and a
+        // stop or a score must still find one free while the most comics this machine reads at once are under way
+        s.setExecutor(Executors.newFixedThreadPool(16, r -> { Thread t = new Thread(r, "helpers-serve"); t.setDaemon(true); return t; }));
         s.start();
         return h;
     }
@@ -113,11 +118,13 @@ final class HelperServer implements AutoCloseable {
                 if (System.currentTimeMillis() - healthAt > 30_000) { synchronized (health) { for (var e : backends.entrySet()) health.put(e.getKey(), healthOf(e.getValue())); for (Managed m : managed.values()) m.healthLine = null; healthAt = System.currentTimeMillis(); } }
                 for (var e : health.entrySet()) hs.put(e.getKey(), e.getValue());
                 for (var e : managed.entrySet()) hs.put(e.getKey(), e.getValue().line());   // listed whether loaded or not, with why not
+                if (comic != null) hs.put(Helper.COMIC.path, comic.line());
                 for (var e : absent.entrySet()) hs.put(e.getKey(), e.getValue());
                 reply(x, 200, o.toString());
                 return;
             }
             String name = path.replaceFirst("^/", "").split("/", 2)[0], rest = path.substring(name.length() + 1);
+            if (name.equals(Helper.COMIC.path) && comic != null) { comic.handle(x, rest); return; }   // served by this front itself: the requests carry their pictures
             Managed own = managed.get(name);
             String to = own != null ? own.forRequest() : backends.get(name);
             if (own != null && to == null) { reply(x, 503, M.createObjectNode().put("error", own.line()).toString()); return; }   // not loaded now: why, and a new try when it is due
@@ -168,6 +175,7 @@ final class HelperServer implements AutoCloseable {
 
     @Override public void close() {
         server.stop(0);
+        if (comic != null) comic.close();
         for (Managed m : managed.values()) m.end();
         for (Process p : processes) { p.descendants().forEach(ProcessHandle::destroyForcibly); p.destroy(); try { if (!p.waitFor(5, TimeUnit.SECONDS)) p.destroyForcibly(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } }
     }
@@ -191,10 +199,11 @@ final class HelperServer implements AutoCloseable {
     /** A free port on loopback for a backend of our own. */
     static int freePort() throws IOException { try (ServerSocket s = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) { return s.getLocalPort(); } }
 
-    /** What a set serves: the servers it proxies by name, the helpers it starts itself, and the ones it was meant to serve that are not set up here, each with why. */
-    record Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent) {
-        boolean isEmpty() { return proxied.isEmpty() && managed.isEmpty() && absent.isEmpty(); }
-        List<String> names() { List<String> n = new ArrayList<>(proxied.keySet()); n.addAll(managed.keySet()); n.addAll(absent.keySet()); return n; }
+    /** What a set serves: the servers it proxies by name, the helpers it starts itself, the comic helper's sessions (null: not served), and the ones it was meant to serve that are not set up here, each with why. */
+    record Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic) {
+        Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent) { this(proxied, managed, absent, null); }
+        boolean isEmpty() { return proxied.isEmpty() && managed.isEmpty() && absent.isEmpty() && comic == null; }
+        List<String> names() { List<String> n = new ArrayList<>(proxied.keySet()); n.addAll(managed.keySet()); if (comic != null) n.add(Helper.COMIC.path); n.addAll(absent.keySet()); return n; }
     }
 
     /**
@@ -206,6 +215,7 @@ final class HelperServer implements AutoCloseable {
 
     static Map<String, String> startBackends(List<Helper> wanted, List<Process> started, Consumer<String> say, HelperCards.Choice card) {
         Backends b = backends(wanted, false, say, card, false);
+        if (b.comic() != null) b.comic().close();   // these commands serve what has an address of its own; the comic helper is the front's
         Map<String, String> out = new LinkedHashMap<>(b.proxied());
         for (var e : b.managed().entrySet()) { if (e.getValue().process != null) started.add(e.getValue().process); if (e.getValue().address != null) out.put(e.getKey(), e.getValue().address); }
         return out;
@@ -222,6 +232,14 @@ final class HelperServer implements AutoCloseable {
     static Backends backends(List<Helper> wanted, boolean onlyGiven, Consumer<String> say, HelperCards.Choice card, boolean noFallback) {
         Map<String, String> proxied = new LinkedHashMap<>(), absent = new LinkedHashMap<>();
         Map<String, Managed> managed = new LinkedHashMap<>();
+        // the helpers a machine serves follow its release, as a library's own do at its start: the script the build carries is copied over
+        // the one an earlier release installed before the process that runs it starts. A machine that serves helpers and holds no library
+        // ran 0.7.4's MetricX-24 script under 0.7.5, which handed it --no-cpu-fallback; it did not know the option and ended with code 2
+        for (Helper h : wanted) {
+            String r = h == Helper.METRICX ? TranslationScores.refreshMetricxScript() : h == Helper.LIKENESS ? LikenessHelper.refresh() : h == Helper.COMIC ? ComicHelper.refresh() : "";
+            if (!r.isEmpty()) say.accept(r);
+        }
+        ComicSessions comic = null;
         for (Helper h : wanted) {
             switch (h) {
                 case METRICX -> {
@@ -246,9 +264,17 @@ final class HelperServer implements AutoCloseable {
                     if (Embed.answers(a) || !Embed.state().equals("absent")) proxied.put(h.path, a); else { say.accept("no embeddings server answers here (researchzosho embed start starts one)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); }
                 }
                 case WHISPER -> { String a = "http://127.0.0.1:" + Video.WHISPER_PORT; if (answers(a) || !Video.state(Video.CONTAINER_WHISPER).equals("absent")) proxied.put(h.path, a); else { say.accept("speech-to-text does not answer here (researchzosho video install sets it up)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); } }
+                // the comic helper is served by this front itself, a process of its own for each library's comic job, on the processor
+                // whatever card the set is on; its models load at a job's first page, so nothing waits for them here
+                case COMIC -> {
+                    if (!ComicHelper.on()) { say.accept("the comic helper is off here (" + ComicHelper.SETTING + "=off)"); continue; }
+                    if (!ComicHelper.installed()) { say.accept("the comic helper is not set up here (researchzosho helpers install sets it up)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); continue; }
+                    try { comic = new ComicSessions(); }
+                    catch (IOException e) { say.accept("the comic helper cannot be served here: its sessions' folder could not be made (" + e.getMessage() + ")"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); }
+                }
             }
         }
-        return new Backends(proxied, managed, absent);
+        return new Backends(proxied, managed, absent, comic);
     }
 
     /** The line of a helper the set was installed to serve that is not set up on this machine. */

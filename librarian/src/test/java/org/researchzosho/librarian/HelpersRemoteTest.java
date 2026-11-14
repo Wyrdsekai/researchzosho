@@ -71,18 +71,19 @@ class HelpersRemoteTest {
     List<String> commands() { List<String> c = new ArrayList<>(); for (List<String> a : calls) if (!a.get(1).equals("-G")) c.add(a.get(a.size() - 1).replace(HelpersRemote.PATH_THERE, "")); return c; }
 
     @Test void aMachineWithoutTheProgramGetsThePublishedInstallerWithTheTestHooksThenTheHelpers() throws Exception {
-        HelpersRemote.ENV = k -> switch (k) { case "RESEARCHZOSHO_DOWNLOAD_BASE" -> "http://192.168.1.9:8000/dist"; case "RESEARCHZOSHO_VERSION" -> "0.7.4"; default -> null; };
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(127, "sh: 1: researchzosho: not found\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"))));
-        answers.put("curl -fsSL https://researchzosho.org/install", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: downloading researchzosho-0.7.4.tar.gz\nresearchzosho: checksum verified\n"))));
+        HelpersRemote.ENV = k -> switch (k) { case "RESEARCHZOSHO_DOWNLOAD_BASE" -> "http://192.168.1.9:8000/dist"; case "RESEARCHZOSHO_VERSION" -> "0.7.6"; default -> null; };
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(127, "sh: 1: researchzosho: not found\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
+        answers.put("curl -fsSL https://researchzosho.org/install", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: downloading researchzosho-0.7.6.tar.gz\nresearchzosho: checksum verified\n"))));
         assertEquals(0, on("someone@homebox", "y\n", false, null));
         String s = out.toString(StandardCharsets.UTF_8);
-        assertEquals(List.of("researchzosho --version", "curl -fsSL https://researchzosho.org/install | RESEARCHZOSHO_DOWNLOAD_BASE='http://192.168.1.9:8000/dist' RESEARCHZOSHO_VERSION='0.7.4' sh",
+        assertEquals(List.of("researchzosho --version", "curl -fsSL https://researchzosho.org/install | RESEARCHZOSHO_DOWNLOAD_BASE='http://192.168.1.9:8000/dist' RESEARCHZOSHO_VERSION='0.7.6' sh",
                 "researchzosho --version", "researchzosho helpers install --yes", "researchzosho helpers secret", "researchzosho helpers port"), commands());
         for (List<String> a : calls) if (!a.get(1).equals("-G")) assertEquals(List.of("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "someone@homebox"), a.subList(0, 6), "no password prompt; the target its own argument");
         assertTrue(s.startsWith("On someone@homebox: what is missing of MetricX-24 (google/metricx-24-hybrid-large-v2p6, about 4.7 GB"), s);
-        assertTrue(s.contains("served with a secret on port 8217 by a user service. ResearchZosho itself is installed there first when it is missing (the published installer), or updated when it is older than 0.7.4.\nSet them up on someone@homebox now? [y/N] Asking someone@homebox which ResearchZosho it has…\n"), s);
-        assertTrue(s.contains("ResearchZosho is not installed on someone@homebox: installing it with the published installer (https://researchzosho.org/install).\n  someone@homebox: researchzosho: downloading researchzosho-0.7.4.tar.gz\n"), s);
-        assertTrue(s.contains("someone@homebox has ResearchZosho 0.7.4 now.\nSetting the helpers up on someone@homebox (researchzosho helpers install --yes):\n  someone@homebox: The heavy helpers on this machine"), s);
+        assertTrue(s.contains("served with a secret on port 8217 by a user service. ResearchZosho itself is installed there first when it is missing (the published installer), or updated when it is older than 0.7.6.\nSet them up on someone@homebox now? [y/N] Asking someone@homebox which ResearchZosho it has…\n"), s);
+        assertTrue(s.contains("; the comic helper (its models, lettering fonts and Python packages, about 1.1 GB to download and 2.3 GB on the disk, on the processor); "), "the comic helper with the others, its own figures said first: " + s);
+        assertTrue(s.contains("ResearchZosho is not installed on someone@homebox: installing it with the published installer (https://researchzosho.org/install).\n  someone@homebox: researchzosho: downloading researchzosho-0.7.6.tar.gz\n"), s);
+        assertTrue(s.contains("someone@homebox has ResearchZosho 0.7.6 now.\nSetting the helpers up on someone@homebox (researchzosho helpers install --yes):\n  someone@homebox: The heavy helpers on this machine"), s);
         assertEquals("http://192.168.1.20:8217", Config.get(Helpers.HELPERS), "the address ssh's own configuration gives the target");
         assertEquals(KEPT_WORDS, Config.get(Helpers.SECRET_NAME));
         assertTrue(s.contains("Set here: helpers http://192.168.1.20:8217, and its secret (helpers_secret), read from someone@homebox and not shown.\nhttp://192.168.1.20:8217 answers from here with the secret: it serves metricx, labse.\n"), s);
@@ -92,22 +93,43 @@ class HelpersRemoteTest {
     }
 
     @Test void anOlderProgramThereIsUpdatedFirst() throws Exception {
-        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.4" : null;
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.3\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"))));
-        answers.put("RESEARCHZOSHO_VERSION='0.7.4' researchzosho update now 0.7.4", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.3 to 0.7.4\n"))));
+        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.6" : null;
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.3\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
+        answers.put("RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.3 to 0.7.6\n"))));
         assertEquals(0, on("homebox", "", true, "2"));
-        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.4' researchzosho update now 0.7.4", "researchzosho --version", "researchzosho helpers install --yes --gpu 2", "researchzosho helpers secret", "researchzosho helpers port --gpu 2"), commands());
-        assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.3, older than 0.7.4: updating it there (researchzosho update now).\n  homebox: researchzosho: updating 0.7.3 to 0.7.4\n"), out.toString());
+        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", "researchzosho --version", "researchzosho helpers install --yes --gpu 2", "researchzosho helpers secret", "researchzosho helpers port --gpu 2"), commands());
+        assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.3, older than 0.7.6: updating it there (researchzosho update now).\n  homebox: researchzosho: updating 0.7.3 to 0.7.6\n"), out.toString());
+    }
+
+    /**
+     * The comic helper is served to other machines from 0.7.6 on: an earlier release there refuses --only comic and serves the others
+     * without it, so a machine older than that is brought to it before its install, as for --no-cpu-fallback. Asked for the others alone,
+     * the release that knows helpers install is enough, as before.
+     */
+    @Test void aMachineOlderThanTheReleaseThatServesTheComicHelperIsBroughtToItFirst() throws Exception {
+        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.6" : null;
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
+        answers.put("RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.5 to 0.7.6\n"))));
+        assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", List.of(Helpers.Helper.COMIC), true, true, null, true), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
+        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", "researchzosho --version", "researchzosho helpers install --yes --cpu --only comic"), commands().subList(0, 4), "updated first, never handed --only comic, which it would refuse");
+        assertTrue(out.toString().startsWith("On homebox: what is missing of the comic helper (its models, lettering fonts and Python packages, about 1.1 GB to download and 2.3 GB on the disk, on the processor); "), out.toString());
+        assertTrue(out.toString().contains("or updated when it is older than 0.7.6."), out.toString());
+        // the others alone: the release that knows helpers install is enough
+        out.reset(); calls.clear();
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"))));
+        assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", List.of(Helpers.Helper.METRICX, Helpers.Helper.LABSE), true, true, "2", false), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
+        assertEquals(List.of("researchzosho --version", "researchzosho helpers install --yes --gpu 2 --only metricx,labse"), commands().subList(0, 2));
+        assertTrue(out.toString().contains("or updated when it is older than 0.7.4.") && out.toString().contains("homebox has ResearchZosho 0.7.4.\n"), out.toString());
     }
 
     @Test void aProgramThereThatDoesNotKnowTheFallbackFlagIsUpdatedBeforeItIsHandedIt() throws Exception {
-        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.5" : null;
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"))));
-        answers.put("RESEARCHZOSHO_VERSION='0.7.5' researchzosho update now 0.7.5", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.4 to 0.7.5\n"))));
+        HelpersRemote.ENV = k -> k.equals("RESEARCHZOSHO_VERSION") ? "0.7.6" : null;
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"), new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
+        answers.put("RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho: updating 0.7.5 to 0.7.6\n"))));
         assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", HelperServer.all(), false, true, "2", false, false, false, false), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
-        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.5' researchzosho update now 0.7.5", "researchzosho --version", "researchzosho helpers install --yes --gpu 2 --no-cpu-fallback"), commands().subList(0, 4), "0.7.4 knows helpers install and not this flag: updated first, never handed a flag it would refuse");
-        assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.4, older than 0.7.5: updating it there (researchzosho update now).\n"), out.toString());
-        assertTrue(out.toString().contains("or updated when it is older than 0.7.5."), "the question says the release this ask needs: " + out);
+        assertEquals(List.of("researchzosho --version", "RESEARCHZOSHO_VERSION='0.7.6' researchzosho update now 0.7.6", "researchzosho --version", "researchzosho helpers install --yes --gpu 2 --no-cpu-fallback"), commands().subList(0, 4), "0.7.5 takes the flag and runs an earlier release's MetricX-24 script, which refuses it: updated first, never handed a flag it would refuse");
+        assertTrue(out.toString().contains("homebox has ResearchZosho 0.7.5, older than 0.7.6: updating it there (researchzosho update now).\n"), out.toString());
+        assertTrue(out.toString().contains("or updated when it is older than 0.7.6."), "the question says the release this ask needs: " + out);
     }
 
     @Test void sshThatCannotLogInSaysSoInOneLineWithTheTwoCommandsByHand() throws Exception {
@@ -122,14 +144,14 @@ class HelpersRemoteTest {
 
     @Test void theModelServersPortGoesAlongWhenTheModelIsServedFromThatMachine() throws Exception {
         Config.set("RESEARCHZOSHO_DRIVE", "http://192.168.1.20:8212");
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"))));
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
         assertEquals(0, on("homebox", "", true, null));
         assertTrue(commands().contains("researchzosho helpers install --yes --beside-port 8212"), commands().toString());
         assertTrue(out.toString().contains(", on the card of the model server at port 8212 there."), out.toString());
     }
 
     @Test void aSeparateSetIsAskedForThereAndThisLibraryIsPointedAtItsPort() throws Exception {
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.4\n"))));
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
         answers.put("researchzosho helpers install", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "A separate set on card 3: port 8218, unit researchzosho-helpers-gpu3, beside the one on card 2 (port 8217).\nresearchzosho settings set helpers_secret " + KEPT_WORDS + "\n"))));
         answers.put("researchzosho helpers port", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "8218\n"))));
         HelpersRemote.HEALTH = (base, secret, wait) -> base.endsWith(":8218") && KEPT_WORDS.equals(secret) ? Map.of("metricx", "google/metricx-24-hybrid-large-v2p6 on cuda (card 3, NVIDIA RTX 6000 Ada Generation)") : null;
@@ -143,7 +165,7 @@ class HelpersRemoteTest {
     }
 
     @Test void theRefusalOfTheProcessorIsPassedThrough() throws Exception {
-        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.5\n"))));
+        answers.put("researchzosho --version", new ArrayList<>(List.of(new HelpersRemote.Ran(0, "researchzosho 0.7.6\n"))));
         assertEquals(0, HelpersRemote.installOn(new HelpersRemote.Options("homebox", HelperServer.all(), false, true, "3", false, false, false, false), new BufferedReader(new StringReader("")), new PrintStream(out, true, StandardCharsets.UTF_8)));
         assertTrue(commands().contains("researchzosho helpers install --yes --gpu 3 --no-cpu-fallback"), commands().toString());
     }
