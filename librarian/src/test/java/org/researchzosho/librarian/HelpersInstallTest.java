@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.Config;
+import org.researchzosho.Version;
 import org.researchzosho.librarian.Helpers.Helper;
 
 import java.io.BufferedReader;
@@ -58,6 +59,18 @@ class HelpersInstallTest {
         @Override public long freeBytes() { return 200L << 30; }
         @Override public Service.Os os() { return os; }
         @Override public String launcher() { return "/opt/rz/bin/researchzosho"; }
+        /** The release the running set says it runs ("" for one whose health names none), whether it answers now, and helpers it leaves out of its health. */
+        String version = Version.string();
+        boolean answersNow = true;
+        final Set<Helper> notServed = EnumSet.noneOf(Helper.class);
+        @Override public HelpersInstall.Running running(int port, String secret) {
+            if (!answersNow) return null;
+            Map<String, String> said = ownHealth(port, secret, Duration.ZERO);
+            if (said == null) return null;
+            Map<String, String> h = new LinkedHashMap<>(said);
+            for (Helper x : notServed) h.remove(x.path);
+            return new HelpersInstall.Running(version, h);
+        }
         @Override public Map<String, String> ownHealth(int port, String secret, Duration wait) {
             healthSecret = secret;
             Map<String, String> m = new LinkedHashMap<>();

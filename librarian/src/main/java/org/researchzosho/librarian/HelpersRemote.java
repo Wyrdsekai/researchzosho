@@ -25,8 +25,8 @@ import java.util.regex.Pattern;
  * {@code researchzosho helpers install --on <ssh target>} (0.7.4): the heavy helpers set up on another machine of the person's from
  * this one, over ssh with the person's own keys. In order, each step said as it happens: what will be set up there and how big, and
  * one question; the program there (installed by the published installer when it is missing, updated when it is older than the first
- * release that knows {@code helpers install}, or than the first that knows what is asked of it: {@code --no-cpu-fallback}, the comic
- * helper); {@code helpers install --yes} there, its lines passed through; the secret read back
+ * release whose install restarts a service left running on an earlier release ({@link #KNOWS_RESTART}), or than the first that knows
+ * what is asked of it: {@code --no-cpu-fallback}, the comic helper); {@code helpers install --yes} there, its lines passed through; the secret read back
  * (never printed here), {@code helpers} and {@code helpers_secret} set on this machine, the health asked from here with it, and the
  * helpers' status as the last thing.
  *
@@ -46,6 +46,15 @@ final class HelpersRemote {
     static final String KNOWS_FALLBACK = "0.7.6";
     /** The first release that serves the comic helper to other machines: an earlier one refuses --only comic, and serves the others without it. */
     static final String KNOWS_COMIC = "0.7.6";
+    /**
+     * The first release whose {@code helpers install} restarts a service that runs with its unit unchanged when the server behind it is
+     * behind: an earlier release, or one that does not serve a helper set up there. An install here runs the program there, and 0.7.6's
+     * own {@code helpers install} left the service as it ran: on the owner's helpers machine, updated from 0.7.5 to 0.7.6 by this very
+     * command, the comic helper was set up and the 0.7.5 server went on serving without it until it was restarted by hand (2026-11-14).
+     * The bug is in every install there, whatever helpers are asked for, so every install from here brings a machine older than this to
+     * it first.
+     */
+    static final String KNOWS_RESTART = "0.7.7";
     /** The program there is found on the PATH its installer uses, also from a shell that read no profile. */
     static final String PATH_THERE = "PATH=\"$HOME/.local/bin:$PATH\"; export PATH; ";
     static final String INSTALLER = "https://researchzosho.org/install";
@@ -116,7 +125,8 @@ final class HelpersRemote {
         ModelEntries.Entry main = ModelEntries.defaultEntry();
         String mainHost = Helpers.hostOf(main.drive());
         if (!main.hosted() && mainHost != null && (mainHost.equalsIgnoreCase(host) || mainHost.equalsIgnoreCase(target.replaceFirst("^.*@", "")))) beside = portOf(main.drive());
-        String needs = KNOWS_INSTALL;   // the release the program there has to be, by what is asked of it
+        String needs = KNOWS_RESTART;   // the release the program there has to be: one whose install restarts a stale service; and by what is asked of it
+        if (Version.compare(KNOWS_INSTALL, needs) > 0) needs = KNOWS_INSTALL;
         if (o.cpuFallback() != null && Version.compare(KNOWS_FALLBACK, needs) > 0) needs = KNOWS_FALLBACK;
         if (o.only().contains(Helper.COMIC) && Version.compare(KNOWS_COMIC, needs) > 0) needs = KNOWS_COMIC;
         // a. what, and how big, and the one question

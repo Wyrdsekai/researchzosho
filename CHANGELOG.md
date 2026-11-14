@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.7
+
+What's new: a fix for the machine that runs your heavy helpers.
+
+### Fixed
+
+- After an update, that machine could keep running the old release, so the comic helper added in 0.7.6 did not work there. Updating, or running `researchzosho helpers install`, now restarts the helpers when they need it.
+
+If your helpers machine is on 0.7.6, update it to 0.7.7 (`researchzosho update now` there).
+
 ## 0.7.6
 
 What's new: comics can be translated by a library whose heavy helpers run on another machine; fixes for helpers machines and for a job that could run twice.

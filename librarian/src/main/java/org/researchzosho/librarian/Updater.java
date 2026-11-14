@@ -414,8 +414,41 @@ public final class Updater {
      */
     static String restartOnto(String version, PrintStream out) {
         try { Files.createDirectories(restartMark().getParent()); Files.writeString(restartMark(), version + "\n", StandardCharsets.UTF_8); } catch (IOException ignored) { }
-        String said = restartService(out);
-        if (!said.equals("the service restarted")) { try { Files.deleteIfExists(restartMark()); } catch (IOException ignored) { } }
+        // the helpers' services first: restarting the library's own service ends this process when the service itself runs the update
+        List<String> helpers = restartHelpers(Service.os(), version, out);
+        String said = !helpers.isEmpty() && !libraryUnitInstalled() ? "no library service is installed here" : restartService(out);
+        if (!said.equals(SERVICE_RESTARTED)) { try { Files.deleteIfExists(restartMark()); } catch (IOException ignored) { } }
+        return helpers.isEmpty() ? said : said + "; " + String.join("; ", helpers);
+    }
+
+    static final String SERVICE_RESTARTED = "the service restarted";
+
+    /** Whether the library's own service is installed as a systemd user unit here (Linux), or whatever the system's own way is elsewhere. */
+    static boolean libraryUnitInstalled() {
+        if (Service.os() != Service.Os.linux) return true;
+        return Files.isRegularFile(Path.of(System.getProperty("user.home")).resolve(".config").resolve("systemd").resolve("user").resolve(Service.NAME + ".service"));
+    }
+
+    /**
+     * Every set of heavy helpers installed on this machine whose service runs is restarted onto {@code version} (0.7.7): a helpers server
+     * is this program too, and one an update leaves running goes on with the release before until it restarts. The helpers machine of a
+     * library updated to 0.7.6 went on serving 0.7.5's helpers, without the comic helper the release was for. A set whose service does
+     * not run is left as it is. Each is said in a line of the update's own; on a system with no helpers' service, nothing.
+     */
+    static List<String> restartHelpers(Service.Os os, String version, PrintStream out) {
+        List<String> said = new ArrayList<>();
+        if (os != Service.Os.linux) return said;
+        PrintStream quiet = new PrintStream(PrintStream.nullOutputStream());
+        for (HelperSets.HelperSet s : HelperSets.sets()) {
+            try {
+                if (Service.exec(List.of("systemctl", "--user", "is-active", s.unit()), quiet) != 0) { out.println("researchzosho: the helpers service " + s.unit() + " is installed and not running; left as it is"); continue; }
+                int rc = Service.exec(List.of("systemctl", "--user", "restart", s.unit()), quiet);
+                String r = rc == 0 ? "the helpers service " + s.unit() + " restarted onto " + version : "the helpers service " + s.unit() + " did not restart (exit " + rc + "); systemctl --user restart " + s.unit() + " restarts it";
+                out.println("researchzosho: " + r);
+                said.add(r);
+            } catch (IOException e) { String r = "the helpers service " + s.unit() + " could not be restarted (" + e.getMessage() + ")"; out.println("researchzosho: " + r); said.add(r); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); return said; }
+        }
         return said;
     }
 
@@ -816,10 +849,10 @@ public final class Updater {
             List<String> cmd = os.startsWith("lin") ? List.of("systemctl", "--user", "restart", Service.NAME)
                     : os.startsWith("mac") ? List.of("launchctl", "kickstart", "-k", "gui/" + Service.uid() + "/" + Service.MAC_LABEL)
                     : List.of("schtasks", "/Run", "/TN", Service.WIN_TASK);
-            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            String o = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).strip();
-            int rc = p.waitFor();
-            String r = rc == 0 ? "the service restarted" : "the service did not restart (" + (o.isEmpty() ? "exit " + rc : o) + "); start it by hand";
+            ByteArrayOutputStream said = new ByteArrayOutputStream();
+            int rc = Service.exec(cmd, new PrintStream(said, true, StandardCharsets.UTF_8));   // through the service's own seam, which a test stands in
+            String o = said.toString(StandardCharsets.UTF_8).lines().map(String::strip).filter(l -> !l.startsWith("$ ")).reduce((a, b) -> a + " " + b).orElse("");
+            String r = rc == 0 ? SERVICE_RESTARTED : "the service did not restart (" + (o.isEmpty() ? "exit " + rc : o) + "); start it by hand";
             out.println("researchzosho: " + r);
             return r;
         } catch (Exception e) {

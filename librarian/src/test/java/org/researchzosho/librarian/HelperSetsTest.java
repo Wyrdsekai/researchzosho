@@ -58,6 +58,14 @@ class HelperSetsTest {
                 h.put("labse", "sentence-transformers/LaBSE");
                 return h;
             }
+            // a set that runs this release serves what is set up here: the install leaves it alone (0.7.7)
+            @Override public HelpersInstall.Running running(int port, String secret) {
+                HelpersInstall.Running r = super.running(port, secret);
+                if (r == null) return null;
+                Map<String, String> h = new LinkedHashMap<>(r.helpers());
+                for (Helper x : set) h.putIfAbsent(x.path, "answering");
+                return new HelpersInstall.Running(r.version(), h);
+            }
         };
         m.set.addAll(List.of(Helper.METRICX, Helper.LABSE, Helper.LIKENESS)); m.labse = "card 2";
         HelpersInstall.MACHINE = m;

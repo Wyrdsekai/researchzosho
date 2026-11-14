@@ -1,6 +1,8 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
+import org.researchzosho.Version;
 import org.researchzosho.librarian.Helpers.Helper;
 
 import java.io.BufferedReader;
@@ -56,7 +58,12 @@ final class HelpersInstall {
         String launcher();
         /** The front's own health on this machine, asked with the secret, waited for up to {@code wait}: what it serves, or null. */
         Map<String, String> ownHealth(int port, String secret, Duration wait);
+        /** The front on this port as it answers now, once, with the secret: its release and what it serves; null when it does not answer. */
+        Running running(int port, String secret);
     }
+
+    /** A helpers server as it answers: the release it runs ("" for one from before 0.7.7, whose health names none) and what it serves, each with its line. */
+    record Running(String version, Map<String, String> helpers) { }
 
     static volatile Machine MACHINE = new Machine() {
         @Override public boolean installed(Helper h) {
@@ -95,7 +102,24 @@ final class HelpersInstall {
         @Override public Service.Os os() { return Service.os(); }
         @Override public String launcher() { return Service.resolveExec(null); }
         @Override public Map<String, String> ownHealth(int port, String secret, Duration wait) { return health("http://127.0.0.1:" + port, secret, wait); }
+        @Override public Running running(int port, String secret) { return runningAt("http://127.0.0.1:" + port, secret); }
     };
+
+    /** A helpers server's health, asked once with {@code secret}: its release and what it serves; null when it does not answer as one. */
+    static Running runningAt(String base, String secret) {
+        try {
+            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "/health")).timeout(Duration.ofSeconds(5)).GET();
+            if (secret != null && !secret.isEmpty()) b.header("Authorization", "Bearer " + secret);
+            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build().send(b.build(), HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() != 200) return null;
+            Map<String, String> m = Helpers.helpersIn(r.body());
+            if (m == null) return null;
+            return new Running(JSON.readTree(r.body()).path("version").asText(""), m);
+        } catch (IOException e) { return null; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+    }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     /** A helpers server's health, asked with {@code secret} until it answers or {@code wait} passes: what it serves, or null. */
     static Map<String, String> health(String base, String secret, Duration wait) {
@@ -281,7 +305,7 @@ final class HelpersInstall {
         boolean several = setsBefore + (t.exists() ? 0 : 1) > 1;
         boolean cuda = TranslationScores.cudaTorchFor(card);
         // what is there, what is missing (or a torch that cannot see the card), what is served as it answers
-        List<Helper> missing = new ArrayList<>(), serves = new ArrayList<>();
+        List<Helper> missing = new ArrayList<>(), serves = new ArrayList<>(), fresh = new ArrayList<>();
         Map<Helper, Long> need = new LinkedHashMap<>();
         for (Helper h : o.only()) {
             if (SET_UP.contains(h)) {
@@ -313,7 +337,7 @@ final class HelpersInstall {
             for (Helper h : missing) {
                 out.println("Setting up " + h.said + "; this takes minutes.");
                 String r = m.install(h, card, o.noFallback(), out);
-                if (r.equals("ready")) { out.println("  " + h.said + " is ready."); serves.add(h); }
+                if (r.equals("ready")) { out.println("  " + h.said + " is ready."); serves.add(h); fresh.add(h); }
                 else out.println("  " + h.said + " was not set up: " + r.replaceFirst("^!", "") + ". The others are served without it.");
             }
         }
@@ -332,7 +356,7 @@ final class HelpersInstall {
             endLines(out, secret, t);
             return 0;
         }
-        int rc = installUnit(t.unit(), m.launcher(), t.port(), card.flag() + fallbackFlag(o.noFallback(), card), o.onlyGiven() ? o.only() : null, out);
+        int rc = installUnit(t.unit(), m.launcher(), t.port(), card.flag() + fallbackFlag(o.noFallback(), card), o.onlyGiven() ? o.only() : null, new Wanted(secret, serves, fresh), out);
         if (rc != 0) return rc;
         // asked at once: a service that runs already answers, and the wait is said only when it does not
         Map<String, String> served = m.ownHealth(t.port(), secret, Duration.ZERO);
@@ -375,19 +399,65 @@ final class HelpersInstall {
                 + "\n[Install]\nWantedBy=default.target\n";
     }
 
-    /** Writes the first set's unit, as {@link #installUnit(String, String, int, String, List, PrintStream)} does. */
-    static int installUnit(String exec, int port, String cardFlag, List<Helper> only, PrintStream out) throws IOException, InterruptedException {
-        return installUnit(HelpersCli.UNIT, exec, port, cardFlag, only, out);
+    /** Writes the first set's unit, as {@link #installUnit(String, String, int, String, List, Wanted, PrintStream)} does. */
+    static int installUnit(String exec, int port, String cardFlag, List<Helper> only, Wanted wanted, PrintStream out) throws IOException, InterruptedException {
+        return installUnit(HelpersCli.UNIT, exec, port, cardFlag, only, wanted, out);
     }
 
-    /** Writes a set's unit (when it says something new), and starts it, or restarts it onto the new text; one line says which. */
-    static int installUnit(String name, String exec, int port, String cardFlag, List<Helper> only, PrintStream out) throws IOException, InterruptedException {
+    /**
+     * What the install wants the running set to serve: the secret its health is asked with, the helpers set up here or answering here
+     * ({@code serves}), and the ones this install set up just now ({@code fresh}), which a server started before cannot serve.
+     */
+    record Wanted(String secret, List<Helper> serves, List<Helper> fresh) { }
+
+    /**
+     * The helpers set up here or answering here, of {@code only}: what a service installed now serves. For {@code helpers service install},
+     * which sets nothing up.
+     */
+    static List<Helper> servesHere(List<Helper> only) {
+        List<Helper> out = new ArrayList<>();
+        for (Helper h : only) {
+            if (h == Helper.LIKENESS && !LikenessHelper.on() || h == Helper.COMIC && !ComicHelper.on()) continue;
+            if (SET_UP.contains(h) ? MACHINE.installed(h) : MACHINE.answers(h)) out.add(h);
+        }
+        return out;
+    }
+
+    /**
+     * Why a set that runs with its unit unchanged is behind this install, in a few words; "" when it is current and serves what it
+     * should. It is behind when its health names another release than this program's, or none (a server from before 0.7.7, which did not
+     * say its release), or when it does not serve a helper this install set up just now or serves. A set that does not answer (its first
+     * start loads the models for minutes) is behind only for what was set up just now, which a server started before cannot serve.
+     */
+    static String behind(Running r, Wanted w) {
+        List<String> why = new ArrayList<>();
+        if (r != null && !r.version().equals(Version.string())) why.add(r.version().isEmpty() ? "ran an earlier release (its health names none)" : "ran " + r.version());
+        List<String> lacks = new ArrayList<>(), before = new ArrayList<>();
+        for (Helper h : w.serves()) {
+            String line = r == null ? null : r.helpers().get(h.path);
+            boolean serving = line != null && !line.equals(HelperServer.NOT_SET_UP);
+            if (w.fresh().contains(h)) { if (serving) before.add(h.said); else lacks.add(h.said); }
+            else if (r != null && !serving) lacks.add(h.said);
+        }
+        if (!lacks.isEmpty()) why.add("did not serve " + Chrome.ENGLISH.and(lacks) + " yet");
+        if (!before.isEmpty()) why.add("served " + Chrome.ENGLISH.and(before) + " as it was before this set-up");
+        return String.join(" and ", why);
+    }
+
+    /** Writes a set's unit (when it says something new), and starts it, or restarts it onto the new text; one line says which. A set that runs with its unit unchanged is restarted when it is behind ({@link #behind}), and left alone when it is not. */
+    static int installUnit(String name, String exec, int port, String cardFlag, List<Helper> only, Wanted wanted, PrintStream out) throws IOException, InterruptedException {
         Path unit = unitFile(name);
         String text = unitText(exec, port, secretFile(), cardFlag, only, Service.installedJavaHome());
         boolean had = Files.isRegularFile(unit), same = had && Files.readString(unit, StandardCharsets.UTF_8).equals(text);
         PrintStream quiet = new PrintStream(PrintStream.nullOutputStream());
         if (same && Service.exec(List.of("systemctl", "--user", "is-active", name), quiet) == 0) {
-            out.println("The service " + name + " is installed and running already, as before.");
+            // the unit is the same text, and a service whose release was updated under it, or that started before a helper was set up, runs
+            // as it was until it restarts: 0.7.6's comic helper was set up on a helpers machine whose 0.7.5 server went on serving without it
+            String why = wanted == null ? "" : behind(MACHINE.running(port, wanted.secret()), wanted);
+            if (why.isEmpty()) { out.println("The service " + name + " is installed and running already, as before."); return 0; }
+            int rc = Service.exec(List.of("systemctl", "--user", "restart", name), quiet);
+            if (rc != 0) { out.println("The service " + name + " " + why + ", and systemctl could not restart it (exit " + rc + "): systemctl --user restart " + name + " restarts it by hand."); return rc; }
+            out.println("The service " + name + " " + why + "; restarted" + (why.startsWith("ran ") ? " onto " + Version.string() : ", so that it does") + ".");
             return 0;
         }
         Files.createDirectories(unit.getParent());

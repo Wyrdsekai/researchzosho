@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.researchzosho.Config;
+import org.researchzosho.Version;
 import org.researchzosho.librarian.Helpers.Helper;
 
 import java.util.function.Predicate;
@@ -113,7 +114,8 @@ final class HelperServer implements AutoCloseable {
             }
             String path = x.getRequestURI().getRawPath();
             if (path.equals("/health") || path.equals("/health/") || path.equals("/")) {
-                ObjectNode o = M.createObjectNode(); ObjectNode hs = o.putObject("helpers");
+                ObjectNode o = M.createObjectNode(); o.put("version", Version.string());   // the release this server runs: an install tells a server an update left running on the one before (0.7.7)
+                ObjectNode hs = o.putObject("helpers");
                 // asked again when half a minute old: a container that was still starting when the front started answers now
                 if (System.currentTimeMillis() - healthAt > 30_000) { synchronized (health) { for (var e : backends.entrySet()) health.put(e.getKey(), healthOf(e.getValue())); for (Managed m : managed.values()) m.healthLine = null; healthAt = System.currentTimeMillis(); } }
                 for (var e : health.entrySet()) hs.put(e.getKey(), e.getValue());

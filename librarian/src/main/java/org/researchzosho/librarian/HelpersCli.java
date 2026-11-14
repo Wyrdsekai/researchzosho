@@ -200,7 +200,7 @@ final class HelpersCli {
                 String secret = !f.secret().isEmpty() ? f.secret() : HelpersInstall.keptSecret();
                 if (secret.isEmpty()) secret = HelperServer.newSecret();
                 if (!secret.equals(HelpersInstall.keptSecret())) keepSecret(HelpersInstall.secretFile(), secret);
-                int rc = HelpersInstall.installUnit(Service.resolveExec(null), f.port(), card.flag() + HelpersInstall.fallbackFlag(f.noFallback(), card), f.onlyGiven() ? f.only() : null, System.out);
+                int rc = HelpersInstall.installUnit(Service.resolveExec(null), f.port(), card.flag() + HelpersInstall.fallbackFlag(f.noFallback(), card), f.onlyGiven() ? f.only() : null, new HelpersInstall.Wanted(secret, HelpersInstall.servesHere(f.only()), List.of()), System.out);
                 if (rc == 0) System.out.println("Its secret is kept in " + HelpersInstall.secretFile() + "; on the library that uses them: researchzosho settings set helpers_secret <that secret> (researchzosho helpers secret prints it).");
                 return rc;
             }

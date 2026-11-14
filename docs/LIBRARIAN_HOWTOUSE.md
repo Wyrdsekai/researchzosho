@@ -347,7 +347,9 @@ The setting is `RESEARCHZOSHO_UPDATE`: `check` (default), `auto`, or `off`. An u
 the library or the settings. Each version is installed in a folder of its own, `versions/<version>` in the
 install, and the launchers run the one `current` names (`current.txt` on Windows), so the running program's
 files are left alone. The version before stays as the way back, and two are kept. The service restarts at
-once, and a job that was running resumes where it was when it is back (section 4). After `update back` the
+once, and a job that was running resumes where it was when it is back (section 4). On Linux the heavy helpers'
+service restarts with it, every set of it that runs (section 15b), so a helpers machine serves the new release's
+helpers too. After `update back` the
 auto-update leaves the version you went back from, and `update now` installs it again. An install from before
 0.7.2 moves into this layout at its first update. On Windows a small helper starts the service again once the
 old one has ended, and moves an install from before 0.7.2 then; what it did is written to
@@ -3429,6 +3431,8 @@ researchzosho helpers install --on homebox      # over ssh with your own keys; a
 It installs or updates ResearchZosho there, sets up what is missing, serves the embeddings server and speech-to-text
 when they already run there, keeps a secret, and starts a user service on port 8217. Then it sets `helpers` and
 `helpers_secret` here and says what is served. When ssh needs a password, it gives the two commands to run by hand.
+Run again, a service that runs is left as it is, unless it runs an earlier release or does not serve a helper
+set up there; then it is restarted, and one line says why.
 `researchzosho setup` offers it on a small machine whose model is served from another one.
 
 On the big machine itself, the same in one command, which ends with the line to paste on the library's machine:
@@ -3461,8 +3465,8 @@ is said, with the line that sets it. A hosted service is never asked; `settings 
 
 **Comics.** The comic helper is one of the helpers (`comic`), set up with them, about 1.1 GB to download and 2.3 GB on
 the disk; it runs on the machine's processor whatever card the set is on, a process for each library's comic job
-(section 8b, the comic helper on the helpers machine). A machine whose ResearchZosho is older than 0.7.6, the first release that serves it,
-is brought to it by `--on` before its install. A library whose helpers machine serves it reads its comics there; one
+(section 8b, the comic helper on the helpers machine). `--on` updates a machine whose ResearchZosho is older than 0.7.7
+before any install there: 0.7.6 is the first to serve the comic helper, and 0.7.7 the first to restart a service an update left running. A library whose helpers machine serves it reads its comics there; one
 whose helpers machine does not (an earlier release, or `--only` without it) uses its own, or, with `local_helpers off`,
 says which command puts it there.
 
