@@ -14,6 +14,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
  * {@code researchzosho helpers}: where the heavy helpers run for this library, and the serving of them to other machines (0.7.4).
@@ -31,6 +32,8 @@ final class HelpersCli {
     private HelpersCli() { }
 
     static final String UNIT = "researchzosho-helpers";
+    /** The launcher the helpers' unit starts, found as the program's own service finds it; a test names one, so that no test depends on what the machine it runs on has installed. */
+    static volatile Supplier<String> EXEC = () -> Service.resolveExec(null);
     static final String USAGE = "usage: researchzosho helpers [status]   ·   helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback | --cpu-fallback] [--only metricx,labse,likeness,whisper,embed,comic] [--yes]\n"
             + "       researchzosho helpers uninstall [--gpu <index> | --cpu]   ·   helpers port [--gpu <index> | --cpu | --beside-port N] [--separate]   ·   helpers secret   ·   helpers serve [--bind ADDR] [--port N] [--secret-file FILE] [--gpu <index> | --cpu] [--no-cpu-fallback] [--only …]\n"
             + "       researchzosho helpers service install|uninstall|status [the same flags]   (a machine that serves the heavy helpers to the libraries of other machines)";
@@ -200,7 +203,10 @@ final class HelpersCli {
                 String secret = !f.secret().isEmpty() ? f.secret() : HelpersInstall.keptSecret();
                 if (secret.isEmpty()) secret = HelperServer.newSecret();
                 if (!secret.equals(HelpersInstall.keptSecret())) keepSecret(HelpersInstall.secretFile(), secret);
-                int rc = HelpersInstall.installUnit(Service.resolveExec(null), f.port(), card.flag() + HelpersInstall.fallbackFlag(f.noFallback(), card), f.onlyGiven() ? f.only() : null, new HelpersInstall.Wanted(secret, HelpersInstall.servesHere(f.only()), List.of()), System.out);
+                String exec;
+                try { exec = EXEC.get(); }
+                catch (IllegalStateException e) { System.out.println("The researchzosho command was not found to start the helpers' service with: run this from the installed program (its bin folder), or put that folder on your PATH, and ask again."); return 1; }
+                int rc = HelpersInstall.installUnit(exec, f.port(), card.flag() + HelpersInstall.fallbackFlag(f.noFallback(), card), f.onlyGiven() ? f.only() : null, new HelpersInstall.Wanted(secret, HelpersInstall.servesHere(f.only()), List.of()), System.out);
                 if (rc == 0) System.out.println("Its secret is kept in " + HelpersInstall.secretFile() + "; on the library that uses them: researchzosho settings set helpers_secret <that secret> (researchzosho helpers secret prints it).");
                 return rc;
             }

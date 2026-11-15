@@ -20,6 +20,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.function.Supplier;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -42,6 +43,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class HelpersRestartTest {
     String home;
     HelpersInstall.Machine machine;
+    Supplier<String> launcher;
     Service.Exec exec;
     HelperCards.Probe probe;
     BooleanSupplier cuda, win;
@@ -58,9 +60,10 @@ class HelpersRestartTest {
         m = new HelpersInstallTest.Stand(); HelpersInstall.MACHINE = m;
         HelperCards.PROBE = HelpersInstallTest.cards("0, GPU-aaaa0000-0000-0000-0000-000000000000, NVIDIA GeForce RTX 4060 Ti, 16380, 9100\n");
         TranslationScores.CUDA_BUILD = () -> true; TranslationScores.WINDOWS = () -> false;
+        launcher = HelpersCli.EXEC; HelpersCli.EXEC = () -> "/opt/rz/bin/researchzosho";   // never the machine's own: on a machine with none installed the command found none (CI, 2026-11-14)
     }
     @AfterEach void restore() {
-        HelpersInstall.MACHINE = machine; Service.EXEC = exec; HelperCards.PROBE = probe; TranslationScores.CUDA_BUILD = cuda; TranslationScores.WINDOWS = win;
+        HelpersInstall.MACHINE = machine; Service.EXEC = exec; HelpersCli.EXEC = launcher; HelperCards.PROBE = probe; TranslationScores.CUDA_BUILD = cuda; TranslationScores.WINDOWS = win;
         System.setProperty("user.home", home); Config.invalidate();
     }
 
@@ -156,6 +159,18 @@ class HelpersRestartTest {
         s = TranslationDirectionTest.out(() -> rc[0] = HelpersCli.run(args, 1), false);
         assertTrue(s.contains("is installed and running already, as before."), s);
         assertFalse(ran.stream().anyMatch(c -> c.contains("restart")), ran.toString());
+    }
+
+    /** A machine where the program is not installed and not on the PATH: one plain sentence and a failing code, not an exception (CI, 2026-11-14). */
+    @Test void theServiceCommandSaysSoWhenItFindsNoLauncher() throws Exception {
+        assumeTrue(Service.os() == Service.Os.linux, "the helpers' service is a systemd unit");
+        m.set.addAll(List.of(Helper.METRICX));
+        HelpersCli.EXEC = () -> { throw new IllegalStateException("cannot find the researchzosho launcher"); };
+        int[] rc = {-9};
+        String s = TranslationDirectionTest.out(() -> rc[0] = HelpersCli.run(new String[]{"helpers", "service", "install", "--gpu", "0"}, 1), false);
+        assertEquals(1, rc[0], s);
+        assertTrue(s.contains("The researchzosho command was not found to start the helpers' service with:"), s);
+        assertFalse(Files.exists(HelpersInstall.unitFile()), "no unit is written");
     }
 
     /** Writes a set's unit as an install would, by its name and port. */
