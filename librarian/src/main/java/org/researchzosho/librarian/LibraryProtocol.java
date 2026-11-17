@@ -807,8 +807,9 @@ public final class LibraryProtocol {
         if (path.startsWith("db:")) { database = path.substring(3); path = ""; }
         if (url.startsWith("db:")) { database = url.substring(3); url = ""; }
         if (!database.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can read the owner's databases.");
-        if (!path.isEmpty() && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can survey a file or a folder on this machine, from the terminal or the library's own pages. A url works from here.");
         String spec = !database.isEmpty() ? "db:" + database : path.isEmpty() ? url : path;
+        // whatever field names it (path, or url, which the Read in page's box sends): a thing on this machine is the keeper's to survey and nobody else's. That is anything that is not an http or https address: a file, a folder, a repository on disk, a repository by one of git's other addresses (git@, ssh://, file://)
+        if (!spec.isEmpty() && !spec.startsWith("http://") && !spec.startsWith("https://") && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can survey a file or a folder on this machine, from the terminal or the library's own pages. A url works from here.");
         ObjectNode r = envelope();
         r.put("op", op);
         if (op.equals("survey")) {

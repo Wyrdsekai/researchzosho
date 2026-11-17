@@ -147,6 +147,7 @@ public final class Repos {
         try (var walk = Files.walk(root, 12)) {
             for (Path p : (Iterable<Path>) walk::iterator) {
                 if (Files.isDirectory(p)) continue;
+                if (Files.isSymbolicLink(p)) continue;   // a link is not read or counted, as the code tool reads none: in a repository somebody else made, a link can point at any file of this machine, and git writes it out as the link it is
                 boolean skip = false;
                 for (Path part : root.relativize(p)) if (SKIP_DIRS.contains(part.toString())) { skip = true; break; }
                 if (skip) continue;

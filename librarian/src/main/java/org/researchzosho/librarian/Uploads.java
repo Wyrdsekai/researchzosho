@@ -41,6 +41,9 @@ public final class Uploads {
     /** A text field named like the keys this parser makes for a file is not read: a posted field cannot pose as a file the server wrote. */
     private static final Pattern FILE_KEY = Pattern.compile("^[A-Za-z0-9_-]+(\\.\\d+)?\\.(path|name|rel)$");
 
+    /** Whether a field's name is one of the keys {@link #multipart} writes for a file it saved. A form's own field of such a name is not read, in a form with files or a plain one ({@code Pages.form}): no field a client writes names an upload. */
+    static boolean fileKey(String name) { return name != null && FILE_KEY.matcher(name).matches(); }
+
     /**
      * A multipart form, as a browser posts one with files in it: the text fields as they are, and each file written under {@code dir}
      * with its own name (odd characters replaced), named in the map as {@code <field>.path} and {@code <field>.name}; the second file of
@@ -254,6 +257,7 @@ public final class Uploads {
             String key = n == 1 ? field : field + "." + n;
             String path = form.get(key + ".path");
             if (path == null || path.isBlank()) break;
+            if (!isUpload(Path.of(path))) continue;   // only a file this server saved from an upload is a form's file: a path a form names anywhere else on the machine is not read, whoever posts it
             out.add(new Uploaded(Path.of(path), form.getOrDefault(key + ".name", Path.of(path).getFileName().toString()), form.getOrDefault(key + ".rel", "")));
         }
         return out;

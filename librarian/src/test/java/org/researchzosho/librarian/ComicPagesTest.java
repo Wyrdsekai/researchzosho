@@ -18,6 +18,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -224,6 +225,32 @@ class ComicPagesTest {
         // a program that fails says so in its own last words
         Searx.runner = cmd -> cmd.get(1).equals("--version") && cmd.get(0).equals("bsdtar") ? new Searx.Result(0, "bsdtar 3.7") : new Searx.Result(1, "bsdtar: Error opening archive: Unrecognized archive format");
         assertTrue(assertThrows(IOException.class, () -> ComicPages.names(cbr)).getMessage().contains("Unrecognized archive format"));
+    }
+
+    /**
+     * A link among a volume's pages is no page, so the picture it points to anywhere on this machine is never read: in a folder of
+     * pages, and in what the machine's own program wrote out of a RAR, where a link in the archive is written as a link (bsdtar
+     * does that; a zip's entries are written by the library itself, which writes no link).
+     */
+    @Test void aLinkAmongAVolumesPagesIsNoPage(@TempDir Path tmp) throws Exception {
+        byte[] pic = ComicStandIn.png(ComicStandIn.page(1, 200, 280));
+        Path outside = Files.write(Files.createDirectories(tmp.resolve("keepers")).resolve("own.png"), ComicStandIn.png(ComicStandIn.page(2, 200, 280)));
+        Path folder = Files.createDirectories(tmp.resolve("volume"));
+        Files.write(folder.resolve("001.png"), pic); Files.createSymbolicLink(folder.resolve("002.png"), outside); Files.createSymbolicLink(folder.resolve("more"), outside.getParent());
+        assertEquals(List.of("001.png"), ComicPages.names(folder), "a folder of pages: the link and the linked folder's picture are no pages");
+        assertEquals(List.of("001.png"), names(ComicPages.open(folder, Files.createDirectories(tmp.resolve("work-folder")))));
+        Path cbr = tmp.resolve("volume.cbr"); Files.write(cbr, new byte[]{'R', 'a', 'r', '!', 0x1A, 0x07, 0x00, 9, 9, 9});
+        Searx.runner = cmd -> {
+            if (!cmd.get(0).equals("bsdtar")) throw new IOException("Cannot run program \"" + cmd.get(0) + "\"");
+            if (cmd.get(1).equals("--version")) return new Searx.Result(0, "bsdtar 3.7");
+            if (cmd.get(1).equals("-tf")) return new Searx.Result(0, "001.png\n002.png\nmore\n");
+            Path dir = Path.of(cmd.get(cmd.indexOf("-C") + 1));
+            Files.write(dir.resolve("001.png"), pic); Files.createSymbolicLink(dir.resolve("002.png"), outside); Files.createSymbolicLink(dir.resolve("more"), outside.getParent());
+            return new Searx.Result(0, "");
+        };
+        ComicPages.Volume v = ComicPages.open(cbr, Files.createDirectories(tmp.resolve("work-rar")));
+        assertEquals(List.of("001.png"), names(v), "a RAR: the link its program wrote out is no page");
+        for (ComicPages.Page p : v.pages()) assertTrue(Files.isRegularFile(p.file(), LinkOption.NOFOLLOW_LINKS) && p.file().toRealPath().startsWith(tmp.resolve("work-rar").toRealPath()), p.file().toString());
     }
 
     @Test void theSetPagesGoBackIntoACbzUnderThePagesOwnNames(@TempDir Path tmp) throws Exception {

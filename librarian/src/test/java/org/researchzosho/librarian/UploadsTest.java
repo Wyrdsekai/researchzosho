@@ -3,10 +3,12 @@ package org.researchzosho.librarian;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -98,6 +100,29 @@ class UploadsTest {
             assertFalse(Uploads.isUpload(dir.getParent().resolve("x.txt")));
             Uploads.drop(form);
             assertFalse(Files.exists(dir), "the whole upload, folders and all, is gone after the page read it");
+        } finally { Uploads.remove(dir); }
+    }
+
+    /**
+     * Only a file this server saved from an upload is a form's file: a path a form names anywhere else on the machine is not read back,
+     * and a plain form, as a page without a file posts it, carries no field named like a file's at all (0.7.8).
+     */
+    @Test void onlyAFileThisServerSavedIsAFormsFileAndAPlainFormCarriesNoFieldNamedLikeOne(@TempDir Path tmp) throws Exception {
+        Path elsewhere = Files.writeString(tmp.resolve("on the machine.txt"), "a file of the machine's");
+        Path lookalike = Files.writeString(Files.createDirectories(tmp.resolve(Uploads.DIR + "x")).resolve("a.txt"), "in a folder named like an upload's, somewhere else");
+        Path dir = Files.createTempDirectory(Uploads.DIR);
+        try {
+            Path saved = Files.writeString(dir.resolve("mine.txt"), "posted");
+            Map<String, String> form = new LinkedHashMap<>();
+            form.put("file.path", elsewhere.toString()); form.put("file.name", "taken.txt");
+            form.put("file.2.path", saved.toString()); form.put("file.2.name", "mine.txt");
+            form.put("file.3.path", lookalike.toString()); form.put("file.3.name", "a.txt");
+            var files = Uploads.files(form, "file");
+            assertEquals(1, files.size(), files.toString());
+            assertEquals(saved, files.get(0).path()); assertEquals("mine.txt", files.get(0).name());
+            assertTrue(Uploads.files(Map.of("file.path", elsewhere.toString(), "file.name", "taken.txt"), "file").isEmpty(), "a path a form names is no file of the form's");
+            Map<String, String> plain = Pages.form("to=fr&file.path=" + URLEncoder.encode(elsewhere.toString(), StandardCharsets.UTF_8) + "&file.name=taken.txt&folder.2.rel=a%2Fb&file.2.path=%2Fetc%2Fhostname&say=file.path", "application/x-www-form-urlencoded");
+            assertEquals(Map.of("to", "fr", "say", "file.path"), plain, "the fields a page reads are kept; the ones named like a file's keys are not read");
         } finally { Uploads.remove(dir); }
     }
 

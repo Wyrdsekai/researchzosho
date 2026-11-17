@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -11,6 +13,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The Add page: a file posted from the browser, or a page by its address, goes onto the shelves through the same add as the command line's, and the upload folder is dropped after. */
@@ -84,8 +87,12 @@ class AddPageTest {
         Patrons.Patron friend = new Patrons.Patron("did:key:friend", "A friend", "web");   // signed in, with write access, not the keeper
         WebAccess.OVERRIDE = Boolean.TRUE;
         try {
+            // a form that names a path on the machine posted no file, so nothing is read (0.7.8); the add itself refuses such a path to anyone but the keeper
             String refused = Pages.addPost(store, new LibraryProtocol(store), friend, Map.of("file.path", mine.toString(), "file.name", "on the machine.txt"));
-            assertTrue(refused.contains("Only the library owner can add files and folders on this machine") && refused.contains("a file of your own on the Add page"), refused);
+            assertTrue(refused.startsWith("<p>Choose a file, or write a page's address.</p>") && !refused.contains("Added:"), refused);
+            ObjectNode byPath = new ObjectMapper().createObjectNode().put("path", mine.toString()); byPath.set("patron", LibrarianDaemon.patronNode(friend));
+            ProtocolError e = assertThrows(ProtocolError.class, () -> new LibraryProtocol(store).add(byPath));
+            assertTrue(e.getMessage().contains("Only the library owner can add files and folders on this machine") && e.getMessage().contains("a file of your own on the Add page"), e.getMessage());
             assertTrue(Files.exists(mine), "a path that is not an upload is never deleted");
             String added = Pages.addPost(store, new LibraryProtocol(store), friend, Map.of("file.path", posted.toString(), "file.name", "posted.txt"));
             assertTrue(added.contains("<b>Added:</b> posted.txt"), added);

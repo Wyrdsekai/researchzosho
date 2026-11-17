@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.8
+
+What's new: a fix to what a person with write access to your library can reach.
+
+### Fixed
+
+- Someone you gave write access to a library could read files on the library's machine that are outside the library: by naming a file where a web address is asked for, by a form made to look like an upload, or through a link inside a repository. A person with write access now reaches the library and nothing else on that machine. Only the owner surveys a file or a folder there, and a person with write access names a repository by its http or https address.
+
+If you have given anyone write access to a library, update (`researchzosho update now`).
+
 ## 0.7.7
 
 What's new: a fix for the machine that runs your heavy helpers.

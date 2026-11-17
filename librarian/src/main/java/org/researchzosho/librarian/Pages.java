@@ -4121,6 +4121,7 @@ final class Pages {
             int eq = kv.indexOf('=');
             m.put(URLDecoder.decode(eq < 0 ? kv : kv.substring(0, eq), StandardCharsets.UTF_8), eq < 0 ? "" : URLDecoder.decode(kv.substring(eq + 1), StandardCharsets.UTF_8));
         }
+        m.keySet().removeIf(Uploads::fileKey);   // a plain form carries no file: a field named like the keys of one this server saved (file.path) is not read, as in a form with files
         return m;
     }
 

@@ -180,6 +180,65 @@ class ReposTest {
         assertThrows(IOException.class, () -> Repos.obtain(store, home.resolve("nowhere").toString()), "a path that is not a folder");
     }
 
+    static final String KEPT_BACK = "What the keeper keeps to themselves";
+
+    /** The small repository with its README, its manifest and one source file replaced by links to a file outside it. */
+    static Path linked(Path home) throws Exception {
+        Path outside = Files.createDirectories(home.resolve("keepers")).resolve("own.txt");
+        Files.writeString(outside, KEPT_BACK + ", in a file that lies outside the repository and outside the library, at some length.\n");
+        Path r = repo(home);
+        Files.delete(r.resolve("README.md")); Files.delete(r.resolve("package.json"));
+        Files.createSymbolicLink(r.resolve("README.md"), outside);
+        Files.createSymbolicLink(r.resolve("package.json"), outside);
+        Files.createSymbolicLink(r.resolve("src/rank/keys.js"), outside);
+        Files.createSymbolicLink(r.resolve("elsewhere"), outside.getParent());   // a linked folder is not entered either
+        return r;
+    }
+
+    /** What a survey of the linked repository is: nothing of the file outside, and the files that are its own as before. */
+    static void nothingOfTheFileOutside(Repos.Survey s, String where) {
+        String text = Repos.render(s);
+        assertFalse(text.contains(KEPT_BACK), where + ": the survey holds the words of the file a link points to: " + text);
+        assertEquals("", s.readme(), where + ": a README that is a link is not read");
+        assertTrue(s.manifests().isEmpty(), where + ": a manifest that is a link is not read: " + s.manifests().keySet());
+        assertFalse(s.samples().containsKey("src/rank/keys.js"), where + ": a source file that is a link is not sampled: " + s.samples().keySet());
+        assertEquals(3, s.files(), where + ": the links are not counted among the files");
+        assertEquals(List.of("docs/method.md"), s.docs(), where);
+        assertEquals(2, s.byLanguage().get("js"), where);
+        assertTrue(s.samples().containsKey("src/rank/rank.js") && s.samples().containsKey("src/store/store.js") && s.samples().get("src/rank/rank.js").contains("Rank harbours by residual variance"), where + ": its own files are read as before: " + s.samples().keySet());
+    }
+
+    /**
+     * A link in a repository is not read (0.7.8): a README, a manifest and a source file that are links to a file outside the
+     * repository give none of that file's words, and the repository's own files are surveyed as before. A repository somebody else
+     * made can hold a link to any file of this machine.
+     */
+    @Test
+    void aLinkInARepositoryReadInPlaceIsNotRead(@TempDir Path home) throws Exception {
+        Path r = linked(home);
+        LibraryStore store = new LibraryStore(home.resolve("lib"));
+        nothingOfTheFileOutside(Repos.survey(Repos.obtain(store, r.toString())), "read in place");
+        Surveys.Read read = Surveys.read(store, Surveys.Kind.repo, r.toString());
+        assertFalse(read.text().contains(KEPT_BACK), "the text a survey shelves: " + read.text());
+        assertFalse(Surveys.describe(read, null).whatItIs().contains(KEPT_BACK), "and what it says the repository is");
+    }
+
+    /** The same for a repository git cloned into the library: git keeps a link as a link, pointing where it pointed. */
+    @Test
+    void aLinkInAClonedRepositoryIsNotRead(@TempDir Path home) throws Exception {
+        Assumptions.assumeTrue(Repos.gitInstalled(), "git on this machine");
+        Path r = linked(home);
+        run(r, "git", "init", "-q"); run(r, "git", "add", "."); run(r, "git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "links");
+        Path bare = home.resolve("tidebook.git");
+        run(home, "git", "clone", "-q", "--bare", r.toString(), bare.toString());
+        LibraryStore store = new LibraryStore(home.resolve("lib")); store.init();
+        Repos.Repo repo = Repos.obtain(store, bare.toString());
+        assertTrue(repo.cloned() && repo.dir().startsWith(store.rawDir()), repo.toString());
+        assertTrue(Files.isSymbolicLink(repo.dir().resolve("README.md")), "git wrote the README out as the link it is");
+        nothingOfTheFileOutside(Repos.survey(repo), "cloned");
+        assertFalse(Surveys.read(store, Surveys.Kind.repo, bare.toString()).text().contains(KEPT_BACK), "the text a survey of the clone shelves");
+    }
+
     static void run(Path dir, String... cmd) throws Exception {
         Process p = new ProcessBuilder(cmd).directory(dir.toFile()).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes());

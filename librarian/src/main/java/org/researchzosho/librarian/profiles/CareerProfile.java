@@ -76,7 +76,8 @@ public final class CareerProfile implements Profile {
                 switch (op) {
                     case "provide" -> {   // the page keeps words, and a file the browser posted; a path typed as words is never read; a name given opens that person's page, new or known
                         String name = form.getOrDefault("name", "").strip(), who = !name.isEmpty() ? name : s == null ? "" : s.name();
-                        String text = form.getOrDefault("text", "").strip(), file = form.getOrDefault("file.path", "").strip();
+                        List<Uploads.Uploaded> posted = Uploads.files(form, "file");   // the file this server saved from the post, and no path a form names
+                        String text = form.getOrDefault("text", "").strip(), file = posted.isEmpty() ? "" : posted.get(0).path().toString();
                         try {
                             if (text.isEmpty() && file.isEmpty()) throw new IllegalArgumentException("Write something, or choose a file.");
                             String target = who;   // the name given wins; the file, when there is one, settles the name the words then go to
