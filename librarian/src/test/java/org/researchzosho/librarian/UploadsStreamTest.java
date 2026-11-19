@@ -74,7 +74,7 @@ class UploadsStreamTest {
         // a file whose bytes hold what looks like the beginning of the boundary, and line ends: none of it ends the part
         byte[] tricky = ascii("line one\r\n--" + B.substring(0, 8) + "\r\n\r\n--not the boundary\r\n-");
         for (boolean drip : new boolean[]{false, true}) {
-            Path dir = Files.createTempDirectory(Uploads.DIR);   // a folder as the server makes one for a post: only a file in one is read back (0.7.8)
+            Path dir = Uploads.newFolder();   // a folder as the server makes one for a post: only a file in one is read back (0.7.8)
             Map<String, String> form = Uploads.multipart(post(drip, bytes(fieldHead("to")), bytes(ascii("English\r\n")), bytes(fileHead("file", "volume.cbz")), bytes(data), bytes(ascii("\r\n")),
                     bytes(fileHead("file", "notes.txt")), bytes(tricky), bytes(ascii("\r\n")), bytes(fileHead("file", "empty.txt")), bytes(ascii("\r\n")),
                     bytes(fieldHead("direction")), bytes(ascii("terse, urgent — 緊迫\r\n")), bytes(ascii("--" + B + "--\r\n"))), TYPE, dir, 1 << 20, "over");
@@ -88,7 +88,7 @@ class UploadsStreamTest {
         // the form read from bytes in memory, as every test before this one gives it, is the same reader
         ByteArrayOutputStream whole = new ByteArrayOutputStream();
         whole.writeBytes(fieldHead("to")); whole.writeBytes(ascii("English\r\n")); whole.writeBytes(fileHead("file", "a.txt")); whole.writeBytes(ascii("hello\r\n")); whole.writeBytes(ascii("--" + B + "--\r\n"));
-        Map<String, String> form = Uploads.multipart(whole.toByteArray(), TYPE, Files.createTempDirectory(Uploads.DIR));
+        Map<String, String> form = Uploads.multipart(whole.toByteArray(), TYPE, Uploads.newFolder());
         assertEquals("English", form.get("to")); assertEquals("hello", Files.readString(Uploads.files(form, "file").get(0).path()));
         Uploads.drop(form);
         // a post that ends inside a file keeps nothing of that file

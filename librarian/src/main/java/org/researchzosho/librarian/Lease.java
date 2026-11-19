@@ -3,11 +3,17 @@ package org.researchzosho.librarian;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.net.InetAddress;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * One daemon per library. The serving process holds {@code catalog/serve.lock}: its pid, its host, and
@@ -28,6 +34,7 @@ import java.util.function.Consumer;
  */
 public final class Lease implements AutoCloseable {
 
+    private static final Logger LOG = LoggerFactory.getLogger(Lease.class);
     static final long TTL_MS = 5 * 60_000L;
     static final long RENEW_MS = 4 * 60_000L;
     /** How often the holder looks at the lease file; a test shortens it. */
@@ -35,6 +42,9 @@ public final class Lease implements AutoCloseable {
 
     private final Path file;
     private final long pid = ProcessHandle.current().pid();
+    /** The start of the library this lease is for, and the service it runs under (0 and "": a library of a person's own). */
+    private volatile long epoch;
+    private volatile String service = "";
     private volatile boolean held;
     /** The live process found holding the lease in this one's place; null while this one holds it. */
     private volatile Holder takenBy;
@@ -49,30 +59,66 @@ public final class Lease implements AutoCloseable {
     static Path file(LibraryStore store) { return store.root().resolve("catalog").resolve("serve.lock"); }
 
     /** The guard the lease is taken and renewed under, never renamed: see {@link FileLocks}. */
+    /** The most a lease file holds: a pid, a host, a time, an epoch and a service's name. */
+    static final int MOST_BYTES = 4096;
+
     static Path guard(Path leaseFile) { return leaseFile.resolveSibling(leaseFile.getFileName() + ".guard"); }
 
-    public record Holder(long pid, String host, Instant expires) {
-        boolean live() { return Instant.now().isBefore(expires) && (!host.equals(hostName()) || ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)); }
+    /**
+     * Who holds the lease, as its file says, and {@code written}: when the file was last written (null: not known). A process of this
+     * machine is the holder only when it lives and started no later than that ({@link ProcessProof#startedBy}): the system gives a dead
+     * holder's number to another process, and the number alone proves nothing (round G: on Windows a server killed by its number left
+     * its lease, the number went to another process within seconds, and the service's server, started next, took that process for a
+     * live holder and refused to serve for five minutes).
+     */
+    public record Holder(long pid, String host, Instant expires, long epoch, String service, Instant written) {
+        public Holder(long pid, String host, Instant expires, long epoch, String service) { this(pid, host, expires, epoch, service, null); }
+        /** A holder whose file says nothing of a start under an account service (a library of a person's own, or written before 0.8.0). */
+        public Holder(long pid, String host, Instant expires) { this(pid, host, expires, 0, ""); }
+        /**
+         * Whether a start with {@code epoch} under {@code service} may take the lease from this holder while it lives: it is an earlier
+         * start of the same library by the same service (0.8.0). The registry gave the library to the later start; the earlier one, frozen
+         * or cut off, gives up when it next looks.
+         */
+        boolean replacedBy(long epoch, String service) { return epoch > 0 && this.epoch > 0 && this.epoch < epoch && service != null && !service.isEmpty() && service.equals(this.service); }
+        boolean live() {
+            if (!Instant.now().isBefore(expires)) return false;
+            if (!host.equals(hostName())) return true;   // another machine's process: its lease is all there is to go by
+            ProcessHandle h = ProcessHandle.of(pid).orElse(null);
+            if (h == null || !h.isAlive()) return false;
+            Instant started = h.info().startInstant().orElse(null);
+            if (written == null || started == null || ProcessProof.startedBy(started, written)) return true;   // a start time the system does not give: alive is all there is
+            LOG.info("lease: pid {} named in {} lives, but started at {}, after the lease was written at {}: another process got the number, and the lease is free", pid, host, started, written);
+            return false;
+        }
     }
 
     static String hostName() {
+        String named = System.getProperty("researchzosho.accounts.machine");   // a test's two machines on one: each node, and its libraries, named apart
+        if (named != null && !named.isBlank()) return named.strip();
         try { return InetAddress.getLocalHost().getHostName(); } catch (Exception e) { return "localhost"; }
     }
 
     public static Holder holder(LibraryStore store) throws IOException {
         Path f = file(store);
         if (!Files.exists(f)) return null;
-        String[] p = Files.readString(f, StandardCharsets.UTF_8).strip().split("\t");
-        if (p.length < 3) return null;
-        try { return new Holder(Long.parseLong(p[0]), p[1], Instant.parse(p[2])); } catch (Exception e) { return null; }
+        return holder(f);
     }
 
     /** Take the lease, or throw naming who holds it. */
-    public static Lease acquire(LibraryStore store) throws IOException {
+    public static Lease acquire(LibraryStore store) throws IOException { return acquire(store, 0, ""); }
+
+    /**
+     * The same for one start of a library under an account service: {@code epoch}, the registry's count of its starts, and the
+     * {@code service} it runs under are written into the lease, and a live holder that is an earlier start of it by the same service
+     * gives the lease to this one at once (it gives up when it next looks) instead of after its five minutes.
+     */
+    public static Lease acquire(LibraryStore store, long epoch, String service) throws IOException {
         Lease l = new Lease(file(store));
+        l.epoch = epoch; l.service = service == null ? "" : service.strip();
         FileLocks.under(guard(l.file), () -> {   // read and written as one step: no second process between the two
             Holder h = holder(store);
-            if (h != null && h.live()) {   // our own pid counts too: two daemons in one process are still two daemons
+            if (h != null && h.live() && !h.replacedBy(l.epoch, l.service)) {   // our own pid counts too (two daemons in one process are still two), unless the lease is older than this process
                 throw new IOException("another daemon is serving this library: pid " + h.pid() + " on " + h.host() + " (lease until " + h.expires()
                         + "). Stop it, or wait for its lease to lapse. The library is " + store.root());
             }
@@ -120,7 +166,7 @@ public final class Lease implements AutoCloseable {
 
     private void write() throws IOException {
         Files.createDirectories(file.getParent());
-        AtomicWrite.text(file, pid + "\t" + hostName() + "\t" + Instant.now().plusMillis(TTL_MS) + "\n");   // whole or not at all: a reader never sees half
+        AtomicWrite.text(file, pid + "\t" + hostName() + "\t" + Instant.now().plusMillis(TTL_MS) + (epoch > 0 ? "\t" + epoch + "\t" + service : "") + "\n");   // whole or not at all: a reader never sees half
         written = System.currentTimeMillis();
     }
 
@@ -161,8 +207,13 @@ public final class Lease implements AutoCloseable {
     }
 
     private static Holder holder(Path f) throws IOException {
+        // the file is read as itself, never through a link, and only when it is the size a lease is: a link to /dev/zero or a huge file in
+        // a library's folder is no holder (round F, the second review)
+        BasicFileAttributes a;
+        try { a = Files.readAttributes(f, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS); } catch (NoSuchFileException gone) { return null; }
+        if (!a.isRegularFile() || a.size() > MOST_BYTES) return null;
         String[] p = Files.readString(f, StandardCharsets.UTF_8).strip().split("\t");
         if (p.length < 3) return null;
-        try { return new Holder(Long.parseLong(p[0]), p[1], Instant.parse(p[2])); } catch (Exception e) { return null; }
+        try { return new Holder(Long.parseLong(p[0]), p[1], Instant.parse(p[2]), p.length > 3 ? Long.parseLong(p[3]) : 0, p.length > 4 ? p[4] : "", a.lastModifiedTime().toInstant()); } catch (Exception e) { return null; }
     }
 }

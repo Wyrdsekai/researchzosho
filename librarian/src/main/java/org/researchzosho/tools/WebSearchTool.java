@@ -1,5 +1,7 @@
 package org.researchzosho.tools;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -30,6 +32,7 @@ import org.researchzosho.librarian.Fence;
 import org.researchzosho.librarian.SearchLog;
 import org.researchzosho.librarian.SourceRules;
 import org.researchzosho.librarian.SourceTier;
+import org.researchzosho.librarian.Untrusted;
 /**
  * Web search via a self-hosted SearXNG meta-search instance (keyless, aggregates many engines — fits
  * CodeZaiku's self-hosted ethos: local model, local embeddings, local search). Returns a compact ranked list
@@ -229,9 +232,9 @@ public final class WebSearchTool implements Tool {
             if (policy.refused(r[1])) { refused++; continue; }
             if (policy.onSiteList(r[1])) { listed++; continue; }
             shown++;
-            sb.append(shown).append(". ").append(r[0]).append('\n')
+            sb.append(shown).append(". ").append(Untrusted.line(r[0], 160)).append('\n')
               .append("   ").append(r[1]).append("  [").append(SourceTier.of(r[1])).append(rules.trusted(r[1]) ? ", trusted by the person" : "").append("]\n");
-            if (!r[2].isEmpty()) sb.append("   ").append(r[2]).append('\n');
+            if (!r[2].isEmpty()) sb.append("   ").append(Untrusted.line(r[2], 241)).append('\n');
         }
         sb.append(leftOutLines(refused, listed));
         sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
@@ -302,7 +305,7 @@ public final class WebSearchTool implements Tool {
         if (!reserve(BRAVE, said)) return null;   // the month's limit is reached: SearXNG carries on
         boolean made = false;
         try {
-            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(braveUrl(query, limit, safeSearch())))
+            HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(braveUrl(query, limit, safeSearch()))
                     .timeout(Duration.ofSeconds(20))
                     .header("Accept", "application/json")
                     .header("X-Subscription-Token", key.strip())
@@ -324,9 +327,9 @@ public final class WebSearchTool implements Tool {
                         .replaceAll("\\s+", " ").strip();
                 if (desc.length() > 240) desc = desc.substring(0, 240) + "…";
                 shown++;
-                sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
+                sb.append(shown).append(". ").append(Untrusted.line(r.path("title").asText(""), 160)).append('\n')
                   .append("   ").append(url).append("  [").append(SourceTier.of(url)).append(rules.trusted(url) ? ", trusted by the person" : "").append("]\n");
-                if (!desc.isEmpty()) sb.append("   ").append(desc).append('\n');
+                if (!desc.isEmpty()) sb.append("   ").append(Untrusted.line(desc, 241)).append('\n');
             }
             sb.append(leftOutLines(refused, listed));
             sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
@@ -356,7 +359,7 @@ public final class WebSearchTool implements Tool {
             var body = M.createObjectNode().put("q", query).put("num", Math.min(Math.max(limit, 1), 20));
             String lang = languageOf(query);
             if (lang != null) body.put("hl", lang);
-            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(GOOGLE.get("serper")))
+            HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(GOOGLE.get("serper"))
                     .timeout(Duration.ofSeconds(20)).header("Accept", "application/json").header("Content-Type", "application/json").header("X-API-KEY", key.strip())
                     .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body))).build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(20), "Serper's search");
             if (resp.statusCode() != 200) return null;   // 401/403/429/5xx: the next rung carries on
@@ -384,9 +387,9 @@ public final class WebSearchTool implements Tool {
                 if (desc.length() > 240) desc = desc.substring(0, 240) + "…";
                 shown++;
                 if (redirect) unresolved++;
-                sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
+                sb.append(shown).append(". ").append(Untrusted.line(r.path("title").asText(""), 160)).append('\n')
                   .append("   ").append(url).append("  [").append(redirect ? "a Google redirect Google has not released yet, to " + r.path("displayedLink").asText("the page") + "; search for the page by that name to read it" : SourceTier.of(url) + (rules.trusted(url) ? ", trusted by the person" : "")).append("]\n");
-                if (!desc.isEmpty()) sb.append("   ").append(desc).append('\n');
+                if (!desc.isEmpty()) sb.append("   ").append(Untrusted.line(desc, 241)).append('\n');
             }
             sb.append(leftOutLines(refused, listed));
             if (unresolved > 0) sb.append("(").append(unresolved).append(" address(es) are Google redirects Google has not released yet; the readable site name is given for each)\n");
@@ -411,7 +414,7 @@ public final class WebSearchTool implements Tool {
         for (int attempt = 0; attempt < 2 && !left.isEmpty(); attempt++) {
             try {
                 var body = M.createObjectNode(); var arr = body.putArray("links"); for (String l : left) arr.add(l);
-                HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(GOOGLE.get("serper_resolve")))
+                HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(GOOGLE.get("serper_resolve"))
                         .timeout(Duration.ofSeconds(40)).header("Accept", "application/json").header("Content-Type", "application/json").header("X-API-KEY", key)
                         .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body))).build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(40), "Serper's resolve");
                 if (resp.statusCode() != 200) return out;
@@ -460,7 +463,7 @@ public final class WebSearchTool implements Tool {
             String lang = languageOf(query);
             String url = GOOGLE.get("serpapi") + "?engine=google&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&num=" + Math.min(Math.max(limit, 1), 20) + (lang == null ? "" : "&hl=" + lang)
                     + (safeSearch() ? "&safe=active" : "") + "&api_key=" + URLEncoder.encode(key.strip(), StandardCharsets.UTF_8);
-            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(25)).header("Accept", "application/json").GET().build(),
+            HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(url).timeout(Duration.ofSeconds(25)).header("Accept", "application/json").GET().build(),
                     HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(25), "SerpApi's search");
             if (resp.statusCode() != 200) return null;
             JsonNode j = M.readTree(resp.body());
@@ -483,9 +486,9 @@ public final class WebSearchTool implements Tool {
                 if (desc.length() > 240) desc = desc.substring(0, 240) + "…";
                 shown++;
                 if (redirect) unresolved++;
-                sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
+                sb.append(shown).append(". ").append(Untrusted.line(r.path("title").asText(""), 160)).append('\n')
                   .append("   ").append(u).append("  [").append(redirect ? "a Google redirect Google has not released yet, to " + r.path("displayed_link").asText("the page") + "; search for the page by that name to read it" : SourceTier.of(u) + (rules.trusted(u) ? ", trusted by the person" : "")).append("]\n");
-                if (!desc.isEmpty()) sb.append("   ").append(desc).append('\n');
+                if (!desc.isEmpty()) sb.append("   ").append(Untrusted.line(desc, 241)).append('\n');
             }
             sb.append(leftOutLines(refused, listed));
             if (unresolved > 0) sb.append("(").append(unresolved).append(" address(es) are Google redirects Google has not released yet; the readable site name is given for each)\n");
@@ -679,9 +682,9 @@ public final class WebSearchTool implements Tool {
             String content = r.path("content").asText("").replaceAll("\\s+", " ").strip();
             if (content.length() > 240) content = content.substring(0, 240) + "…";
             shown++;
-            sb.append(shown).append(". ").append(r.path("title").asText("")).append('\n')
+            sb.append(shown).append(". ").append(Untrusted.line(r.path("title").asText(""), 160)).append('\n')
               .append("   ").append(ru).append("  [").append(SourceTier.of(ru)).append(rules.trusted(ru) ? ", trusted by the person" : "").append("]\n");
-            if (!content.isEmpty()) sb.append("   ").append(content).append('\n');
+            if (!content.isEmpty()) sb.append("   ").append(Untrusted.line(content, 241)).append('\n');
         }
         sb.append(leftOutLines(refused, listed));
         if (!sweepNoted && looksBatched(query)) {

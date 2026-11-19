@@ -112,6 +112,7 @@ public final class Embeddings {
                         body.put("model", model);
                         var arr = body.putArray("input");
                         for (String t : slice) arr.add(t == null ? "" : (t.length() > MAX_CHARS ? t.substring(0, MAX_CHARS) : t));
+                        ModelsAwake.used(endpoint);   // a container of this machine's: its use written down for its idle rule (round C2)
                         HttpResponse<String> resp = HTTP.send(Helpers.request(endpoint + "/v1/embeddings")
                                 .timeout(Duration.ofSeconds(300))
                                 .header("Content-Type", "application/json")

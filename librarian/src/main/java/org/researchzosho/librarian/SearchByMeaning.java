@@ -1,7 +1,12 @@
 package org.researchzosho.librarian;
 
 import org.researchzosho.Config;
+import org.researchzosho.drive.Gated;
 
+import java.io.IOException;
+import java.net.http.HttpClient;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
 
@@ -21,7 +26,20 @@ public final class SearchByMeaning {
     /** The setting; a test hands in its own. */
     static volatile Supplier<String> setting = () -> { String e = Config.get("RESEARCHZOSHO_EMBED"); return e == null || e.isBlank() ? Helpers.address(Helpers.Helper.EMBED) : e; };   // unset: the machine that serves the helpers, when it serves this one
     /** Whether the configured embedder gives a vector back; a test hands in its own. */
-    static volatile Predicate<String> answers = base -> { float[] v = Embeddings.configured().embed("ready"); return v != null && v.length > 0; };
+    static volatile Predicate<String> answers = base -> {
+        if (Gated.gated(base)) return gatedAnswers(base);   // under an account service: asked what costs nothing, outside any use
+        float[] v = Embeddings.configured().embed("ready"); return v != null && v.length > 0;
+    };
+
+    /** An embeddings server behind the node's gate answers when its models list does; a server without that list answers 404 there. */
+    private static boolean gatedAnswers(String base) {
+        try {
+            HttpResponse<String> r = HTTP.send(Gated.request(Config.v1(base) + "/models").timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.ofString());
+            return r.statusCode() == 200 || r.statusCode() == 404 && !r.body().contains(Gated.MARK);
+        } catch (IOException e) { return false; }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
+    }
+    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
 
     private static final long PROBE_EVERY_MS = 60_000;
     private static volatile long probedAt = 0;

@@ -230,7 +230,8 @@ class GenealogyIsolationDifferentialTest {
         for (int i : new int[]{6, 0, 1, 2}) steps.add(LibrarianChatTest.tool("library_research", M.createObjectNode().put("question", QUESTIONS.get(i)).toString()));   // a turn takes a few tools
         steps.add(LibrarianChatTest.say("Filed."));
         Librarian talk = new Librarian(store, LibrarianChatTest.scripted(steps, new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
-        String said = talk.say("Find out about all of these");
+        talk.say("Find out about all of these");
+        String said = talk.say("yes");   // the model's run waits for the person's yes first (round E)
         talk.leaveUnanswered();
         out.put("chat reply", said);
         List<String> chatArgs = new ArrayList<>();

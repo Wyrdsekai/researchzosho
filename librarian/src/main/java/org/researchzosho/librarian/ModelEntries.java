@@ -46,10 +46,16 @@ public final class ModelEntries {
         public String host() { String h = DriveClient.hostOf(drive); return h == null ? (drive == null ? "" : drive) : h; }
         public boolean hosted() { return DriveClient.hostedApi(drive) || Anthropic.is(drive) || OpenAI.is(drive); }
         /** What tokens cost on this entry, in dollars; 0 when no prices are known. */
-        public double cost(long promptTokens, long cachedTokens, long completionTokens) {
+        public double cost(long promptTokens, long cachedTokens, long completionTokens) { return cost(promptTokens, cachedTokens, completionTokens, 0); }
+
+        /**
+         * The same, with the prompt's tokens written to the provider's cache ({@code cacheWritten}, of {@code promptTokens}): at the fourth
+         * price when the entry gives one, else a quarter more than reading (Anthropic's price for a five-minute cache write).
+         */
+        public double cost(long promptTokens, long cachedTokens, long completionTokens, long cacheWritten) {
             if (prices == null) return 0;
-            long uncached = Math.max(0, promptTokens - cachedTokens);
-            return (uncached * prices[0] + cachedTokens * (prices.length > 2 ? prices[2] : prices[0]) + completionTokens * prices[1]) / 1e6;
+            long written = Math.max(0, Math.min(cacheWritten, promptTokens - cachedTokens)), uncached = Math.max(0, promptTokens - cachedTokens - written);
+            return (uncached * prices[0] + cachedTokens * (prices.length > 2 ? prices[2] : prices[0]) + written * (prices.length > 3 ? prices[3] : prices[0] * 1.25) + completionTokens * prices[1]) / 1e6;
         }
         public String pricesText() { return prices == null ? "" : trim(prices[0]) + "/" + trim(prices[1]) + (prices.length > 2 ? "/" + trim(prices[2]) : ""); }
         static String trim(double d) { String s = String.format(Locale.ROOT, "%.4f", d); s = s.replaceAll("0+$", "").replaceAll("\\.$", ""); return s.isEmpty() ? "0" : s; }
@@ -424,7 +430,13 @@ public final class ModelEntries {
 
     /** The words setup takes for a host, as an address. */
     public static String hostAddress(String word) {
-        String w = word.strip().toLowerCase(Locale.ROOT);
+        String known = knownHost(word);
+        return known != null ? known : Config.driveBase(word.strip());
+    }
+
+    /** The address one of those words names (gemini, openrouter, anthropic …), or null for any other word. */
+    public static String knownHost(String word) {
+        String w = word == null ? "" : word.strip().toLowerCase(Locale.ROOT);
         return switch (w) {
             case "anthropic", "claude" -> Anthropic.BASE;
             case "openai" -> OpenAI.BASE;
@@ -434,7 +446,7 @@ public final class ModelEntries {
             case "huggingface", "hf" -> "https://router.huggingface.co/v1";
             case "deepseek" -> "https://api.deepseek.com/v1";
             case "moonshot", "kimi" -> "https://api.moonshot.ai/v1";
-            default -> Config.driveBase(word.strip());
+            default -> null;
         };
     }
 

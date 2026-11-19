@@ -193,6 +193,8 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_DRIVE` | the model server, for example `http://localhost:8080` or `https://api.openai.com/v1` |
 | `RESEARCHZOSHO_MODEL` | the model name to ask for |
 | `RESEARCHZOSHO_JUDGE_DRIVE` / `RESEARCHZOSHO_JUDGE_MODEL` | a second, stronger model for the judgment steps (planning, the critic, the write-up, the citation check), while a local model does the reading |
+| `RESEARCHZOSHO_MODEL_IDLE_MINUTES` | minutes the model of this machine's own model server stays loaded with nothing asking it; 10 unless set, 0 for always. Work that runs keeps it loaded |
+| `RESEARCHZOSHO_EMBED_IDLE_MINUTES` | the same for the embeddings model, LaBSE's container and the one `embed start` runs; 5 unless set, 0 for always |
 | `RESEARCHZOSHO_EMBED` | an embeddings server (OpenAI embeddings call), so search works by meaning as well as by words; `off` for words only. `researchzosho embed start` runs one with Docker (Text Embeddings Inference, about nine times faster than llama.cpp on the same model) |
 | `RESEARCHZOSHO_LIBRARY` | where the library folder is (default `~/researchzosho-library`) |
 | `research.workers` / `research.pause` / `research.window` | how research runs share the model: how many questions at once, a pause switch, the hours it may work. Set with `researchzosho research …`; they take effect at once |

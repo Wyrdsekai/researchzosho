@@ -8,6 +8,7 @@ import org.researchzosho.librarian.Translation;
 import org.researchzosho.librarian.LibraryProtocol;
 import org.researchzosho.librarian.Patrons;
 import org.researchzosho.librarian.ProtocolError;
+import org.researchzosho.librarian.Untrusted;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -307,7 +308,7 @@ public final class McpServer {
                 schema(new String[]{},
                         enumProp("op", "survey (default), pick, or do.", "survey", "pick", "do"),
                         prop("path", "string", "A folder or a file on this machine (absolute path). Keeper only."),
-                        prop("url", "string", "A url: a git repository, a paper, a page, or a GitHub issues page."),
+                        prop("url", "string", "An http or https address: a git repository, a paper, a page, or a GitHub issues page. Anything else (a file, a folder, a git address of another kind) is the keeper's alone to give."),
                         prop("kind", "string", "repo, paper, site or issues; detected from the thing when not given."),
                         prop("name", "string", "The name the survey gave the thing, for pick and do."),
                         prop("picks", "string", "For pick: the direction numbers, like \"1,3\"."),
@@ -320,7 +321,7 @@ public final class McpServer {
                 schema(new String[]{},
                         enumProp("op", "survey (default), pick, or do.", "survey", "pick", "do"),
                         prop("path", "string", "A folder on this machine (absolute path). Keeper only."),
-                        prop("url", "string", "A git repository's url."),
+                        prop("url", "string", "A git repository's http or https address. A folder, or a git address of another kind (git@host:…, ssh://, git://, file://), is the keeper's alone to give."),
                         prop("name", "string", "The name the survey gave the repository, for pick and do."),
                         prop("picks", "string", "For pick: the direction numbers, like \"1,3\"."),
                         prop("question", "string", "For do: what to research about it, in your own words."),
@@ -966,7 +967,8 @@ public final class McpServer {
                         arrayProp("towns", "With board, optional: towns the openings are cut to."),
                         patronProp())));
         tools.add(tool("library_job",
-                "One job from the ledger ({job}: state queued|running|done|failed|stopped|offered, elapsed_s, result when finished), or "
+                "One job from the ledger ({job}: state queued|running|done|failed|stopped|offered, elapsed_s, result when finished; while it may still change, "
+                + "poll_after is how many seconds to wait before asking for it again), or "
                 + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends within seconds. "
                 + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access). "
                 + "op=choose {job_id, choice} answers a run held for one of its named choices, by number or by name; op=allow and op=decline answer for the person on a run the service held for their yes about help: "
@@ -1146,6 +1148,7 @@ public final class McpServer {
     private static JsonNode library(LibraryCall call, boolean asToolResult) {
         try {
             ObjectNode out = call.apply(BOUND.get() != null ? new LibraryProtocol(BOUND.get()) : LibraryProtocol.open());
+            Untrusted.markersIn(out);   // a saved page's words reach the caller's model: none of them a chat template's marker (2026-11-18)
             if (!asToolResult) return out;
             ObjectNode content = M.createObjectNode();
             content.put("type", "text");
@@ -1257,6 +1260,9 @@ public final class McpServer {
     private static ObjectNode prop(String name, String type, String description) {
         ObjectNode spec = M.createObjectNode();
         spec.put("type", type);
+        // an array says what it holds, whatever it holds: gpt-oss's chat template fails the whole request on an array with no items, and
+        // library_images' images (addresses, file names or found[] objects) had none, so every chat turn on gpt-oss-20b failed (2026-11-18)
+        if (type.equals("array")) spec.putObject("items");
         spec.put("description", description);
         ObjectNode wrap = M.createObjectNode();
         wrap.set(name, spec);

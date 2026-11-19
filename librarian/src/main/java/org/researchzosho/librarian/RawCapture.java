@@ -240,7 +240,7 @@ public final class RawCapture {
                 try (var lines = Files.lines(p, StandardCharsets.UTF_8)) {
                     url = lines.limit(8).filter(l -> l.startsWith("url: ")).map(l -> l.substring(5).strip()).findFirst().orElse("");
                 } catch (UncheckedIOException ignored) { }
-                if (url.equals(loc) || url.equals(loc + "/") || (url + "/").equals(loc)
+                if (url.equals(loc) || url.equals(loc + "/") || (url + "/").equals(loc) || (Hosted.any() && Hosted.shown(url).equals(loc))   // in a hosted library a file is named as its people are shown it, without the machine's path
                         || (loc.startsWith("http") && Fetch.canonical(url).equals(Fetch.canonical(loc)))) best = p;   // sorted by name = by date; last wins
             }
         }

@@ -251,6 +251,7 @@ final class LikenessHelper {
 
     /** Sets the helper up in the background: what was started, or why nothing was ("" when it is there or the setting is off). A failed try waits a day; a disk without the room is said. */
     static synchronized String setupInBackground(String why) {
+        if (Hosted.any()) return Hosted.MACHINE;   // the helpers of a library under an account service are the service's to set up
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "the likeness helper is being set up already";
         if (!on() || installed() || !Helpers.localAllowed() || Helpers.address(Helpers.Helper.LIKENESS) != null) return "";   // nothing to set up here

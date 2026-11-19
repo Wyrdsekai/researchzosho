@@ -249,13 +249,13 @@ class TranslationDirectionTest {
         assertEquals(Jobs.OFFERED, new Jobs(store, j -> "").get(byChat.path("job_id").asText()).path("state").asText(), "it does not start before the yes");
         // the web's form: a field for it, and the notice says it once
         assertTrue(Pages.translateForm(store).contains("name=\"direction\" maxlength=\"" + Translation.DIRECTION_MAX + "\""));
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path posted = TranslateTurnTest.notes(up, "posted notes.md");
         String notice = Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", posted.toString(), "file.name", "posted notes.md", "to", "ja", "quality", "checked", "direction", D));
         String id = notice.replaceFirst("(?s).*Filed as <a href=\"/jobs/(J-\\d+)\">.*", "$1");
         assertEquals(D, new Jobs(store, j -> "").get(id).path("args").path("direction").asText());
         assertEquals(1, notice.split(Pattern.quote(Pages.esc(D)), -1).length - 1, "said once, at the end of the run's description: " + notice);
-        Path up2 = Files.createTempDirectory(Uploads.DIR);
+        Path up2 = Uploads.newFolder();
         String long2 = Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", TranslateTurnTest.notes(up2, "posted notes.md").toString(), "file.name", "posted notes.md", "to", "ja", "direction", tooLong));
         assertTrue(long2.contains("A direction for a translation is at most " + Translation.DIRECTION_MAX + " characters"), long2);
     }

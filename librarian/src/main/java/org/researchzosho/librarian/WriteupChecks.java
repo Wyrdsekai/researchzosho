@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import org.researchzosho.tools.BookSearchTool;
@@ -126,7 +128,10 @@ public final class WriteupChecks {
             String ev = notesFolded;
             for (CiteCheck.Ref r : CiteCheck.citedRefs(sentence, refs)) { String t = textByRef.get(r.n()); if (t != null) ev = ev + "\n" + fold(t); }
             // a range shares its unit: "38–58%" states 38% and 58%
-            String expanded = sentence.replaceAll("(\\d+(?:\\.\\d+)?)\\s?[–\\-]\\s?(\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|ms|seconds?|minutes?|hours?|days?|tokens?|points?|million|billion)(?![\\p{L}])", "$1 $3 $2 $3");
+            // an address's digits are no number of the claim, and an escaped space before a year is not one number with it ("%201966" was read
+            // as 201966, the live check of 2026-11-18): addresses out, escapes read, then the numbers
+            String plain = percentDecoded(sentence.replaceAll("https?://\\S+", " "));
+            String expanded = plain.replaceAll("(\\d+(?:\\.\\d+)?)\\s?[–\\-]\\s?(\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|ms|seconds?|minutes?|hours?|days?|tokens?|points?|million|billion)(?![\\p{L}])", "$1 $3 $2 $3");
             Matcher m = NUMBER.matcher(expanded);
             while (m.find()) {
                 String num = m.group(1).replace(",", ""), unit = m.group(2);
@@ -144,6 +149,13 @@ public final class WriteupChecks {
             }
         }
         return out;
+    }
+
+    /** A text with its %XX escapes read as the characters they stand for (UTF-8); an escape that names none stays as it is. */
+    static String percentDecoded(String s) {
+        if (s.indexOf('%') < 0) return s;
+        try { return URLDecoder.decode(s.replace("+", "%2B").replaceAll("%(?![0-9A-Fa-f]{2})", "%25"), StandardCharsets.UTF_8); }
+        catch (IllegalArgumentException e) { return s; }
     }
 
     /** Licence names and CVE ids the answer states that the evidence never does. */

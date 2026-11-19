@@ -319,6 +319,7 @@ public final class Remote {
                     out.println("Decide them on the library's Inbox page, or on its computer.");
                     return 0;
                 }
+                case "access" -> { return access(args, out, err, c); }
                 case "mcp" -> {
                     if (args.length > 2 && McpSetup.VERBS.contains(args[2].toLowerCase(Locale.ROOT))) return McpSetup.cli(args, a -> (ObjectNode) c.post("mcp", a), out, err);   // the keeper's MCP servers of the library connected to, as its key allows
                     proxyStdio(); return 0;
@@ -334,6 +335,61 @@ public final class Remote {
             return 1;
         } catch (IOException e) { err.println(e.getMessage()); return 1; }
         catch (NumberFormatException e) { err.println("a number was expected: " + e.getMessage()); return 2; }
+    }
+
+    static final String ACCESS_USAGE = "usage: researchzosho access                                   the people of the library you are connected to\n"
+            + "       researchzosho access invite \"<name>\" [read|write]       let someone in: at once when they have an account, else with a link to send\n"
+            + "       researchzosho access remove \"<name>\"\n"
+            + "       researchzosho access keys                              your own keys for this library\n"
+            + "       researchzosho access key new \"<label>\" [--read|--write] · access key revoke <id>";
+
+    /**
+     * {@code access} (0.8.0), connected to a library under an account service: the people of the library, for the person who keeps
+     * it, and the caller's own keys for it. Each is the library's {@code access} call, which the account service answers; what it
+     * says is printed in its own sentences.
+     */
+    static int access(String[] args, PrintStream out, PrintStream err, Caller c) throws IOException {
+        String op = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "list";
+        List<String> words = new ArrayList<>(); String level = "read";
+        for (int i = 3; i < args.length; i++) { String w = args[i]; if (w.equals("--write") || w.equalsIgnoreCase("write")) level = "write"; else if (w.equals("--read") || w.equalsIgnoreCase("read")) level = "read"; else words.add(w); }
+        ObjectNode a = M.createObjectNode();
+        switch (op) {
+            case "list" -> a.put("op", "list");
+            case "invite", "allow" -> { if (words.isEmpty()) { err.println(ACCESS_USAGE); return 2; } a.put("op", "invite").put("name", String.join(" ", words)).put("level", level); }
+            case "remove" -> { if (words.isEmpty()) { err.println(ACCESS_USAGE); return 2; } a.put("op", "remove").put("name", String.join(" ", words)); }
+            case "keys" -> a.put("op", "keys");
+            case "key" -> {
+                String what = words.isEmpty() ? "" : words.remove(0).toLowerCase(Locale.ROOT);
+                if (what.equals("new")) a.put("op", "key_new").put("label", String.join(" ", words)).put("level", level);
+                else if (what.equals("revoke") && !words.isEmpty()) a.put("op", "key_revoke").put("id", words.get(0));
+                else { err.println(ACCESS_USAGE); return 2; }
+            }
+            default -> { err.println(ACCESS_USAGE); return 2; }
+        }
+        JsonNode r = c.post("access", a);
+        switch (a.path("op").asText()) {
+            case "list" -> {
+                if (!r.has("people")) { printAny(r, out); return 0; }   // a library on its own answers in its own shape
+                out.println(r.path("keeper").asText("Its keeper") + " keeps this library.");
+                if (r.path("people").isEmpty()) out.println("Nobody else opens it.");
+                for (JsonNode p : r.path("people")) out.println("  " + p.path("name").asText() + "  " + (p.path("level").asText().equals("write") ? "reads and writes" : "reads"));
+            }
+            case "keys" -> {
+                if (r.path("keys").isEmpty()) { out.println("You have no keys for this library. Make one with: researchzosho access key new \"<what it is for>\" [--read|--write]"); return 0; }
+                for (JsonNode k : r.path("keys")) out.println(k.path("id").asText() + "  " + k.path("prefix").asText() + "…  " + (k.path("level").asText().equals("read") ? "reads           " : "reads and writes") + "  " + (k.path("used").asText("").isEmpty() ? "never used" : "last used " + k.path("used").asText()) + "  " + k.path("label").asText());
+            }
+            case "key_new" -> {
+                if (!r.has("key")) { printAny(r, out); return 0; }
+                out.println("Your new key for " + r.path("label").asText() + ", which " + (r.path("level").asText().equals("read") ? "reads" : "reads and writes") + ". It is shown this once:");
+                out.println(r.path("key").asText());
+            }
+            default -> {
+                if (!r.has("note")) { printAny(r, out); return 0; }
+                out.println(r.path("note").asText());
+                if (r.hasNonNull("link")) out.println(r.path("link").asText());
+            }
+        }
+        return 0;
     }
 
     static String entryLine(JsonNode e) {

@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -307,7 +309,7 @@ public final class Helpers {
 
     /** A request to a helper, with the secret when the address is one of ours and a secret is set. */
     public static HttpRequest.Builder request(String url) {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url));
+        HttpRequest.Builder b = Gated.request(url);   // a call that costs carries its use and its lane, for a node's gate (0.8.0)
         String secret = Config.get(SECRET_NAME, "").strip();
         if (!secret.isEmpty() && ours(url)) b.header("Authorization", "Bearer " + secret);
         return b;

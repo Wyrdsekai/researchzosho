@@ -69,6 +69,9 @@ class ResearcherTest {
      * Only-`done` turns are honoured. Every call is recorded (tool names offered + history size).
      */
     static class ScriptedDrive implements Researcher.Drive {
+        // the page its reader opens, as a real search would have named it (the stand-in searches name their pages by the query): the library
+        // opens for a model only an address a result gave (2026-11-18)
+        { GivenAddresses.received("1. Example source — https://example.org/gears"); }
         final List<String> offered = new CopyOnWriteArrayList<>();
         final List<String> classifies = new CopyOnWriteArrayList<>();
         final List<ArrayNode> histories = new CopyOnWriteArrayList<>();

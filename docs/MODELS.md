@@ -12,8 +12,11 @@ for both kinds: the local models by card, first, and then the hosted models by w
 how long a run took and what it cost.
 `researchzosho models` prints the row for the card it finds, with the command that serves it.
 `researchzosho model install` sets up the top row of that tier on demand. The model comes up when a
-run needs it and goes away after twenty idle minutes. The embeddings model (Qwen3-Embedding-0.6B,
-0.6 GB) runs beside it at the same address, for search by meaning.
+run needs it and goes away after ten idle minutes. Loading it again takes a moment: the 27B at 4-bit on an
+RTX 6000 Ada answered its first request in 19.1 seconds, load included, with the machine just started, and
+the next in 0.4 seconds. The embeddings model (Qwen3-Embedding-0.6B, 0.6 GB) runs beside it at the same
+address, for search by meaning, and goes away after five. Work that runs keeps both loaded, however long it
+waits between calls.
 
 ## How the list was made
 
@@ -26,6 +29,10 @@ Everything below comes from those runs, not from a leaderboard. A model not on t
 measured. That is different from not recommended.
 
 ## By VRAM, best first in each row
+
+`researchzosho model install` serves each model for one conversation at a time of 32k tokens (the 27B four at a time, the
+35B-A3B two), because the chat's tools and instructions take about 16k of a conversation. Gemma 4 E2B keeps 16k, all its card
+holds. An install from before is moved to these when it updates, unless you chose your own model.
 
 **24 GB of VRAM or more**
 
@@ -45,7 +52,7 @@ measured. That is different from not recommended.
 
 | model | file | what we saw |
 |---|---|---|
-| gpt-oss-20b | `gpt-oss-20b-F16.gguf` | right, 8 claims, about 5 minutes a question; 13 GB in use with two 16k slots. The choice when speed matters. Does not see images: its card is text generation only |
+| gpt-oss-20b | `gpt-oss-20b-F16.gguf` | right, 8 claims, about 5 minutes a question; 13.1 GB in use for one 32k conversation (64k for two does not load on a 16 GB card). The choice when speed matters. Does not see images: its card is text generation only |
 | Gemma 4 26B-A4B at 4-bit | `gemma-4-26B-A4B-it-UD-IQ4_XS.gguf` | right and the most careful writer, 10 claims, about nine times slower; 14.6 GB in use. Sees images with its picture file: its card says every Gemma 4 size takes image input |
 | Gemma 4 12B at 4-bit | `gemma-4-12b-it-Q4_K_M.gguf` | right, 10 claims, six times slower; 9 GB in use, the most room for context. Sees images with its picture file (its card) |
 
@@ -53,20 +60,20 @@ measured. That is different from not recommended.
 
 | model | file | what we saw |
 |---|---|---|
-| Qwen3.5 9B at 4-bit | `Qwen3.5-9B-Q4_K_M.gguf` | right and deep, 10 claims, half its citations readable, about 11 minutes a question; 5.9 GB in use with one 16k slot. Sees images with its picture file, which `researchzosho model install` fetches with it: its card calls it a unified vision-language model |
+| Qwen3.5 9B at 4-bit | `Qwen3.5-9B-Q4_K_M.gguf` | right and deep, 10 claims, half its citations readable, about 11 minutes a question; 5.9 GB in use with one 16k conversation, so about 6.4 GB with the one 32k conversation it is served with now (worked out from its cache, 32 KiB a token). Sees images with its picture file, which `researchzosho model install` fetches with it: its card calls it a unified vision-language model |
 | Gemma 4 12B, smaller 4-bit file | `gemma-4-12b-it-IQ4_XS.gguf` | right, 10 claims, about 30 minutes a question; 7.3 GB in use with one 16k slot. Sees images with its picture file (its card) |
 
 **4 GB of VRAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Gemma 4 E4B at 4-bit | `gemma-4-E4B-it-Q4_K_M.gguf` | right, 9 claims, the best citation reader of the small models, about 6 minutes a question; 3.6 GB in use. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
+| Gemma 4 E4B at 4-bit | `gemma-4-E4B-it-Q4_K_M.gguf` | right, 9 claims, the best citation reader of the small models, about 6 minutes a question; 3.6 GB in use at 16k, about 3.85 GB with the one 32k conversation it is served with now (its cache is 16 KiB a token). Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
 
 **2 GB of VRAM**
 
 | model | file | what we saw |
 |---|---|---|
-| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use. A hosted API is the better answer this small. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
+| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use, with one 16k conversation, which is all a 2 GB card holds. The chat's tools and instructions fill that, so the chat says it does not fit. A hosted API is the better answer this small. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
 
 Whether a model sees images is measured on the entry, not read off this table: `researchzosho models test <name>` sends a
 small coloured square and keeps the answer, and `researchzosho models` shows it. A model that reads pictures needs its
@@ -90,8 +97,8 @@ checks every download against a recorded sha256 and refuses a mismatch.
 - **Tool calling.** The readers search and fetch through tools. With llama.cpp that means `--jinja`, so
   the server applies the model's own chat template. Without it, tool calls come back as prose.
 - **Context.** 16k per reader is the floor the list was measured at. 32k gives the write-up more
-  evidence. The `--parallel` count is how many readers work at once. `researchzosho research workers <n>`
-  should not exceed it.
+  evidence, and the chat needs it. The `--parallel` count is how many readers work at once; with one, the
+  readers take turns. `researchzosho research workers <n>` should not exceed it.
 - **Reasoning off or low** where the model has the switch (`--chat-template-kwargs`). Otherwise a reader
   spends its turn thinking instead of reading. The serve commands from `researchzosho models` carry the
   right setting per row.
@@ -226,5 +233,5 @@ The second asked which entry is the most recent and who wrote it.
 | Qwen 3.5 4B | Right on one run; on another it cited four entry ids that do not exist. The chat now admits such a reference under the reply. |
 
 The 9B and gpt-oss-20b hold the conversation. The 27B sees more. The 12B answers but does not dig.
-The 4B cannot be trusted to cite. The chat's tool list is about 3,900 tokens, so a model served with
-an 8k window has little room left for the entries it opens. 16k or more is better for the chat.
+The 4B cannot be trusted to cite. The chat's tools and instructions are about 16,000 tokens, so a model served
+with 16k for a conversation has no room left for what it opens, and the chat says so. 32k is what it needs.

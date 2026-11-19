@@ -69,14 +69,22 @@ class ServiceTest {
         Path pid = tmp.resolve("researchzosho.pid");
         var out = new ByteArrayOutputStream(); var ps = new PrintStream(out);
         assertFalse(Service.stopRecorded(pid, ps), "no record, nothing to stop");
-        // a JVM that is not this one: a child java that sleeps
+        // a JVM that is not the server (0.8.0: being a JVM proved nothing): a child java that sleeps is left alone, and the record goes
         String jvm = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         Process child = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"), ServiceTest.class.getName() + "$Sleeper").redirectErrorStream(true).start();
-        Files.writeString(pid, Long.toString(child.pid()));
         Thread.sleep(300);
+        Files.writeString(pid, Long.toString(child.pid()));
         assertTrue(child.isAlive());
-        assertTrue(Service.stopRecorded(pid, ps), "the recorded JVM is stopped");
-        assertFalse(child.isAlive());
+        assertFalse(Service.stopRecorded(pid, ps), "another Java program is not the server");
+        assertTrue(child.isAlive(), "not ours; not touched");
+        assertFalse(Files.exists(pid), "its stale record goes");
+        assertTrue(out.toString().contains("A process with the number " + child.pid() + " is running, and it is not the ResearchZosho server, so it was left alone"), out.toString());
+        child.destroy();
+        // the server, by its command line, recorded after it started: stopped
+        Process server = StandInServer.start(tmp);
+        Files.writeString(pid, Long.toString(server.pid()));
+        assertTrue(Service.stopRecorded(pid, ps), "the recorded server is stopped");
+        assertFalse(server.isAlive());
         assertFalse(Files.exists(pid), "the record is cleared");
         assertTrue(out.toString().contains("stopped the running server"), out.toString());
         // a recorded pid that is no longer a JVM is left alone
@@ -110,8 +118,7 @@ class ServiceTest {
     void aDaemonOfAnotherLibraryLeavesTheRunningServicesRecordAlone(@TempDir Path tmp) throws Exception {
         assumeFalse("1".equals(System.getenv("RESEARCHZOSHO_SERVICE")), "a suite run from inside the service would be the service");
         String realHome = System.getProperty("user.home");
-        String jvm = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-        Process running = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"), ServiceTest.class.getName() + "$Sleeper").redirectErrorStream(true).start();
+        Process running = StandInServer.start(tmp);   // the service, by its command line: since 0.8.0 being a JVM proves nothing
         try {
             System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
             Path service = Service.pidFile();

@@ -200,6 +200,9 @@ class OnTopicTest {
     void aWriteUpOnAnotherSubjectIsSetAsideAndTheReportIsTheWorkersFindings(@TempDir Path tmp) throws Exception {
         CaseDrive drive = new CaseDrive();
         drive.writeUps = List.of("off", "off");   // the run has room, so the report is written once more; the second drifts too
+        // a search named the page the write-up fetches, as a real run's does (the library opens only what a result gave); until round E the
+        // refusal of the first write-up's fetch named the address and so gave it to the second's
+        GivenAddresses.received("2. Emotional contagion — " + CONTAGION);
         Run run = run(tmp, drive, ask().withFields(List.of("organization")));   // a field whose reports carry the analysis layer
         assertTrue(run.filed().admitted(), run.filed().reason());
         Researcher.Result r = run.filed().result();
@@ -568,6 +571,7 @@ class OnTopicTest {
     @Test
     void aPageTheWriteUpFetchesCountsAsReadThisRun(@TempDir Path tmp) throws Exception {
         String extra = "https://example.org/agent-bus", never = "https://example.org/never-opened";
+        GivenAddresses.received("2. Agent bus — " + extra);   // a reader's search named it, as a real run's does; the stand-in's do not (the library opens only what a result gave, 2026-11-18)
         CaseDrive drive = new CaseDrive();
         drive.writeUps = List.of("on");
         drive.onTopicWriteUp = turn -> switch (turn) {
@@ -603,6 +607,7 @@ class OnTopicTest {
         drive.onTopicWriteUp = turn -> turn == 1 ? call("web_fetch", J.createObjectNode().put("url", MAIL))
                 : turn <= 9 ? call("web_fetch", J.createObjectNode().put("url", "https://example.org/more-" + (turn - 1)))
                 : turn == 10 ? section("Answer", ON_ANSWER) : call("done", J.createObjectNode().put("summary", "one project only"));
+        for (int i = 1; i <= 8; i++) GivenAddresses.received(i + ". More on agent mail — https://example.org/more-" + i);   // the readers' searches named them (the library opens only what a result gave, 2026-11-18)
         LibraryStore store = library(tmp.resolve("six"));
         Pages pages = new Pages(store);
         List<String> log = new CopyOnWriteArrayList<>();

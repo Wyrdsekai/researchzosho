@@ -21,6 +21,11 @@ LABEL org.opencontainers.image.title="ResearchZosho" \
 # poppler for PDFs (the library uses pdftotext when it is there); curl and tar for `update` and the tests
 RUN apt-get update && apt-get install -y --no-install-recommends poppler-utils curl ca-certificates tar \
     && rm -rf /var/lib/apt/lists/*
+# the Docker client alone, which an account service runs its libraries' containers with, through the proxy its setup puts beside it
+# (researchzosho accounts setup public); a library's own container has no socket and no network, so it can reach no Docker
+ARG DOCKER_CLI=27.5.1
+RUN curl -fsSL "https://download.docker.com/linux/static/stable/$(uname -m)/docker-${DOCKER_CLI}.tgz" | tar xz -C /usr/local/bin --strip-components=1 docker/docker \
+    && docker --version
 COPY researchzosho-${VERSION}.tar.gz /tmp/
 RUN tar xzf /tmp/researchzosho-${VERSION}.tar.gz -C /opt && rm /tmp/researchzosho-${VERSION}.tar.gz \
     && ln -s /opt/researchzosho/bin/researchzosho /usr/local/bin/researchzosho \

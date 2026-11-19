@@ -127,6 +127,8 @@ public final class LibraryPush {
                         sb.append('\n');
                     }
                     if (f.reviewStale()) sb.append("  NOTE: content edited since last review\n");
+                    String one = OneSource.of(store, f);
+                    if (one != null) sb.append("  NOTE: rests on one source, ").append(one).append("; no other source found confirms it. Say so when you use it.\n");
                     if (!f.subjects().isEmpty()) sb.append("  subjects: ").append(String.join(", ", f.subjects())).append('\n');
                     var rel = Related.of(store, f, 4);
                     if (!rel.isEmpty()) {

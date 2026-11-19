@@ -29,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.researchzosho.tools.Addresses;
 import org.researchzosho.tools.Fetch;
 /**
  * Push for the changes feed. A reader registers an address and a secret; every change that goes on
@@ -102,13 +103,17 @@ public final class Webhooks {
         String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
         if (!scheme.equals("http") && !scheme.equals("https")) return "only http(s) addresses";
         if (u.getHost() == null || u.getHost().isBlank()) return "no host in " + url;
-        try {
-            for (var a : InetAddress.getAllByName(u.getHost())) {
-                if (a.isLinkLocalAddress()) return "a link-local address";
-                if (a.isAnyLocalAddress() || a.isMulticastAddress()) return "an unusable address";
-                if (a.isLoopbackAddress() && !allowLoopback) return "a loopback address";
-            }
-        } catch (Exception e) { return "cannot resolve " + u.getHost(); }
+        // in a container the name is the node's gate's to resolve and check ({@link Fetch#throughGate}); the list is the one in Addresses
+        if (!(Fetch.throughGate() && !Addresses.literal(u.getHost()))) {
+            try {
+                for (var a : InetAddress.getAllByName(u.getHost())) {
+                    Addresses.Kind k = Addresses.kind(a);
+                    if (k == Addresses.Kind.LINK_LOCAL) return "a link-local address";
+                    if (k == Addresses.Kind.UNUSABLE) return "an unusable address";
+                    if (k == Addresses.Kind.LOOPBACK && !allowLoopback) return "a loopback address";
+                }
+            } catch (Exception e) { return "cannot resolve " + u.getHost(); }
+        }
         String target = Fetch.authority(u);
         for (String own : ownAuthorities) if (own.equalsIgnoreCase(target)) return "one of the library's own services";
         return null;
@@ -129,6 +134,7 @@ public final class Webhooks {
 
     public static synchronized void add(LibraryStore store, String did, String url, String secret, List<String> kinds) throws IOException {
         String why = refusal(url);
+        if (why == null && Hosted.any()) why = Fetch.refusal(URI.create(url));   // a library under an account service posts nowhere on the service's own network
         if (why != null) throw new IOException("cannot post to " + url + ": " + why);
         if (url.contains(" — ") || secret.contains(" — ")) throw new IOException("the address and the secret may not contain ' — '");
         List<Hook> all = new ArrayList<>();

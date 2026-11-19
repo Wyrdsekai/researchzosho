@@ -43,11 +43,14 @@ class OidcTest {
     /** A provider in miniature: discovery, a key set, and a token endpoint that mints an identity token for the nonce the test tells it. */
     static final class Stub {
         final HttpServer s; final KeyPair rsa; final String issuer; volatile String nonce = "", email = "ann@example.org", name = "Ann Example", sub = "sub-ann"; volatile boolean verified = true; volatile String lastVerifier = "";
+        /** Whether discovery names an end_session_endpoint (a provider that signs out, as Keycloak); the time of the sign-in the token says (0: none). */
+        volatile boolean endSession = false; volatile long authTime = 0;
         Stub() throws Exception {
             rsa = KeyPairGenerator.getInstance("RSA").generateKeyPair();
             s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
             issuer = "http://127.0.0.1:" + s.getAddress().getPort();
-            s.createContext("/.well-known/openid-configuration", x -> json(x, "{\"issuer\":\"" + issuer + "\",\"authorization_endpoint\":\"" + issuer + "/auth\",\"token_endpoint\":\"" + issuer + "/token\",\"jwks_uri\":\"" + issuer + "/keys\"}"));
+            s.createContext("/.well-known/openid-configuration", x -> json(x, "{\"issuer\":\"" + issuer + "\",\"authorization_endpoint\":\"" + issuer + "/auth\",\"token_endpoint\":\"" + issuer + "/token\",\"jwks_uri\":\"" + issuer + "/keys\""
+                    + (endSession ? ",\"end_session_endpoint\":\"" + issuer + "/logout\"" : "") + "}"));
             s.createContext("/keys", x -> {
                 RSAPublicKey pk = (RSAPublicKey) rsa.getPublic();
                 json(x, "{\"keys\":[{\"kty\":\"RSA\",\"kid\":\"k1\",\"alg\":\"RS256\",\"use\":\"sig\",\"n\":\"" + b64(pk.getModulus().toByteArray()) + "\",\"e\":\"" + b64(pk.getPublicExponent().toByteArray()) + "\"}]}");
@@ -58,7 +61,7 @@ class OidcTest {
                 lastVerifier = f.getOrDefault("code_verifier", "");
                 if (!"code-1".equals(f.get("code")) || lastVerifier.isEmpty() || !"client-1".equals(f.get("client_id"))) { json(x, 400, "{\"error\":\"invalid_grant\"}"); return; }
                 long now = System.currentTimeMillis() / 1000;
-                json(x, "{\"id_token\":\"" + token("{\"iss\":\"" + issuer + "\",\"aud\":\"client-1\",\"sub\":\"" + sub + "\",\"exp\":" + (now + 300) + ",\"iat\":" + now + ",\"nonce\":\"" + nonce + "\",\"email\":\"" + email + "\",\"email_verified\":" + verified + ",\"name\":\"" + name + "\"}") + "\",\"token_type\":\"Bearer\"}");
+                json(x, "{\"id_token\":\"" + token("{\"iss\":\"" + issuer + "\",\"aud\":\"client-1\",\"sub\":\"" + sub + "\",\"exp\":" + (now + 300) + ",\"iat\":" + now + ",\"nonce\":\"" + nonce + "\",\"email\":\"" + email + "\",\"email_verified\":" + verified + ",\"name\":\"" + name + "\"" + (authTime > 0 ? ",\"auth_time\":" + authTime : "") + "}") + "\",\"token_type\":\"Bearer\"}");
             });
             s.start();
         }
@@ -85,6 +88,9 @@ class OidcTest {
         m.put(Oidc.ISSUER, stub.issuer); m.put(Oidc.CLIENT_ID, "client-1"); m.put(Oidc.CLIENT_SECRET, "secret-1"); m.put(Oidc.ALLOWED_DOMAIN, domain); m.put(Oidc.NAME, "Example Workspace");
         return m;
     }
+
+    /** The cookie a sign-in's start sets in the browser that began it, to carry to the callback (round C, SEC 4). */
+    static String begun(HttpResponse<String> go) { return go.headers().allValues("Set-Cookie").stream().filter(v -> v.startsWith(Oidc.SIGNIN + "=")).map(v -> v.substring(0, v.indexOf(';'))).findFirst().orElse(""); }
 
     static Map<String, String> query(String url) {
         Map<String, String> q = new HashMap<>();
@@ -113,10 +119,10 @@ class OidcTest {
             assertEquals(base + "/login/oidc/callback", q.get("redirect_uri"));
             assertTrue(q.get("scope").contains("openid") && q.get("state").length() > 20 && q.get("nonce").length() > 20 && q.get("code_challenge").length() > 20, to);
             stub.nonce = q.get("nonce");
-            HttpResponse<String> back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun(go)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(303, back.statusCode(), back.body());
             assertEquals("/", back.headers().firstValue("Location").orElse(""));
-            String cookie = back.headers().firstValue("Set-Cookie").orElse("");
+            String cookie = back.headers().allValues("Set-Cookie").stream().filter(v -> v.startsWith(Pages.COOKIE + "=")).findFirst().orElse("");
             assertTrue(cookie.startsWith(Pages.COOKIE + "="), cookie);
             assertFalse(stub.lastVerifier.isEmpty(), "the code verifier went to the token endpoint");
             String secret = cookie.substring(Pages.COOKIE.length() + 1, cookie.indexOf(';'));
@@ -130,12 +136,38 @@ class OidcTest {
             stub.email = "ann.e@example.org";
             go = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc")).GET().build(), HttpResponse.BodyHandlers.ofString());
             q = query(go.headers().firstValue("Location").orElse("")); stub.nonce = q.get("nonce");
-            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun(go)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(303, back.statusCode(), back.body());
             assertEquals(1, Accounts.list(store).size());
             // a state the library never made is refused with a sentence
-            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=made-up")).GET().build(), HttpResponse.BodyHandlers.ofString());
+            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=made-up")).header("Cookie", Oidc.SIGNIN + "=" + Oidc.stateMark("made-up")).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(403, back.statusCode()); assertTrue(back.body().contains("not started here"), back.body());
+        } finally { d.stop(); stub.stop(); }
+    }
+
+    /** A library of a person's own finishes a sign-in only in the browser that began it (0.8.0 review, round C, SEC 4, as the service does). */
+    @Test
+    void aSignInBegunInOneBrowserIsNotFinishedInAnother(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp); store.init();
+        Stub stub = new Stub();
+        Oidc.OVERRIDE = settings(stub, "example.org");
+        WebAccess.OVERRIDE = Boolean.TRUE;
+        LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
+        HttpClient c = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        String base = "http://127.0.0.1:" + d.port();
+        try {
+            HttpResponse<String> go = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc")).GET().build(), HttpResponse.BodyHandlers.ofString());
+            Map<String, String> q = query(go.headers().firstValue("Location").orElse(""));
+            stub.nonce = q.get("nonce");
+            String begun = go.headers().allValues("Set-Cookie").stream().filter(v -> v.startsWith(Oidc.SIGNIN + "=")).map(v -> v.substring(0, v.indexOf(';'))).findFirst().orElse("");
+            // the provider's answer, opened in another browser (a link someone was sent): nobody is signed in
+            HttpResponse<String> lured = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertFalse(lured.headers().allValues("Set-Cookie").stream().anyMatch(v -> v.startsWith(Pages.COOKIE + "=") && !v.startsWith(Pages.COOKIE + "=;")), "the other browser is signed in to nobody");
+            assertTrue(Accounts.list(store).isEmpty(), "and nobody was made");
+            // the browser that began it finishes it
+            HttpResponse<String> own = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun).GET().build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(303, own.statusCode(), own.body());
+            assertTrue(own.headers().allValues("Set-Cookie").stream().anyMatch(v -> v.startsWith(Pages.COOKIE + "=") && !v.startsWith(Pages.COOKIE + "=;")), own.headers().map().toString());
         } finally { d.stop(); stub.stop(); }
     }
 
@@ -151,21 +183,21 @@ class OidcTest {
             stub.email = "bob@elsewhere.net"; stub.sub = "sub-bob"; stub.name = "Bob";
             HttpResponse<String> go = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc")).GET().build(), HttpResponse.BodyHandlers.ofString());
             Map<String, String> q = query(go.headers().firstValue("Location").orElse("")); stub.nonce = q.get("nonce");
-            HttpResponse<String> back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun(go)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(403, back.statusCode()); assertTrue(back.body().contains("elsewhere.net are not let in"), back.body());
             assertTrue(Accounts.list(store).isEmpty());
             // the keeper listed Bob by mail: his provider sign-in binds to that reader, whatever the domain
             Patrons.set(store, Patrons.loginDid("bob@elsewhere.net"), "Bob", Patrons.Level.write);
             go = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc")).GET().build(), HttpResponse.BodyHandlers.ofString());
             q = query(go.headers().firstValue("Location").orElse("")); stub.nonce = q.get("nonce");
-            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun(go)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(303, back.statusCode(), back.body());
             assertEquals(Patrons.loginDid("bob@elsewhere.net"), Oidc.boundDid(store, stub.issuer, "sub-bob"));
             // an unverified mail binds nothing new
             stub.email = "carol@example.org"; stub.sub = "sub-carol"; stub.verified = false;
             go = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc")).GET().build(), HttpResponse.BodyHandlers.ofString());
             q = query(go.headers().firstValue("Location").orElse("")); stub.nonce = q.get("nonce");
-            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).GET().build(), HttpResponse.BodyHandlers.ofString());
+            back = c.send(HttpRequest.newBuilder(URI.create(base + "/login/oidc/callback?code=code-1&state=" + q.get("state"))).header("Cookie", begun(go)).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(403, back.statusCode()); assertTrue(back.body().contains("verified mail"), back.body());
         } finally { d.stop(); stub.stop(); }
     }

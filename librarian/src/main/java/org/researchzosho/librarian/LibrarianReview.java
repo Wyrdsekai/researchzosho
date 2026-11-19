@@ -120,7 +120,7 @@ public final class LibrarianReview {
     public Outcome review(Investigation inv) throws Exception {
         List<String> accepted = new ArrayList<>(), kept = new ArrayList<>(),
                 disputed = new ArrayList<>(), dupes = new ArrayList<>(), problems = new ArrayList<>();
-        List<String> invUrls = Acquisitions.urls(inv.body());
+        List<String> invUrls = numbered(inv.body());   // as the reviewer's model is shown them: S<n> is the report's own [n]
 
         // THE REPORT AGAINST ITS QUESTION, before any claim is read out of it. A report whose answer is on another subject yields no
         // claims and waits for the keeper; one that turns from its question to another subject, or that its own run held back, has its claims read
@@ -612,11 +612,37 @@ public final class LibrarianReview {
 
     static String extractPrompt(String investigationBody) { return extractPrompt(investigationBody, ""); }
 
-    /** {@code rule}: what the run's fields add, the words for their relations ({@link #extractionRule}). */
-    static String extractPrompt(String investigationBody, String rule) {
-        List<String> locators = Acquisitions.urls(investigationBody);
+    static String extractPrompt(String investigationBody, String rule) { return extractPrompt(investigationBody, rule, numbered(investigationBody)); }
+
+    /**
+     * The record's sources as the reviewer's model is shown them and as its answer is read back: S<n> is the report's own reference [n],
+     * so "S2" and the "[2]" the report's sentences cite are one source; the record's other addresses follow, in their order, and "" stands
+     * where the references skip a number (the live check of 2026-11-18, F3 item 2: the list numbered sources by their first appearance,
+     * the model used the report's numbers, and four of six claims were filed with another source).
+     */
+    static List<String> numbered(String body) {
+        List<String> out = new ArrayList<>();
+        int refs = body == null ? -1 : body.indexOf("## References");
+        if (refs >= 0) {
+            int end = body.indexOf("\n## ", refs + 5);
+            Matcher m = Pattern.compile("(?m)^\\[(\\d{1,3})\\] (.*)$").matcher(end < 0 ? body.substring(refs) : body.substring(refs, end));
+            while (m.find()) {
+                List<String> u = Acquisitions.urls(m.group(2));
+                if (u.isEmpty()) continue;
+                int n = Integer.parseInt(m.group(1));
+                while (out.size() < n) out.add("");
+                if (out.get(n - 1).isEmpty()) out.set(n - 1, u.get(0));
+            }
+        }
+        for (String u : Acquisitions.urls(body == null ? "" : body)) if (!out.contains(u)) out.add(u);
+        return out;
+    }
+
+    /** {@code rule}: what the run's fields add, the words for their relations ({@link #extractionRule}); {@code locators}: as {@link #numbered} gives them. */
+    static String extractPrompt(String investigationBody, String rule, List<String> locators) {
         StringBuilder list = new StringBuilder();
         for (int i = 0; i < locators.size() && i < 60; i++) {
+            if (locators.get(i).isEmpty()) continue;
             list.append("  [S").append(i + 1).append("] ").append(locators.get(i)).append('\n');
         }
         return "You are The Librarian's reviewer. From this investigation record, extract "
@@ -726,7 +752,7 @@ public final class LibrarianReview {
             @Override public String extract(String investigationBody) { return extract(investigationBody, ""); }
             @Override public String extract(String investigationBody, String rule) {
                 var msgs = M.createArrayNode();
-                String prompt = extractPrompt(forExtraction(investigationBody, drive.contextWindow()), rule);
+                String prompt = extractPrompt(forExtraction(investigationBody, drive.contextWindow()), rule, numbered(investigationBody));
                 msgs.addObject().put("role", "user").put("content", prompt);
                 String out = drive.classify(msgs, EXTRACT_TOKENS);
                 if (!Declines.hasJson(out)) declines.raise(drive.model(), "list the claims a research report makes, as JSON", out);
@@ -763,14 +789,15 @@ public final class LibrarianReview {
     static String resolveCited(List<String> invUrls, String citedUrl) {
         if (citedUrl == null) return null;
         // the enumerated form: "S7" (or "[S7]") → the record's 7th locator
-        var lab = Pattern.compile("^\\[?S(\\d{1,2})\\]?$").matcher(citedUrl.strip());
+        var lab = Pattern.compile("^\\[?S?(\\d{1,3})\\]?$").matcher(citedUrl.strip());   // "S7", "[S7]", or the report's own "[7]": one numbering
         if (lab.matches()) {
             int i = Integer.parseInt(lab.group(1)) - 1;
-            return i >= 0 && i < invUrls.size() ? invUrls.get(i) : null;
+            return i >= 0 && i < invUrls.size() && !invUrls.get(i).isEmpty() ? invUrls.get(i) : null;
         }
         String c = norm(citedUrl);
         if (c.isEmpty()) return null;
         for (String inv : invUrls) {
+            if (inv.isEmpty()) continue;   // a number the references skip
             String n = norm(inv);
             if (n.equals(c) || n.startsWith(c) || c.startsWith(n)) return inv;
         }

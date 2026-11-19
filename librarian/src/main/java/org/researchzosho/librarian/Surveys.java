@@ -147,6 +147,7 @@ public final class Surveys {
         byte[] bytes; String origin, hint;
         if (spec.startsWith("http://") || spec.startsWith("https://")) { String u = paperUrl(spec); bytes = fetch(store, u); origin = spec; hint = u; }
         else {
+            if (Hosted.any()) throw new IOException(Hosted.MACHINE);   // the second wall, for a caller that does not come through the protocol, whose gate (LibraryProtocol.survey) comes first: a file by its path is the machine's
             Path f = Path.of(spec).toAbsolutePath().normalize();
             if (!Files.isRegularFile(f)) throw new IOException(f + " is not a file");
             bytes = Files.readAllBytes(f); origin = f.toString(); hint = f.getFileName().toString();
@@ -184,6 +185,7 @@ public final class Surveys {
             if (!list.isArray()) throw new IOException("GitHub did not answer with a list of issues for " + owner + "/" + repo + (list.has("message") ? ": " + list.path("message").asText() : ""));
             return issuesFrom(list, owner + "/" + repo, spec.strip(), Repos.nameOf(owner + "-" + repo + "-issues"));
         }
+        if (Hosted.any()) throw new IOException(Hosted.MACHINE);   // the second wall, for a caller that does not come through the protocol, whose gate (LibraryProtocol.survey) comes first: a file by its path is the machine's
         Path f = Path.of(spec).toAbsolutePath().normalize();
         if (!Files.isRegularFile(f)) throw new IOException(f + " is not a file (an issues export), and not a GitHub issues url");
         String raw = Files.readString(f, StandardCharsets.UTF_8);

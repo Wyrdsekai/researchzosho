@@ -61,13 +61,15 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         List<ArrayNode> seen = new ArrayList<>();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("I have filed it.")), seen);
-        String reply = lib.say("Find out who my great-grandfather's parents were");
+        String held = lib.say("Find out who my great-grandfather's parents were");
+        assertTrue(held.contains("The model asks to start a research run: \"" + FAMILY + "\" Do it?"), held);
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith("This looks like family history. Genealogy mode searches record collections (registers, newspapers, censuses), builds your family tree and uses what the library already knows about your relatives. " + ASK_LINE), reply);
         ObjectNode job = filed(store);
         assertEquals(Jobs.OFFERED, job.path("state").asText(), "the run waits for the answer");
         assertFalse(job.path("args").has("field"));
         assertTrue(lib.waitingForAnswer());
-        assertTrue(seen.get(seen.size() - 1).toString().contains("waits for the person's answer"), "the model is told the run waits");
+        assertTrue(seen.get(seen.size() - 1).toString().contains("NOT DONE YET"), "the model is told the run waits for the person");
         // the tool the model is given has no field: only the person chooses one
         for (var t : Librarian.tools(store)) assertFalse(t.path("function").path("parameters").path("properties").has("field"));
 
@@ -83,7 +85,7 @@ class GenealogyOfferTest {
         // the same question again in this conversation: not asked again; filed as the person said
         Librarian again = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed again.")), new ArrayList<>()),
                 Librarian.person(), lib.session());
-        String second = again.say("Look it up once more");
+        String second = again.say("Look it up once more") + again.say("yes");
         assertFalse(second.contains("(y/N)"), second);
         assertEquals("queued", filed(store).path("state").asText());
         assertFalse(filed(store).path("args").has("field"));
@@ -96,6 +98,7 @@ class GenealogyOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed."),
                 LibrarianChatTest.say("His wife is not in the library yet.")), seen);
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         String id = filed(store).path("job_id").asText();
         String yes = lib.say("Yes, and what do you know about his wife?");
         ObjectNode job = new Jobs(store, j -> "").get(id);
@@ -118,7 +121,8 @@ class GenealogyOfferTest {
             List<ArrayNode> seen = new ArrayList<>();
             Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Who was Tom Hale of Leeds, and what records of his life exist?\"" + withField + "}"),
                     LibrarianChatTest.say("Filed.")), seen);
-            String reply = lib.say("Please research Tom Hale of Leeds, my great-great-uncle, in genealogy mode.");
+            lib.say("Please research Tom Hale of Leeds, my great-great-uncle, in genealogy mode.");
+            String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
             assertTrue(reply.endsWith(ASK_LINE), reply);
             assertEquals(Jobs.OFFERED, filed(store).path("state").asText());
             lib.say("y");
@@ -128,7 +132,8 @@ class GenealogyOfferTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib-model")); store.init();
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Who was Ann Hart of Leeds?\", \"field\": \"genealogy\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
-        assertTrue(lib.say("Look up Ann Hart of Leeds for me").endsWith(ASK_LINE));
+        lib.say("Look up Ann Hart of Leeds for me");
+        assertTrue(lib.say("yes").endsWith(ASK_LINE));
         String no = lib.say("");
         assertTrue(no.startsWith("It is researched as ordinary research."), no);
         assertFalse(filed(store).path("args").has("field"), "Enter is no");
@@ -137,9 +142,10 @@ class GenealogyOfferTest {
         new LibrarianIndex(other, Embeddings.none()).rebuild();
         List<ArrayNode> seen = new ArrayList<>();
         Librarian plain = chat(other, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"How were the Antikythera gears cut?\", \"field\": \"astrology\"}"), LibrarianChatTest.say("Filed.")), seen);
-        assertFalse(plain.say("Find out how the Antikythera gears were cut").contains("(y/N)"));
+        plain.say("Find out how the Antikythera gears were cut");
+        assertFalse(plain.say("yes").contains("(y/N)"));
         assertEquals("queued", filed(other).path("state").asText());
-        assertTrue(seen.get(seen.size() - 1).toString().contains("This run is ordinary research: the field you passed is not used."), "the model reads that the field was not used");
+        assertFalse(filed(other).path("args").has("field"), "the field passed is not used");
     }
 
     @Test
@@ -152,7 +158,8 @@ class GenealogyOfferTest {
             LibraryStore store = new LibraryStore(tmp.resolve("lib-" + i)); store.init();
             new LibrarianIndex(store, Embeddings.none()).rebuild();
             Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + endo + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
-            String reply = lib.say(said.get(i));
+            lib.say(said.get(i));
+            String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
             assertTrue(reply.endsWith(ASK_LINE), said.get(i) + " → " + reply);
             assertEquals(Jobs.OFFERED, filed(store).path("state").asText());
             lib.say("y");
@@ -163,14 +170,16 @@ class GenealogyOfferTest {
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         String list = "Taro Endo (1880-1945): what records exist?\\nHana Endo (1885-1950): what records exist?";
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_questions", "{\"text\": \"" + list + "\", \"as\": \"runs\", \"title\": \"the Endos\"}"), LibrarianChatTest.say("Both are filed.")), new ArrayList<>());
-        String reply = lib.say("Research these questions in genealogy mode:\nTaro Endo (1880-1945): what records exist?\nHana Endo (1885-1950): what records exist?");
+        lib.say("Research these questions in genealogy mode:\nTaro Endo (1880-1945): what records exist?\nHana Endo (1885-1950): what records exist?");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith("Use genealogy mode for these 2 questions? (y/N)"), reply);
         // asked for with a second request in the same sentence: only the run the request names waits
         LibraryStore two = new LibraryStore(tmp.resolve("lib-two")); two.init();
         new LibrarianIndex(two, Embeddings.none()).rebuild();
         Librarian both = chat(two, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + endo + "\"}"),
                 LibrarianChatTest.tool("library_research", "{\"question\": \"How does sourdough fermentation work?\"}"), LibrarianChatTest.say("Filed both.")), new ArrayList<>());
-        assertTrue(both.say("Research Taro Endo in genealogy mode and look up how sourdough fermentation works").endsWith(ASK_LINE));
+        both.say("Research Taro Endo in genealogy mode and look up how sourdough fermentation works");
+        assertTrue(both.say("yes").endsWith(ASK_LINE), "one yes for both runs the turn proposed");
         for (ObjectNode j : new Jobs(two, x -> "").active())
             assertEquals(j.path("args").path("question").asText().equals(endo) ? Jobs.OFFERED : "queued", j.path("state").asText(), j.toString());
     }
@@ -181,7 +190,8 @@ class GenealogyOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"),
                 LibrarianChatTest.tool("library_research", "{\"question\": \"Who was my great-grandmother, and where was she born?\"}"), LibrarianChatTest.say("Filed both."),
                 LibrarianChatTest.say("The gears were cut by hand.")), new ArrayList<>());
-        String reply = lib.say("Find out about my great-grandparents");
+        lib.say("Find out about my great-grandparents");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertEquals(1, reply.split("\\(y/N\\)", -1).length - 1, "one question for both: " + reply);
         assertTrue(reply.endsWith("Use genealogy mode for these 2 questions? (y/N)"), reply);
         String other = lib.say("How were the Antikythera gears cut?");
@@ -194,7 +204,8 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         String list = FAMILY + "\\nHow were the Antikythera gears cut, and with what tools?";
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_questions", "{\"text\": \"" + list + "\", \"as\": \"runs\", \"title\": \"my list\"}"), LibrarianChatTest.say("Both are filed.")), new ArrayList<>());
-        String reply = lib.say("Send these two questions out as runs");
+        lib.say("Send these two questions out as runs");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith(ASK_LINE), reply);
         List<ObjectNode> jobs = new Jobs(store, j -> "").active();
         assertEquals(2, jobs.size(), jobs.toString());
@@ -211,7 +222,8 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Where did Tom Hale farm near Leeds?\"}"),
                 LibrarianChatTest.tool("library_research", "{\"question\": \"How were the Antikythera gears cut?\"}"), LibrarianChatTest.say("Filed both.")), new ArrayList<>());
-        String reply = lib.say("My great-grandfather Tom Hale farmed near Leeds, find out where. Also find out how the Antikythera gears were cut.");
+        lib.say("My great-grandfather Tom Hale farmed near Leeds, find out where. Also find out how the Antikythera gears were cut.");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith(ASK_LINE), "one question, for the one run: " + reply);
         for (ObjectNode j : new Jobs(store, x -> "").active()) {
             boolean family = j.path("args").path("question").asText().contains("Tom Hale");
@@ -234,7 +246,8 @@ class GenealogyOfferTest {
             String family = ja ? "森田まり（1870年生まれ）の両親は誰か" : "Who were the parents of Ann Hart (1870)?", sourdough = ja ? "サワードウの発酵の仕組みは？" : "How does sourdough fermentation work?";
             Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + family + "\"}"),
                     LibrarianChatTest.tool("library_research", "{\"question\": \"" + sourdough + "\"}"), LibrarianChatTest.say("Filed both.")), new ArrayList<>());
-            String reply = lib.say(said.get(i));
+            lib.say(said.get(i));
+            String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
             assertTrue(reply.endsWith(ASK_LINE), "one question, for the family run alone: " + said.get(i) + " → " + reply);
             for (ObjectNode j : new Jobs(store, x -> "").active()) {
                 boolean isFamily = j.path("args").path("question").asText().equals(family);
@@ -250,6 +263,7 @@ class GenealogyOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed."),
                 LibrarianChatTest.say("You are welcome.")), seen);
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         ObjectNode job = filed(store);
         String id = job.path("job_id").asText();
         // nobody answered in time: the service starts it as it was filed
@@ -266,6 +280,7 @@ class GenealogyOfferTest {
         Librarian next = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY.replace("farm", "live") + "\"}"), LibrarianChatTest.say("Filed."),
                 LibrarianChatTest.say("Noted.")), new ArrayList<>());
         next.say("Find out where my great-grandfather's parents lived");
+        next.say("yes");
         ObjectNode waiting = filed(store);
         waiting.put("offer_until", "2026-01-01T00:00:00Z");
         Files.writeString(new Jobs(store, j -> "").activeDir().resolve(waiting.path("job_id").asText() + ".json"), waiting.toString());
@@ -279,6 +294,7 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         ObjectNode job = filed(store);
         String id = job.path("job_id").asText();
         // the person's yes is on its way while the service ends the wait and starts the run as it was filed
@@ -302,6 +318,7 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertEquals("The research the library asked you about starts as ordinary research.", lib.leaveUnanswered());
         assertEquals("queued", filed(store).path("state").asText());
         // the answer crossed the end of the wait, and the second run the chat then offered waits when the person leaves
@@ -309,6 +326,7 @@ class GenealogyOfferTest {
         new LibrarianIndex(other, Embeddings.none()).rebuild();
         Librarian again = chat(other, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         again.say("Find out who my great-grandfather's parents were");
+        again.say("yes");
         ObjectNode first = filed(other);
         List<String[]> waiting = again.session().pending();
         assertTrue(new Jobs(other, j -> "").expire(first));
@@ -326,6 +344,7 @@ class GenealogyOfferTest {
             new LibrarianIndex(store, Embeddings.none()).rebuild();
             Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
             lib.say("Find out who my great-grandfather's parents were");
+            lib.say("yes");   // the model's run waits for the person's yes first (round E)
             ObjectNode first = filed(store);
             List<String[]> waiting = lib.session().pending();
             assertTrue(new Jobs(store, j -> "").expire(first));
@@ -555,6 +574,7 @@ class GenealogyOfferTest {
         LibraryStore store = library();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         String page = Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id));
         assertTrue(page.contains("name=\"say\" value=\"y\"><button class=\"btn primary\">Yes</button>") && page.contains("name=\"say\" value=\"n\"><button class=\"btn quiet\">No</button>"), page);
         lib.say("n");

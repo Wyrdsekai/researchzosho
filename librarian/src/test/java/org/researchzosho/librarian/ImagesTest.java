@@ -313,8 +313,8 @@ class ImagesTest {
         assertTrue(reply.startsWith("6 pictures found for \"red fox\" through Brave and SearXNG. 1 candidate was skipped as not a picture the model can look at (an SVG, a PDF and the like).\n\n1. \"Wild Dog Breeds: Red Fox\" from a-z-animals.com, 768×401, found through Brave.\n   https://a-z-animals.com/animals/red-fox/pictures/\n   ![Wild Dog Breeds: Red Fox](https://imgs.search.brave.com/"), reply);
         assertTrue(reply.endsWith(ImagesTurn.OFFER), reply);
         assertEquals(6, session.imagesFound().size(), "the fixtures hold seven pictures between them, and the SVG is not one the model can look at");
-        String html = Pages.md(reply);
-        assertTrue(html.contains("<img class=\"thumb\" src=\"https://imgs.search.brave.com/"), html); assertTrue(html.contains("alt=\"Wild Dog Breeds: Red Fox\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"), html);
+        String html = Pages.prose(reply);   // as the chat page shows the library's own line: the pictures it found, small, with its mark (round F)
+        assertTrue(html.contains("<img class=\"thumb\" src=\"https://imgs.search.brave.com/"), html); assertTrue(html.contains("alt=\"Wild Dog Breeds: Red Fox\" loading=\"lazy\" referrerpolicy=\"no-referrer\" " + Pages.SHOWN + ">"), html);
         // a count in the words, and the Japanese words
         assertTrue(lib.say("show me 2 photos of a red fox").startsWith("2 pictures found for \"a red fox\""));
         assertTrue(lib.say("赤いキツネの写真を3枚探して").startsWith("3 pictures found for \"赤いキツネ\""));
@@ -353,7 +353,7 @@ class ImagesTest {
         assertTrue(Pages.md("A fox, ![A red fox](/images/ab12.png) small.").contains("<img class=\"thumb\" src=\"/images/ab12.png\" alt=\"A red fox\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"), own);
         assertTrue(own.contains("<a href=\"https://example.org/fox\" rel=\"noreferrer\">"), own);
         String web = Pages.inline("![t](https://imgs.search.brave.com/x) and [a link](https://example.org/) and **bold**");
-        assertTrue(web.startsWith("<img class=\"thumb\" src=\"https://imgs.search.brave.com/x\" alt=\"t\""), web); assertTrue(web.contains("<a href=\"https://example.org/\" rel=\"noreferrer\">a link</a>") && web.contains("<b>bold</b>"), web);
+        assertTrue(web.startsWith("<a href=\"https://imgs.search.brave.com/x\" rel=\"noreferrer\">t</a>"), "a report's or a claim's picture of the web is a link (round F): " + web); assertTrue(web.contains("<a href=\"https://example.org/\" rel=\"noreferrer\">a link</a>") && web.contains("<b>bold</b>"), web);
         assertFalse(Pages.inline("![t](//evil.example/x)").contains("<img"), "a protocol-relative address is no picture");
         assertEquals("![t](javascript:alert(1))", Pages.inline("![t](javascript:alert(1))"));
     }

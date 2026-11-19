@@ -773,6 +773,7 @@ final class ComicHelper {
      * set up here (it is set up, or this machine may not run it: {@link #barred}). What it fetches goes to the service's log.
      */
     static synchronized String setupInBackground() {
+        if (Hosted.any()) return Hosted.MACHINE;   // the helpers of a library under an account service are the service's to set up
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "running";
         if (remote() != null || installed() || !barred(Chrome.ENGLISH).isEmpty()) return "";   // a helper another machine serves is set up there

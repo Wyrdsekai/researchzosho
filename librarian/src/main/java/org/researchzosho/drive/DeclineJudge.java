@@ -45,7 +45,7 @@ public final class DeclineJudge {
     public boolean sameAsk(String declinedQuestion, String gap) {
         if (judge == null) return false;
         Judge.Answer a = judge.noul("THE DECLINED QUESTION:\n" + cut(declinedQuestion, STEP_CHARS) + "\n\nTHE NEW QUESTION:\n" + cut(gap, STEP_CHARS), SAME_QUESTION);
-        return a.ran() && a.yes() && a.confidence() >= Judge.SURE;
+        return a.ran() && !Judge.askedPlainly() && a.yes() && a.confidence() >= Judge.SURE;   // a word asked the plain way is no typed answer
     }
 
     /**
@@ -122,6 +122,12 @@ public final class DeclineJudge {
         String state = state(step, reply);
         if (judge != null) {
             Judge.Answer a = judge.noul(state, QUESTION);
+            if (Judge.askedPlainly()) {
+                // the server refused the typed form and the judge asked the plain way: a word, as below, with no probability of its own
+                if (a.ran() && a.yes()) return ends ? new Verdict(false, false, 1.0, "one word") : new Verdict(true, true, 1.0, "one word");
+                if (a.ran()) return new Verdict(false, true, 0.0, "one word");
+                return new Verdict(false, false, 0.5, "one word");   // asked once already: not asked again
+            }
             if (a.ran()) {
                 double p = a.p("yes");
                 boolean yes = ends ? p >= ENDS_BAR : a.yes() && a.confidence() >= Judge.SURE;

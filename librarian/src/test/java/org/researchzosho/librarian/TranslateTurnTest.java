@@ -209,7 +209,7 @@ class TranslateTurnTest {
         try {
             String form = Pages.translateForm(store);
             assertTrue(form.contains("action=\"/translate\" enctype=\"multipart/form-data\"") && form.contains("name=\"to\"") && form.contains("name=\"as\"") && form.contains("name=\"quality\"") && form.contains("name=\"judge\"") && form.contains("name=\"back\"") && form.contains("value=\"glossary-add\""), form);
-            Path up = Files.createTempDirectory(Uploads.DIR);
+            Path up = Uploads.newFolder();
             Path posted = notes(up, "posted notes.md");
             String out = Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", posted.toString(), "file.name", "posted notes.md", "to", "ja", "as", "pdf", "quality", "reviewed"));
             assertTrue(out.contains("<b>Filed as <a href=\"/jobs/J-0001\">J-0001</a>.</b>") && out.contains("posted notes.md: 4 units with words") && out.contains("Into Japanese as pdf, reviewed: ") && out.contains("All four tiers: ") && out.contains("checked, the default; quick"), out);

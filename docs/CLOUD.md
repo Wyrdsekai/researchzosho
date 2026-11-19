@@ -6,6 +6,9 @@ many libraries are many containers behind one router, each at its own name: `alp
 them from the router's network and from nowhere else. Scaling is adding servers and moving libraries
 between them; nothing is shared between two libraries, so nothing has to be.
 
+This page is the way with one container for each library, each with its own people. For several accounts on one service, each
+with a library of its own, signed in at one address, see [Several accounts on one ResearchZosho](ACCOUNTS.md).
+
 ## On one machine, to see it
 
 ```

@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Gated;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -21,6 +22,8 @@ final class SpendPurse implements DriveClient.Purse, AutoCloseable {
 
     private final LibraryStore store;
     private final String purpose, jobId;
+    /** The use this work is under an account service, and its lane (0.8.0, stage 3); null in a library of one's own. */
+    private String use, lane = Gated.BACKGROUND;
     private final Map<String, long[]> byModel = new LinkedHashMap<>();   // drive \n model → prompt, cached, completion, calls
     private DriveClient.Purse was;
     private boolean closed;
@@ -28,11 +31,19 @@ final class SpendPurse implements DriveClient.Purse, AutoCloseable {
     private SpendPurse(LibraryStore store, String purpose, String jobId) { this.store = store; this.purpose = purpose; this.jobId = jobId == null ? "" : jobId; }
 
     /** Opens a purse for the work this thread does from now until {@link #close}; the purse it replaces comes back at the close. */
-    static SpendPurse open(LibraryStore store, String purpose, String jobId) {
+    static SpendPurse open(LibraryStore store, String purpose, String jobId) { return open(store, purpose, jobId, null, Gated.BACKGROUND); }
+
+    /** The same, the work being the use {@code use} under an account service, its calls in {@code lane}. */
+    static SpendPurse open(LibraryStore store, String purpose, String jobId, String use, String lane) {
         SpendPurse p = new SpendPurse(store, purpose, jobId);
+        p.use = use == null || use.isBlank() ? null : use;
+        p.lane = lane == null ? Gated.BACKGROUND : lane;
         p.was = DriveClient.useFor(p);
         return p;
     }
+
+    @Override public String use() { return use; }
+    @Override public String lane() { return lane; }
 
     /** What a job of this kind is for. */
     static String purposeOfJob(String kind) {

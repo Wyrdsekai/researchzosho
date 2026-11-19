@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.BooleanNode;
 import com.fasterxml.jackson.databind.node.DoubleNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.researchzosho.Stopping;
 import org.researchzosho.Version;
 import org.researchzosho.drive.DeclineJudge;
 import org.researchzosho.drive.DriveClient;
@@ -28,6 +29,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 import java.util.function.Supplier;
@@ -62,6 +64,12 @@ public final class Checkpoint implements AutoCloseable {
 
     /** Nothing kept, nothing read: a run outside a job (a command, a test). */
     public static final Checkpoint NONE = new Checkpoint(null, "", "", "");
+
+    /** Whether a cap stopped the job (0.8.0, stage 3): its run makes no new call, and unwinds as a stop does. The library sets it. */
+    public static volatile Predicate<String> CAPPED = id -> false;
+
+    /** The run of a job a cap stopped ends here: the steps it kept stay, to resume from once the cap allows. */
+    public static final class Capped extends Stopping.Requested { public Capped() { super("stopped at its cap: it resumes from here when the cap allows"); } }
 
     private final Path dir;
     private final String jobId, kind, basis;
@@ -354,6 +362,7 @@ public final class Checkpoint implements AutoCloseable {
             if (r == null || r.isNull()) return null;
             return type == String.class ? type.cast(r.asText()) : type.cast(r.deepCopy());
         }
+        if (CAPPED.test(jobId)) throw new Capped();   // a cap stopped the job: the call made last is kept, and no new one is made
         markNew();
         if (type == String.class) DriveClient.forgetUnanswered();   // what the server says of this call, never of an earlier one on the thread
         T answer = live.call();   // a call that throws takes no place: the call asked again after it takes this one

@@ -51,6 +51,7 @@ public final class ContentJudge {
     public static ContentJudge of(DriveClient c) {
         ContentJudge o = override;
         if (o != null) return o;
+        // four tokens; a model that spends them reasoning is asked once more with room by the drive itself, within the same time (DriveClient.classify)
         return new ContentJudge(c.givesTokenProbabilities() ? new Judge(c) : null, m -> c.classify(m, 4));
     }
 
@@ -101,9 +102,10 @@ public final class ContentJudge {
             Judge.Answer a = image == null ? judge.noul(state, question) : judge.noul(state, question, image);
             if (a.ran()) {
                 Verdict v = a.confidence() < Judge.SURE ? Verdict.UNSURE : a.yes() ? Verdict.YES : Verdict.NO;
-                return new Reading(v, a.p("yes"), "judge");
+                return new Reading(v, a.p("yes"), Judge.askedPlainly() ? "one word" : "judge");   // a server that refuses the typed form was asked the plain way
             }
             typedWhy = "the typed question: " + (Judge.lastProblem().isBlank() ? "it did not run" : Judge.lastProblem());
+            if (Judge.askedPlainly()) return new Reading(Verdict.UNJUDGED, 0.5, "one word", typedWhy);   // it was asked the plain way already, in the same time: not again
         }
         if (oneWord == null) return new Reading(Verdict.UNJUDGED, 0.5, "none", typedWhy.isEmpty() ? "no model is set to answer it" : typedWhy);
         ArrayNode msgs = M.createArrayNode();

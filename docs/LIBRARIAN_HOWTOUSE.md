@@ -629,8 +629,9 @@ How sure the answer must be:
   read from its token probabilities under a grammar that allows only yes or no, must be at least 0.8.
   llama.cpp gives these probabilities.
 - Everywhere else, a typed "yes" with a probability of at least 0.65 counts. Where the typed answer
-  cannot be read (Amazon Bedrock, or a server that ignores the grammar), the model is asked for one
-  word, and a plain "yes" counts.
+  cannot be read (Amazon Bedrock, or a server that ignores the grammar or refuses the typed question, as
+  llama.cpp does with gpt-oss-20b), the model is asked for one word, and a plain "yes" counts. The library
+  remembers such a server and model and asks them the one-word way from then on.
 - Anything less is not a decline, and the step goes on. The library writes the reply down, as
   `decline_unsure`, in the run's trace (`catalog/traces/<run>.jsonl`), on the chat turn's line in
   `catalog/chat-turns.jsonl`, and in `catalog/crews.log` for the nightly explorer, the bridges,
@@ -1146,7 +1147,9 @@ can do the same in the chat with the Librarian in words:
 There are 12,400 documents (11,900 pdf, 500 docx), 38 GB. Keeping the text would take about 1.1 GB;
 the library's disk has 3.2 GB free. Keep it, or read it in place?
 > read in place
-Collection archive: 12,388 added, 12 skipped. Read in place, nothing copied. …
+The model asks to read /mnt/archive/papers into the library. Do it? (yes, no, or tell me more)
+> yes
+Done. Collection archive: 12,388 added, 12 skipped. Read in place, nothing copied. …
 > research the history of the Saros dial from those
 ```
 
@@ -1154,6 +1157,73 @@ The last line starts a research run with sources=shelves on that collection. A p
 with the `library_add` tool, with mode `keep`, `link` or `survey`. Paths are accepted only from the
 terminal or the library's own pages. Any patron with write access can add a URL. The chat takes a path from
 the library's owner; a file of anyone else's goes in on the Add page.
+
+Whatever the model in the chat starts or writes waits for your yes. That covers starting work (a research run
+in any form, a translation, a list of items or questions sent out as runs, a check, a conversation or a meeting
+read in, a survey, a picture kept) and writing into the library (a note, a claim, a page or an address saved,
+bookmarks, a reading list, the inbox and the open questions, a purchase record forgotten), as well as the
+changes it already covered: a setting, the sharing, a model entry or a key, the sources and the saved
+searches, a group of seeks dropped, purchase records imported, and a file or a folder of this machine read in.
+The library says under the reply what would be done, with its main argument:
+
+```
+> what does this page say? https://example.org/ferry
+The page says the ferry ran from 1911 to 1968. …
+The model asks to start a research run: "Why did the Kestrel Sound ferry close?" Do it? (yes, no, or tell me more)
+The model asks this after reading example.org.
+```
+
+The home search, a look at a video's frames, a remembered video's candidates and their sifting wait too (each spends the
+model's time or a service's allowance and keeps what it finds), as does anything the model would do to a run (pause the
+runner, stop a run, answer a run's question). Under the line stands the call itself ("Exactly: …"), every argument of
+it, and a setting that sends the library's words elsewhere is said in plain words ("send what this library asks a model to
+…"). `yes` does it as stated. `no` does nothing. Anything else you write is more for the model: nothing is done,
+your words go to it with what it proposed, and it may propose it again, changed ("only from the harbour
+board's minutes"), which is asked again, or let it go. No answer in ten minutes does nothing. One yes or one
+no answers everything the turn asked. When the model read a web page in the same turn, the line says which
+site, because a page can ask the model for such a change; it is still only asked. Looking things up stays
+free: searching, reading an entry or a page, and the tools that only answer. Your own slash commands and the
+page's buttons are yours, and are not asked about. Someone who reads your library is not asked: their chat
+changes nothing. This is the chat only; a program over MCP or `/v1`, and the command line, act as before.
+
+The chat runs only the tools on its own list. A picture at a web address in the model's words, or in a
+report's, a claim's or a run's text, is shown as a link and never loaded; the pictures the library keeps, and
+the ones it found and shows you itself, are shown. The chat and research runs open only an address you gave,
+or one a search, a page or another tool returned, or a link on a page the library read; `open` lists each
+link's address beside its words. An address the model put together, say from a page's instructions and your
+notes, is not opened, and the model is told why, without the address. Whatever the model writes in a fetch's
+address is the address the fetch would request (https:// before it when it has no scheme, so `notes.md`,
+`host:8443/page` and `user@host/page` are addresses), compared whole after look-alike characters are folded (a
+non-breaking hyphen is a hyphen), and what goes out is the address exactly as it was given, never the model's
+way of writing it. An entry's id or a file's name elsewhere is not an address. A file on your shelves is read by
+its `file://` locator exactly as a shelf search listed it; a `file://` locator from anywhere else, a page among
+them, is not opened. A run the chat's model files
+opens the addresses of your words in that turn, not those of the question the model wrote. What the model
+searches for is its own choice of words, as before. The cost: an address the model guesses, such as a Wikipedia article by its title
+or a paper by its DOI, is refused until a search or a page gives it. How often that happens on the real web
+has not been measured; the test pages resolve no real domain.
+
+### A claim that rests on one source
+
+A claim that rests on one source says whose claim it is. The report's writer and the chat's model are told to
+write a claim that one source alone supports as that source's claim ("coastal-facts.org says …"), and to
+state plainly only what two independent sources support. The library itself does not rewrite a report's
+sentences in this version.
+
+One source here means one voice: copies of one text count once (a syndicated story, a mirror), a page that
+cites another adds nothing to it, and the pages of one publisher count once, the publisher read off the
+address (the site's own name; the account on GitHub or Medium; each blog on Substack or Blogspot). A paper by
+its DOI or arXiv id, and a page on a site where every address is somebody else's (Reddit, YouTube, the Internet
+Archive), are told apart by their texts only. Words inside the source such as "historians agree" or "the
+established view" count for nothing; only sources are counted.
+
+A claim on one source is also marked on its own page ("coastal-facts.org says this; no other source found
+confirms it.") and in what the library hands a model: `library_get` and `library_ask` carry `single_source`,
+`one_source` and a sentence for the model, and the holdings the library pushes to a model say it too. When
+the chat's reply cites such a claim, the library says so under the reply. When a later run brings the same
+claim from a second, independent source, the review adds that source to the claim (as it always has), and the
+mark goes by itself. `library_established` says beside its verdict when every accepted claim behind it rests
+on one source (`rests_on_one_source`).
 
 ### A conversation you had with another assistant
 
@@ -2691,8 +2761,18 @@ a run going at that moment finishes on the model it started with. With one model
 leave out its name; with several, `model use` lists them.
 
 The embeddings server runs beside the model at the same address, under the model name `embed`. It is
-in its own group, so neither evicts the other. It never idles out, because it is small and every
-search uses it. `RESEARCHZOSHO_EMBED` is set to the proxy too. Uninstall restores both settings.
+in its own group, so neither evicts the other. It goes away after five idle minutes
+(`embed_idle_minutes`; 0 keeps it loaded). `RESEARCHZOSHO_EMBED` is set to the proxy too. Uninstall
+restores both settings.
+
+A research run, a translation and the night's work keep the models they use loaded for as long as they
+run: once a minute they ask llama-swap for each model's health (`/upstream/<model>/health`), which
+loads a model that is not running and counts as a use. Filing a run or a translation, adding a page, and
+opening the chat start the load in the background, so it overlaps the first steps. An API on the
+internet is not asked. LaBSE's container and the one `embed start` runs stop the same way: after the
+embeddings' idle minutes with nothing using them, stopped by their names, and started again at the next
+use. A release before 0.8.0 kept the model 20 minutes and the embeddings model always; its install moves
+to these at the next start of the service, unless its idle minutes were your own.
 
 Every download is checked against a recorded sha256 and refused on a mismatch, like the one-line
 installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless you pass
@@ -2700,7 +2780,7 @@ installer does. Uninstall refuses while CodeZaiku's settings still point at the 
 
 It installs a small proxy, [llama-swap](https://github.com/mostlygeek/llama-swap), as a service that
 starts with your session on port 8211. llama.cpp runs behind it. The first request starts the server.
-20 idle minutes after the last request, it stops, so the memory is free in between. The drive is set
+10 idle minutes after the last request, it stops, so the memory is free in between. The drive is set
 to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 
 | platform | the server | the service | sized by |
@@ -2710,7 +2790,7 @@ to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 | macOS | llama.cpp's own Metal build | a launchd agent | seven tenths of unified memory |
 | Windows x64 | llama.cpp's own Vulkan build, any card | a logon task | the NVIDIA card's memory, else half the RAM |
 
-- `--idle-minutes` changes the wait.
+- `--idle-minutes` changes the wait, and so does `model_idle_minutes` (0 keeps it loaded).
 - `--gpu <index>` picks a card on a Linux machine with several.
 - `--file <gguf>` serves a model file you already have.
 - `--share` makes the proxy answer on every interface, so other machines can use this one.
@@ -2721,10 +2801,10 @@ setup, it is used unchanged. Nothing is installed twice.
 Every program points at the proxy, never at a server directly. So moving the model to another machine
 means changing one address in each program's settings. Install on the machine with the memory, with
 `--share`. Set `drive = http://<that machine>:8211` everywhere else. On a 27B at 4-bit on an RTX 6000
-Ada: the model list answers at once, the first request after a quiet spell answers in about 25 seconds
-including the load, the next in half a second, and the card is empty again 20 minutes after the last
-request. Ollama does the same by itself, with `OLLAMA_KEEP_ALIVE`. The numbers in this guide are for
-llama.cpp.
+Ada: the model list answers at once, the first request after a quiet spell answers in 19.1 seconds
+including the load (measured with the machine just started), the next in 0.4 seconds, and the card
+is empty again 10 minutes after the last request. Ollama does the same by itself, with
+`OLLAMA_KEEP_ALIVE`. The numbers in this guide are for llama.cpp.
 
 ### Which model
 
@@ -2751,7 +2831,9 @@ these.
   support is marked in place: `[not supported by the cited source on check]`. The check is mechanical
   first. When the sentence's numbers, or a run of its words, appear in the source, that settles it. The
   rest goes to the model. Before a sentence is marked, the model has to quote the passage from the source
-  that would support it. If the quote is in the source, the sentence is not marked.
+  that would support it. If the quote is in the source, the sentence is not marked. A sentence that says what
+  a source says ("A single page (example.org) claims …", "According to the museum, …") is checked on what
+  follows the attribution, and a mark goes after its citation, never inside the attribution.
 - **Checks.** This section appears only when there is something to report. It lists numbers, licence names
   and CVE ids in the answer that no note or source backs, quotations that appear in no source, and any
   cited paper that Crossref lists as retracted. When the report waits for you and is not accepted, the

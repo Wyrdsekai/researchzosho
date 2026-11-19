@@ -381,6 +381,7 @@ public final class TranslationScores {
                 ArrayNode a = body.putArray("input");
                 for (String[] p : part) { a.add(DocUnits.plainText(p[0])); a.add(DocUnits.plainText(p[1])); }
             }
+            ModelsAwake.used(address);   // LaBSE's container: its use written down for its idle rule (round C2)
             HttpRequest req = Helpers.request(address + path).timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString(), StandardCharsets.UTF_8)).build();
             CompletableFuture<HttpResponse<String>> f = SERVED_HTTP.sendAsync(req, HttpResponse.BodyHandlers.ofString());
             call = f;
@@ -533,6 +534,7 @@ public final class TranslationScores {
      * update; the Translate fold calls it on the person's click. A try that failed is not repeated within a day; a disk without the room is said.
      */
     public static synchronized String setupInBackground(String why) {
+        if (Hosted.any()) return Hosted.MACHINE;   // the helpers of a library under an account service are the service's to set up
         Thread t = setupThread;
         if (t != null && t.isAlive()) return "the scorers are being set up already";
         if (!setupAllowed() || !Helpers.localAllowed()) return "";   // this machine runs no heavy helper: nothing is set up here

@@ -95,7 +95,7 @@ class TranslationSaidOnceTest {
 
     @Test void theFormsPageSaysThePlanOnceAndTheTiersTheTimes(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path posted = TranslateTurnTest.notes(up, "posted notes.md");
         String notice = Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", posted.toString(), "file.name", "posted notes.md", "to", "ja", "quality", "reviewed", "judge", "reader-b"));
         assertEquals(1, count(notice, PLACED), notice);

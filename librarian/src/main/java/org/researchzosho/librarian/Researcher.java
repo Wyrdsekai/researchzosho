@@ -1083,6 +1083,7 @@ public final class Researcher {
     }
 
     public Result run(Ask ask, String known) {
+        seedAddresses(ask);
         DriveClient.countInto(usage);
         SearchTally.paidOff(!paid);   // on this thread and the threads the run starts: the paid places are left off at the tally's gate
         if (!paid) log.accept("no paid search service this run, as the person asked: Exa, Tavily, the keeper's own search service, Serper, SerpApi, Brave and Firecrawl are left off for it");
@@ -1664,7 +1665,7 @@ public final class Researcher {
             for (String l : group) if (!l.equals(loc) && !l.startsWith("cite:") && l.contains("://")) references.append("  also ").append(l);
             references.append(same).append('\n');
         }
-        references.append("\n").append(byWork.size() - unread.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once, and a source that cites another adds nothing to it).");
+        references.append("\n").append(byWork.size() - unread.size()).append(" source(s), ").append(independent).append(" independent (copies of one text count once, a source that cites another adds nothing to it, and the pages of one publisher count once).");
         if (dossier && !byClass.isEmpty()) references.append(" By source class: ").append(String.join(", ", byClass.entrySet().stream().map(e -> e.getValue() + " " + e.getKey()).toList())).append('.');
         if (!dated.isEmpty()) {
             Collections.sort(dated);
@@ -2387,6 +2388,7 @@ public final class Researcher {
                     if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
                     else if (kept != null) {
                         observation = kept.observation();
+                        if (name.equals("shelf_search") || name.equals("search")) ShelfSearchTool.listedAgain(observation);   // a resumed run reads its shelved files by the locators its kept search listed
                         JsonNode fx = kept.effects() == null ? J.createObjectNode() : kept.effects();
                         for (JsonNode address : fx.path("read")) { fetchedInRun.add(address.asText()); fetchedHere++; readsInRun.incrementAndGet(); }
                         for (JsonNode pool : fx.path("pools")) patentPools.add(pool.asText());
@@ -2397,7 +2399,8 @@ public final class Researcher {
                     else try (var off = Checkpoint.lane(null)) {   // what the tool asks a model by itself is the tool's answer, kept with it, not a call of the worker's
                         ArrayNode events = J.createArrayNode(); EFFECTS.set(events);
                         Instruments.step(budget, stopWhen, drive);
-                        observation = t.execute(args);
+                        String unopened = GivenAddresses.unopened(name, args);   // an address no search, page or tool gave, and not the person's: never opened (2026-11-18)
+                        observation = unopened != null ? unopened : t.execute(GivenAddresses.asGiven(args));   // an address goes out exactly as it was given
                         // what an instrument read by itself and kept (a patent's claims from the office's full text) is a source read this run, and the pools of patents it worked on are the run's
                         List<String> readByIt = Instruments.readNow();
                         for (String address : readByIt) { fetchedInRun.add(address); fetchedHere++; readsInRun.incrementAndGet(); }
@@ -2668,6 +2671,16 @@ public final class Researcher {
 
     /** What the person asked for beyond the question — a table, a language, a length, an order — carried to the writer; "" when nothing. */
     private volatile String askedFormat = "";
+
+    /** The person's own words for a run the chat's model filed, which give the run its addresses; null when the question is the person's. */
+    private volatile String personWords = null;
+    public Researcher personWords(String words) { this.personWords = words; return this; }
+
+    /**
+     * The person's own words give their addresses to the run: the question, when they wrote it; for a run the chat's model filed, the words
+     * of the person's turn it was filed in, never the model's question (round F: a bare address in it was opened).
+     */
+    void seedAddresses(Ask ask) { GivenAddresses.personSaid(personWords != null ? personWords : ask.question()); }
     static final Pattern LANGUAGE_ASKED = Pattern.compile("(?i)(japanese|english|german|french|spanish|chinese|korean|italian|portuguese|russian|日本語|英語|中文|한국어|deutsch|français|español|português|italiano|русский)");
 
     /** The line of the writer's brief that names the language the report is written in: the library's setting, unless the question asked for a language itself; "" when neither. */
@@ -3014,7 +3027,7 @@ public final class Researcher {
                 + "edition or translation where it was noted. Keep each section under " + asked.sectionChars() + " characters; use more "
                 + "sections rather than longer ones. Then call done." + (pictureFor == null ? "" : RunPictures.writerRegister()) + ReportBasis.RULES + asked.rules() + fieldRules(Profile::writerRules) + goalShapes(ask) + patentsForTheWriter() + conventionRules(ask));
         history.addObject().put("role", "user").put("content",
-                "THE ASK:\n" + ask.question() + "\n\n" + known + (sourceList.isEmpty() ? "" : "SOURCES (cite by number, [n]):\n" + sourceList + "Every source you cite is one of these, by its number. A page you know of that is not among them is not a source of this report: name it in words as one you did not read, and write no source list of your own; the library writes the references."
+                "THE ASK:\n" + ask.question() + "\n\n" + known + (sourceList.isEmpty() ? "" : "SOURCES (cite by number, [n]):\n" + sourceList + "Every source you cite is one of these, by its number. A page you know of that is not among them is not a source of this report: name it in words as one you did not read, and write no source list of your own; the library writes the references. " + OneSource.WRITE
                 + (sourceList.contains("— a picture") ? " A source marked as a picture may be shown: copy its ![…](/images/…) line, as given, onto a line of its own under the paragraph that cites it, at most " + RunPictures.SHOW_AT_MOST + " pictures in the report." + (sourceList.contains("it belongs to the section on") ? " A picture marked as belonging to a section goes under that section's paragraph, cited there by its number." : "") : "") + "\n")
                 + declinedForThePrompt("SUB-QUESTIONS NOT RESEARCHED (the model declined them, and the library says so in its own section of the report; write from the rest)")
                 + "EVIDENCE:\n" + notes
@@ -3074,13 +3087,14 @@ public final class Researcher {
                         // against the write-up's allowance, and once read it is a source read this run, as a reader's fetch is
                         String served = servedFromRun(args);
                         if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
+                        else if (GivenAddresses.unopened(name, args) != null) observation = GivenAddresses.unopened(name, args);   // the writer opens only what was given, as the readers do: no allowance spent on it
                         else if (fetches >= allowance) { refused++; observation = allowanceUsed(allowance); }
                         else {
                             fetches++;
                             String key = cp.toolKey(name, args);
                             Checkpoint.Kept kept = cp.kept(key);
                             if (kept != null) observation = kept.observation();
-                            else try (var off = Checkpoint.lane(null)) { observation = t.execute(args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                            else try (var off = Checkpoint.lane(null)) { observation = t.execute(GivenAddresses.asGiven(args)); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                             if (observation == null) observation = "";
                             String src = observation.startsWith("source: ") ? observation.substring(8).split(" — |\\n", 2)[0].strip() : "";
                             if (!src.isEmpty() && fetchedInRun.add(src)) {
@@ -3092,8 +3106,9 @@ public final class Researcher {
                         String key = keepsTool(name) ? cp.toolKey(name, args) : null;
                         Checkpoint.Kept kept = cp.kept(key);
                         if (kept != null) observation = kept.observation();
-                        else if (key == null) { try { observation = t.execute(args); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); } }
-                        else try (var off = Checkpoint.lane(null)) { observation = t.execute(args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                        else if (GivenAddresses.unopened(name, args) != null) observation = GivenAddresses.unopened(name, args);
+                        else if (key == null) { try { observation = t.execute(GivenAddresses.asGiven(args)); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); } }
+                        else try (var off = Checkpoint.lane(null)) { observation = t.execute(GivenAddresses.asGiven(args)); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                     }
                     observation = cut(observation == null ? "" : observation);
                     ObjectNode toolMsg = history.addObject();
@@ -3300,7 +3315,7 @@ public final class Researcher {
                 Finding f = url.matches("F-\\d+") ? store.findingByCode(url) : store.finding(url);
                 if (f == null) return "ERROR: no claim " + url + " on the shelves.";
                 StringBuilder b = new StringBuilder(f.title()).append(" [").append(f.state()).append(", ").append(f.claimType()).append(", confidence ").append(f.confidence()).append(", ").append(f.validAsOf()).append(", by ").append(f.writer()).append("]\n").append(f.body().strip()).append("\nSources:");
-                for (Finding.Source s : f.sources()) b.append("\n- ").append(s.locator());
+                for (Finding.Source s : f.sources()) { b.append("\n- ").append(s.locator()); GivenAddresses.fromTheLibrary(s.locator()); }   // a shelved file among them may be read next
                 return "claim " + url + "\n" + Fence.wrap("SOURCE TEXT", b.toString()) + "\n" + Fence.rule("SOURCE TEXT");
             }
             if (url.matches("I-\\d+-[a-z0-9-]+")) {   // a report of the shelves, by its id, page by page
@@ -3358,11 +3373,18 @@ public final class Researcher {
                     try { Path rp = LibraryStore.under(store.rawDir(), h.id()); if (rp != null && Files.exists(rp)) locator = RawCapture.read(rp)[0]; } catch (Exception ignored) { }
                 }
                 sb.append(n).append(". ").append(h.title()).append("  [").append(h.kind()).append(h.state().isEmpty() ? "" : ", " + h.state()).append("]\n   ").append(locator).append('\n');
+                GivenAddresses.fromTheLibrary(locator);   // the person's own shelved file, by the locator listed here, may be read next (round G)
                 if (!h.snippet().isBlank()) sb.append("   ").append(Acquisitions.compress(h.snippet(), 240)).append('\n');
             }
             if (n == 0) return "the shelves hold nothing for: " + q;
             sb.append(Fence.close("SHELF RESULTS")).append('\n').append(Fence.rule("SHELF RESULTS")).append('\n');
             return sb.toString();
+        }
+
+        /** The locators a kept result of this tool listed (the line under each numbered hit), given again for a resumed run. */
+        static void listedAgain(String result) {
+            String[] lines = result == null ? new String[0] : result.split("\n");
+            for (int i = 0; i + 1 < lines.length; i++) if (lines[i].matches("^\\d+\\. .*  \\[[^\\]]*\\]$") && lines[i + 1].startsWith("   ")) GivenAddresses.fromTheLibrary(lines[i + 1].strip());
         }
     }
 
@@ -3622,6 +3644,7 @@ public final class Researcher {
         try { throttle.enter(workersNow()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("interrupted"); }
         long t0 = System.currentTimeMillis();
         WAITED.get()[0] = 0;
+        GivenAddresses.receivedIn(history);   // what the run's tools returned may be opened, each result without its own call's addresses
         int in = 0;
         for (JsonNode m : history) in += estTokens(m.path("content").asText("")) + estTokens(m.path("tool_calls").toString()) + 8;
         ObjectNode reply = null;

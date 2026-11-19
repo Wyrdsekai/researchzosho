@@ -398,6 +398,7 @@ class RunPicturesTest {
         List<String> questions = new ArrayList<>();
         Vision.DRIVES = (d, m) -> eyesFor(questions, "a red fox");
         String twin = "https://twin.example/pics/Wild-Dog-twin.jpg";   // the same bytes as the first Brave fixture, under another address
+        GivenAddresses.received(FOX + "?utm_source=share " + twin);   // the engines named these too (the library opens only what a result gave, 2026-11-18)
         ResearcherTest.ScriptedDrive drive = new ResearcherTest.ScriptedDrive() {
             @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {
                 List<String> n = names(tools); offered.add(String.join(",", n)); histories.add(history.deepCopy());

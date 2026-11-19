@@ -372,13 +372,6 @@ class UpdaterTest {
         } finally { s.stop(0); }
     }
 
-    static Process sleeperJvm() throws Exception {
-        String jvm = Path.of(System.getProperty("java.home"), "bin", "java").toString();
-        Process p = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"), ServiceTest.Sleeper.class.getName()).redirectErrorStream(true).start();
-        Thread.sleep(300);
-        assertTrue(p.isAlive());
-        return p;
-    }
 
     static Path updateFolder(Path parent) throws Exception {
         try (var l = Files.list(parent)) { return l.filter(p -> p.getFileName().toString().startsWith(".researchzosho-update-")).findFirst().orElse(null); }
@@ -392,7 +385,7 @@ class UpdaterTest {
         Files.createDirectories(places.pidFile().getParent());
         Files.writeString(places.taskScript(), "# the service's task script\n");
         HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        Process server = sleeperJvm();
+        Process server = StandInServer.start(tmp);   // a server by its command line: since 0.8.0 being a JVM proves nothing
         try {
             Files.writeString(places.pidFile(), Long.toString(server.pid()));
             Updater.Outcome o = Updater.install(Service.Os.windows, root, "0.1.1", "0.1.2", serve(release, s), true, places, quiet(), cmd -> assertTrue(server.isAlive(), "the server still runs when the helper starts"), null);
@@ -412,7 +405,7 @@ class UpdaterTest {
         var places = places(tmp);
         Files.createDirectories(places.pidFile().getParent());
         HttpServer s = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        Process server = sleeperJvm();
+        Process server = StandInServer.start(tmp);   // a server by its command line: since 0.8.0 being a JVM proves nothing
         try {
             Files.writeString(places.pidFile(), Long.toString(server.pid()));
             var e = assertThrows(Exception.class, () -> Updater.install(Service.Os.windows, root, "0.1.1", "0.1.2", serve(release, s), true, places, quiet(),

@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.Gated;
+
 import static org.researchzosho.librarian.Researcher.forExplorer;
 
 import org.researchzosho.tools.PodcastIndexLocal;
@@ -425,6 +427,7 @@ public final class Crews {
 
     static DriveState driveState(String driveUrl, String model, Duration timeout) {
         if (driveUrl == null || driveUrl.isBlank()) return DriveState.DOWN;
+        if (Gated.gated(driveUrl)) return gatedState(driveUrl, timeout);   // through the node's gate: asked what costs nothing
         if (Bedrock.is(driveUrl)) return bedrockState(driveUrl, model, timeout);
         if (Anthropic.is(driveUrl)) return anthropicState(driveUrl, model);
         if (OpenAI.is(driveUrl)) return openaiState(driveUrl, model);
@@ -438,7 +441,7 @@ public final class Crews {
             if (DriveClient.hostedApi(driveUrl)) { body.put("max_tokens", 1024); body.putObject("chat_template_kwargs").put("enable_thinking", false); }
             else body.put("max_tokens", 1);
             body = DriveClient.hostedShape(body, driveUrl);   // the fields this API takes
-            var rb = HttpRequest.newBuilder(URI.create(Config.v1(driveUrl) + "/chat/completions"))
+            var rb = Gated.request(Config.v1(driveUrl) + "/chat/completions")
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
@@ -453,6 +456,24 @@ public final class Crews {
         } catch (Exception e) {
             return DriveState.DOWN;
         }
+    }
+
+    /**
+     * A model server behind the node's gate (a library under an account service, 0.8.0): asked for its models list, which costs nothing
+     * and needs no use, where elsewhere it is asked for a word. llama.cpp answers that list 503 while it loads its model, as it answers a
+     * completion; a hosted API answers it when the gate's key opens it.
+     */
+    private static DriveState gatedState(String driveUrl, Duration timeout) {
+        try {
+            String base = Config.v1(driveUrl);
+            if (Anthropic.is(driveUrl)) base = Anthropic.base(driveUrl) + "/v1";
+            if (OpenAI.is(driveUrl)) base = OpenAI.base(driveUrl) + "/v1";
+            var res = PROBE_HTTP.send(Gated.request(base + "/models").timeout(timeout).GET().build(), HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() == 200) return DriveState.ANSWERS;
+            return res.statusCode() == 503 ? DriveState.STARTING : DriveState.DOWN;
+        } catch (HttpTimeoutException e) {
+            return e instanceof HttpConnectTimeoutException ? DriveState.DOWN : DriveState.STARTING;
+        } catch (Exception e) { return DriveState.DOWN; }
     }
 
     /** Bedrock is asked for one token, and a yes is remembered for five minutes: each question there is on somebody's AWS bill. */

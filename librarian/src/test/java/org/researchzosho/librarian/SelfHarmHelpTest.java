@@ -247,7 +247,9 @@ class SelfHarmHelpTest {
         LibraryStore store = library("lib");
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + SURE + "\"}"), LibrarianChatTest.say("I have filed it.")), new ArrayList<>()),
                 Librarian.person(), Librarian.Session.open(store));
-        String reply = lib.say("Look into this for me");
+        String held = lib.say("Look into this for me");
+        assertTrue(held.startsWith(HELP_START), "the help first, at once, while the run waits for the yes: " + held);
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.startsWith(HELP_START), "the help first: " + reply);
         assertTrue(reply.endsWith(CrisisHelp.QUESTION), reply);
         ObjectNode job = GenealogyOfferTest.filed(store);
@@ -263,6 +265,7 @@ class SelfHarmHelpTest {
         Librarian yesLib = new Librarian(other, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + SURE + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()),
                 Librarian.person(), Librarian.Session.open(other));
         yesLib.say("Look into this for me");
+        yesLib.say("yes");
         String yes = yesLib.say("y");
         assertTrue(yes.startsWith("The question is researched. Research run "), yes);
         assertEquals("queued", GenealogyOfferTest.filed(other).path("state").asText());
@@ -272,6 +275,7 @@ class SelfHarmHelpTest {
         Librarian waits = new Librarian(third, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + SURE + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()),
                 Librarian.person(), Librarian.Session.open(third));
         waits.say("Look into this for me");
+        waits.say("yes");
         ObjectNode w = GenealogyOfferTest.filed(third);
         assertTrue(new Jobs(third, j -> "").expire(w));
         assertEquals("stopped", new Jobs(third, j -> "").get(w.path("job_id").asText()).path("state").asText());
@@ -290,7 +294,7 @@ class SelfHarmHelpTest {
         try { lib.say("Look into this for me"); } finally { Researcher.tokenScale = scaleWas; }
         String toolResult = "";
         for (ArrayNode turn : seen) for (var m : turn) if ("tool".equals(m.path("role").asText())) toolResult = m.path("content").asText();
-        assertTrue(toolResult.contains("the library researches this question only if they say yes to its question"), toolResult);
+        assertTrue(toolResult.startsWith("NOT DONE YET") && toolResult.contains("does it only on their yes"), "the run starts only on the person's yes (round E: every run the chat's model files): " + toolResult);
         assertFalse(toolResult.contains("starts as soon as they answer"), toolResult);
     }
 
@@ -299,7 +303,8 @@ class SelfHarmHelpTest {
         LibraryStore store = library("lib");
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + UNSURE + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()),
                 Librarian.person(), Librarian.Session.open(store));
-        String reply = lib.say("Look into this for me");
+        assertTrue(lib.say("Look into this for me").startsWith(HELP_START), "the help at once");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.startsWith(HELP_START), reply);
         assertFalse(reply.contains("(y/N)"), "nothing to answer: " + reply);
         assertEquals("queued", GenealogyOfferTest.filed(store).path("state").asText());
@@ -314,7 +319,8 @@ class SelfHarmHelpTest {
         LibraryStore store = library("lib");
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + SURE + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()),
                 Librarian.person(), Librarian.Session.open(store));
-        assertTrue(lib.say("Look into this for me").endsWith(CrisisHelp.QUESTION));
+        lib.say("Look into this for me");
+        assertTrue(lib.say("yes").endsWith(CrisisHelp.QUESTION));   // the model's run waits for the person's yes first (round E)
         String next = lib.say("y");
         assertTrue(next.startsWith("The question is researched.") && next.endsWith("Let it in for this question? (y/N)"), next);
         assertEquals(Jobs.OFFERED, GenealogyOfferTest.filed(store).path("state").asText());

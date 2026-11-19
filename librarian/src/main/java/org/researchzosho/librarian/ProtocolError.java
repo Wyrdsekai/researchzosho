@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
@@ -55,6 +56,17 @@ public final class ProtocolError extends RuntimeException {
     public static ProtocolError budgetExceeded(String message) {
         return new ProtocolError("budget_exceeded", -32005, message);
     }
+    /**
+     * Under an account service (0.8.0): a limit on how often an account or an address may ask was reached. The message says which and
+     * when to ask again; {@code retry_after} beside it is the seconds, as the HTTP header Retry-After is.
+     */
+    public static ProtocolError rateLimited(String message, long seconds) {
+        ObjectNode extra = JsonNodeFactory.instance.objectNode();
+        extra.put("retry_after", seconds);
+        return new ProtocolError(RATE_LIMITED, -32008, message, extra);
+    }
+    /** The code of {@link #rateLimited}. */
+    public static final String RATE_LIMITED = "rate_limited";
     public static ProtocolError unavailable(String message) {
         return new ProtocolError("unavailable", -32002, message);
     }

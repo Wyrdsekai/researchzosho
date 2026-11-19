@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -63,7 +65,7 @@ public final class Reranker {
                     var arr = body.putArray("documents");
                     for (String d : documents) arr.add(d.length() > MAX_DOC_CHARS ? d.substring(0, MAX_DOC_CHARS) : d);
                     // a search of the shelves inside a research run: the wait ends at the run's stop
-                    HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(endpoint + "/v1/rerank"))
+                    HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(endpoint + "/v1/rerank")
                             .timeout(Duration.ofSeconds(120))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))

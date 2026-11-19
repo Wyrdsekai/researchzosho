@@ -140,6 +140,7 @@ public final class ApiKeys {
     }
 
     private static void save(LibraryStore store, ObjectNode root) throws IOException {
+        Hosted.accounts(store);   // a library under an account service keeps no people and no keys of its own
         Files.createDirectories(file(store).getParent());
         AtomicWrite.text(file(store), M.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n");
     }

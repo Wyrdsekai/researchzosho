@@ -31,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.researchzosho.Config;
@@ -63,7 +64,35 @@ public final class ModelServer {
     public static final String CONTAINER = "researchzosho-model";
     public static final String SWAP_VERSION = "255";
     public static final String LLAMA_BUILD = "b10929";
-    public static final int DEFAULT_IDLE_MINUTES = 20;
+    /**
+     * The chat model's idle minutes before llama-swap unloads it (0.8.0 review, round C2: the owner's "5 - 10 min"); a setting changes
+     * it ({@link #MODEL_IDLE}), and so does `model install --idle-minutes`. Before 0.8.0 it was {@link #OLD_DEFAULT_IDLE_MINUTES}.
+     */
+    public static final int DEFAULT_IDLE_MINUTES = 10, OLD_DEFAULT_IDLE_MINUTES = 20;
+    /** The setting of the chat model's idle minutes on this machine's model server. */
+    public static final String MODEL_IDLE = "RESEARCHZOSHO_MODEL_IDLE_MINUTES";
+
+    /** The chat model's idle minutes as set ({@link #MODEL_IDLE}); null when unset or not a number. */
+    static Integer idleSet() {
+        String v = Config.get(MODEL_IDLE);
+        try { return v == null || v.isBlank() ? null : Math.max(0, Integer.parseInt(v.strip())); } catch (NumberFormatException e) { return null; }
+    }
+
+    /**
+     * The chat model's idle minutes for an install whose plan says {@code m}: the setting, else the person's own (`idle_chosen=yours`, or
+     * a number that was never a default), else this release's default: an install from before whose minutes were the old default moves.
+     */
+    static int chatIdle(Map<String, String> m) {
+        Integer set = idleSet();
+        if (set != null) return set;
+        int had;
+        try { had = Integer.parseInt(m.getOrDefault("idle_minutes", String.valueOf(DEFAULT_IDLE_MINUTES)).strip()); } catch (NumberFormatException e) { had = DEFAULT_IDLE_MINUTES; }
+        if ("yours".equals(m.get("idle_chosen"))) return had;
+        return had == OLD_DEFAULT_IDLE_MINUTES || had == DEFAULT_IDLE_MINUTES ? DEFAULT_IDLE_MINUTES : had;
+    }
+
+    /** The plan's line that says the idle minutes are the person's own: when they are not this release's default. */
+    static String idleChosen(int idleMinutes) { return idleMinutes == DEFAULT_IDLE_MINUTES ? "" : "idle_chosen=yours\n"; }
 
     /** The embeddings server beside the model: the same address, model name "embed" (Embeddings' default), never idles out. */
     public static final String EMBED_NAME = "embed";
@@ -96,12 +125,17 @@ public final class ModelServer {
 
     // The 27B was measured on Qwen3.8-27B-Q4_K_M.gguf (2026-08-15); unsloth replaced that file with the UD quantization
     // of the same model, and only the UD file resolves now (found by a reviewer, 2026-09-12). `model check` reads every row.
+    // One conversation holds the chat: its tools and instructions are about 16,000 tokens, so 16,384 held none of it (gpt-oss-20b with 32k
+    // for two refused the first page the chat read, 2026-11-18). gpt-oss-20b was measured on a 16 GB card: 32k for one loads (13.1 GB for
+    // the server), 64k for two does not. The 9B and Gemma 4 E4B by their cache: 32 KiB a token for the 9B (8 of its 32 layers keep one),
+    // 16 KiB for E4B (4 of its own 24), so 32k adds 0.5 GB and 0.25 GB to what they used at 16k (5.9 and 3.6 GB). Gemma 4 E2B used its
+    // 2 GB card at 16k already, and keeps it.
     public static final List<Row> ROWS = List.of(
         new Row("qwen3.8-27b",  24, "unsloth/Qwen3.8-27B-GGUF",    "Qwen3.8-27B-UD-Q4_K_M.gguf", "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482", 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
         new Row("qwen3.6-35b-a3b", 4, "unsloth/Qwen3.6-35B-A3B-GGUF", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61", 65536, 2, "-b 4096 -ub 4096", new Moe(32, 40, 0.46, 4.5, 28)),
-        new Row("gpt-oss-20b",  16, "unsloth/gpt-oss-20b-GGUF",    "gpt-oss-20b-F16.gguf",       "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66",  32768, 2, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
-        new Row("qwen3.5-9b",    8, "unsloth/Qwen3.5-9B-GGUF",     "Qwen3.5-9B-Q4_K_M.gguf",     "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",  16384, 1, "--chat-template-kwargs '{\"enable_thinking\":false}'"),
-        new Row("gemma-4-e4b",   4, "unsloth/gemma-4-E4B-it-GGUF", "gemma-4-E4B-it-Q4_K_M.gguf", "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",  16384, 1, ""),
+        new Row("gpt-oss-20b",  16, "unsloth/gpt-oss-20b-GGUF",    "gpt-oss-20b-F16.gguf",       "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66",  32768, 1, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
+        new Row("qwen3.5-9b",    8, "unsloth/Qwen3.5-9B-GGUF",     "Qwen3.5-9B-Q4_K_M.gguf",     "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",  32768, 1, "--chat-template-kwargs '{\"enable_thinking\":false}'"),
+        new Row("gemma-4-e4b",   4, "unsloth/gemma-4-E4B-it-GGUF", "gemma-4-E4B-it-Q4_K_M.gguf", "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",  32768, 1, ""),
         new Row("gemma-4-e2b",   2, "unsloth/gemma-4-E2B-it-GGUF", "gemma-4-E2B-it-Q4_K_M.gguf", "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",  16384, 1, ""));
 
     /**
@@ -168,6 +202,9 @@ public final class ModelServer {
     }
 
     static final double VISION_GB = 1.0, EMBED_GB = 1.3;
+
+    /** The slot an earlier release wrote for these rows ({@code ctx/parallel}): an install still on it is moved to the row's ({@link #slotRule}). */
+    static final Map<String, String> SLOTS_BEFORE = Map.of("gpt-oss-20b", "32768/2", "qwen3.5-9b", "16384/1", "gemma-4-e4b", "16384/1");
 
     /** Where the experts go, for a card with this much free memory: all in RAM, the first N layers in RAM, or "" when everything fits or the memory is unified. */
     static String moeArgs(Row row, double freeGb) { return moeArgs(row, freeGb, 0); }
@@ -526,8 +563,8 @@ public final class ModelServer {
                 + "    aliases: [\"local-model\", \"" + row.file() + "\", \"/m/" + row.file() + "\"]\n";
         String embedScript = null;
         if (embedTag != null) {
-            // the embeddings server: its own group with swapping off, so it lives beside the model instead of evicting it
-            // (and is not evicted by it), and no ttl — it is small and every search wants it
+            // the embeddings server: its own group with swapping off, so it lives beside the model instead of evicting it (and is not
+            // evicted by it); unloaded after its own idle time (0.8.0 review, round C2: five minutes), held loaded while work runs
             String embedCmd = os == Os.linux ? dir.resolve("run-embed.sh") + " ${PORT}"
                     : dir.resolve("llama").resolve(os == Os.windows ? "llama-server.exe" : "llama-server") + " -m " + modelFile.getParent().resolve(EMBED_FILE)
                       + " --host 127.0.0.1 --port ${PORT} --embedding --pooling last -c 8192 -b 8192 -ub 8192 -ngl 99";
@@ -536,7 +573,7 @@ public final class ModelServer {
                 + (os == Os.linux ? "    cmdStop: docker stop " + EMBED_CONTAINER + "\n" : "")
                 + "    proxy: http://127.0.0.1:${PORT}\n"
                 + "    checkEndpoint: /health\n"
-                + "    ttl: 0\n"
+                + "    ttl: " + ModelsAwake.embedIdleMinutes() * 60 + "\n"   // unloaded when idle too (C2), staying in its group, which the model does not evict
                 + "    aliases: [\"" + Embed.MODEL + "\", \"text-embedding\"]\n"
                 + "groups:\n"
                 + "  \"embedding\":\n"
@@ -576,9 +613,14 @@ public final class ModelServer {
                     + "  <key>StandardOutPath</key><string>" + dir.resolve("llama-swap.log") + "</string>\n  <key>StandardErrorPath</key><string>" + dir.resolve("llama-swap.log") + "</string>\n"
                     + "</dict></plist>\n";
             // Start-Process joins its argument list with spaces and quotes nothing: the config's path goes in double quotes of its own
+            // the number of the llama-swap it starts is kept, so the program stops only that one: never another by its name (0.8.0)
             case windows -> "# ResearchZosho: start the model proxy (llama-swap) in the background; a logon task runs this, and `researchzosho model install` ran it once now\n"
-                    + "if (-not (Get-Process llama-swap -ErrorAction SilentlyContinue)) {\n"
-                    + "  Start-Process -FilePath '" + swap + "' -ArgumentList '--config','\"" + dir.resolve("config.yaml") + "\"','--listen','" + listen + "' -WindowStyle Hidden -RedirectStandardOutput '" + dir.resolve("llama-swap.log") + "' -RedirectStandardError '" + dir.resolve("llama-swap.err") + "'\n}\n";
+                    + "$kept = '" + dir.resolve(SWAP_PID) + "'\n"
+                    + "$ours = $null\n"
+                    + "if (Test-Path $kept) { $ours = Get-Process -Id ([int](Get-Content $kept -TotalCount 1)) -ErrorAction SilentlyContinue }\n"
+                    + "if (-not ($ours -and $ours.ProcessName -eq 'llama-swap')) {\n"
+                    + "  $started = Start-Process -FilePath '" + swap + "' -ArgumentList '--config','\"" + dir.resolve("config.yaml") + "\"','--listen','" + listen + "' -WindowStyle Hidden -RedirectStandardOutput '" + dir.resolve("llama-swap.log") + "' -RedirectStandardError '" + dir.resolve("llama-swap.err") + "' -PassThru\n"
+                    + "  Set-Content -Path $kept -Value $started.Id\n}\n";
         };
         return new Plan(row, modelFile, dir, unit, cfg, run, unitText, embedScript, embedTag != null);
     }
@@ -712,7 +754,7 @@ public final class ModelServer {
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
             Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag, os == Os.linux ? gpu().build() : "");
-            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idleMinutes, share) + "chosen=" + chosen + "\n", StandardCharsets.UTF_8);
+            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idleMinutes, share) + "chosen=" + chosen + "\n" + idleChosen(idleMinutes), StandardCharsets.UTF_8);
             Files.writeString(dir.resolve("config.yaml"), p.configYaml(), StandardCharsets.UTF_8);
             if (p.runScript() != null) { Files.writeString(dir.resolve("run.sh"), p.runScript(), StandardCharsets.UTF_8); dir.resolve("run.sh").toFile().setExecutable(true); }
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
@@ -997,7 +1039,13 @@ public final class ModelServer {
             Path cfg = dir.resolve("config.yaml");
             if (!Files.exists(cfg)) return "";
             String y = Files.readString(cfg, StandardCharsets.UTF_8);
-            if (y.contains("\"" + EMBED_NAME + "\":")) return "";
+            boolean slot = slotRule(dir, out);   // the slot of an earlier release, in the start script and the config
+            if (slot) y = Files.readString(cfg, StandardCharsets.UTF_8);
+            if (y.contains("\"" + EMBED_NAME + "\":")) {
+                String idle = idleRule(dir, cfg, y, out);
+                if (slot && idle.isEmpty()) { restartProxy(dir, unitPath(os), out); return readPlan(dir).getOrDefault("name", ""); }   // the proxy starts the model with its new slot
+                return idle;
+            }
             String embedTag = embedTagFor(os);
             if (embedTag == null) return "";   // nothing to add on this machine
             Map<String, String> m = readPlan(dir);
@@ -1005,22 +1053,17 @@ public final class ModelServer {
             Path modelFile = Path.of(m.get("file"));
             Row known = null; for (Row r : ROWS) if (r.file().equals(modelFile.getFileName().toString())) known = r;
             Row row = known != null ? known : new Row(m.get("name"), 0, "", modelFile.getFileName().toString(), "", Integer.parseInt(m.getOrDefault("ctx", "16384")), Integer.parseInt(m.getOrDefault("parallel", "1")), m.getOrDefault("extra", ""));
-            String gpus = m.getOrDefault("gpus", "all"); int idle = Integer.parseInt(m.getOrDefault("idle_minutes", String.valueOf(DEFAULT_IDLE_MINUTES))); boolean share = Boolean.parseBoolean(m.getOrDefault("share", "false"));
+            String gpus = m.getOrDefault("gpus", "all"); int idle = chatIdle(m); boolean share = Boolean.parseBoolean(m.getOrDefault("share", "false"));
             if ("llama".equals(embedTag)) {
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
             Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "");
-            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n", StandardCharsets.UTF_8);
+            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n" + idleChosen(idle), StandardCharsets.UTF_8);
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
             // the model's start script stays as it is, whoever wrote it, so the config's stop command names the container that script starts
             Files.writeString(cfg, stopsWhatStarts(p.configYaml()), StandardCharsets.UTF_8);
-            // the proxy rereads its config only on a restart
-            switch (os) {
-                case linux -> runner.run(List.of("systemctl", "--user", "restart", proxyUnit()));
-                case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); runner.run(List.of("launchctl", "bootstrap", "gui/" + uid(), p.unit().toString())); }
-                case windows -> { runner.run(List.of("taskkill", "/im", "llama-swap.exe", "/f")); detach.start(List.of("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", p.unit().toString())); }
-            }
+            restartProxy(dir, p.unit(), out);   // the proxy rereads its config only on a restart
             String beforeEmbed = Config.stored("RESEARCHZOSHO_EMBED");
             Path prev = dir.resolve("previous");
             if (Files.exists(prev)) { String[] lines = Files.readString(prev, StandardCharsets.UTF_8).split("\n", -1); if (lines.length < 3 || lines[2].isBlank()) Files.writeString(prev, (lines.length > 0 ? lines[0] : "") + "\n" + (lines.length > 1 ? lines[1] : "") + "\n" + (beforeEmbed == null ? "" : beforeEmbed) + "\n", StandardCharsets.UTF_8); }
@@ -1028,6 +1071,99 @@ public final class ModelServer {
             out.println("  the model server of this machine now carries the embeddings server (" + Embed.MODEL + ") beside the model at " + URL + "; search by meaning is on. `researchzosho rebuild` indexes what is already on the shelves with it.");
             return row.name();
         } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
+    /** The proxy started again, so it reads its config: by the system's own way on Linux and macOS, by its number on Windows. */
+    static void restartProxy(Path dir, Path unit, PrintStream out) throws Exception {
+        switch (os) {
+            case linux -> runner.run(List.of("systemctl", "--user", "restart", proxyUnit()));
+            case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); runner.run(List.of("launchctl", "bootstrap", "gui/" + uid(), unit.toString())); }
+            case windows -> { String left = stopOurProxy(dir); if (!left.isEmpty()) out.println("  " + left); detach.start(List.of("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", unit.toString())); }
+        }
+    }
+
+    /**
+     * An install of ours brought to this release's idle times (0.8.0 review, round C2): the chat model's ({@link #chatIdle}) and the
+     * embeddings model's ({@link ModelsAwake#embedIdleMinutes}), written into its config's ttl lines and its plan, the proxy restarted.
+     * "" when they are as they should be; else the model's name.
+     */
+    static String idleRule(Path dir, Path cfg, String y, PrintStream out) throws Exception {
+        Map<String, String> m = readPlan(dir);
+        Matcher first = Pattern.compile("(?m)^  \"([^\"]+)\":\\s*\\n\\s*cmd:").matcher(y);
+        if (!first.find()) return "";
+        String name = first.group(1);
+        int chat = chatIdle(m), embed = ModelsAwake.embedIdleMinutes();
+        String now = withTtl(withTtl(y, name, chat * 60), EMBED_NAME, embed * 60);
+        if (now.equals(y)) return "";
+        Files.writeString(cfg, now, StandardCharsets.UTF_8);
+        Path props = dir.resolve("plan.properties");
+        if (Files.exists(props)) {
+            String pp = Files.readString(props, StandardCharsets.UTF_8).replaceAll("(?m)^idle_minutes=.*$", "idle_minutes=" + chat).replaceAll("(?m)^idle_chosen=.*\\n?", "");
+            Files.writeString(props, pp + (pp.endsWith("\n") ? "" : "\n") + idleChosen(chat), StandardCharsets.UTF_8);
+        }
+        restartProxy(dir, unitPath(os), out);
+        out.println("  the model server of this machine now lets the model go after " + chat + " idle minutes and the embeddings model after " + (embed == 0 ? "none (it stays loaded)" : embed + "") + "; work that runs keeps them loaded.");
+        return name;
+    }
+
+    /**
+     * An install of a row whose slot this release changed, still on the slot an earlier one wrote ({@link #SLOTS_BEFORE}): moved to the
+     * row's, in the start script and the config and the plan, so one conversation holds the chat. Left as it is when its person chose their
+     * own model, or wrote another slot by hand. True when it rewrote something; the caller restarts the proxy.
+     */
+    static boolean slotRule(Path dir, PrintStream out) throws IOException {
+        Map<String, String> m = readPlan(dir);
+        String name = m.getOrDefault("name", "");
+        Row row = null; for (Row r : ROWS) if (r.name().equals(name)) row = r;
+        String before = SLOTS_BEFORE.get(name);
+        if (row == null || before == null || !m.getOrDefault("chosen", "suggested").equals("suggested")) return false;
+        String[] b = before.split("/");
+        String was = " -c " + b[0] + " --parallel " + b[1] + " ", now = " -c " + row.ctx() + " --parallel " + row.parallel() + " ";
+        if (was.equals(now)) return false;
+        boolean changed = false;
+        for (Path f : List.of(dir.resolve("run.sh"), dir.resolve("config.yaml"))) {
+            if (!Files.exists(f)) continue;
+            String s = Files.readString(f, StandardCharsets.UTF_8), t = s.replace(was, now);
+            if (!t.equals(s)) { Files.writeString(f, t, StandardCharsets.UTF_8); changed = true; }
+        }
+        if (!changed) return false;
+        Path props = dir.resolve("plan.properties");
+        if (Files.exists(props)) Files.writeString(props, Files.readString(props, StandardCharsets.UTF_8).replaceAll("(?m)^ctx=.*$", "ctx=" + row.ctx()).replaceAll("(?m)^parallel=.*$", "parallel=" + row.parallel()), StandardCharsets.UTF_8);
+        out.println("  the model server of this machine now gives " + row.name() + " " + row.ctx() / row.parallel() + " tokens for a conversation" + (row.parallel() == 1 ? ", one at a time" : "") + ", so the chat's tools and a page fit.");
+        return true;
+    }
+
+    /** A config with the ttl of the model {@code name}'s block set to {@code seconds}. */
+    static String withTtl(String y, String name, int seconds) {
+        return Pattern.compile("(?m)^(  \"" + Pattern.quote(name) + "\":\\n(?:    .*\\n)*?)    ttl: \\d+$").matcher(y).replaceFirst("$1    ttl: " + seconds);
+    }
+
+    /** Where the number of the llama-swap this program started on Windows is kept. */
+    static final String SWAP_PID = "llama-swap.pid";
+
+    /** The running processes that are a llama-swap by their program's name; whose they are is told by their command line. A test gives its own. */
+    static final Supplier<List<Long>> SWAPS_RUNNING = () -> ProcessHandle.allProcesses().filter(h -> h.info().command().orElse("").toLowerCase(Locale.ROOT).contains("llama-swap")).map(ProcessHandle::pid).toList();
+    static volatile Supplier<List<Long>> SWAPS = SWAPS_RUNNING;
+
+    /**
+     * The llama-swap this program started on Windows, stopped with the model servers it started (its process tree), by the number kept
+     * when it was started, and only when that process is proven to be it ({@link ProcessProof}): it started no later than the number was
+     * kept, and its command line is llama-swap's with this program's own config file. Never by its name: a llama-swap the person runs
+     * themselves is left alone. "" when nothing else holds the proxy's port afterwards; else a sentence that says so.
+     */
+    static String stopOurProxy(Path dir) {
+        Path kept = dir.resolve(SWAP_PID);
+        String config = dir.resolve("config.yaml").toString();
+        Predicate<List<String>> ours = w -> String.join(" ", w).toLowerCase(Locale.ROOT).contains("llama-swap") && String.join(" ", w).contains(config);
+        try {
+            Long pid = Files.isRegularFile(kept) ? Long.parseLong(Files.readString(kept, StandardCharsets.UTF_8).strip()) : null;
+            if (pid != null && ProcessProof.proven(pid, kept, ours))
+                runner.run(List.of("taskkill", "/pid", String.valueOf(pid), "/t", "/f"));
+            if (pid == null)   // an install from a release before the number was kept (ROB 13): a llama-swap whose command line names this program's own config is ours
+                for (long other : SWAPS.get()) if (other != ProcessHandle.current().pid() && ours.test(ProcessProof.words(other))) runner.run(List.of("taskkill", "/pid", String.valueOf(other), "/t", "/f"));
+            Files.deleteIfExists(kept);
+        } catch (Exception e) { /* nothing proven, nothing stopped */ }
+        return health.test(URL) ? "A model proxy this program did not start answers at " + URL + " (a llama-swap you started yourself?), so it was left alone; stop it, then run researchzosho model install again." : "";
     }
 
     public static String status() {
@@ -1043,7 +1179,9 @@ public final class ModelServer {
             name = m.find() ? m.group(1) : "?";
             Matcher t = Pattern.compile("ttl:\\s*(\\d+)").matcher(y);
             b.append("  model: ").append(name).append(" on ").append(backend()).append(t.find() ? ", stops after " + (Integer.parseInt(t.group(1)) / 60) + " idle minutes" : "").append('\n');
-            b.append("  embeddings: ").append(y.contains("\"" + EMBED_NAME + "\":") ? Embed.MODEL + " beside it at the same address, model name \"" + EMBED_NAME + "\", never idles out" : "none beside it (no card docker can use; RESEARCHZOSHO_EMBED can point elsewhere)").append('\n');
+            Matcher et = Pattern.compile("(?m)^  \"" + EMBED_NAME + "\":\\n(?:    .*\\n)*?    ttl: (\\d+)$").matcher(y);
+            int embedTtl = et.find() ? Integer.parseInt(et.group(1)) : 0;
+            b.append("  embeddings: ").append(y.contains("\"" + EMBED_NAME + "\":") ? Embed.MODEL + " beside it at the same address, model name \"" + EMBED_NAME + "\", " + (embedTtl == 0 ? "never idles out" : "stops after " + embedTtl / 60 + " idle minutes") : "none beside it (no card docker can use; RESEARCHZOSHO_EMBED can point elsewhere)").append('\n');
         } catch (IOException e) { b.append("  config unreadable: ").append(e.getMessage()).append('\n'); }
         boolean up = health.test(URL);
         b.append("  proxy at ").append(URL).append(": ").append(up ? "answers" : "does not answer (service " + serviceState() + "; log: " + logHint() + ")").append('\n');
@@ -1071,13 +1209,14 @@ public final class ModelServer {
     public static String uninstall() { return uninstall(false); }
 
     public static String uninstall(boolean force) {
+        StringBuilder said = new StringBuilder();   // what is said of a llama-swap this program did not start, before the rest
         try {
             String sib = siblingDrive();
             if (!force && URL.equals(sib)) return "!CodeZaiku's settings also point at this proxy (" + Path.of(home(), ".codezaiku", "config") + "); point it elsewhere first, or pass --force";
             switch (os) {
                 case linux -> { runner.run(List.of("systemctl", "--user", "disable", "--now", UNIT)); Files.deleteIfExists(unitPath(os)); runner.run(List.of("systemctl", "--user", "daemon-reload")); }
                 case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); Files.deleteIfExists(unitPath(os)); }
-                case windows -> { runner.run(List.of("schtasks", "/delete", "/tn", TASK, "/f")); runner.run(List.of("taskkill", "/im", "llama-swap.exe", "/f")); runner.run(List.of("taskkill", "/im", "llama-server.exe", "/f")); }
+                case windows -> { runner.run(List.of("schtasks", "/delete", "/tn", TASK, "/f")); String left = stopOurProxy(dir()); if (!left.isEmpty()) said.append(left).append(' '); }
             }
             Path d = dir();
             String restored = "";
@@ -1097,7 +1236,7 @@ public final class ModelServer {
                 }
             }
             if (Files.isDirectory(d)) { try (var s = Files.walk(d)) { s.sorted(Comparator.reverseOrder()).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } }); } }
-            return "removed the service and the proxy; the model files in " + modelsDir() + " stay" + restored;
+            return said + "removed the service and the proxy; the model files in " + modelsDir() + " stay" + restored;
         } catch (Exception e) { return "!" + e.getMessage(); }
     }
 
@@ -1138,7 +1277,7 @@ public final class ModelServer {
         switch (op) {
             case "install" -> {
                 if (!Helpers.localAllowed()) { out.println(Helpers.localRefusedSaid("a model server")); return 1; }
-                Path file = null; String gpus = "all"; int idle = DEFAULT_IDLE_MINUTES; boolean share = false, own = false;
+                Path file = null; String gpus = "all"; int idle = idleSet() != null ? idleSet() : DEFAULT_IDLE_MINUTES; boolean share = false, own = false;
                 for (int i = from + 1; i < a.length; i++) {
                     switch (a[i]) {
                         case "--file" -> file = Path.of(a[++i]);

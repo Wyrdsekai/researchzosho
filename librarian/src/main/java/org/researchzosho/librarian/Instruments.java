@@ -79,6 +79,9 @@ public final class Instruments {
     public interface BoardReader { String read(String employer, List<String> towns, List<String> words) throws Exception; }
     public interface RecordsReader { String read(LibraryStore store, String address) throws Exception; }
     public static volatile HomesRunner HOMES = Instruments::homesLive;
+
+    /** Who the chat's call is made for, when an instrument files work: the person of the conversation, never the library's owner by default (round F, S12). */
+    static final ThreadLocal<String> FOR = new ThreadLocal<>();
     public static volatile BoardReader BOARD = Instruments::boardLive;
     public static volatile RecordsReader RECORDS = Instruments::recordsLive;
     /** A stand-in for the look at a video, for tests; null means the video field's own reading. */
@@ -141,8 +144,10 @@ public final class Instruments {
         Map<String, Tool> byName = new LinkedHashMap<>();
         try { for (Tool t : Researcher.webTools().web("")) byName.put(t.name(), t); } catch (RuntimeException e) { /* a box with no web tools: search says so */ }
         if (store != null) byName.put("shelf_search", new Researcher.ShelfSearchTool(store, List.of()));
+        Map<String, Tool> opens = new LinkedHashMap<>(byName);
+        if (store != null) opens.put("read_pages", new Researcher.PagesTool(store));   // a file the shelf search listed is opened from the library (round G)
         List<Instrument> out = new ArrayList<>();
-        out.add(search(byName)); out.add(open(byName)); out.add(look(store)); out.add(candidates(store)); out.add(sift(store));
+        out.add(search(byName)); out.add(open(opens)); out.add(look(store)); out.add(candidates(store)); out.add(sift(store));
         out.add(patents(store)); out.add(patentAbstracts(store)); out.add(patentClaims(store));
         if (store != null) { out.add(records(store)); out.add(homes(store)); out.add(dossier(store)); if (familyOn(store)) out.add(who(store)); out.add(shelf(store)); }
         out.add(board());
@@ -254,7 +259,8 @@ public final class Instruments {
                 String as = args.path("as").asText("auto").toLowerCase(Locale.ROOT);
                 if (address.isEmpty()) return Result.of("open", "", "Give the address to open.");
                 boolean video = VideoText.videoId(address) != null, channel = VideoText.channelUrl(address) != null && !video;
-                String toolName = as.equals("channel") || (as.equals("auto") && channel) ? "channel_uploads"
+                boolean held = address.matches("(?i)^(?:file:|cite:)\\S.*");   // a file the library holds, by the locator its shelf search listed: read from the library
+                String toolName = held ? "read_pages" : as.equals("channel") || (as.equals("auto") && channel) ? "channel_uploads"
                         : as.equals("transcript") || (as.equals("auto") && video) ? "video_details" : "web_fetch";
                 Tool t = byName.get(toolName);
                 if (t == null) return Result.of("open", address, "This table cannot open that kind of address (" + toolName + " is not on it).");
@@ -262,6 +268,7 @@ public final class Instruments {
                 switch (toolName) {
                     case "video_details" -> { a.put("video", address); a.put("transcript", true); }
                     case "channel_uploads" -> a.put("channel", address);
+                    case "read_pages" -> a.put("url", address);
                     default -> { a.put("url", address); if (!args.path("find").asText("").isBlank()) a.put("find", args.path("find").asText()); }
                 }
                 return Result.of("open", address, t.execute(a));
@@ -498,7 +505,7 @@ public final class Instruments {
         if (s == null) s = Home.start(store, name);
         String told = Home.tell(store, s, words);
         // the search is filed as a run the chat follows on its strip, never run inside a turn: minutes of sources, and the service's own ledger
-        String filed = HomeFind.file(store, s, Patrons.Patron.PERSON.did());
+        String filed = HomeFind.file(store, s, FOR.get() != null ? FOR.get() : Patrons.Patron.PERSON.did());
         return (told.isBlank() ? "" : told + "\n") + filed + "\nThe search \"" + s.name() + "\" is kept; when the run lands, the Home page shows its listings in tiers with a link on each, and a report of the fits is filed on Past.";
     }
 

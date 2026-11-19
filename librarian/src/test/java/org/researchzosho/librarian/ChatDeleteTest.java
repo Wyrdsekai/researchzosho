@@ -256,6 +256,7 @@ class ChatDeleteTest {
         // a field's question: no answer is ordinary research, the run starts as it was filed
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + GenealogyOfferTest.FAMILY + "\"}"), LibrarianChatTest.say("I have filed it.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         lib.say("Find out who my great-grandfather's parents were");
+        lib.say("yes");   // the model's run waits for the person's yes (round E); then the field's question waits
         ObjectNode filed = GenealogyOfferTest.filed(store);
         String job = filed.path("job_id").asText();
         assertEquals(Jobs.OFFERED, filed.path("state").asText());
@@ -273,6 +274,7 @@ class ChatDeleteTest {
         // a question with named choices: no answer is no choice, the run is not started
         Librarian choose = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Which spectrometer should the lab buy?\", \"choices\": [\"Raman\", \"FTIR\"], \"choice_question\": \"Which kind is the question about?\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         choose.say("Find out which spectrometer the lab should buy");
+        choose.say("yes");
         String chosen = GenealogyOfferTest.filed(store).path("job_id").asText();
         assertEquals(Jobs.OFFERED, new Jobs(store, j -> "").get(chosen).path("state").asText());
         Librarian.Session.Deleted c = Librarian.Session.delete(store, choose.session().id, Librarian.person());

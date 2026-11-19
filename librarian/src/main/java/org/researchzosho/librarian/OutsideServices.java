@@ -167,6 +167,7 @@ public final class OutsideServices {
 
     /** Every service whose key is set, asked whether the key is accepted and what is left; the answers kept with their time, and returned. Each probe is one call in the tally. */
     public static List<Result> check(LibraryStore store) throws IOException {
+        Hosted.machine();   // the keys are the service's: a library under it does not ask their services about them
         Map<String, Result> all = kept(store);
         List<Result> now = new ArrayList<>();
         for (Service s : KNOWN) {

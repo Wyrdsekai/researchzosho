@@ -16,6 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 /** A multipart form as a browser posts it: the text fields as they are, the file written under its own name, the folder dropped after. */
 class UploadsTest {
@@ -28,7 +29,7 @@ class UploadsTest {
         body.writeBytes(("--" + b + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"C:\\\\Users\\\\me\\\\my resume (2026).pdf\"\r\nContent-Type: application/pdf\r\n\r\n").getBytes(StandardCharsets.UTF_8));
         body.writeBytes(pdf);
         body.writeBytes(("\r\n--" + b + "\r\nContent-Disposition: form-data; name=\"empty\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        Path dir = tmp.resolve("researchzosho-upload-x");
+        Path dir = Uploads.newFolder();   // a folder as the server makes one for a post
         Map<String, String> form = Uploads.multipart(body.toByteArray(), "multipart/form-data; boundary=" + b, dir);
         assertEquals("provide", form.get("op")); assertEquals("Søren Example", form.get("name"));
         assertEquals("my resume (2026).pdf", form.get("file.name"), "the file's own name, the folders stripped");
@@ -37,6 +38,7 @@ class UploadsTest {
         assertFalse(form.containsKey("empty.path"), "a file box left empty gives nothing");
         Uploads.drop(form);
         assertFalse(Files.exists(dir), "the upload's folder is gone after the page read the file");
+        assertFalse(Uploads.isUpload(f), "and the server no longer knows it as one of its own");
         Path keep = Files.createDirectories(tmp.resolve("mine")); Path k = Files.writeString(keep.resolve("a.txt"), "x");
         Uploads.drop(Map.of("file.path", k.toString()));
         assertTrue(Files.exists(k), "only a folder the server made for an upload is removed");
@@ -78,7 +80,7 @@ class UploadsTest {
         part(body, b, "file.path", null, "/etc/hostname");   // a posted text field cannot pose as a file the server wrote
         part(body, b, "file.2.name", null, "posed.txt");
         body.writeBytes(("--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        Path dir = Files.createTempDirectory(Uploads.DIR);
+        Path dir = Uploads.newFolder();
         try {
             Map<String, String> form = Uploads.multipart(body.toByteArray(), "multipart/form-data; boundary=" + b, dir);
             assertEquals("notes", form.get("collection"));
@@ -110,7 +112,7 @@ class UploadsTest {
     @Test void onlyAFileThisServerSavedIsAFormsFileAndAPlainFormCarriesNoFieldNamedLikeOne(@TempDir Path tmp) throws Exception {
         Path elsewhere = Files.writeString(tmp.resolve("on the machine.txt"), "a file of the machine's");
         Path lookalike = Files.writeString(Files.createDirectories(tmp.resolve(Uploads.DIR + "x")).resolve("a.txt"), "in a folder named like an upload's, somewhere else");
-        Path dir = Files.createTempDirectory(Uploads.DIR);
+        Path dir = Uploads.newFolder();
         try {
             Path saved = Files.writeString(dir.resolve("mine.txt"), "posted");
             Map<String, String> form = new LinkedHashMap<>();
@@ -126,12 +128,49 @@ class UploadsTest {
         } finally { Uploads.remove(dir); }
     }
 
+    /**
+     * The server knows the folders it made for uploads; it does not recognise one by its name or by where it lies (0.8.0). A folder
+     * somebody else made directly under the temporary folder, named as an upload's is, holds no file of a form's and is not removed
+     * when a form names a path in it; nor is a folder of that name anywhere else. A post that brings no file, or is refused, leaves
+     * no folder behind and nothing on the server's list.
+     */
+    @Test void theServerKnowsItsOwnUploadFoldersAndNoOtherByItsName(@TempDir Path tmp) throws Exception {
+        Path others = Files.createTempDirectory(Uploads.DIR);   // not the server's: made beside its own, with the same kind of name
+        Path elsewhere = Files.createDirectories(tmp.resolve(Uploads.DIR + "y"));
+        try {
+            Path theirs = Files.writeString(others.resolve("a.txt"), "somebody else's"), far = Files.writeString(elsewhere.resolve("b.txt"), "named alike, somewhere else");
+            assertFalse(Uploads.isUpload(theirs), "a folder under the temporary folder with an upload's name is not the server's by that");
+            assertFalse(Uploads.isUpload(far));
+            assertTrue(Uploads.files(Map.of("file.path", theirs.toString(), "file.name", "a.txt"), "file").isEmpty(), "and no file in it is a form's");
+            Uploads.drop(Map.of("file.path", theirs.toString(), "more.path", far.toString()));
+            assertTrue(Files.exists(theirs) && Files.exists(far), "a path a form names is not removed: only a folder the server made for an upload is");
+        } finally { Uploads.remove(others); }
+        String b = "----rz";
+        int before = Uploads.known();
+        // a post with a text field and no file: nothing is kept
+        Map<String, String> plain = Uploads.posted(new ByteArrayInputStream(("--" + b + "\r\nContent-Disposition: form-data; name=\"to\"\r\n\r\nfr\r\n--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8)), "multipart/form-data; boundary=" + b, 1 << 20, "too large");
+        assertEquals(Map.of("to", "fr"), plain); assertEquals(before, Uploads.known(), "a post that brought no file leaves nothing on the list");
+        // a post with a file: its folder is the server's own until the page has read it
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        part(body, b, "file", "notes.txt", "what was posted");
+        body.writeBytes(("--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        Map<String, String> form = Uploads.posted(new ByteArrayInputStream(body.toByteArray()), "multipart/form-data; boundary=" + b, 1 << 20, "too large");
+        Path saved = Path.of(form.get("file.path"));
+        assertTrue(Uploads.isUpload(saved) && Files.readString(saved).equals("what was posted")); assertEquals(before + 1, Uploads.known());
+        assertEquals(1, Uploads.files(form, "file").size());
+        Uploads.drop(form);
+        assertFalse(Files.exists(saved.getParent())); assertFalse(Uploads.isUpload(saved)); assertEquals(before, Uploads.known());
+        // a post over what the page takes: refused, and its folder is gone with it
+        ProtocolError over = assertThrows(ProtocolError.class, () -> Uploads.posted(new ByteArrayInputStream(body.toByteArray()), "multipart/form-data; boundary=" + b, 40, "too large"));
+        assertEquals("too large", over.getMessage()); assertEquals(before, Uploads.known(), "a refused post leaves nothing on the list");
+    }
+
     @Test void moreFilesThanThePageTakesIsRefusedAndNothingIsLeftOnDisk() throws Exception {
         String b = "----rz";
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         for (int i = 0; i <= Uploads.MAX_FILES; i++) part(body, b, "file", "n" + i + ".txt", "x");
         body.writeBytes(("--" + b + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        Path dir = Files.createTempDirectory(Uploads.DIR);
+        Path dir = Uploads.newFolder();
         try {
             ProtocolError e = assertThrows(ProtocolError.class, () -> Uploads.multipart(body.toByteArray(), "multipart/form-data; boundary=" + b, dir));
             assertTrue(e.getMessage().startsWith("More than 500 files in one go."), e.getMessage());

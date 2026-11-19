@@ -1,5 +1,7 @@
 package org.researchzosho.drive.openai;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -58,7 +60,7 @@ public final class OpenAI {
 
     private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15)).build();
     private static final Transport REAL = (method, uri, headers, body, timeout) -> {
-        HttpRequest.Builder b = HttpRequest.newBuilder(uri).timeout(timeout);
+        HttpRequest.Builder b = Gated.request(uri.toString()).timeout(timeout);   // a call that costs carries its use and its lane, for a node's gate
         headers.forEach(b::header);
         b.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
         HttpResponse<String> r = HTTP.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -84,7 +86,7 @@ public final class OpenAI {
     /** Whether a drive setting names OpenAI's API: its address, or the word. */
     public static boolean is(String drive) {
         if (drive == null) return false;
-        String d = drive.strip().toLowerCase(Locale.ROOT);
+        String d = Gated.upstream(drive.strip()).toLowerCase(Locale.ROOT);   // through a node's gate: the server it stands for
         return d.equals("openai") || d.contains("://api.openai.com");
     }
 
@@ -99,7 +101,7 @@ public final class OpenAI {
 
     /** A chat-completions request in, a chat completion out. The output asked for is capped at what the model can write. */
     public ObjectNode chat(String model, JsonNode chatCompletionsBody, Duration timeout) {
-        if (key.isEmpty()) throw new Refused(401, "OpenAI needs a key: set api_key (researchzosho settings set api_key …) to the key from platform.openai.com.");
+        if (key.isEmpty() && !Gated.gated(base)) throw new Refused(401, "OpenAI needs a key: set api_key (researchzosho settings set api_key …) to the key from platform.openai.com.");
         ObjectNode request = Responses.request(chatCompletionsBody, model, Config.get(EFFORT));
         int cap = maxOutput(model);
         if (request.path("max_output_tokens").asInt(0) > cap) request.put("max_output_tokens", cap);
@@ -132,6 +134,7 @@ public final class OpenAI {
             catch (Exception e) { throw new RuntimeException("OpenAI could not be reached: " + e.getMessage(), e); }
             int s = a.status();
             if (s == 200) { pace(a); return a; }
+            Gated.throwIfRefused(s, a.body());   // a node's gate: a cap reached, said as it is
             String message = message(a.body());
             if (s == 429) {
                 if (message.contains("insufficient_quota") || body(a.body()).path("error").path("code").asText("").equals("insufficient_quota"))

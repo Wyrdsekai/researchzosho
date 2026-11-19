@@ -4,6 +4,7 @@ import org.researchzosho.Config;
 import org.researchzosho.Stopping;
 
 import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -52,6 +53,23 @@ public final class ResearchSettings {
         } catch (Exception e) {
             return true;
         }
+    }
+
+    /**
+     * When the research hours next open, in milliseconds of the clock: 0 when they are open now, when there are none, or when
+     * research is paused (a pause ends by a person's word, at no hour).
+     */
+    public static long nextOpen() { return paused() ? 0 : nextOpen(window(), ZonedDateTime.now()); }
+
+    static long nextOpen(String spec, ZonedDateTime now) {
+        if (spec == null || spec.isBlank() || inWindow(spec, now.toLocalTime())) return 0;
+        try {
+            String a = spec.strip().split("-")[0].strip();
+            LocalTime opens = LocalTime.parse(a.length() == 4 ? "0" + a : a);
+            ZonedDateTime at = now.with(opens);
+            if (!at.isAfter(now)) at = at.plusDays(1);
+            return at.toInstant().toEpochMilli();
+        } catch (RuntimeException e) { return 0; }
     }
 
     /** Whether {@code spec} is a window this class will honour. */

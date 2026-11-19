@@ -18,6 +18,8 @@ import org.researchzosho.Stopping;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +37,7 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.researchzosho.librarian.Acquisitions;
 import org.researchzosho.librarian.Fence;
+import org.researchzosho.librarian.Untrusted;
 import org.researchzosho.librarian.LibraryStore;
 import org.researchzosho.librarian.RawCapture;
 import org.researchzosho.librarian.Requests;
@@ -102,6 +105,7 @@ public final class WebFetchTool implements Tool {
     @Override public String execute(JsonNode args) throws Exception {
         String url = args.path("url").asText("");
         if (url.isBlank()) return "ERROR: empty url";
+        if (url.strip().matches("(?is)^(?:file:|cite:)\\S.*")) return "ERROR: " + url.strip() + " is a file the library holds, not a web address: read it with read_pages.";   // never sent to the web as https://file:…
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
         // The guard keys on url+find: re-reading the SAME page for a DIFFERENT thing is legitimate (the
         // excerpt shown is question-relevant, so a new question genuinely shows new text) — what we refuse
@@ -265,7 +269,7 @@ public final class WebFetchTool implements Tool {
         else if (Acquisitions.libraryExists()) RawCapture.capture(LibraryStore.open(), url, text, doc.title(), "researchzosho-web-fetch", "", published);
         // The document's own title rides on the source line: the person watching the turn sees
         // WHAT was read, not just that a read happened, and the model cites by name, not URL.
-        String title = doc.title();
+        String title = Untrusted.line(doc.title(), 120);   // a document's own title stands outside the fence: one short line, its markers and instructions set aside (round F, S18)
         String kindNote = "html".equals(doc.kind()) || "text".equals(doc.kind()) ? "" : " [" + doc.kind() + "]";
         String head = "source: " + url + (title.isEmpty() ? "" : " — " + title) + kindNote + " — fetched " + DateTimeFormatter.ISO_INSTANT.format(Instant.now().atZone(ZoneOffset.UTC).withSecond(0).withNano(0))
                 + (published == null || published.isBlank() ? "" : "; the page says it was published " + published) + "\n";   // the model has no clock: a price or a claim read here carries the time it was seen
@@ -273,10 +277,58 @@ public final class WebFetchTool implements Tool {
         // the page's pictures, with their alt text, caption and address, so that the model can have one read by the model that reads pictures
         List<Picture> pics = "html".equals(doc.kind()) ? pictures(new String(bytes, 0, Math.min(bytes.length, 2_000_000), StandardCharsets.UTF_8), url) : List.of();
         if (!pics.isEmpty()) shown = shown + "\n\n" + pictureList(pics);
+        // the page's links, each address beside its words: the model follows a link by its address, which the library opens since the page gave
+        // it; with the words alone it guessed addresses on the host, which are refused (2026-11-18)
+        String links = "html".equals(doc.kind()) ? linkList(new String(bytes, 0, Math.min(bytes.length, 2_000_000), StandardCharsets.UTF_8), url, terms) : "";
+        if (!links.isEmpty()) shown = shown + "\n\n" + links;
         // The page's text is FENCED with a per-process nonce: it is quoted evidence, and a page cannot
         // forge the closing marker to speak in the harness's voice (Wyrdsekai, 2026-09-07).
         return firstLine + head + Fence.wrap("SOURCE TEXT", shown) + "\n" + Fence.rule("SOURCE TEXT")
                 + (pics.isEmpty() ? "" : "\nThe page has " + pics.size() + " picture(s), listed at the end of its text. To have one read, call web_fetch with its address.");
+    }
+
+    /** The most links a page's text lists: the ones whose words share the search's terms first, then in the page's order. */
+    static final int MOST_LINKS = 30;
+    private static final Pattern LINK = Pattern.compile("(?is)<a\\b[^>]*?\\bhref\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))[^>]*>(.*?)</a>");
+
+    /**
+     * "Links on the page:" with each link's words and its address, resolved against the page's own; a link to another place on the same page,
+     * a script or a mail address is left out, as is one with no words. "" when there is none.
+     */
+    static String linkList(String html, String pageUrl, String terms) {
+        URI base;
+        try { base = URI.create(pageUrl); } catch (IllegalArgumentException e) { return ""; }
+        Map<String, String> found = new LinkedHashMap<>();
+        Matcher m = LINK.matcher(html);
+        while (m.find() && found.size() < 400) {
+            String href = m.group(1) != null ? m.group(1) : m.group(2) != null ? m.group(2) : m.group(3);
+            String words = Entities.decode(m.group(4).replaceAll("(?s)<[^>]*>", " ")).replaceAll("\\s+", " ").strip();
+            if (href == null || words.isEmpty() || href.startsWith("#")) continue;
+            try {
+                URI u = base.resolve(Entities.decode(href).strip().replace(" ", "%20"));
+                String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+                if (!scheme.equals("http") && !scheme.equals("https")) continue;
+                String address = u.toString();
+                int hash = address.indexOf('#');
+                if (hash >= 0 && address.substring(0, hash).equals(pageUrl)) continue;   // another place on the same page
+                found.putIfAbsent(address, words.length() > 80 ? words.substring(0, 80) + "…" : words);
+            } catch (IllegalArgumentException wrong) { /* a link the page wrote wrong */ }
+        }
+        if (found.isEmpty()) return "";
+        Set<String> want = new HashSet<>();
+        for (String t : (terms == null ? "" : terms).toLowerCase(Locale.ROOT).split("\\W+")) if (t.length() > 2) want.add(t);
+        List<Map.Entry<String, String>> all = new ArrayList<>(found.entrySet());
+        all.sort(Comparator.comparing(e -> !matches(e.getValue(), want)));   // the links whose words share the terms first, the page's order kept within each
+        StringBuilder b = new StringBuilder("Links on the page:");
+        for (Map.Entry<String, String> e : all.subList(0, Math.min(MOST_LINKS, all.size()))) b.append("\n- ").append(e.getValue()).append(" — ").append(e.getKey());
+        if (all.size() > MOST_LINKS) b.append("\n(").append(all.size() - MOST_LINKS).append(" more links)");
+        return b.toString();
+    }
+
+    private static boolean matches(String words, Set<String> want) {
+        if (want.isEmpty()) return false;
+        for (String w : words.toLowerCase(Locale.ROOT).split("\\W+")) if (want.contains(w)) return true;
+        return false;
     }
 
     /** A wall becomes a request to the person, when there is a library to record it in. */

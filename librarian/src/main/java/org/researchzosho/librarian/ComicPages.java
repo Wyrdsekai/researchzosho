@@ -288,10 +288,21 @@ final class ComicPages {
         return out;
     }
 
+    /** Whether a name in an archive's list leads out of the folder the archive is unpacked into: it begins at the root or at a drive, or has ".." on its way. */
+    static boolean leadsOut(String name) {
+        String n = name.strip().replace('\\', '/');
+        if (n.startsWith("/") || n.matches("^[A-Za-z]:.*")) return true;
+        for (String part : n.split("/")) if (part.equals("..")) return true;
+        return false;
+    }
+
     /** A RAR unpacked under {@code root} by the machine's own program; what it wrote is then read as a folder is, links never followed. */
     static void unrar(Path in, Path root) throws IOException {
         RarTool t = rarTool();
         if (t == null) throw new IOException(NO_RAR_TOOL);
+        // the volume's own list is looked at first: a name that leads out of the folder it is unpacked into (a ".." on its way, or a name
+        // that begins at the root or at a drive) is no page of a comic, and the program is not asked to write it anywhere
+        for (String n : rarNames(in)) if (leadsOut(n)) throw new IOException(in.getFileName() + " holds a file named to be written outside it (" + Acquisitions.compress(n, 80) + "), so it was not unpacked.");
         Searx.Result r;
         try { r = Searx.runner.run(filled(t.unpack(), in, root)); } catch (Exception e) { throw new IOException(t.name() + " could not unpack " + in.getFileName() + ": " + e.getMessage()); }
         if (r.code() != 0) throw new IOException(t.name() + " could not unpack " + in.getFileName() + ": " + TranslationScores.last(r.out()));

@@ -90,7 +90,9 @@ class ChatLanguageTest {
                 // a research ask the model files: the library's question whether to use a field's mode, and the person's no to it
                 Librarian.Session s2 = Librarian.Session.open(store);
                 Librarian research = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + GenealogyOfferTest.FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), s2);
-                String offer = research.say("great-grandfather");
+                research.say("great-grandfather");
+                List<String> yes = ChatWordsTest.plain(w, "yes").isEmpty() ? ChatWordsTest.plain(w, "yes.alone") : ChatWordsTest.plain(w, "yes");
+                String offer = research.say(yes.get(0));   // the model's run waits for the person's yes first (round E)
                 said.add(offer.replace("Filed.", ""));   // the model's own words are the model's
                 assertTrue(offer.endsWith(c.yesNo(c.t("Use {0} mode for this question?", Fields.said("genealogy")))), code + ": " + offer);
                 String no = research.say(ChatWordsTest.plain(w, "no").get(0));

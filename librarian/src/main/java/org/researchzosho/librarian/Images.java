@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -308,7 +310,7 @@ public final class Images {
         if (!SearchTally.reserve(WebSearchTool.BRAVE)) throw new IOException(SearchTally.usedUp(WebSearchTool.BRAVE, WebSearchTool.BRAVE));
         boolean made = false;
         try {
-            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(braveUrl(words, count))).timeout(SEARCH_TIMEOUT)
+            HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(braveUrl(words, count)).timeout(SEARCH_TIMEOUT)
                     .header("Accept", "application/json").header("X-Subscription-Token", key.strip()).GET().build(), HttpResponse.BodyHandlers.ofString(), SEARCH_TIMEOUT, "Brave's image search");
             if (resp.statusCode() != 200) throw new IOException("Brave answered HTTP " + resp.statusCode());
             made = true;

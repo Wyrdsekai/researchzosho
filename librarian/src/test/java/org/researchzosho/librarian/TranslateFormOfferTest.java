@@ -161,7 +161,7 @@ class TranslateFormOfferTest {
             Translation.SEATS = (drive, model, judge, back) -> ComicTranslationTest.seats(new ComicTranslationTest.Model()).withBack(false);
             Config.set("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:1"); Config.set("RESEARCHZOSHO_MODEL", "stand-in");
             ComicHelper.INSTALLED = () -> false;
-            Path dir = Files.createTempDirectory(Uploads.DIR);
+            Path dir = Uploads.newFolder();
             Path cbz = dir.resolve("volume.cbz"); ComicStandIn.volume(cbz, 3);
             Map<String, String> form = new LinkedHashMap<>(Map.of("file.path", cbz.toString(), "file.name", "volume.cbz", "to", "en", "quality", "quick", "direction", "terse, urgent", "notes_box", "1"));
             String asked = Pages.translatePost(store, Patrons.Patron.PERSON, form);
@@ -183,7 +183,7 @@ class TranslateFormOfferTest {
             assertEquals("yes", args.path("comic_setup").asText()); assertEquals("on", args.path("comic").asText()); assertEquals("terse, urgent", args.path("direction").asText());
             assertFalse(args.has("from"), "no language was chosen on the form");
             // the form's choice names the language the comic is lettered in: the offer's button carries it, and the job is filed with it
-            Path again = Files.createTempDirectory(Uploads.DIR);
+            Path again = Uploads.newFolder();
             Path manhwa = again.resolve("manhwa.cbz"); ComicStandIn.volume(manhwa, 2);
             String offer = Pages.translatePost(store, Patrons.Patron.PERSON, new LinkedHashMap<>(Map.of("file.path", manhwa.toString(), "file.name", "manhwa.cbz", "to", "en", "from", "ko", "quality", "quick", "notes_box", "1")));
             assertTrue(offer.contains("name=\"from\" value=\"ko\""), "the button carries the language chosen: " + offer);
@@ -201,7 +201,7 @@ class TranslateFormOfferTest {
             // and a choice for the way a comic's pages are read, beside the languages: found from the pages unless chosen; the offer's button carries it, and the job is filed with it
             assertTrue(page.contains("<select name=\"reads\" aria-label=\"the way its pages are read\"><option value=\"\">which way it reads is found from the pages</option><option value=\"rtl\">it reads from right to left (a manga)</option><option value=\"ltr\">it reads from left to right</option></select>"), page);
             assertTrue(page.indexOf("name=\"from\"") < page.indexOf("name=\"reads\"") && page.indexOf("name=\"reads\"") < page.indexOf("name=\"as\""), "beside the language choices");
-            Path third = Files.createTempDirectory(Uploads.DIR);
+            Path third = Uploads.newFolder();
             Path edition = third.resolve("edition.cbz"); ComicStandIn.volume(edition, 2);
             String carried = Pages.translatePost(store, Patrons.Patron.PERSON, new LinkedHashMap<>(Map.of("file.path", edition.toString(), "file.name", "edition.cbz", "to", "de", "from", "en", "reads", "rtl", "quality", "quick", "notes_box", "1")));
             assertTrue(carried.contains("name=\"reads\" value=\"rtl\""), "the button carries the way chosen: " + carried);

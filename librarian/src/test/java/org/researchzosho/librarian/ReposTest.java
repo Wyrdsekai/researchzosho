@@ -37,6 +37,19 @@ class ReposTest {
         return r;
     }
 
+    /** A repository's folder in the library is named for the last part of its address; dots alone are no name (0.8.0), or an address ending in "/." would name the folder of all repositories itself, and "/.." the one above it. */
+    @Test
+    void anAddressEndingInDotsNamesNoFolderOfItsOwn() {
+        assertEquals("repo", Repos.nameOf("https://forge.example/someone/."));
+        assertEquals("repo", Repos.nameOf("https://forge.example/someone/.."));
+        assertEquals("repo", Repos.nameOf("https://forge.example/someone/./"));
+        assertEquals("repo", Repos.nameOf("https://forge.example/someone/..git"));
+        assertEquals("repo", Repos.nameOf("git@forge.example:."));
+        assertEquals("tool", Repos.nameOf("https://forge.example/someone/tool.git"));
+        assertEquals("tool.kit", Repos.nameOf("https://forge.example/someone/tool.kit/"));
+        assertEquals(".config", Repos.nameOf("https://forge.example/someone/.config"));
+    }
+
     @Test
     void aFolderIsReadAndSurveyedWithoutTheJunk(@TempDir Path home) throws Exception {
         Path r = repo(home);

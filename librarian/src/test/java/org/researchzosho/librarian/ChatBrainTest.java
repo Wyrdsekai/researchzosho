@@ -52,17 +52,17 @@ class ChatBrainTest {
         List<List<String>> toolsSeen = new ArrayList<>(); List<ArrayNode> messagesSeen = new ArrayList<>();
         Librarian lib = new Librarian(store, scripted(List.of(homes, say), toolsSeen, messagesSeen), Librarian.person(), Librarian.Session.open(store));
         String reply = lib.say("find me a house to buy in Cambridge");
-        assertEquals("Three homes fit; the Home page lists them with a link on each.", reply);
+        assertTrue(reply.startsWith("Three homes fit; the Home page lists them with a link on each.") && reply.contains("The model asks to start a home search: \"a house to buy in Cambridge\""), reply);
+        assertEquals(List.of(), ran, "the home search waits for the person's yes (round F: it files a run and spends the keeper's allowance)");
+        String yes = lib.say("yes");
         assertEquals(List.of("a house to buy in Cambridge | a house to buy in Cambridge"), ran, "the home search ran, named from the words");
+        assertTrue(yes.startsWith("Done.") && yes.contains("3 homes fit; the search is kept."), "its answer is the person's to read: " + yes);
         List<String> offered = toolsSeen.get(0);
         assertTrue(offered.containsAll(List.of("homes", "look", "records", "board", "dossier", "search", "open", "shelf", "library_research")), offered.toString());
         assertFalse(offered.contains("who"), "no family work in this library, so no who: " + offered);
         assertFalse(offered.contains("ask") || offered.contains("pursue"), "the chat offers none of the brain's own tools; the reply is the question");
         String system = messagesSeen.get(0).get(0).path("content").asText();
         assertTrue(system.contains("A home to buy or rent is homes, not a research run") && system.contains("Copy the shape of these calls exactly") && system.contains("homes {\"words\": "), "a small model's words carry the calls to copy:\n" + system.substring(Math.max(0, system.length() - 900)));
-        String toolResult = null;
-        for (JsonNode m : lib.session().messages) if ("tool".equals(m.path("role").asText())) toolResult = m.path("content").asText();
-        assertEquals("3 homes fit; the search is kept.", toolResult);
     }
 
     @Test void aRememberedVideoIsSearchedForAndThenLookedAtFromTheChat() throws Exception {
@@ -79,16 +79,20 @@ class ChatBrainTest {
             ObjectNode look = M.createObjectNode(); look.put("tool", "look"); look.set("args", M.readTree("{\"video\":\"https://www.youtube.com/watch?v=dQw4w9WgXcQ\",\"what\":\"silent; the measurements on screen at the start\",\"sparse\":true}"));
             ObjectNode say = M.createObjectNode(); say.put("say", "It is this one: silent, the measurements at 0:30.");
             List<List<String>> toolsSeen = new ArrayList<>(); List<ArrayNode> messagesSeen = new ArrayList<>();
+            GivenAddresses.received("1. Canvas tote bag, no talking — https://www.youtube.com/watch?v=dQw4w9WgXcQ");   // the candidate as a search names it: the address the library opens for a model is one a result gave (2026-11-18)
             Librarian lib = new Librarian(store, scripted(List.of(search, look, say), toolsSeen, messagesSeen), Librarian.person(), Librarian.Session.open(store));
             String reply = lib.say("find the sewing video I watched: a silent tote bag tutorial with the measurements on screen at the start");
-            assertEquals("It is this one: silent, the measurements at 0:30.", reply);
+            assertTrue(reply.startsWith("It is this one: silent, the measurements at 0:30.") && reply.contains("The model asks to look at the video https://www.youtube.com/watch?v=dQw4w9WgXcQ"), reply);
+            assertEquals(List.of(), looked, "the look waits for the person's yes (round F: it spends the model's time and keeps what it reads)");
+            String yes = lib.say("yes");
             assertEquals(List.of("https://www.youtube.com/watch?v=dQw4w9WgXcQ | silent; the measurements on screen at the start"), looked, "the look ran on the candidate");
+            assertTrue(yes.startsWith("Done.") && yes.contains("found at 0:30"), yes);
             String system = messagesSeen.get(0).get(0).path("content").asText();
             assertTrue(system.contains("A video the person remembers but cannot name is a research run: file it with library_research, goal choose") && system.contains("A video the person names or links is look, sparse, here in the turn"), system);
             List<String> results = new ArrayList<>();
             for (JsonNode m : lib.session().messages) if ("tool".equals(m.path("role").asText())) results.add(m.path("content").asText());
             assertEquals(2, results.size(), results.toString());
-            assertTrue(results.get(1).contains("found at 0:30"));
+            assertTrue(results.get(1).startsWith("NOT DONE YET"), results.get(1));
         } finally { Instruments.LOOK = null; }
     }
 

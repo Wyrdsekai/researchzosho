@@ -73,7 +73,8 @@ class ContentOfferTest {
         LibraryStore store = library("lib");
         List<ArrayNode> seen = new ArrayList<>();
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("I have filed it.")), seen);
-        String reply = lib.say("Find out what the placeholder archive holds");
+        lib.say("Find out what the placeholder archive holds");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith(OFFER_LINE), reply);
         ObjectNode job = filed(store);
         assertEquals(Jobs.OFFERED, job.path("state").asText());
@@ -93,6 +94,7 @@ class ContentOfferTest {
             LibraryStore s = library("lib-" + other.replace(' ', '-'));
             Librarian l = chat(s, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("Filed."), LibrarianChatTest.say("Noted.")), new ArrayList<>());
             l.say("Find out what the placeholder archive holds");
+            l.say("yes");
             l.say(other);
             assertFalse(filed(s).path("args").has("allow"), other + " is no");
         }
@@ -104,6 +106,7 @@ class ContentOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("Filed."),
                 LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("Filed again.")), new ArrayList<>());
         lib.say("Find out what the placeholder archive holds");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         String first = filed(store).path("job_id").asText();
         String yes = lib.say("y");
         assertTrue(yes.startsWith("That material is let into this question's research run only. Research run " + first + " has started"), yes);
@@ -112,7 +115,8 @@ class ContentOfferTest {
         assertEquals("chat-yes", job.path("args").path("allow_how").asText());
         assertEquals("[\"explicit\"]", Jobs.view(job).path("allow").toString(), "the job view says what the run lets in");
         // the same question again, in the same conversation: asked again, never taken from the earlier yes
-        String again = lib.say("Look it up once more");
+        lib.say("Look it up once more");
+        String again = lib.say("yes");
         assertTrue(again.endsWith(OFFER_LINE), again);
         ObjectNode second = filed(store);
         assertNotEquals(first, second.path("job_id").asText());
@@ -127,6 +131,7 @@ class ContentOfferTest {
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"How were the placeholder gears cut?\", \"allow\": [\"explicit\", \"howto\"]}"),
                 LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out how the placeholder gears were cut");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         ObjectNode job = filed(store);
         assertEquals("queued", job.path("state").asText());
         assertFalse(job.path("args").has("allow"), "the model's allow is taken out of its call: " + job);
@@ -135,6 +140,7 @@ class ContentOfferTest {
         Librarian items = chat(store, List.of(LibrarianChatTest.tool("library_items", "{\"text\": \"placeholder item one\\nplaceholder item two\", \"as\": \"runs\", \"allow\": [\"explicit\"]}"),
                 LibrarianChatTest.say("Filed.")), new ArrayList<>());
         items.say("Research each of these");
+        items.say("yes");
         for (ObjectNode j : new Jobs(store, x -> "").active()) assertFalse(j.path("args").has("allow"), j.toString());
     }
 
@@ -143,7 +149,8 @@ class ContentOfferTest {
         ContentJudge.use(new ContentJudge(null, m -> m.get(0).path("content").asText().contains(ContentOffer.NEEDS_EXPLICIT) ? "yes" : "no"));
         LibraryStore store = library("lib");
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + GenealogyOfferTest.FAMILY + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
-        String reply = lib.say("Find out who my great-grandfather's parents were");
+        lib.say("Find out who my great-grandfather's parents were");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.endsWith(GenealogyOfferTest.ASK_LINE), "the field's question first: " + reply);
         assertFalse(reply.contains("Let it in"), "one question at a time: " + reply);
         String id = filed(store).path("job_id").asText();
@@ -168,6 +175,7 @@ class ContentOfferTest {
         LibraryStore store = library("lib");
         Librarian lib = chat(store, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         lib.say("Find out what the placeholder archive holds");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         Jobs jobs = new Jobs(store, j -> "");
         ObjectNode job = filed(store);
         assertTrue(jobs.expire(job));
@@ -178,6 +186,7 @@ class ContentOfferTest {
         LibraryStore other = library("lib2");
         Librarian left = chat(other, List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"" + NEEDS + "\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>());
         left.say("Find out what the placeholder archive holds");
+        left.say("yes");
         left.leaveUnanswered();
         assertEquals("queued", filed(other).path("state").asText());
         assertFalse(filed(other).path("args").has("allow"));

@@ -197,8 +197,7 @@ public final class Share {
     }
 
     static boolean serviceRunningNow() {
-        Long pid = Service.recordedPid(Service.pidFile());
-        return pid != null && ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false);
+        return Service.runningServer(Service.pidFile()) != null;   // proven to be the server, not a number given since to something else
     }
 
     static List<String> tunnelCommandNow(int door) {
@@ -224,6 +223,7 @@ public final class Share {
      *  {@code --tailnet} the same on the tailnet only; {@code --cloudflare} the quick tunnel even when Tailscale is ready; {@code --public} is accepted
      *  and means the plain share. Public means: anyone with the link reaches the sign-in page and nothing else; nobody unlisted gets in. */
     public static Outcome share(LibraryStore store, List<String> args, PrintStream out) throws IOException {
+        Hosted.machine();   // a library under an account service is reached through the service: it starts no tunnel of its own
         String hint = args.contains("status") || args.contains("off") ? "" : ownerStep(store, out);
         Outcome o = shareNow(store, args, out);
         return hint.isEmpty() || o.code() != 0 ? o : new Outcome(0, o.text() + "\n" + hint);

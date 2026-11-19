@@ -312,7 +312,13 @@ public final class Accounts {
 
     private static final Map<String, List<Long>> TRIED = new ConcurrentHashMap<>();
 
+    /** Where failed sign-ins are counted when several processes answer the same people (0.8.0). Null: this process's memory. */
+    interface SharedTries { int since(String key, long since) throws IOException; void failed(String key) throws IOException; void cleared(String key) throws IOException; }
+    static volatile SharedTries SHARED_TRIES;
+
     static boolean tooMany(String key) {
+        SharedTries s = SHARED_TRIES;
+        if (s != null) { try { return s.since(key, System.currentTimeMillis() - WAIT_MINUTES * 60_000L) >= TRIES; } catch (IOException e) { return false; } }
         List<Long> t = TRIED.get(key);
         if (t == null) return false;
         long cutoff = System.currentTimeMillis() - WAIT_MINUTES * 60_000L;
@@ -320,11 +326,13 @@ public final class Accounts {
     }
 
     static void failed(String key) {
+        SharedTries s = SHARED_TRIES;
+        if (s != null) { try { s.failed(key); } catch (IOException e) { /* counted here at the next */ } return; }
         List<Long> t = TRIED.computeIfAbsent(key, k -> new ArrayList<>());
         synchronized (t) { t.add(System.currentTimeMillis()); }
     }
 
-    static void cleared(String key) { TRIED.remove(key); }
+    static void cleared(String key) { SharedTries s = SHARED_TRIES; if (s != null) { try { s.cleared(key); } catch (IOException e) { /* they run out */ } return; } TRIED.remove(key); }
 
     // ---- the file ----
 
@@ -360,6 +368,7 @@ public final class Accounts {
     }
 
     private static void save(LibraryStore store, ObjectNode root) throws IOException {
+        Hosted.accounts(store);   // a library under an account service keeps no people and no keys of its own
         Files.createDirectories(file(store).getParent());
         AtomicWrite.text(file(store), M.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n");
     }

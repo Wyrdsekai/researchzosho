@@ -97,9 +97,12 @@ class ChatCommandsTest {
         for (ObjectNode m : s.messages()) if ("tool".equals(m.path("role").asText())) results.add(m.path("content").asText());
         assertEquals(2, results.size(), results.toString());
         assertFalse(results.get(0).contains("no tool named"), results.get(0));
-        assertTrue(results.get(0).contains("\"noted\"") && results.get(0).contains("\"class\":\"told\""), "library_tell filed the account: " + results.get(0));
+        assertTrue(results.get(0).startsWith("NOT DONE YET"), "the model's note waits for the person's yes (round E): " + results.get(0));
+        assertTrue(reply.contains("The model asks to write this into the library: \"She ran the workshop from 1990 to 2005 and had the gears cut by hand.\" Do it?"), reply);
         assertFalse(results.get(1).contains("no tool named"), results.get(1));
         assertTrue(results.get(1).contains("Ada Example"), "library_dossier read it back: " + results.get(1));
+        String yes = lib.say("yes");
+        assertTrue(yes.startsWith("Done."), "the person's yes files the account: " + yes);
         boolean told = false;
         for (Finding f : store.scanFindings().findings()) if (f.body().contains("ran the workshop from 1990 to 2005")) told = true;
         assertTrue(told, "the told claim is on the shelves");

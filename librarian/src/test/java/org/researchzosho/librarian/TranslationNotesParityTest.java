@@ -85,7 +85,7 @@ class TranslationNotesParityTest {
         assertEquals(2, quietly(() -> TranslateCli.translate(store, new String[]{"researchzosho", "translate", doc("cli-bad").toString(), "--to", "ja", "--notes", "sideways"})), "a word that is neither");
         // the Translate form: the box ticked, the box left unticked; the page says where the doubts go, as filed
         for (boolean ticked : new boolean[]{true, false}) {
-            Path up = Files.createTempDirectory(Uploads.DIR);
+            Path up = Uploads.newFolder();
             Path f = Files.copy(doc("form-" + ticked), up.resolve("form-" + ticked + ".md"));
             Map<String, String> form = new TreeMap<>(Map.of("file.path", f.toString(), "file.name", f.getFileName().toString(), "to", "ja", "notes_box", "1"));
             if (ticked) form.put("notes", "end");
@@ -93,7 +93,7 @@ class TranslationNotesParityTest {
             assertTrue(page.contains(Pages.esc(ticked ? Translation.NOTES_AT_END_SAID : Translation.NOTES_OFF_SAID)), "the form's page says where they go: " + page);
             walked("the Translate form, the box " + (ticked ? "ticked" : "unticked"), jobIn(page, "href=\"/jobs/(J-\\d+)\""), ticked);
         }
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path f = Files.copy(doc("form-bad"), up.resolve("form-bad.md"));
         assertTrue(Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", f.toString(), "file.name", "form-bad.md", "to", "ja", "notes", "sideways")).contains(Pages.esc(Translation.NOTES_SAID)), "a post of a program's own with a word that is neither");
     }
@@ -188,11 +188,13 @@ class TranslationNotesParityTest {
             List<ArrayNode> seen = new ArrayList<>();
             Researcher.Drive drive = LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_translate", M.createObjectNode().put("path", f.toString()).put("to", "ja").put("quality", "checked").put("notes", notes).toString()), LibrarianChatTest.say("I have filed it.")), seen);
             Librarian lib = new Librarian(store, drive, Librarian.person(), Librarian.Session.open(store));
-            String reply = lib.say("please put the clock document into Japanese for me, " + (notes.equals("end") ? "with what the checks doubt at the end" : "no notes"));
-            assertEquals(2, seen.size(), "the model was asked, and called the tool: " + reply);
+            String asked = lib.say("please put the clock document into Japanese for me, " + (notes.equals("end") ? "with what the checks doubt at the end" : "no notes"));
+            assertEquals(2, seen.size(), "the model was asked, and called the tool: " + asked);
+            assertTrue(asked.startsWith("I have filed it.") && asked.contains("The model asks to start a translation of "), asked);
+            String reply = lib.say("yes");   // the model's translation waits for the person's yes first (round E)
             String id = jobIn(reply, "Translation (J-\\d+):");
-            // under the model's words, the library's own line, from the run as filed
-            assertTrue(reply.startsWith("I have filed it.") && reply.contains("Translation " + id + ": Translated by ") && reply.contains("is not installed. " + (notes.equals("end") ? Translation.NOTES_AT_END_SAID : Translation.NOTES_OFF_SAID + " " + TranslateTurn.NOTES_HOW)), "who translates, then where the doubts go: " + reply);
+            // under the library's answer, its own line, from the run as filed
+            assertTrue(reply.startsWith("Done.") && reply.contains("Translation " + id + ": Translated by ") && reply.contains("is not installed. " + (notes.equals("end") ? Translation.NOTES_AT_END_SAID : Translation.NOTES_OFF_SAID + " " + TranslateTurn.NOTES_HOW)), "who translates, then where the doubts go: " + reply);
             assertEquals("chat", new Jobs(store, j -> "").get(id).path("args").path("by").asText());
             ObjectNode ran = walked("the chat's model calling library_translate, notes=" + notes, id, notes.equals("end"));
             if (notes.equals("off")) assertTrue(ran.path("result").asText().contains("say \"with the notes at the end\" when you ask for the translation in the chat"), ran.path("result").asText());

@@ -283,14 +283,24 @@ public final class CiteCheck {
             List<int[]> spans = new ArrayList<>();   // [start of the clause, end of its last marker]
             List<List<Ref>> mapped = new ArrayList<>();
             int clauseStart = 0;
-            for (Marker mk : ms) {
+            for (int k = 0; k < ms.size(); k++) {
+                Marker mk = ms.get(k);
                 Ref ref = map(mk.inner(), refs);
                 if (ref == null) continue;
                 if (mk.end() <= clauseStart) continue;   // a marker inside one already taken, as in "(Field 1866 [3])": the outer one closed that clause; cutting from 143 to 103 lost a finished run (2026-09-17)
+                int end = mk.end();
+                if (sentence.charAt(mk.start()) == '(' && namesTheSpeaker(sentence, clauseStart, mk)) {
+                    // the source named in an attribution ("A single page (coastal-facts.org) claims …", "According to the museum (…), …"): what
+                    // follows is what it says, so it closes no clause there; the citation after it does, or the sentence's end (round G)
+                    boolean later = false;
+                    for (int q = k + 1; q < ms.size() && !later; q++) later = ms.get(q).start() >= mk.end() && map(ms.get(q).inner(), refs) != null;
+                    if (later) continue;
+                    end = sentence.length();
+                }
                 boolean stacked = !spans.isEmpty() && sentence.substring(spans.get(spans.size() - 1)[1], mk.start()).isBlank();
-                if (stacked) { spans.get(spans.size() - 1)[1] = mk.end(); mapped.get(mapped.size() - 1).add(ref); }
-                else { spans.add(new int[]{clauseStart, mk.end()}); mapped.add(new ArrayList<>(List.of(ref))); }
-                clauseStart = mk.end();
+                if (stacked) { spans.get(spans.size() - 1)[1] = end; mapped.get(mapped.size() - 1).add(ref); }
+                else { spans.add(new int[]{clauseStart, end}); mapped.add(new ArrayList<>(List.of(ref))); }
+                clauseStart = end;
             }
             if (mapped.isEmpty()) { unmapped++; continue; }
             StringBuilder out = new StringBuilder();
@@ -300,6 +310,12 @@ public final class CiteCheck {
                 int[] span = spans.get(i);
                 String clause = sentence.substring(span[0], span[1]).replaceFirst("^[\\s;:,—–-]+", "").strip();   // the clause, not the joint before it
                 if (clause.length() < 25 && mapped.size() > 1) clause = sentence.substring(0, span[1]).strip();   // a short clause reads with what leads to it
+                // an attributed clause is judged by whether its source says what follows the attribution: the writer's framing ("A single page
+                // (coastal-facts.org) claims", "three sources agree") is no claim the source makes about itself (round G, a 27B report of
+                // 2026-11-19: four of five marks fell inside such framings). A framing with nothing after it to check is not judged.
+                String said = said(clause, refs);
+                if (said == null) continue;
+                clause = said;
                 int markAt = span[1] < sentence.length() && span[1] == sentence.length() - 1 && ".!?".indexOf(sentence.charAt(span[1])) >= 0 ? span[1] + 1 : span[1];   // the marker follows the citation; a citation that closes the sentence keeps its full stop first
                 // the sources this clause cites that were read this run; one nobody read is noted, and the clause is marked for it only when it is the
                 // writer's own URL and no alternative was read (five of six "not read" marks fell on sources with quoted evidence rows, 2026-09-12)
@@ -375,6 +391,55 @@ public final class CiteCheck {
         String out = text;
         for (Map.Entry<String, String> e : marked.entrySet()) out = out.replace(e.getKey(), e.getValue());
         return new Outcome(out, checked, supported, unsupported, unmapped, problems, mechanical, overruled, unretrieved, declined);
+    }
+
+    /** The words that attribute what follows to a source: "X says", "X claims that", "three sources agree", "the page records". */
+    static final String ATTRIBUTING = "(?:says?|said|claims?|claimed|states?|stated|reports?|reported|argues?|argued|writes?|wrote|asserts?|asserted|notes?|noted"
+            + "|records?|recorded|agrees?|agreed|attributes?|attributed|contradicts?|contradicted|disputes?|disputed|confirms?|confirmed|describes?|described"
+            + "|gives?|gave|dates?|dated|lists?|listed|shows?|showed|suggests?|suggested|mentions?|mentioned|adds?|added|puts?|places?|placed|credits?|credited"
+            + "|blames?|blamed|cites?|cited|quotes?|quoted|maintains?|maintained|holds?|held|insists?|insisted|recounts?|recounted|documents?|documented"
+            + "|explains?|explained|estimates?|estimated|counts?|counted|calls?|called|names?|named|identifies|identified|concludes?|concluded|finds?|found"
+            + "|contends?|contended|alleges?|alleged|denies|denied|tells?|told|accounts?\\s+for|traces?|traced)";
+    private static final String ADVERBS = "(?:(?:also|all|both|each|explicitly|independently|likewise|similarly|instead|only|still|consistently|further|itself|themselves|plainly|clearly)\\s+){0,2}";
+    private static final Pattern AFTER_NAME = Pattern.compile("(?i)^\\s*" + ADVERBS + ATTRIBUTING + "\\b");
+    private static final Pattern ACCORDING = Pattern.compile("(?i)^[\\s;:,—–-]*(?:according\\s+to|as\\s+(?:reported|stated|noted|recorded|described)\\s+(?:by|in)|per)\\b");
+
+    /**
+     * Whether the parenthetical {@code mk} names the source of an attribution rather than closing a clause it cites: a verb of saying
+     * right after it ("(coastal-facts.org) claims", "(…) agree", "(…) contradict it by …"), or an "according to" before it with a comma
+     * after it ("According to the museum (port-aldwin-museum.org), …").
+     */
+    static boolean namesTheSpeaker(String sentence, int clauseStart, Marker mk) {
+        String after = sentence.substring(mk.end());
+        if (AFTER_NAME.matcher(after).find()) return true;
+        return ACCORDING.matcher(sentence.substring(clauseStart, mk.start())).find() && after.matches("(?s)^\\s*,.*");
+    }
+
+    /** A subject that names a source: a parenthetical, a word for a source, or words that map to a reference. */
+    private static final Pattern SOURCE_WORD = Pattern.compile("(?i)\\b(?:sources?|pages?|sites?|websites?|articles?|papers?|reports?|study|studies|authors?|records?|archives?|documents?"
+            + "|entry|entries|notes|books?|transcripts?|videos?|posts?|threads?|museum|society|heritage|histor(?:y|ies)|accounts?|registers?|census|newspapers?|letters?)\\b");
+    private static final Pattern SUBJECT_THEN_VERB = Pattern.compile("(?i)^((?:\\([^()]{1,200}\\)\\s*|[^\\s()]+\\s+){1,12}?)" + ADVERBS + ATTRIBUTING + "\\b(?:\\s+that\\b|\\s*:)?\\s*");
+
+    /**
+     * What an attributed clause says its source says: the clause without its attribution ("According to X, …", "X claims (that) …",
+     * "X (y.org) agree …" when X names a source). The clause itself when it attributes nothing; null when nothing checkable follows the
+     * attribution (fewer than four words: "three sources agree on this account [1][3][4]").
+     */
+    static String said(String clause, List<Ref> refs) {
+        String c = clause.strip(), rest = null;
+        Matcher acc = Pattern.compile("(?i)^(?:according\\s+to|as\\s+(?:reported|stated|noted|recorded|described)\\s+(?:by|in)|per)\\s+[^,]{1,200}?,\\s*").matcher(c);
+        if (acc.find()) rest = c.substring(acc.end());
+        else {
+            Matcher sv = SUBJECT_THEN_VERB.matcher(c);
+            if (sv.find()) {
+                String subject = sv.group(1);
+                boolean names = subject.contains("(") || SOURCE_WORD.matcher(subject).find() || map(subject, refs) != null;
+                if (names) rest = c.substring(sv.end());
+            }
+        }
+        if (rest == null) return c;
+        String words = BRACKET.matcher(rest).replaceAll(" ").replaceAll("[^\\p{L}\\p{N}]+", " ").strip();
+        return words.isEmpty() || words.split(" ").length < 4 ? null : rest;
     }
 
     /** What the check says where the model declined to check a sentence. */

@@ -39,7 +39,7 @@ final class ImagesPage {
                 b.append("<div class=\"pics\">");
                 for (Images.Found f : r.found()) {
                     String src = f.thumbnail() != null && !f.thumbnail().isBlank() ? f.thumbnail() : f.image();
-                    b.append("<figure><img class=\"thumb\" src=\"").append(esc(src)).append("\" alt=\"").append(esc(f.title())).append("\" loading=\"lazy\" referrerpolicy=\"no-referrer\"><figcaption><b>").append(esc(f.title().isBlank() ? t("A picture") : f.title())).append("</b><br>");
+                    b.append("<figure><img class=\"thumb\" ").append(Pages.SHOWN).append(" src=\"").append(esc(src)).append("\" alt=\"").append(esc(f.title())).append("\" loading=\"lazy\" referrerpolicy=\"no-referrer\"><figcaption><b>").append(esc(f.title().isBlank() ? t("A picture") : f.title())).append("</b><br>");
                     if (f.page() != null && !f.page().isBlank()) b.append(f.page().startsWith("/") || f.page().startsWith("file:") ? esc(f.page()) : "<a href=\"" + esc(f.page()) + "\" rel=\"noreferrer\">" + esc(f.host()) + "</a>").append(" · ");
                     if (!f.size().isEmpty()) b.append(esc(f.size())).append(" · ");
                     b.append(esc(Images.SHELVES.equals(f.source()) ? t("on the shelves") : t("found through {0}", f.source())));

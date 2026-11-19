@@ -258,11 +258,11 @@ class TranslationNotesTest {
         assertTrue(form.contains("What the checks still doubt is listed in the note beside the translation, never in its text"), form);
         Settings.set(Settings.named("translate_notes"), "end");
         assertTrue(Pages.translateForm(store).contains("name=\"notes\" value=\"end\" checked>"), "ticked when the setting makes it the default");
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Files.writeString(up.resolve("a.md"), "# The clock\n\nThe first wheel turns once in 7 hours.\n");
         Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", up.resolve("a.md").toString(), "file.name", "a.md", "to", "ja", "notes_box", "1"));
         assertEquals("off", new Jobs(store, j -> "").get("J-0001").path("args").path("notes").asText(), "the box left unticked is an off, whatever the setting");
-        Path up2 = Files.createTempDirectory(Uploads.DIR);
+        Path up2 = Uploads.newFolder();
         Files.writeString(up2.resolve("b.md"), "# The clock\n\nThe first wheel turns once in 7 hours.\n");
         Settings.set(Settings.named("translate_notes"), "off");
         Pages.translatePost(store, Patrons.Patron.PERSON, Map.of("file.path", up2.resolve("b.md").toString(), "file.name", "b.md", "to", "ja", "notes_box", "1", "notes", "end"));

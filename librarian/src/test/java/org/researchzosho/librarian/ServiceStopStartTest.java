@@ -9,6 +9,10 @@ import org.researchzosho.Config;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
+import java.lang.management.ManagementFactory;
+import java.net.ServerSocket;
+import java.util.ArrayList;
+import java.util.Map;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -47,11 +51,9 @@ class ServiceStopStartTest {
     PrintStream o() { return new PrintStream(out, true, StandardCharsets.UTF_8); }
     String said() { String s = out.toString(StandardCharsets.UTF_8).strip(); out.reset(); return s; }
 
-    /** A server as `serve` leaves one: a Java process, its pid in the service's record. */
+    /** A server as `serve` leaves one: a Java process with the server's command line, its pid in the service's record (written after it started). */
     long serverRunning(Path tmp) throws Exception {
-        Path src = tmp.resolve("StandInServer.java");
-        Files.writeString(src, "public class StandInServer { public static void main(String[] a) throws Exception { Thread.sleep(600_000); } }", StandardCharsets.UTF_8);
-        server = new ProcessBuilder(ProcessHandle.current().info().command().orElse("java"), src.toString()).redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+        server = StandInServer.start(tmp);
         Files.createDirectories(Service.pidFile().getParent());
         Files.writeString(Service.pidFile(), Long.toString(server.pid()), StandardCharsets.UTF_8);
         return server.pid();
@@ -62,6 +64,50 @@ class ServiceStopStartTest {
         Files.createDirectories(p.definition().getParent());
         Files.writeString(p.definition(), p.text(), StandardCharsets.UTF_8);
         return p;
+    }
+
+    /**
+     * The record names a number the system has given to another program since (0.8.0): here another Java program that sleeps. It is not
+     * the server, so `service stop` leaves it alone, says so in a sentence, and removes the stale record; nothing takes it for the server.
+     */
+    @Test void aRecordNamingAnotherProgramIsLeftAloneAndSaidSo(@TempDir Path tmp) throws Exception {
+        Service.Plan plan = Service.plan(Service.Os.linux, "researchzosho", 4649, 3, Path.of(System.getProperty("user.home")));
+        server = StandInServer.other(tmp);
+        Files.createDirectories(Service.pidFile().getParent());
+        Files.writeString(Service.pidFile(), Long.toString(server.pid()), StandardCharsets.UTF_8);
+        assertEquals("No service is installed here, and no server is running.", Service.stateSaid(plan), "it is not taken for the server");
+        assertEquals(0, Service.run("stop", plan, o()));
+        assertEquals("No service is installed here and no server was running, so there was nothing to stop. A process with the number " + server.pid()
+                + " is running, and it is not the ResearchZosho server, so it was left alone; the old record of that number is removed. No server runs now.", said());
+        Thread.sleep(500);
+        assertTrue(server.isAlive(), "the other program runs on");
+        assertFalse(Files.exists(Service.pidFile()), "the stale record is gone");
+        assertTrue(ran.isEmpty(), "no system command, and nothing found by name: " + ran);
+    }
+
+    /** The real server: this program's `serve`, which records itself; `service stop` proves it is the server and stops it. */
+    @Test void theRealServerIsStoppedByItsOwnRecord(@TempDir Path tmp) throws Exception {
+        Service.Plan plan = Service.plan(Service.Os.linux, "researchzosho", 4649, 3, Path.of(System.getProperty("user.home")));
+        int port; try (ServerSocket s = new ServerSocket(0)) { port = s.getLocalPort(); }
+        new LibraryStore(tmp.resolve("library")).init();
+        List<String> cmd = new ArrayList<>();
+        cmd.add(ProcessHandle.current().info().command().orElse("java"));
+        for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) if (!arg.startsWith("-Xmx") && !arg.startsWith("-Duser.home=") && !arg.startsWith("-javaagent") && !arg.startsWith("-agentlib")) cmd.add(arg);
+        cmd.addAll(List.of("-Xmx256m", "-Duser.home=" + System.getProperty("user.home"), "-cp", System.getProperty("java.class.path"), ProcessProof.MAIN, "serve", "--host", "127.0.0.1", "--port", String.valueOf(port), "--no-crews"));
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.environment().keySet().removeIf(k -> k.startsWith("RESEARCHZOSHO_") && !k.equals("RESEARCHZOSHO_CTX"));
+        pb.environment().putAll(Map.of("RESEARCHZOSHO_HOME", Config.home().toString(), "RESEARCHZOSHO_LIBRARY", tmp.resolve("library").toString(), "RESEARCHZOSHO_SERVICE", "1",
+                "RESEARCHZOSHO_DRIVE", "http://127.0.0.1:1", "RESEARCHZOSHO_LOCAL_HELPERS", "off", "RESEARCHZOSHO_UPDATE", "off", "RESEARCHZOSHO_EMBED", "off"));
+        server = pb.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(tmp.resolve("serve.log").toFile())).start();
+        long until = System.currentTimeMillis() + 60_000;
+        while (!Long.toString(server.pid()).equals(Files.isRegularFile(Service.pidFile()) ? Files.readString(Service.pidFile()).strip() : "")) {
+            assertTrue(server.isAlive() && System.currentTimeMillis() < until, "the server records itself: " + (Files.exists(tmp.resolve("serve.log")) ? Files.readString(tmp.resolve("serve.log")) : ""));
+            Thread.sleep(200);
+        }
+        assertEquals("No service is installed here; a server started with researchzosho serve is running (pid " + server.pid() + ").", Service.stateSaid(plan));
+        assertEquals(0, Service.run("stop", plan, o()));
+        assertEquals("No service is installed here; stopped the server started with researchzosho serve (pid " + server.pid() + "). No server runs now.", said());
+        assertTrue(server.waitFor(30, TimeUnit.SECONDS), "the server ended");
     }
 
     @Test void stopWithNoServiceInstalledEndsAServeRunningInATerminalByItsPidRecord(@TempDir Path tmp) throws Exception {

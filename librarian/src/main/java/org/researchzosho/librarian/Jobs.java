@@ -20,6 +20,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -35,6 +36,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
@@ -95,6 +97,31 @@ public final class Jobs {
 
     private final LibraryStore store;
     private final LinkedBlockingDeque<String> queue = new LinkedBlockingDeque<>();
+    /**
+     * The jobs a worker has taken from the line and not yet claimed or put back: in neither the line nor the running set, and still the
+     * library's work ({@link #line}). Uncounted, a library read quiet in that moment, and its node put it to sleep with the job about to
+     * run: a suspended keeper's run was left running, and ran on its own at the next start (2026-11-18).
+     */
+    private final Set<String> inHand = ConcurrentHashMap.newKeySet();
+    /** Held while a job goes from the line into a worker's hand, and while {@link #line} reads the two: fair, so a reading waits at most a worker's moment. */
+    private final ReentrantLock handing = new ReentrantLock(true);
+
+    /**
+     * The next job of the line, taken into this worker's hand: the job leaves the line and enters the hand in one step under {@link #handing},
+     * which {@link #line} reads both under, so it is never in neither. The lock is held while the line is waited on for a moment at a time,
+     * so a job that comes meanwhile is taken at once. Null when none came within {@code ms}.
+     */
+    private String takeIntoHand(long ms) throws InterruptedException {
+        long end = System.nanoTime() + ms * 1_000_000L;
+        while (System.nanoTime() < end) {
+            handing.lockInterruptibly();
+            try {
+                String id = queue.pollFirst(50, TimeUnit.MILLISECONDS);
+                if (id != null) { inHand.add(id); return id; }
+            } finally { handing.unlock(); }
+        }
+        return null;
+    }
     private final Runner runner;
     /** The drives, read again for every job: `model use` switches the library's model while the service runs. */
     private final Supplier<List<String>> drives;
@@ -152,6 +179,7 @@ public final class Jobs {
         String id = store.nextJobId();
         ObjectNode j = M.createObjectNode();
         j.put("job_id", id); j.put("kind", kind); j.put("patron", patronDid == null ? "" : patronDid);
+        asked(j, kind, args, id);   // under an account service: asked for before it is filed, or refused with the service's sentence
         j.set("args", args); j.put("state", "queued"); j.put("queued_at", Instant.now().toString());
         j.put("restarted", 0);
         writeActive(j);
@@ -194,6 +222,7 @@ public final class Jobs {
         String id = store.nextJobId();
         ObjectNode j = M.createObjectNode();
         j.put("job_id", id); j.put("kind", kind); j.put("patron", patronDid == null ? "" : patronDid);
+        asked(j, kind, args, id);
         j.set("args", args); j.put("state", OFFERED); j.put("queued_at", Instant.now().toString());
         if (offer.field() != null && !offer.field().isBlank()) j.put("offered", offer.field());
         if (!offer.content().isEmpty()) { ArrayNode c = j.putArray("offered_content"); offer.content().forEach(c::add); }
@@ -226,6 +255,7 @@ public final class Jobs {
      * through a store of its own, so the service's own line learns of it from disk (a quick run used to join the tail there, 2026-10-07).
      */
     private void enqueue(ObjectNode j) {
+        ModelsAwake.intent(j.path("kind").asText(""));   // its models start loading now, while it waits its turn (round C2)
         String id = j.path("job_id").asText();
         JsonNode a = j.path("args");
         if (a.path("quick").asBoolean(false) || a.path("priority").asBoolean(false)) queue.addFirst(id);
@@ -696,8 +726,31 @@ public final class Jobs {
     }
 
     /** Move a finished job out of the active set into its month, and raise the landed marker. */
+    /** How many jobs this line has ended since the library started: whoever keeps the library's copy brings it up to date when it grows. */
+    private final AtomicLong ended = new AtomicLong();
+    public long ended() { return ended.get(); }
+
+    /**
+     * A job under an account service is a use (0.8.0, stage 3): the service is asked for it, with its estimate, before it is filed; a no
+     * is the service's sentence, and nothing is filed. The use is told ended when the job is ({@link #finish}).
+     */
+    private void asked(ObjectNode j, String kind, ObjectNode args, String id) {
+        String named = args == null ? "" : args.path("model").asText("");
+        String entry = ServiceUses.entryName(named);
+        double[] est = Hosted.on(store) ? ServiceUses.estimate(store, entry, SpendPurse.purposeOfJob(kind)) : new double[]{0, 0};
+        ServiceUses.Granted g = ServiceUses.start(store, SpendPurse.purposeOfJob(kind), entry, est[0], est[1], id);
+        if (g == null) return;
+        j.put("use", g.id());
+        if (!ServiceUses.keyOf(g.id()).isEmpty()) j.put("use_key", ServiceUses.keyOf(g.id()));   // what its end and its state are told with, after a restart too
+        if (g.ceilingMinutes() >= 0) j.put("use_minutes", g.ceilingMinutes());
+        if (g.ceilingDollars() >= 0) j.put("use_dollars", g.ceilingDollars());
+        if (!g.said().isEmpty()) j.put("use_said", g.said());
+    }
+
     private synchronized void finish(ObjectNode j) throws IOException {
         NotHolder.check(dir());
+        ended.incrementAndGet();
+        if (j.hasNonNull("use")) ServiceUses.end(j.path("use").asText(), j.path("state").asText("done"));   // the service is told the use ended
         String id = j.get("job_id").asText();
         String month = Instant.parse(j.path("ended_at").asText(Instant.now().toString())).atZone(ZoneId.systemDefault()).toLocalDate().toString().substring(0, 7);
         Path target = doneDir().resolve(month);
@@ -759,7 +812,7 @@ public final class Jobs {
     Path stoppedFile() { return dir().resolve("service.stopped"); }
 
     /** Why the service stops: a restart, or an update to {@code to}. */
-    public static final String RESTART = "restart", UPDATE = "update", UNCLEAN = "unclean";
+    public static final String RESTART = "restart", UPDATE = "update", UNCLEAN = "unclean", CAP = "cap";
 
     /** The service is stopping, for {@code why} ({@link #RESTART} or {@link #UPDATE} with the version {@code to}): the jobs it leaves running say so when they resume. */
     public void stopping(String why, String to) {
@@ -850,9 +903,11 @@ public final class Jobs {
         String why = switch (i.path("why").asText(UNCLEAN)) {
             case RESTART -> "a restart";
             case UPDATE -> "an update" + (i.hasNonNull("to") ? " to " + i.get("to").asText() : "");
+            case CAP -> "its cap stopped it";
             default -> "a stop the service did not finish (a crash, or the computer went off)";
         };
         String said = i.path("said").asText(""), state = j.path("state").asText();
+        if (CAPPED.equals(state)) return said.isEmpty() ? "Stopped by its cap before it had kept anything; it starts again when it is resumed." : "Stopped by its cap at " + said + "; it resumes from there.";
         if (j.hasNonNull("started_over")) return "Started again after " + why + ". " + j.get("started_over").asText();
         if (said.isEmpty()) return ("queued".equals(state) ? "Starts again after " : "Started again after ") + why + "; nothing had been kept yet.";
         return ("queued".equals(state) ? "Resumes after " : "Resumed after ") + why + ", at " + said + ".";
@@ -893,6 +948,7 @@ public final class Jobs {
         for (ObjectNode j : active()) {
             String st = j.path("state").asText();
             active.add(j.path("job_id").asText());
+            ServiceUses.remember(j.path("use").asText(""), j.path("use_key").asText(""));   // its use's key, as the job kept it
             if ("queued".equals(st)) {
                 enqueue(j);
             } else if ("running".equals(st)) {
@@ -933,6 +989,33 @@ public final class Jobs {
     public String current() { return running.isEmpty() ? null : running.iterator().next(); }
     /** Every running job id. */
     public Set<String> running() { return Set.copyOf(running); }
+
+    /**
+     * What the job line holds now, for whoever decides whether this library has anything to do: the jobs running, the ones waiting
+     * to run (a run waiting for its model among them), the ones held back by the person's pause or hours, which wait for no machine,
+     * and whether the night's tasks are running or waiting.
+     */
+    public record Line(int running, int waiting, int held, boolean night) { }
+
+    public Line line() {
+        int waiting = 0, held = 0;
+        boolean night = false, holding = ResearchSettings.paused() || !ResearchSettings.openNow();
+        Set<String> hand; List<String> line;
+        handing.lock();   // the line and the hands as one: a job on its way from one to the other is in one of them
+        try { line = List.copyOf(queue); hand = Set.copyOf(inHand); } finally { handing.unlock(); }
+        for (String id : line) {
+            String kind = kindOf(id);
+            if ("crews".equals(kind)) night = true;
+            if (holding && "research".equals(kind)) held++; else waiting++;
+        }
+        Set<String> now = Set.copyOf(running);
+        for (String id : now) if ("crews".equals(kindOf(id))) night = true;
+        // a job a worker holds between the line and its claim: work all the same, so the library never reads quiet with one about to run
+        for (String id : hand) if (!now.contains(id) && !line.contains(id)) { waiting++; if ("crews".equals(kindOf(id))) night = true; }
+        return new Line(now.size(), waiting, held, night);
+    }
+
+    private String kindOf(String id) { try { ObjectNode j = get(id); return j == null ? "" : j.path("kind").asText(""); } catch (IOException e) { return ""; } }
     public int queued() { return queue.size(); }
 
     public void pickUp() { pickUpFiled(); }
@@ -942,6 +1025,70 @@ public final class Jobs {
      * and four times a second while it waits for the model, a page or a search: it ends within seconds.
      */
     Path stopMarker(String id) { return activeDir().resolve(id + ".stop"); }
+
+    // ---- a cap reached (0.8.0, stage 3): the job stops after the call it is making, keeps its work, and resumes when the cap allows ----
+
+    /** A job a cap stopped waits in this state, with the sentence that says why, until the person resumes it ({@link #resumeCapped}). */
+    public static final String CAPPED = "capped";
+
+    Path capMarker(String id) { return activeDir().resolve(id + ".cap"); }
+
+    /** Whether a cap stopped the job; its run makes no new call. */
+    public boolean isCapped(String id) { return id != null && !id.isEmpty() && Files.exists(capMarker(id)); }
+
+    /** The running jobs that are the use {@code use}: a cap stops them, for {@code said}. */
+    public synchronized void capped(String use, String said) {
+        if (use == null || use.isBlank()) return;
+        for (String id : List.copyOf(running)) {
+            try {
+                ObjectNode j = get(id);
+                if (j == null || !use.equals(j.path("use").asText())) continue;
+                if (!Files.exists(capMarker(id))) Files.writeString(capMarker(id), said == null ? "" : said, StandardCharsets.UTF_8);
+            } catch (IOException e) { Crews.log(store, "jobs", "a cap's stop of " + id + " could not be written: " + e, 0); }
+        }
+    }
+
+    /**
+     * The run of a job a cap stopped has ended: the job waits as {@link #CAPPED}, its kept work kept, its use told stopped, with the
+     * sentence the person is told and where it stood.
+     */
+    private void capStopped(String id, String said) throws IOException {
+        synchronized (this) {
+            ObjectNode j = get(id);
+            if (j == null) return;
+            Files.deleteIfExists(capMarker(id));
+            Files.deleteIfExists(stopMarker(id));
+            Files.deleteIfExists(activeDir().resolve(id + ".lock"));
+            ObjectNode cp = Checkpoint.stateOf(store, id);
+            ArrayNode list = j.path("interruptions").isArray() ? (ArrayNode) j.get("interruptions") : j.putArray("interruptions");
+            ObjectNode i = list.addObject();
+            i.put("at", Instant.now().toString()); i.put("why", CAP);
+            i.put("said", cp == null ? "" : cp.path("said").asText("")); i.put("seq", cp == null ? -1 : cp.path("seq").asLong(-1));
+            j.remove("progress");
+            j.put("state", CAPPED); j.put("waiting", said); j.put("capped_at", Instant.now().toString());
+            if (j.hasNonNull("use")) ServiceUses.end(j.path("use").asText(), "stopped");
+            j.remove("use");
+            writeActive(j);
+        }
+    }
+
+    /**
+     * The person resumes a job a cap stopped: the service is asked for a new use as for a new job (a no is its sentence, thrown, and the
+     * job waits as it was); on a yes the job is put back in line and resumes where its kept work ends. False when it was not stopped by a cap.
+     */
+    public boolean resumeCapped(String id) throws IOException {
+        return underFilingLock(id, () -> {
+            synchronized (this) {
+                ObjectNode j = get(id);
+                if (j == null || !CAPPED.equals(j.path("state").asText())) return false;
+                asked(j, j.path("kind").asText(), (ObjectNode) j.get("args"), id);   // a no throws the service's sentence
+                j.put("state", "queued"); j.remove("waiting");
+                writeActive(j);
+                if (!queue.contains(id)) enqueue(j);
+                return true;
+            }
+        });
+    }
 
     /** Whether a stop was asked for {@code id}, or this process gave the library up. */
     public boolean stopRequested(String id) { return gaveUp != null || Files.exists(stopMarker(id)); }
@@ -1049,7 +1196,7 @@ public final class Jobs {
         while (!stopped && !Thread.currentThread().isInterrupted()) {
             String id;
             try {
-                id = queue.poll(10, TimeUnit.SECONDS);
+                id = takeIntoHand(10_000);   // out of the line and into this worker's hand in one step: counted ({@link #line}) until it is running, back in line, or gone
                 if (id == null) { pickUpFiled(); continue; }
             } catch (InterruptedException e) { return; }
             String drive = driveOf(index);   // the model the library is set to now: a job started after `model use` takes the new one
@@ -1100,7 +1247,8 @@ public final class Jobs {
                 took = true;
                 String result;
                 boolean error = false;
-                try { result = runner.run(j, drive); }
+                // the models it uses held loaded however long its gaps between calls, let go when it ends (round C2)
+                try (ModelsAwake.Hold awake = ModelsAwake.hold(j.path("kind").asText(""), entry != null ? entry.drive() : drive, entry != null ? entry.model() : null)) { result = runner.run(j, drive); }
                 catch (Hold h) { hold(id, h); continue; }   // the run waits for the person's yes; the finally takes it off the running set
                 catch (Failure f) { result = f.getMessage(); error = true; }   // the runner's own statement, in plain words
                 catch (Throwable t) { result = "job error: " + t; error = true; }
@@ -1108,6 +1256,7 @@ public final class Jobs {
                 // process may have moved it (a client migrating the layout under a running daemon,
                 // 2026-09-03 — the worker thread died on the null and took the queue with it)
                 if (gaveUp != null) continue;   // another process holds the library: the job's record stays running, for it to resume
+                if (Files.exists(capMarker(id)) && !stopRequested(id)) { capStopped(id, Files.readString(capMarker(id), StandardCharsets.UTF_8)); continue; }   // a cap: kept, to resume
                 ObjectNode after = get(id);
                 if (after != null) j = after;
                 boolean stopped = stopRequested(id);
@@ -1123,6 +1272,7 @@ public final class Jobs {
                 Crews.log(store, "jobs", "bookkeeping failed for " + id + ": " + e, 0);
             } finally {
                 if (took) running.remove(id);
+                inHand.remove(id);
             }
         }
     }
@@ -1180,6 +1330,20 @@ public final class Jobs {
             return now - Instant.parse(last).toEpochMilli() >= STALL_MS ? last : null;
         }
         catch (Exception unreadable) { return null; }
+    }
+
+    /**
+     * How many seconds a program that follows a job waits before it asks for it again (0.8.0): a run going 10, a quick ask going 5, one in
+     * line 15, one that waits for the person's answer 30, one a cap stopped 60; 0 once it has ended, when there is nothing to wait for.
+     */
+    static int pollAfter(ObjectNode j) {
+        return switch (j.path("state").asText("")) {
+            case "running" -> j.path("args").path("quick").asBoolean(false) ? 5 : 10;
+            case "queued" -> 15;
+            case OFFERED -> 30;
+            case CAPPED -> 60;
+            default -> 0;
+        };
     }
 
     public static ObjectNode view(ObjectNode j) {

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 import java.util.TreeMap;
 /**
@@ -55,6 +56,19 @@ public final class Config {
      */
     private record Snapshot(Map<String, String> file, Path from, long mtime) { }
     private static volatile Snapshot snapshot;
+
+    /**
+     * Settings another program provides for this one (0.8.0): a node of an account service is given the service's settings that its
+     * counting and caps go by. They come before the environment and the file. Empty in every other program.
+     */
+    private static volatile Map<String, String> provided = Map.of();
+
+    /** The provided settings, by their names as the file writes them; replaces what was provided before. */
+    public static void provide(Map<String, String> values) {
+        Map<String, String> m = new TreeMap<>();
+        if (values != null) values.forEach((k, v) -> { if (k != null && v != null && !v.isBlank()) m.put(normalize(k), v); });
+        provided = Map.copyOf(m);
+    }
     /** Counts the changes; a load that overlapped one returns what it read to its caller but does not keep it. */
     private static final AtomicLong CHANGES = new AtomicLong();
     /** Loading has a lock of its own, so a read never waits behind a write (writes hold {@code Config.class}). */
@@ -80,7 +94,8 @@ public final class Config {
         return isOn(envKey, fallback);
     }
 
-    static void reloadIfChanged() {
+    /** The settings file read again when it changed since it was read; what a process that runs for long calls before it reads again. */
+    public static void reloadIfChanged() {
         Snapshot s = snapshot;
         if (s != null && mtime(userConfigPath()) != s.mtime()) invalidate();
     }
@@ -119,11 +134,24 @@ public final class Config {
         return b.endsWith("/openai") ? b : b + "/v1";
     }
 
-    private static String raw(String envKey) {
+    /**
+     * The value set for a key: provided, in the environment or in the file, without what a host only offers ({@code <KEY>_DEFAULT}).
+     * What a service shares with its nodes is what was set, never an offer the service's own host made to it.
+     */
+    public static String explicit(String envKey) {
+        String v = raw(envKey, false);
+        return envKey.endsWith("_DRIVE") ? driveBase(v) : v;
+    }
+
+    private static String raw(String envKey) { return raw(envKey, true); }
+
+    private static String raw(String envKey, boolean offers) {
         Snapshot s = loaded();
         Map<String, String> file = s.file();
         Path loadedFrom = s.from();
         String key = normalize(envKey);
+        String given = provided.get(key);
+        if (given != null) return given;
         for (String c : candidates(key)) {
             String v = env(c);
             if (v != null) return v;
@@ -139,6 +167,7 @@ public final class Config {
             String v = file.get(c);
             if (v != null && !v.isBlank()) return v;
         }
+        if (!offers) return null;
         for (String c : candidates(key)) {
             String v = env(c + DEFAULT_SUFFIX);
             if (v != null) return v;
@@ -152,6 +181,7 @@ public final class Config {
         if (want.endsWith("_")) { } else want = want + "_";
         Map<String, String> out = new TreeMap<>();
         for (Map.Entry<String, String> e : loaded().file().entrySet()) if (e.getKey().startsWith(want) && e.getValue() != null && !e.getValue().isBlank()) out.put(e.getKey(), e.getValue());
+        for (Map.Entry<String, String> e : provided.entrySet()) if (e.getKey().startsWith(want)) out.put(e.getKey(), e.getValue());   // what another program provides counts as written
         return out;
     }
 
@@ -325,6 +355,8 @@ public final class Config {
      * file or the new one, never a half-written one.
      */
     public static synchronized void set(String key, String value) throws IOException {
+        Predicate<String> w = writable;
+        if (w != null && !w.test(normalize(key))) throw new IOException(NOT_WRITABLE);
         Path cfg = userConfigPath();
         Files.createDirectories(cfg.getParent());
         String want = normalize(key);
@@ -354,6 +386,17 @@ public final class Config {
         catch (AtomicMoveNotSupportedException e) { Files.move(tmp, cfg, StandardCopyOption.REPLACE_EXISTING); }
         invalidate();
     }
+
+    /**
+     * The settings a write may change, where a process may change only some: a library that runs under an account service writes its own
+     * (how its reports are written, what its nights do) and no other, whatever asked for the write. Null everywhere else: every setting.
+     */
+    private static volatile Predicate<String> writable;
+    /** What a refused write says. */
+    public static final String NOT_WRITABLE = "This library runs under an account service, and this setting is set by whoever runs the service.";
+
+    /** Limits what {@link #set} may write to the keys the test passes (given as the file normalises them); null lifts the limit. */
+    public static void writable(Predicate<String> only) { writable = only; }
 
     /** Set a key only while it still holds {@code expected} (an absent key counts as ""): what a thread that wrote a value uses to take it back,
      *  so it never wipes a newer value another thread wrote since. True when it was set. */

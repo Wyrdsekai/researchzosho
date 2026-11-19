@@ -101,6 +101,7 @@ public final class Patrons {
     }
 
     public static Policy load(LibraryStore store) throws IOException {
+        if (Hosted.on(store)) return Hosted.policy(store);   // a library under an account service has no list of its own: what the service vouched, and nobody else
         Path p = file(store);
         Level dflt = Level.write;   // open as shipped, like the pages; `researchzosho reader default read|deny` restricts
         List<Entry> listed = new ArrayList<>();
@@ -141,6 +142,13 @@ public final class Patrons {
         if (gaveUp != null) throw ProtocolError.unavailable(gaveUp);   // another process holds the library: no request writes to it through this one
         if (KEY_READ.equals(patron.runtime()) && need == Level.write) throw ProtocolError.forbidden("This key reads only. A key that writes is made on the Keep page, or with researchzosho keys new --write.");
         if (patron.person()) return;   // the keeper of the library, on their own machine
+        if (Hosted.on(store)) {   // a library under an account service: what the service vouched for this account, and no list of the library's own
+            Hosted.Vouch v = Hosted.of(store, patron.did());
+            Level vouched = v == null ? Level.deny : v.level();
+            if (vouched.ordinal() >= need.ordinal()) return;
+            throw ProtocolError.forbidden(need == Level.write ? "Your account may read this library and not write to it. The person who keeps it changes that on their account page."
+                    : "Your account may not open this library. The person who keeps it lets people in on their account page.");
+        }
         // through the shared door only a listed reader gets in, whatever the default says: the door faces the world, the main port faces the house
         if (patron.door() && (patron.anonymous() || patron.web())) throw ProtocolError.forbidden("Through the shared door only a listed reader gets in. Sign in with your name and password, or ask to be let in from the sign-in page.");
         if (patron.web() && !WebAccess.signInRequired()) return;   // the pages are open: a browser counts as the person
@@ -239,6 +247,7 @@ public final class Patrons {
     }
 
     static void write(LibraryStore store, Policy pol) throws IOException {
+        Hosted.accounts(store);   // a library under an account service keeps no people and no keys of its own
         StringBuilder sb = new StringBuilder("# Patrons — who may read and write this library\n\n"
                 + "Levels: deny < read < write. `default:` applies to anonymous and unlisted patrons.\n"
                 + "One patron per line: `- <did> — <name> — <level>[ — token:<sha256 of the bearer token>]`.\n"

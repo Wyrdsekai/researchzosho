@@ -252,7 +252,7 @@ class WritersReachTest {
             checks.add(() -> assertTrue(multi.statusCode() == 200 && multi.body().contains("Choose a file to translate.") && afterMulti.isEmpty(), "/translate, a form with files and a text field named file.path -> " + multi.statusCode() + "; under the library in " + afterMulti));
             // a file of another person's post that is being read at this moment, in the folder this server made for that post: a field
             // names that no more than any other, and the other person's folder is not removed with this form
-            Path others = Files.createTempDirectory(Uploads.DIR);
+            Path others = Uploads.newFolder();
             try {
                 Path theirs = Files.writeString(others.resolve("theirs.txt"), SOMEONE_ELSES + ", in a post of their own that is still being read.\n", StandardCharsets.UTF_8);
                 HttpResponse<String> inFlight = form(c, base + "/translate", token, "file.path=" + enc(theirs) + "&file.name=theirs.txt&to=fr");

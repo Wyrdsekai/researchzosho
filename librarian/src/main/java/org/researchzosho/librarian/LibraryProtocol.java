@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -412,6 +413,10 @@ public final class LibraryProtocol {
             else if (f.state() == Finding.State.draft) unreviewed.add(entry(f, false));
         }
         r.put("verdict", !disputes.isEmpty() ? "disputed" : !accepted.isEmpty() ? "established" : "not_established");
+        // established on findings that each rest on one source: said beside the verdict, which stays as the states give it
+        boolean oneEach = !accepted.isEmpty();
+        for (JsonNode a : accepted) if (!a.path("single_source").asBoolean(false)) oneEach = false;
+        r.put("rests_on_one_source", oneEach);
         store.circulate("established", patron.label() + " :: " + Acquisitions.compress(claim, 120));
         return r;
     }
@@ -440,9 +445,13 @@ public final class LibraryProtocol {
         if (!url.isEmpty()) {
             if (!mode.equals("keep")) throw ProtocolError.invalidArgs("A url is always kept, because web pages change. Use mode=keep.");
             Object[] got;
-            try { got = Corpus.addUrl(store, url, collection); }
+            ServiceUses.Granted use = ServiceUses.start(store, CapsSpending.ADD, "", 0, 0, "");   // under an account service: a page fetched is a use (0.8.0, stage 3)
+            String ended = "failed";
+            final String page = url, into = collection;
+            try { got = ServiceUses.under(use, () -> Corpus.addUrl(store, page, into)); ended = "done"; }   // its fetch counts against its use
             catch (PageCheck.NotKept notKept) { throw notKept.unchecked() ? ProtocolError.unavailable(notKept.getMessage()) : ProtocolError.invalidArgs(notKept.getMessage()); }
             catch (Exception e) { throw ProtocolError.unavailable("Could not read " + url + ": " + e.getMessage()); }
+            finally { if (use != null) ServiceUses.end(use.id(), ended); }
             Path raw = (Path) got[0];
             if (raw == null) throw ProtocolError.unavailable("The page was read but not saved to the library (no library, or the page was refused).");
             r.put("kind", "url"); r.put("mode", "keep"); r.put("url", url); r.put("title", String.valueOf(got[1])); r.put("format", String.valueOf(got[2]));
@@ -455,8 +464,13 @@ public final class LibraryProtocol {
         }
         Path target = Path.of(path).toAbsolutePath().normalize();
         // paths are the keeper's: the terminal, or the pages while they are open (the same rule Patrons.check applies to a browser); a file the browser posted is the person's own, whoever they are
+        if (!Uploads.isUpload(target)) Hosted.path(store);
         if (!Uploads.isUpload(target) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can add files and folders on this machine, from the terminal or the library's own pages. A url can be added from here, and a file of your own on the Add page.");
         if (!Files.exists(target)) throw ProtocolError.notFound("Nothing is at " + target + ". Is the drive mounted?");
+        if (Uploads.isUpload(target)) {   // under an account service: a document sent is asked for, so the keeper's storage is checked first (0.8.0, stage 3)
+            ServiceUses.Granted sent = ServiceUses.start(store, CapsSpending.UPLOAD, "", 0, 0, "");
+            if (sent != null) ServiceUses.end(sent.id(), "done");
+        }
         if (Files.isRegularFile(target) && Archives.isArchive(target.getFileName().toString())) {
             // an archive: unpacked into a folder of the library's own, shelved as a folder is, the folder removed after; the same rules as a folder posted from the browser
             if (!mode.equals("keep")) throw ProtocolError.invalidArgs("An archive is always kept: its files are unpacked into a folder of the library's own, which is removed after. link and survey are for a folder on this machine.");
@@ -726,6 +740,7 @@ public final class LibraryProtocol {
         Path file;
         if (!path.isEmpty()) {
             file = Path.of(path).toAbsolutePath().normalize();
+            if (!Uploads.isUpload(file)) Hosted.path(store);
             if (!Uploads.isUpload(file) && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can name a file on this machine, from the terminal or the library's own pages. A document on the shelves can be named by its entry (raw).");
             if (!Files.isRegularFile(file) && !Files.isDirectory(file)) throw ProtocolError.notFound("Nothing is at " + file + ".");   // a folder of page pictures is a comic
         } else if (!raw.isEmpty()) {
@@ -757,12 +772,14 @@ public final class LibraryProtocol {
         // a comic where the comic helper is not set up: a set-up fetches about a gigabyte, which is the person's to say yes to. The chat asks
         // them in its question; a program is told what would be fetched, and sends setup=true when the person has said yes
         boolean needsHelper = plan.comic() != null && plan.comic().helper().equals(ComicTranslation.NEEDS);
+        if (needsHelper && Hosted.on(store)) throw ProtocolError.unavailable("The comic helper is not set up for this library, so a comic is not translated here. " + Pages.t(Hosted.MACHINE));
         if (needsHelper && !"chat".equals(by) && !args.path("setup").asBoolean(false)) {
             ObjectNode extra = M.createObjectNode();
             extra.set("comic_helper", ComicHelper.json());
             throw ProtocolError.confirm(ComicHelper.questionSaid(Chrome.ENGLISH) + " Nothing was fetched, and the comic was not translated: send the same call with setup=true to set the comic helper up and translate it.", extra);
         }
         Path out = args.path("out").asText("").isEmpty() ? null : Path.of(args.path("out").asText()).toAbsolutePath().normalize();
+        if (out != null) Hosted.path(store);
         if (out != null && !patron.person()) throw ProtocolError.forbidden("Only the library owner names where the file is written; without out it goes under the library's exports.");
         ObjectNode a = Translation.args(file, file.getFileName().toString(), plan, out, args.path("collection").asText(""), out != null ? "cli" : by == null ? "mcp" : by, judge, model, back, notes, args.path("from").asText(""));
         if (plan.reading() != null) a.set("pdf_preflight", plan.reading().json());   // the job's page says what the reader found, as the plan did
@@ -810,6 +827,9 @@ public final class LibraryProtocol {
         String spec = !database.isEmpty() ? "db:" + database : path.isEmpty() ? url : path;
         // whatever field names it (path, or url, which the Read in page's box sends): a thing on this machine is the keeper's to survey and nobody else's. That is anything that is not an http or https address: a file, a folder, a repository on disk, a repository by one of git's other addresses (git@, ssh://, file://)
         if (!spec.isEmpty() && !spec.startsWith("http://") && !spec.startsWith("https://") && !patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can survey a file or a folder on this machine, from the terminal or the library's own pages. A url works from here.");
+        // a library under an account service reads no repository either, by any address: git is a program, run with the caller's address
+        if (Hosted.on(store) && !spec.isEmpty() && ("repo".equalsIgnoreCase(args.path("kind").asText("").strip()) || Surveys.detect(spec) == Surveys.Kind.repo && args.path("kind").asText("").isBlank()))
+            throw ProtocolError.forbidden(Pages.t(Hosted.MACHINE));
         ObjectNode r = envelope();
         r.put("op", op);
         if (op.equals("survey")) {
@@ -896,7 +916,7 @@ public final class LibraryProtocol {
     }
 
     /** library_repo: library_survey with kind=repo (the first kind built; kept as a name). */
-    public ObjectNode repo(JsonNode args) throws IOException { ObjectNode a = args.deepCopy(); if (!a.hasNonNull("kind")) a.put("kind", "repo"); return survey(a); }
+    public ObjectNode repo(JsonNode args) throws IOException { Hosted.call(store, "repo"); ObjectNode a = args.deepCopy(); if (!a.hasNonNull("kind")) a.put("kind", "repo"); return survey(a); }
 
     /**
      * library_remove: a report or a claim out of the library for good. id is an investigation (I-…) or a claim
@@ -1002,6 +1022,7 @@ public final class LibraryProtocol {
      * command line only, by the owner. Only the owner may use this.
      */
     public ObjectNode db(JsonNode args) throws IOException {
+        Hosted.call(store, "db");
         Patrons.Patron patron = Patrons.Patron.from(args);
         if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can read the owner's databases.");
         String op = args.path("op").asText("list").strip().toLowerCase(Locale.ROOT);
@@ -1091,6 +1112,7 @@ public final class LibraryProtocol {
         boolean verify = args.path("verify").asBoolean(false);
         byte[] bytes; String source, nameHint;
         if (!path.isEmpty()) {
+            Hosted.path(store);
             if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the text.");
             Path f = Path.of(path).toAbsolutePath().normalize();
             if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f + " is not a file. For a folder of documents, use library_add.");
@@ -1183,6 +1205,7 @@ public final class LibraryProtocol {
         int limit = Math.max(1, args.path("limit").asInt(Items.MAX_ITEMS));
         String title = args.path("title").asText("").strip(), source, body, readFrom = "";
         if (!path.isEmpty()) {
+            Hosted.path(store);
             if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the list.");
             Path f = Path.of(path).toAbsolutePath().normalize();
             if (Files.isDirectory(f)) {
@@ -1302,6 +1325,7 @@ public final class LibraryProtocol {
         if (n != 1) throw ProtocolError.invalidArgs("Give one of these: a file path (" + what + "), a url, or the text itself.");
         String title = args.path("title").asText("").strip();
         if (!path.isEmpty()) {
+            Hosted.path(store);
             if (!patron.person() && !(patron.web() && !WebAccess.signInRequired())) throw ProtocolError.forbidden("Only the library owner can give a file path on this machine. Do that from the terminal or the library's web pages. From here, give a url or paste the text.");
             Path f = Path.of(path).toAbsolutePath().normalize();
             if (!Files.isRegularFile(f)) throw ProtocolError.notFound(f.toString());
@@ -1577,6 +1601,15 @@ public final class LibraryProtocol {
      * a bill — this month and in all, by host, by named model and by use, with a cap where one is set (write access, as the settings).
      */
     public ObjectNode spend(JsonNode args) throws IOException {
+        if (Hosted.on(store)) {   // under an account service: the account's month, as the service counts it and every surface shows it (stage 3, step 5)
+            Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
+            ObjectNode r = envelope();
+            JsonNode m = ServiceUses.accountMonth();
+            r.set("account_month", m);
+            r.put("text", m.path("text").asText(""));
+            r.put("summary", m.path("summary").asText(""));
+            return r;
+        }
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.write);
         ObjectNode r = envelope();
         ObjectNode sum = Spend.summary(store);
@@ -1671,8 +1704,12 @@ public final class LibraryProtocol {
             return r;
         }
         Patrons.check(store, patron, Patrons.Level.write);
+        boolean hosted = Hosted.on(store);   // under an account service: the library's own settings, and no other, are shown and set
+        if (hosted && !Hosted.keeper(store, patron)) throw ProtocolError.forbidden("The person who keeps this library sets how its reports are written.");
         if (op.equals("list")) {
             ArrayNode settings = Settings.list(M);
+            if (hosted) for (Iterator<JsonNode> it = settings.iterator(); it.hasNext(); ) if (!Hosted.ownSetting(it.next().path("key").asText(""))) it.remove();
+            if (hosted) { r.set("settings", settings); r.put("read_in", ReadIn.of(store, patron)); r.put("note", Pages.t("These are this library's own settings. Every other setting is set by whoever runs the service it runs under.")); return r; }
             for (JsonNode s : settings) {   // a key's service: what it adds, its terms with the day they were read, the link to get one, this month's use, the last check
                 OutsideServices.Service svc = OutsideServices.of(s.path("key").asText(""));
                 if (svc == null) continue;
@@ -1682,6 +1719,7 @@ public final class LibraryProtocol {
             }
             r.set("settings", settings); r.set("services", OutsideServices.json(store)); r.put("config_file", Config.userConfigPath().toString()); r.put("read_in", ReadIn.of(store, patron)); return r;
         }
+        if (hosted && op.equals("check")) throw ProtocolError.forbidden(Pages.t(Hosted.MACHINE));
         if (op.equals("check")) {   // every service with a key asked whether it is accepted and what is left; the answers kept and returned
             List<OutsideServices.Result> rs = OutsideServices.check(store);
             ArrayNode a = r.putArray("checks");
@@ -1693,6 +1731,7 @@ public final class LibraryProtocol {
         String name = args.path("name").asText("").strip();
         Settings.Setting s = Settings.named(name);
         if (s == null) throw ProtocolError.invalidArgs("No setting is named " + name + ". library_settings op=list names them all.");
+        if (hosted && !Hosted.ownSetting(s.key())) throw ProtocolError.forbidden(Pages.t(Hosted.SETTING));
         String value = op.equals("unset") ? "" : args.path("value").asText("");
         String why = Settings.refuse(s, value);
         if (!why.isEmpty()) throw ProtocolError.invalidArgs(why);
@@ -1710,6 +1749,7 @@ public final class LibraryProtocol {
      * tool); readers (name, value on|off); cap (name, value: calls a month, or off); call (name, tool, arguments). A key is never returned.
      */
     public ObjectNode mcp(JsonNode args) throws IOException {
+        Hosted.call(store, "mcp");
         Patrons.Patron patron = Patrons.Patron.from(args);
         return McpSetup.op(store, patron, args, envelope());
     }
@@ -1730,10 +1770,18 @@ public final class LibraryProtocol {
      * because a model reading {@code key: true} on a local entry took it for the rule that picks the default (2026-11-08).
      */
     public ObjectNode models(JsonNode args) throws IOException {
+        Hosted.call(store, "models");
         Patrons.Patron patron = Patrons.Patron.from(args);
         Patrons.check(store, patron, Patrons.Level.write);
+        return modelEntries(args, envelope());
+    }
+
+    /**
+     * library_models's work, which writes the settings and nothing of a library: also what a machine that serves accounts and has no
+     * library of its own runs for {@code researchzosho models} ({@code r}: the answer so far).
+     */
+    static ObjectNode modelEntries(JsonNode args, ObjectNode r) throws IOException {
         String op = args.path("op").asText("list").strip().toLowerCase();
-        ObjectNode r = envelope();
         try {
             switch (op) {
                 case "list" -> { r.set("default", ModelEntries.defaultNode(M)); r.set("models", ModelEntries.list(M)); r.put("summary", ModelEntries.summary()); r.put("config_file", Config.userConfigPath().toString()); }
@@ -2883,6 +2931,7 @@ public final class LibraryProtocol {
      * asks: /share in the chat, researchzosho share in a terminal.
      */
     public ObjectNode share(JsonNode args) throws IOException {
+        Hosted.call(store, "share");
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.write);
         String op = args.path("op").asText("status").strip().toLowerCase(Locale.ROOT);
         List<String> a = new ArrayList<>();
@@ -2910,6 +2959,7 @@ public final class LibraryProtocol {
      * no token yet to prove a patron object with. Returns the request id and the claim secret, once.
      */
     public ObjectNode requestAccess(JsonNode args) throws IOException {
+        if (Hosted.on(store)) throw ProtocolError.forbidden("This library runs under an account service: the person who keeps it lets people in on their account page, and nobody asks here.");
         String did = args.path("did").asText("").strip();
         if (did.isEmpty()) did = args.path("patron").path("did").asText("").strip();
         String name = args.path("name").asText("").strip();
@@ -2934,6 +2984,7 @@ public final class LibraryProtocol {
      * (key_id). The keeper only: anyone else is refused with one sentence.
      */
     public ObjectNode access(JsonNode args) throws IOException {
+        if (Hosted.on(store)) return ServiceAccess.access(store, Patrons.Patron.from(args), args, envelope());   // members and keys are the account service's
         String op = args.path("op").asText("collect").strip().toLowerCase(Locale.ROOT).replace('-', '_');
         if (op.isEmpty() || op.equals("collect")) {
             String id = reqStr(args, "request_id").strip();
@@ -3322,6 +3373,8 @@ public final class LibraryProtocol {
         }
         a.put("sources", args.path("sources").asText("both"));
         if (!args.path("paid").asBoolean(true)) a.put("paid", false);   // no paid search place for this run: the tally's gate leaves them off (SearchTally)
+        // filed by the chat's model: the person's words of that turn, not the model's question, give the run its addresses (round F)
+        if (args.path("from_chat").asBoolean(false)) { a.put("from_chat", true); a.put("person_words", Acquisitions.compress(args.path("person_words").asText(""), 4000)); }
         if (args.hasNonNull("seek") && !args.get("seek").asText().isBlank()) a.put("seek", Seeks.checkedName(args.get("seek").asText()));   // a seek: its own copy of the shelves
         if (args.path("collections").isArray() && args.path("collections").size() > 0) {
             ArrayNode cs = a.putArray("collections");
@@ -3546,7 +3599,7 @@ public final class LibraryProtocol {
         if (question.length() < 12) throw ProtocolError.invalidArgs("The question is too short.");
         String driveUrl = Config.get("RESEARCHZOSHO_DRIVE", "http://localhost:8200");
         String model = Config.get("RESEARCHZOSHO_MODEL", "local-model");
-        if (!Crews.driveAnswers(driveUrl)) throw ProtocolError.unavailable("No model answers at " + driveUrl + ". This needs a model.");
+        if (!Crews.driveAnswers(driveUrl)) throw ProtocolError.unavailable(Hosted.on(store) ? Pages.t(Hosted.NO_MODEL) + " " + Pages.t("This needs it.") : "No model answers at " + driveUrl + ". This needs a model.");
         return perspectives(args, perspectivesDrive(driveUrl, model), Researcher.webTools());
     }
 
@@ -3584,8 +3637,18 @@ public final class LibraryProtocol {
         ObjectNode r = envelope();
         String id = args.hasNonNull("job_id") ? args.get("job_id").asText().strip() : "";
         String op = args.path("op").asText("").toLowerCase(Locale.ROOT);
+        ObjectNode cappedJob = op.equals("resume") && !id.isEmpty() ? jobs.get(id) : null;
+        if (cappedJob != null && Jobs.CAPPED.equals(cappedJob.path("state").asText())) {   // one run a cap stopped (0.8.0): the service is asked again; on a yes it resumes where it stopped
+            Patrons.check(store, patron, Patrons.Level.write);
+            if (!Jobs.visibleTo(patron, cappedJob)) throw ProtocolError.notFound("No research run has the id " + id + ".");
+            jobs.resumeCapped(id);
+            r.put("job_id", id); r.put("state", jobs.get(id).path("state").asText());
+            return r;
+        }   // any other resume is the runner's, as it always was
         if (op.equals("pause") || op.equals("resume")) {   // the runner: queued runs wait, a running one holds at its next turn
             Patrons.check(store, patron, Patrons.Level.write);
+            // under an account service the runner is every member's: its keeper alone pauses it (round F, S13)
+            if (Hosted.on(store) && !Hosted.keeper(store, patron)) throw ProtocolError.forbidden(Pages.t("Only the person who keeps this library pauses or resumes its runs."));
             Config.set(ResearchSettings.PAUSE, op.equals("pause") ? "on" : "off");
             r.put("paused", op.equals("pause"));
             return r;
@@ -3625,6 +3688,8 @@ public final class LibraryProtocol {
             ObjectNode j = jobs.get(id);
             ObjectNode v = j == null ? null : Jobs.view(j);
             if (v == null) throw ProtocolError.notFound("No research run has the id " + id + ".");
+            int wait = Jobs.pollAfter(j);
+            if (wait > 0) v.put("poll_after", wait);   // a program that follows the run asks again after this many seconds (0.8.0)
             r.set("job", v);
             return r;
         }
@@ -3656,6 +3721,13 @@ public final class LibraryProtocol {
     public ObjectNode status(JsonNode args) throws IOException {
         Patrons.check(store, Patrons.Patron.from(args), Patrons.Level.read);
         ObjectNode r = envelope();
+        JsonNode back = LibraryPlaces.broughtBack(store);   // a library under an account service brought back from its copy says which, for a week
+        if (back != null) {
+            ObjectNode o = r.putObject("brought_back");
+            long copy = back.path("copy_ended").asLong(0) > 0 ? back.path("copy_ended").asLong() : back.path("copy_began").asLong();
+            o.put("copy_of", Instant.ofEpochMilli(copy).toString()); o.put("copy_was_being_written", back.path("interrupted").asBoolean()); o.put("at", Instant.ofEpochMilli(back.path("brought_at").asLong()).toString());
+            o.put("note", Pages.broughtBackSaid(back));
+        }
         ObjectNode counts = r.putObject("counts");
         ObjectNode findings = counts.putObject("finding");
         Map<String, Integer> byState = new TreeMap<>();
@@ -3953,8 +4025,12 @@ public final class LibraryProtocol {
             if (published.isEmpty()) o.putNull("published"); else o.put("published", published);
             locs.add(s.locator());
         }
-        // how many sources stand behind the claim once copies of one text are counted once
+        // how many sources stand behind the claim once copies of one text, a source that cites another and the pages of one publisher are counted once
         e.put("independent_sources", locs.isEmpty() ? 0 : Independence.independent(store, locs));
+        // a claim that rests on one source says so, wherever it is read (round E): the mark goes by itself when a second voice joins its sources
+        String one = OneSource.of(store, f);
+        e.put("single_source", one != null);
+        if (one != null) { e.put("one_source", one); e.put("call_out", one + " says this; no other source found confirms it. Say so whenever you use it, in those words."); }
         // when the inventory last read the claim against its source, and what it found
         String lc = Inventory.lastChecks(store).get(f.id());
         if (lc == null) e.putNull("last_checked");

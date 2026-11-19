@@ -1,5 +1,7 @@
 package org.researchzosho.tools;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -52,7 +54,7 @@ public final class Firecrawl {
         try {
             var body = M.createObjectNode().put("url", url).put("onlyMainContent", true).put("timeout", (int) Math.min(timeout.toMillis(), 60_000));
             body.putArray("formats").add("markdown");
-            HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(BASE.get("scrape"))).timeout(timeout.plusSeconds(10))
+            HttpResponse<String> resp = Stopping.send(HTTP, Gated.request(BASE.get("scrape")).timeout(timeout.plusSeconds(10))
                     .header("Authorization", "Bearer " + key.strip()).header("Content-Type", "application/json").header("Accept", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body))).build(), HttpResponse.BodyHandlers.ofString(), timeout.plusSeconds(10), "Firecrawl");
             if (resp.statusCode() != 200) return null;

@@ -175,3 +175,38 @@ The (y/N) prompts keep y; the text says "y나 예".
 - Dossier sections: 기본 정보, 해석 (Reading: 분석 is the Analysis section on this page), 하는 일, 검색 범위, 연표, 결정, 본인의 말, 미디어, 측면 (Facets), 생활 패턴 (Pattern of life), 관계, 알린 내용 (Told, as in 라이브러리에 알리기), 분석, 찾지 못한 것, 충돌, 점검, 연결, 공통, 새로 고침, 아직 없음.
 - The badges of a claim's source: 공적 기록 / 자체 발행 / 알린 내용 / 제공 자료 / 제3자 / 원작.
 - watch (a dossier) = 지켜보기; the plan's clauses are joined as `{0}. {1}`; a service with its description is written "Exa(…)".
+
+## Fourth round (the account service's pages, 0.8.0)
+
+| English | Korean |
+|---|---|
+| account service (several accounts, each with a library, on one ResearchZosho) | 계정 서비스; "runs under an account service" = 계정 서비스 아래에서 실행됩니다 |
+| whoever runs this service (the operator, not a library's keeper) | 이 서비스의 운영자 / 서비스 운영자 (never 관리자, which is the keeper) |
+| join link | 초대 링크 |
+| let someone in / is let in (the keeper's act on the account page) | 들여보내다: 들여보낼 사람 (label), 들여보내기 (button); "{0} is let into {1}" = {0}: 이제 “{1}” 라이브러리에 들어올 수 있습니다 |
+| the people of a library | 멤버 (“{0}” 라이브러리의 멤버) |
+| You keep it / You read it and write to it / You read it | 관리자입니다. / 읽고 쓸 수 있습니다. / 읽을 수 있습니다. |
+| What they may do + read / read and write (label and its choices) | 그 사람의 권한 + 읽기 / 읽기와 쓰기 |
+| "Nobody but you" (no 당신) | 본인 외에는 |
+| closed (an account) | 닫혔습니다 |
+| counts of browsers | 브라우저는 {0}개입니다 |
+| the service it runs under / the model does not answer | 이 라이브러리를 실행하는 서비스 / 모델이 응답하지 않습니다 |
+| has to look into it (the operator, when the service's model does not answer) / Research needs it. / This needs it. | 서비스 운영자가 원인을 살펴봐야 합니다. / 조사에는 그 모델이 필요합니다. / 이 작업에는 그 모델이 필요합니다. |
+| a library's copy / brought back from its copy / being moved / no longer served here / another process holds its folder | 사본 / 사본에서 복원 / 옮기는 중 / 이제 여기서 제공되지 않습니다 / 다른 프로세스가 그 폴더를 쓰고 있습니다; a moment ({0}) after a colon or 에 |
+| a machine of the service / the machine a library runs on / is kept on | 컴퓨터 / “{0}” 라이브러리가 실행되는 컴퓨터 / “{0}” 라이브러리를 보관하는 컴퓨터; "within {1} minutes" = {1}분 안에 |
+| an account's caps: the month's dollars / fetched pages / jobs at once; spending; a container | 이번 달 상한({0}) / 가져올 수 있는 페이지 수 / 동시에 진행할 수 있는 작업 수; 지출; 컨테이너. Money ("$5.00") and the date ("2026-12-01") stay as written, in brackets: 다음 달 초({1}) |
+| work the service let start (a run, a chat turn, a translation) / searches this month / the model is busy | 작업 / 검색 횟수({0}회) / 서비스의 모델이 지금 바쁩니다; the day ({1} = "12월 1일") in brackets: 다음 달 초({1}) |
+| storage cap ({0} = "2.0 GB", as written) / removing something makes room / reading goes on | 저장 공간 상한({0}) / 무언가를 제거하면 공간이 생깁니다 / 읽기는 그대로 할 수 있습니다 |
+| own key / the operator's page (Every account) / cap / used / left / no cap / yours (own money) | 내 키 / 모든 계정 / 상한 / 사용 / 남음 / 상한 없음 / 본인 부담 |
+| spending plug-in / the heavy helpers' time / pages fetched / a cap's names | 지출 플러그인 / 보조 모델 사용 시간 / 가져온 페이지 / 월 금액, 월 검색 수, 월 가져온 페이지 수, 동시 작업 수, 작업당 분, 작업당 금액, 저장 메가바이트 |
+| typed in the caps form | off, 5, 5.00, 5,00 and default stay as written: the program reads both the dot and the comma |
+| set today / set yesterday / the fold of own keys / a run stopped at its cap | 오늘 설정 / 어제 설정 / 내 키 사용(선택) / 상한에 이르러 멈췄습니다 |
+| set on {0} (a day, never today or yesterday, which have keys of their own) | {0}에 설정 (as 오늘 설정 / 어제 설정) |
+| suspend / delete (an account) / removal day / hand over (a library) / recent activity | 정지 / 삭제 / 삭제 예정일 / 넘기다 / 최근 활동; the acts of the log are short nouns: 로그인, 비밀번호 변경, 라이브러리 넘김… |
+| rate limits: "Try again in {0}." / a wait / Wait a moment | {0} 뒤에 다시 시도하세요. / {0}초, {0}분 / 잠시 기다려 주세요 |
+| take a library home (the link) / pack (for download) / the archive | 가져가기 / 묶다 / 아카이브 |
+| a person lets a library go / the operator lets a library go (release to a folder) | 포기 / 내보내기 |
+| kept aside / out of service / take back / take in / hand over / move / days of grace / freeze / suspend, let back | 따로 보관 / 서비스에서 빠짐 / 되돌리기 / 받아들이기 / 넘기기 / 이동 / 유예 기간 / 동결 / 정지, 정지 해제 |
+| the audit log / machine, node / awake, asleep / last word / … ago | 감사 로그 / 컴퓨터, 노드 / 실행 중, 휴면 / 마지막 응답 / {0}초 전, {0}분 전, {0}시간 전, {0}일 전 |
+| Release (the operator's act, was "let go"; a person's own "Let it go" stays 포기) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | 내보내기 / 유지 / 맡을 계정 / 이전 관리자: {0} |
+| invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | 초대 / 참여 / 철회 / 아직 쓰이지 않은 링크 |

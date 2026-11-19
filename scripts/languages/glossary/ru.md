@@ -199,3 +199,38 @@ The phrases that name a model ("using deepseek", "translated by kimi", "checked 
 - Dossier sections: Reading = Разбор, Told = Рассказанное, Pattern of life = Картина жизни.
 - statements = высказывания; conjectures = предположения; superseded = заменено; watch = следить / «Под наблюдением»; search by meaning = поиск по смыслу; tilt = перевес; Families (the page of family names) = Фамилии.
 - Wikipedia stays in Latin letters, like the other service names.
+
+## Fourth round (the account service's pages, 0.8.0)
+
+| English | Russian |
+|---|---|
+| account service (several accounts, each with a library, on one ResearchZosho) | сервис учетных записей («сервис», not «служба», which is the background service); "runs under an account service" = работает под управлением сервиса учетных записей |
+| whoever runs this service (the operator, not a library's keeper) | администратор сервиса, always with «сервиса»; the keeper stays «администратор библиотеки» |
+| join link | ссылка-приглашение |
+| let someone in / is let in (the keeper's act on the account page) | дать доступ («Дать доступ», «получает доступ»); "{0} is let into {1}" = «{0} теперь может открывать библиотеку «{1}»» (the name stays in the nominative) |
+| the people of a library | участники («Участники библиотеки «{0}»») |
+| You keep it / You read it and write to it / You read it | Вы ее администратор. / Вам доступны чтение и запись. / Вам доступно только чтение. |
+| What they may do + read / read and write (label and its choices) | «Доступ этого человека» + только чтение / чтение и запись (a noun label, since the choices are nouns) |
+| a name the sentence would decline (An account is made for {0}; Send {0} this link) | the name first or after a colon: «Создана учетная запись: {0}.», «{0}: отправьте этому человеку ссылку.» |
+| counts | «{0} мин», «{0} дн.»; browsers: «в одном браузере» / «Браузеров, в которых выполнен вход …: {0}» |
+| closed (an account) | закрыта |
+| the service it runs under / the model does not answer | сервис, под управлением которого она работает / Модель не отвечает |
+| has to look into it (the operator, when the service's model does not answer) / Research needs it. / This needs it. | Разобраться должен администратор сервиса. / Для исследования нужна модель. / Для этого нужна модель. |
+| a library's copy / brought back from its copy / being moved / no longer served here / another process holds its folder | копия / восстановлена из своей копии / переносится / здесь больше не доступна / ее папку занимает другой процесс; a moment ({0}) in brackets after «время копии:» or «время:» |
+| a machine of the service / the machine a library runs on / is kept on | компьютер / компьютер, на котором работает / хранится библиотека «{0}»; minutes: «{1} мин» |
+| an account's caps: the month's dollars / fetched pages / jobs at once; spending; a container | месячный лимит ({0}) / загруженные страницы / задания одновременно; расходы; контейнер. Money («$5.00») and the date («2026-12-01») stay as written, in brackets: «в начале следующего месяца ({1})» |
+| work the service let start (a run, a chat turn, a translation) / searches this month / the model is busy | задание / поисковые запросы / Модель сервиса сейчас занята; the day ({1} = «1 дек.») in brackets: «в начале следующего месяца ({1})» |
+| storage cap ({0} = «2.0 GB», as written) / removing something makes room / reading goes on | всё место, которое положено ({0}) / Если что-то удалить, место освободится / читать можно по-прежнему |
+| own key / the operator's page (Every account) / cap / used / left / no cap / yours (own money) | собственный ключ / Все учетные записи / лимит / использовано / осталось / без лимита / за ваш счет |
+| spending plug-in / the heavy helpers' time / pages fetched / a cap's names | плагин расходов / Время вспомогательных моделей / загруженные страницы / долларов в месяц, поисков в месяц, страниц в месяц, заданий одновременно, минут на задание, долларов на задание, мегабайт хранения |
+| typed in the caps form | off, 5, 5.00, 5,00 and default stay as written: the program reads both the dot and the comma |
+| set today / set yesterday / the fold of own keys / a run stopped at its cap | задан сегодня / задан вчера / Использовать собственные ключи (необязательно) / Остановлено: достигнут лимит |
+| set on {0} (a day, never today or yesterday, which have keys of their own) | задан {0} (as задан сегодня / задан вчера) |
+| suspend / delete (an account) / removal day / hand over (a library) / recent activity | приостановить / удалить / «дата удаления: {0}» / передать / Последние действия; the acts of the log: вход, пароль изменен, библиотека передана… |
+| rate limits: "Try again in {0}." / a wait / Wait a moment | Попробуйте снова через {0}. / the wait is read only after «через»: one «{0} секунду», «{0} минуту» (accusative), every other number «{0} с», «{0} мин» / Подождите немного |
+| take a library home (the link) / pack (for download) / the archive | Забрать к себе / упаковать / архив |
+| a person lets a library go / the operator lets a library go (release to a folder) | отказаться / отпустить |
+| kept aside / out of service / take back / take in / hand over / move / days of grace / freeze / suspend, let back | отложена / вне работы, выведена из работы / вернуть / принять / передать / перенести / льготный срок / заморозить / приостановить, вернуть доступ |
+| the audit log / machine, node / awake, asleep / last word / … ago | журнал аудита / компьютер, узел / работает, спит / последний отклик / one «{0} минуту назад», many «{0} мин назад» (с, ч, дн.) |
+| Release (the operator's act, was "let go"; a person's own "Let it go" stays отказаться) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | отпустить / Оставить / Для учетной записи / прежний администратор: {0} |
+| invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | приглашение / Присоединиться / Отозвать / еще не использованная ссылка |

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 /**
  * A library this process no longer holds the lease of ({@link Lease}): from the moment the daemon finds another process holding it, no
@@ -25,9 +26,26 @@ final class NotHolder {
     /** No write goes into {@code root} from now on in this process, for {@code why}. */
     static void giveUp(Path root, String why) { GIVEN_UP.put(root.toAbsolutePath().normalize(), why); }
 
+    /**
+     * A library whose start under an account service may have lost its lease without having looked yet (a process frozen and let go):
+     * asked at each write into it, before anything is written. A reason means the library is given up from this write on.
+     */
+    private static final Map<Path, Supplier<String>> FENCES = new ConcurrentHashMap<>();
+    static void fence(Path root, Supplier<String> why) { FENCES.put(root.toAbsolutePath().normalize(), why); }
+    static void unfence(Path root) { FENCES.remove(root.toAbsolutePath().normalize()); }
+
     /** Why a write to {@code p} is refused; null when it is not in a library this process gave up. */
     static String why(Path p) {
-        if (GIVEN_UP.isEmpty() || p == null) return null;
+        if (p == null) return null;
+        if (!FENCES.isEmpty()) {
+            Path a = p.toAbsolutePath().normalize();
+            for (Map.Entry<Path, Supplier<String>> e : FENCES.entrySet()) {
+                if (!a.startsWith(e.getKey())) continue;
+                String lost = e.getValue().get();
+                if (lost != null) giveUp(e.getKey(), lost);
+            }
+        }
+        if (GIVEN_UP.isEmpty()) return null;
         Path a = p.toAbsolutePath().normalize();
         for (Map.Entry<Path, String> e : GIVEN_UP.entrySet()) if (a.startsWith(e.getKey())) return e.getValue();
         return null;

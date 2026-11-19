@@ -1,6 +1,7 @@
 package org.researchzosho.tools;
 
 import org.researchzosho.Config;
+import org.researchzosho.drive.Gated;
 import org.researchzosho.Stopping;
 
 import java.io.ByteArrayInputStream;
@@ -123,13 +124,8 @@ public final class Fetch {
         return trustedProxy != null && !trustedProxy.isBlank();
     }
 
-    /** A private address: the site-local ranges, the shared 100.64/10 range carriers and tailnets use, and IPv6's unique local fc00::/7. */
-    static boolean privateAddress(InetAddress a) {
-        if (a.isSiteLocalAddress()) return true;
-        byte[] b = a.getAddress();
-        if (b.length == 4) return (b[0] & 0xff) == 100 && (b[1] & 0xc0) == 64;
-        return b.length == 16 && (b[0] & 0xfe) == 0xfc;
-    }
+    /** A private address: the site-local ranges, the shared 100.64/10 range carriers and tailnets use, and IPv6's unique local fc00::/7 ({@link Addresses}). */
+    static boolean privateAddress(InetAddress a) { return Addresses.kind(a) == Addresses.Kind.PRIVATE; }
 
     /** {@link #refusal(URI)} with the private-address rule given, so a test pins it without a configuration file. */
     static String refusal(URI uri, boolean denyPrivate) {
@@ -140,6 +136,14 @@ public final class Fetch {
         for (String own : ownServiceHosts()) {
             if (own.equalsIgnoreCase(host)) return host + " is one of the library's own services";
         }
+        // a library in a container reaches the web only through its node's gate, which resolves a name itself and checks every address it
+        // gets by the same list; the container asks no DNS. An address written as one is checked here as well.
+        boolean gate = throughGate();
+        // this machine by a name: with the gate on it would go straight to the loopback, where the node's relays listen, not through the gate
+        // (round F, the second review: http://localhost:<relay>/gate/… was answered with the operator's key)
+        String named = host.toLowerCase(Locale.ROOT).replaceAll("\\.+$", "");
+        if (gate && (named.equals("localhost") || named.endsWith(".localhost") || named.equals("ip6-localhost") || named.equals("ip6-loopback"))) return host + " is this machine";
+        if (gate && !Addresses.literal(host)) return null;
         InetAddress[] addrs;
         try {
             addrs = InetAddress.getAllByName(host);
@@ -147,12 +151,17 @@ public final class Fetch {
             return "cannot resolve " + host;
         }
         for (InetAddress a : addrs) {
-            if (a.isLoopbackAddress() && !allowLoopback) return host + " resolves to a loopback address";
-            if (a.isLinkLocalAddress()) return host + " resolves to a link-local address";
-            if (a.isAnyLocalAddress() || a.isMulticastAddress()) return host + " resolves to an unusable address";
-            if (denyPrivate && privateAddress(a)) return host + " resolves to an address on a private network, which this library does not fetch (RESEARCHZOSHO_FETCH_PRIVATE)";
+            Addresses.Kind k = Addresses.kind(a);
+            if (k == Addresses.Kind.LOOPBACK && !allowLoopback) return host + " resolves to a loopback address";
+            if (k == Addresses.Kind.LINK_LOCAL) return host + " resolves to a link-local address";
+            if (k == Addresses.Kind.UNUSABLE) return host + " resolves to an unusable address";
+            if (k == Addresses.Kind.PRIVATE && (denyPrivate || gate)) return host + " resolves to an address on a private network, which this library does not fetch (RESEARCHZOSHO_FETCH_PRIVATE)";
         }
         return null;
+    }
+
+    /** Whether this library's web goes through its node's gate (a library in a container, {@link Addresses#THROUGH_GATE}). */
+    public static boolean throughGate() { return "on".equalsIgnoreCase(Config.get(Addresses.THROUGH_GATE, "").strip());
     }
 
     /**
@@ -229,7 +238,7 @@ public final class Fetch {
             if (left != null) throw new LeftOut(current, left);
             String why = refusal(uri);
             if (why != null) throw new IllegalArgumentException("refused: " + why);
-            HttpRequest.Builder rb = HttpRequest.newBuilder(uri).timeout(timeout).header("User-Agent", USER_AGENT).header("Accept-Encoding", "gzip");
+            HttpRequest.Builder rb = Gated.webMark(uri.toString(), HttpRequest.newBuilder(uri)).timeout(timeout).header("User-Agent", USER_AGENT).header("Accept-Encoding", "gzip");   // its use, for the node's web gate (0.8.0)
             if (uri.getHost() != null && uri.getHost().equalsIgnoreCase(firstHost) && "https".equalsIgnoreCase(uri.getScheme())) for (var h : headers.entrySet()) rb.header(h.getKey(), h.getValue());
             // the answer is waited for under the run's stop and {@code timeout}; its body is read under the same stop for as long as it keeps
             // coming: nothing for {@code timeout}, or less than MIN_BYTES_PER_SECOND on average, ends the reading. Before, the body had no

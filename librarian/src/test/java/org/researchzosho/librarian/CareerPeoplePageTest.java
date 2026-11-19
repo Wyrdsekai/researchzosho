@@ -85,7 +85,7 @@ class CareerPeoplePageTest {
         assertEquals(2, Career.seekers(store).size(), "the same name adds to the same person");
         assertTrue(Career.evidence(store, Career.seeker(store, "Second Person")).size() == 2);
         // a file posted with the form is read as the command line reads one, under its own name, and the upload folder is dropped after
-        Path up = Files.createTempDirectory(Uploads.DIR);   // a folder as the server makes one for a post: only a file in one is the form's file (0.7.8)
+        Path up = Uploads.newFolder();   // a folder as the server makes one for a post: only a file in one is the form's file (0.7.8)
         Path json = up.resolve("profile.json"); Files.writeString(json, CareerTest.linkedin(), StandardCharsets.UTF_8);
         var third = new CareerProfile().page(store, Patrons.Patron.PERSON, "/career", "POST", Map.of(), Map.of("op", "provide", "name", "Third Person", "text", "", "file.path", json.toString(), "file.name", "profile.json"));
         assertEquals("/career?seeker=third-person", third.redirect());

@@ -142,21 +142,24 @@ class RunLimitsTest {
         List<ArrayNode> seen = new ArrayList<>();
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"What is the Saros cycle?\", \"max_minutes\": 120, \"sources\": \"both\"}"),
                 LibrarianChatTest.say("Filed. I will say when it is done.")), seen), Librarian.person(), Librarian.Session.open(store));
-        String reply = lib.say("Find out what the Saros cycle is. Don't exceed 30 minutes, from the shelves only.");
+        lib.say("Find out what the Saros cycle is. Don't exceed 30 minutes, from the shelves only.");
+        assertEquals(2, seen.size(), "one tool round, then the words");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         List<ObjectNode> active = new Jobs(store, j -> "").active();
         JsonNode args = active.get(0).path("args");
         assertEquals(30, args.path("max_minutes").asInt(), "the person's words win over the model's 120: " + args);
         assertEquals("shelves", args.path("sources").asText(), args.toString());
         String id = active.get(0).path("job_id").asText();
         assertTrue(reply.contains("Research run " + id + ", as you asked: up to 30 minutes, from the shelves only."), reply);
-        boolean told = false;   // the tool's result as the session keeps it (the model's own copy may be cleared to fit a small window)
-        for (ObjectNode m : lib.session().messages()) if ("tool".equals(m.path("role").asText()) && m.path("content").asText().contains("The person's own words set this run: up to 30 minutes, from the shelves only.")) told = true;
-        assertTrue(told, "the model's tool result says so too: " + lib.session().messages());
-        assertEquals(2, seen.size(), "one tool round, then the words");
+        boolean told = false;   // the library's answer as the session keeps it, which the model reads at its next turn
+        for (ObjectNode m : lib.session().messages()) if (m.path("content").asText().contains("as you asked: up to 30 minutes, from the shelves only.")) told = true;
+        assertTrue(told, "the model reads it too: " + lib.session().messages());
+        assertEquals(2, seen.size(), "the yes does it without the model");
         // nothing said: the model's own arguments stand, and nothing is said back
         Librarian two = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"How long is the Saros cycle, in days?\", \"max_minutes\": 45}"),
                 LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
-        String plain = two.say("Find out how long the Saros cycle is in days.");
+        two.say("Find out how long the Saros cycle is in days.");
+        String plain = two.say("yes");
         active = new Jobs(store, j -> "").active();
         assertEquals(45, active.get(active.size() - 1).path("args").path("max_minutes").asInt());
         assertFalse(plain.contains("as you asked"), plain);
@@ -165,7 +168,8 @@ class RunLimitsTest {
         try {
             Librarian ja = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"サロス周期とは何か、その周期はどれほどの長さか\"}"),
                     LibrarianChatTest.say("調査を出しました。")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
-            String said = ja.say("サロス周期とは何か調べて。30分以内、棚だけから、有料サービスは使わないで。");
+            ja.say("サロス周期とは何か調べて。30分以内、棚だけから、有料サービスは使わないで。");
+            String said = ja.say("はい");
             active = new Jobs(store, j -> "").active();
             JsonNode jargs = active.get(active.size() - 1).path("args");
             assertEquals(30, jargs.path("max_minutes").asInt()); assertEquals("shelves", jargs.path("sources").asText()); assertFalse(jargs.path("paid").asBoolean(true));
@@ -183,8 +187,10 @@ class RunLimitsTest {
                 .say("what is the Saros cycle? don't exceed 5 minutes, from the shelves only");
         assertTrue(new Jobs(store, j -> "").active().isEmpty(), "nothing filed yet");
         // a bare yes: the run the model files now carries them, over the model's own shelves-and-web
-        String reply = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"What is the Saros cycle?\", \"sources\": \"both\", \"max_minutes\": 5}"),
-                LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), s).say("yes");
+        Librarian files = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"What is the Saros cycle?\", \"sources\": \"both\", \"max_minutes\": 5}"),
+                LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), s);
+        files.say("yes");
+        String reply = files.say("yes");   // the model's run waits for the person's yes first (round E)
         List<ObjectNode> active = new Jobs(store, j -> "").active();
         JsonNode args = active.get(0).path("args");
         assertEquals(5, args.path("max_minutes").asInt(), args.toString()); assertEquals("shelves", args.path("sources").asText(), args.toString());
@@ -192,6 +198,7 @@ class RunLimitsTest {
         // other words than a yes carry nothing over: a new request is read on its own
         new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"How long is a Saros series, in years and eclipses?\"}"),
                 LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), s).say("and find out how long a Saros series lasts");
+        new Librarian(store, LibrarianChatTest.scripted(List.of(), new ArrayList<>()), Librarian.person(), s).say("yes");
         active = new Jobs(store, j -> "").active();
         assertEquals(0, active.get(active.size() - 1).path("args").path("max_minutes").asInt(), active.get(active.size() - 1).toString());
         assertEquals("both", active.get(active.size() - 1).path("args").path("sources").asText());
@@ -209,7 +216,8 @@ class RunLimitsTest {
             new LibrarianIndex(store, Embeddings.none()).rebuild();
             Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"What is the Saros cycle?\"}"),
                     LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
-            String reply = lib.say("Find out what the Saros cycle is, with fable.");
+            lib.say("Find out what the Saros cycle is, with fable.");
+            String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
             JsonNode args = new Jobs(store, j -> "").active().get(0).path("args");
             assertEquals("fable", args.path("model_entry").asText(), args.toString());
             assertTrue(reply.contains("as you asked: on the model fable."), reply);

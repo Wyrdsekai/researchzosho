@@ -1,5 +1,7 @@
 package org.researchzosho.tools;
 
+import org.researchzosho.drive.Gated;
+
 import org.researchzosho.Stopping;
 import org.researchzosho.Version;
 
@@ -37,7 +39,7 @@ public final class PlaceHttp {
 
     static Res send(String method, String url, Map<String, String> headers, String json, Duration limit, String what) {
         try {
-            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(limit).setHeader("User-Agent", UA).setHeader("Accept", "application/json");
+            HttpRequest.Builder b = Gated.request(url).timeout(limit).setHeader("User-Agent", UA).setHeader("Accept", "application/json");
             for (Map.Entry<String, String> h : headers.entrySet()) b.setHeader(h.getKey(), h.getValue());
             if (method.equals("POST")) b.setHeader("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(json == null ? "" : json));
             else b.GET();

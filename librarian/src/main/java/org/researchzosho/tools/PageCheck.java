@@ -2,10 +2,12 @@ package org.researchzosho.tools;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.librarian.Fence;
+import org.researchzosho.librarian.GivenAddresses;
 import org.researchzosho.librarian.RawCapture;
 
 /**
@@ -145,16 +147,22 @@ public final class PageCheck {
         // the same page read again in this run (another part of it, another worker): the verdict already reached, not the questions again
         String known = policy.verdict(r.url(), doc.text());
         if (known != null) {
-            if (known.isEmpty()) return new Page(r, doc, null);
+            if (known.isEmpty()) return linked(new Page(r, doc, null), bytes);
             policy.leftOut(r.url(), known, requested);
             return new Page(r, null, known);
         }
         String why = leftOutAs(doc, r.url(), policy, focus);
         if (!UNCHECKED.equals(why)) policy.verdict(r.url(), doc.text(), why);
         // the person's own address that nothing could check: saved, marked not checked yet, and checked when a model answers
-        if (UNCHECKED.equals(why) && policy.person()) return new Page(r, doc, null, true);
+        if (UNCHECKED.equals(why) && policy.person()) return linked(new Page(r, doc, null, true), bytes);
         if (why != null) { policy.leftOut(r.url(), why, requested); return new Page(r, null, why); }
-        return new Page(r, doc, null);
+        return linked(new Page(r, doc, null), bytes);
+    }
+
+    /** A page kept: its links are addresses the library read, which a model may open next (GivenAddresses); a page left out gives none. */
+    private static Page linked(Page p, byte[] bytes) {
+        if (p.doc() != null && "html".equals(p.doc().kind())) GivenAddresses.linksOf(new String(bytes, StandardCharsets.UTF_8), p.fetched().url());
+        return p;
     }
 
     /** What of a page's text is saved: the library keeps at most {@link RawCapture#MAX_TEXT} characters of it, and the check reads the same. */

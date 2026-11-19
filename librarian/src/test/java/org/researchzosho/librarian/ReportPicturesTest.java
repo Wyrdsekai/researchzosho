@@ -38,8 +38,8 @@ class ReportPicturesTest {
         assertEquals("<p>The gearing is a train of four.</p>" + FIGURE + "<p>The last wheel turns the pointer.</p>",
                 Pages.md("The gearing is a train of four.\n\n![A diagram of the gear train](/images/ab12.png)\n\nThe last wheel turns the pointer."), "or with blank lines around it");
         assertEquals("<ul><li>one</li></ul>" + FIGURE, Pages.md("- one\n![A diagram of the gear train](/images/ab12.png)"), "a list closes before it");
-        assertEquals("<figure class=\"fig\"><a href=\"https://pics.example/p.png\" target=\"_blank\" rel=\"noopener noreferrer\"><img class=\"figure\" src=\"https://pics.example/p.png\" alt=\"\" loading=\"lazy\" referrerpolicy=\"no-referrer\"></a></figure>",
-                Pages.md("![](https://pics.example/p.png)"), "a picture of the web, with no title: no caption");
+        assertEquals("<p><a href=\"https://pics.example/p.png\" rel=\"noreferrer\">https://pics.example/p.png</a></p>",
+                Pages.md("![](https://pics.example/p.png)"), "a picture of the web in a report is a link to it, never loaded (round F: only the library's own pictures are shown)");
         String title = Pages.md("![Tom &amp; Jerry's \"gears\" <b>](/images/x.png)");
         assertTrue(title.contains("alt=\"Tom &amp; Jerry's &quot;gears&quot; &lt;b&gt;\"") && title.contains("<figcaption>Tom &amp; Jerry's &quot;gears&quot; &lt;b&gt;</figcaption>"), title);
         assertEquals("<p>![t](//evil.example/x)</p>", Pages.md("![t](//evil.example/x)"), "a protocol-relative address is no picture");
@@ -49,8 +49,7 @@ class ReportPicturesTest {
     @Test
     void aPictureAmongWordsOrUnderAListItemStaysSmall() {
         String candidates = Pages.md("2 pictures found.\n\n1. \"T\" from host.example, 768×401, found through Brave.\n   https://host.example/page\n   ![T](https://imgs.example/t.jpg)\n\n2. \"U\" from u.example.\n   https://u.example/p\n   ![U](https://imgs.example/u.jpg)\n");
-        assertTrue(candidates.contains("<img class=\"thumb\" src=\"https://imgs.example/t.jpg\" alt=\"T\" loading=\"lazy\" referrerpolicy=\"no-referrer\">") && candidates.contains("<img class=\"thumb\" src=\"https://imgs.example/u.jpg\""), candidates);
-        assertFalse(candidates.contains("class=\"figure\""), "the chat's candidates are tiles: " + candidates);
+        assertTrue(candidates.contains("<a href=\"https://imgs.example/t.jpg\" rel=\"noreferrer\">T</a>") && !candidates.contains("<img"), "in a report's or a claim's text a picture of the web is a link (round F): " + candidates);
         assertTrue(Pages.md("See ![t](/images/a.png) here.").contains("<p>See <img class=\"thumb\" src=\"/images/a.png\" alt=\"t\""), "a picture in a sentence");
         assertTrue(Pages.md("| a | b |\n|---|---|\n| ![t](/images/a.png) | x |").contains("<td><img class=\"thumb\" src=\"/images/a.png\""), "a picture in a table cell");
     }
@@ -60,12 +59,13 @@ class ReportPicturesTest {
         assertEquals(FIGURE + "<p>Picture: the gear train, judged &quot;a diagram of the gear train&quot;: yes — it shows the four wheels (kept as A-0001).</p>",
                 Pages.prose("![A diagram of the gear train](/images/ab12.png)\n\nPicture: the gear train, judged \"a diagram of the gear train\": yes — it shows the four wheels (kept as A-0001)."));
         String list = Pages.prose("2 pictures found.\n\n1. \"T\" from host.example.\n   https://host.example/page\n   ![T](https://imgs.example/t.jpg)\n\nSay \"keep 1\" to keep it.");
-        assertEquals("<p>2 pictures found.</p><p>1. &quot;T&quot; from host.example.<br>   https://host.example/page<br>   <img class=\"thumb\" src=\"https://imgs.example/t.jpg\" alt=\"T\" loading=\"lazy\" referrerpolicy=\"no-referrer\"></p><p>Say &quot;keep 1&quot; to keep it.</p>", list);
+        assertEquals("<p>2 pictures found.</p><p>1. &quot;T&quot; from host.example.<br>   https://host.example/page<br>   <img class=\"thumb\" src=\"https://imgs.example/t.jpg\" alt=\"T\" loading=\"lazy\" referrerpolicy=\"no-referrer\" " + Pages.SHOWN + "></p><p>Say &quot;keep 1&quot; to keep it.</p>", list, "the library's own list of found pictures carries its mark");
+        assertFalse(list.contains("class=\"figure\""), "the chat's candidates are tiles: " + list);
         assertEquals("<p>![t](//evil.example/x)</p>", Pages.prose("![t](//evil.example/x)"));
     }
 
     @Test
-    void aReportsPageShowsThePictureAtReadingSizeAndAllowsAWebPictureForEitherForm(@TempDir Path tmp) throws Exception {
+    void aReportsPageShowsThePictureAtReadingSizeAndAWebPictureOnlyAsALink(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp); store.init();
         store.write(new Investigation("I-0010-gears", "How were the gears cut?", Finding.State.accepted, "model:test", "2026-11-08T00:00:00Z", List.of(), List.of(),
                 "## Answer\n\nThe gearing is a train of four.\n![A diagram of the gear train](/images/ab12.png)\nThe last wheel turns the pointer.\n"));
@@ -83,7 +83,8 @@ class ReportPicturesTest {
             for (String id : new String[]{"I-0011-web", "I-0012-inline"}) {
                 HttpResponse<String> web = c.send(HttpRequest.newBuilder(URI.create(base + "/entry/" + id)).build(), HttpResponse.BodyHandlers.ofString());
                 assertEquals(200, web.statusCode(), web.body());
-                assertEquals("default-src 'none'; img-src 'self' https:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'", web.headers().firstValue("Content-Security-Policy").orElse(""), id + ": a picture from the web is allowed over https, at reading size or small");
+                assertEquals("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'", web.headers().firstValue("Content-Security-Policy").orElse(""), id + ": a report's picture of the web is a link, and the policy lets nothing of the web in (round F)");
+                assertTrue(web.body().contains("<a href=\"https://pics.example/") && !web.body().contains("src=\"https://pics.example/"), web.body());
             }
         } finally { d.stop(); }
     }

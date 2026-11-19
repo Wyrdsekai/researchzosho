@@ -118,6 +118,9 @@ class PageCheckCannotRunTest {
             }
         };
         drive.criticWantsMore = false;
+        // a search named the pages the reader opens, as a real run's does (the library opens only what a result gave); until round E the
+        // refusal of each first try named its address, and the reader's second try then opened it
+        for (int i = 1; i <= 6; i++) GivenAddresses.received(i + ". Placeholder — https://example.org/placeholder-" + i);
         Researcher r = new Researcher(drive, drive, tools, logged::add, 1, store);
         r.contentJudge(NoLiveChecks.NOTHING);
         Researcher.CannotCheck stop = assertThrows(Researcher.CannotCheck.class,

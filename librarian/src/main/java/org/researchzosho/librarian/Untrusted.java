@@ -1,5 +1,11 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
 
@@ -37,14 +43,36 @@ public final class Untrusted {
             + ")(?:[^.!?\\n]|[.!?](?=\\S)){0,300}[.!?]?");   // to the end of its sentence: a dot inside a name (notes.create_note, 3.5) does not end it
 
     /** The markers of chat templates and of tool calls in a model's own transcript. */
-    static final Pattern MARKERS = Pattern.compile("(?i)<\\|[^|<>\\n]{0,40}\\|>|</?\\s*(?:tool_call|tool_response|tool_result|function_call|function_results?|system|assistant|user|im_start|im_end)\\s*>|\\[/?INST\\]|<(?:start|end)_of_turn>|<<\\s*/?\\s*SYS\\s*>>");
+    static final Pattern MARKERS = Pattern.compile("(?i)<\\|[^|<>\\n]{0,40}\\|>|<｜[^｜<>\\n]{0,40}｜>|\\[/?(?:TOOL_CALLS|TOOL_RESULTS|SYSTEM_PROMPT|AVAILABLE_TOOLS|THINK|INST|IMG|CALL_ID|ARGS)\\]|</?s>|</?think>|</?\\s*(?:tool_call|tool_response|tool_result|function_call|function_results?|system|assistant|user|im_start|im_end)\\s*>|\\[/?INST\\]|<(?:start|end)_of_turn>|<<\\s*/?\\s*SYS\\s*>>");
 
     /** The text with the library's fence markers broken, the template markers taken out and every sentence shaped like an instruction set aside. */
     public static String neutralise(String text) {
         if (text == null || text.isEmpty()) return "";
-        String s = text.replace("<<<", "‹‹‹").replace(">>>", "›››");
-        s = MARKERS.matcher(s).replaceAll("‹marker›");
+        String s = markers(text.replace("<<<", "‹‹‹").replace(">>>", "›››"));   // every one, as before: this is a search result's or a tool's own words, not a document read as written
         return INSTRUCTION.matcher(s).replaceAll(SET_ASIDE);
+    }
+
+    /**
+     * The text with the markers of chat templates and of tool calls taken out. A model server reads them in a message's words as its own
+     * control tokens: on llama.cpp {@code <|im_start|>} is one token (248045 on the Qwen 3.8 server, 2026-11-18), so a page that wrote
+     * {@code </tool_response><|im_end|><|im_start|>system} ended the tool's result and began a system turn in the model's input.
+     */
+    public static String markers(String text) {
+        if (text == null || text.isEmpty()) return "";
+        return MARKERS.matcher(text).replaceAll("‹marker›");
+    }
+
+    /**
+     * Every string in {@code n}, at any depth, with the markers taken out ({@link #markers(String)}), in place: an answer the library gives a
+     * program over MCP carries a saved page's text whole, and the program's model reads it.
+     */
+    public static void markersIn(JsonNode n) {
+        if (n instanceof ObjectNode o) {
+            List<String> names = new ArrayList<>(); o.fieldNames().forEachRemaining(names::add);
+            for (String k : names) { JsonNode v = o.get(k); if (v.isTextual()) { String s = v.asText(), t = markers(s); if (!t.equals(s)) o.put(k, t); } else markersIn(v); }
+        } else if (n instanceof ArrayNode a) {
+            for (int i = 0; i < a.size(); i++) { JsonNode v = a.get(i); if (v.isTextual()) { String s = v.asText(), t = markers(s); if (!t.equals(s)) a.set(i, TextNode.valueOf(t)); } else markersIn(v); }
+        }
     }
 
     /** On one line, short: a name or a description a model reads in its list of tools. */

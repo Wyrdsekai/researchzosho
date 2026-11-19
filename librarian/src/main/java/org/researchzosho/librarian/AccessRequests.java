@@ -52,6 +52,7 @@ public final class AccessRequests {
     }
 
     private static void write(LibraryStore store, List<Request> all) throws IOException {
+        Hosted.accounts(store);   // a library under an account service keeps no people and no keys of its own
         Files.createDirectories(file(store).getParent());
         StringBuilder sb = new StringBuilder("# Access requests — who asked to be let in, and what you decided (the owner's file)\n\n"
                 + "`- id | date | state | did | name | note | claim-hash | token-until-claimed | level | reason | password-until-let-in`\n\n");

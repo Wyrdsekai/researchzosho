@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Fetch;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -391,7 +392,8 @@ public final class HomeRecordsResearch {
     /** The address asked with HEAD, and with GET for its first four kilobytes when HEAD is refused: {content type, first bytes}; null when it does not answer. */
     static String[] probe(String url) {
         try {
-            HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build();
+            if (Hosted.any() && Fetch.refusal(URI.create(url)) != null) return null;   // in a library under an account service: the fetcher's rule, and no address it is sent on to
+            HttpClient http = HttpClient.newBuilder().followRedirects(Hosted.any() ? HttpClient.Redirect.NEVER : HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build();
             HttpRequest head = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20)).header("User-Agent", "researchzosho.org (research library)").method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
             HttpResponse<Void> h = http.send(head, HttpResponse.BodyHandlers.discarding());
             String type = h.headers().firstValue("content-type").orElse("");

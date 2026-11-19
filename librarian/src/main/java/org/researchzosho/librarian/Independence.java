@@ -1,8 +1,10 @@
 package org.researchzosho.librarian;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -162,19 +164,106 @@ public final class Independence {
     }
 
     /**
-     * How many independent voices {@code locators} are: distinct texts, minus every text that cites another of them
-     * (a derivative adds nothing to what it cites). Never below one when there is a locator at all.
+     * How many independent voices {@code locators} are ({@link #voices}): distinct texts, a text that cites another counted with it (a
+     * derivative adds nothing to what it cites), and the pages of one publisher counted once. Never below one when there is a locator at all.
      */
     public static int independent(LibraryStore store, List<String> locators) {
         if (locators.isEmpty()) return 0;
+        return Math.max(1, new HashSet<>(voices(store, locators).values()).size());
+    }
+
+    /**
+     * locator → voice number (1-based, in first-seen order): the text clusters ({@link #clusters}), joined with what each cites
+     * ({@link #derivatives}) and with the other pages of the same publisher ({@link #publisher}). Two voices are two sources a reader can
+     * count: a different publisher, and not a copy, a syndication or a summary of the other's text (round E, the owner's rule for a claim
+     * that rests on one source).
+     */
+    public static Map<String, Integer> voices(LibraryStore store, List<String> locators) {
         Map<String, Integer> clusters = clusters(store, locators);
         Map<String, String> deriv = derivatives(store, locators);
-        Set<Integer> voices = new HashSet<>(clusters.values());
+        int most = 0;
+        for (int c : clusters.values()) most = Math.max(most, c);
+        int[] parent = new int[most + 1];
+        for (int i = 0; i < parent.length; i++) parent[i] = i;
         for (Map.Entry<String, String> e : deriv.entrySet()) {
             Integer from = clusters.get(e.getKey()), to = clusters.get(e.getValue());
-            if (from != null && to != null && !from.equals(to)) voices.remove(from);
+            if (from != null && to != null) union(parent, from, to);
         }
-        return Math.max(1, voices.size());
+        Map<String, Integer> firstOfPublisher = new HashMap<>();
+        for (Map.Entry<String, Integer> e : clusters.entrySet()) {
+            String p = publisher(e.getKey());
+            if (p == null) continue;
+            Integer seen = firstOfPublisher.putIfAbsent(p, e.getValue());
+            if (seen != null) union(parent, seen, e.getValue());
+        }
+        Map<Integer, Integer> number = new HashMap<>();
+        Map<String, Integer> out = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> e : clusters.entrySet()) {
+            int root = find(parent, e.getValue());
+            number.putIfAbsent(root, number.size() + 1);
+            out.put(e.getKey(), number.get(root));
+        }
+        return out;
+    }
+
+    /** Sites where many people publish, each under a path of their own: the publisher is the site and the first part of the path (github.com/owner). */
+    static final Set<String> BY_PATH = Set.of("github.com", "gitlab.com", "codeberg.org", "bitbucket.org", "sourceforge.net", "huggingface.co", "medium.com",
+            "twitter.com", "x.com", "facebook.com", "instagram.com", "linkedin.com", "tiktok.com", "threads.net", "bsky.app", "note.com", "ameblo.jp", "qiita.com", "zenn.dev");
+    /** Sites that give each person a host of their own: the publisher is the whole host (name.substack.com). */
+    static final Set<String> BY_HOST = Set.of("substack.com", "blogspot.com", "wordpress.com", "github.io", "gitlab.io", "tumblr.com", "neocities.org", "netlify.app",
+            "vercel.app", "pages.dev", "wixsite.com", "weebly.com", "livejournal.com", "hatenablog.com", "hatenablog.jp", "hateblo.jp", "fc2.com", "medium.com");
+    /**
+     * Sites where every address is somebody else's work: a question site, a video site, a web archive, a server of papers by their
+     * identifiers. No publisher is read off such an address; the texts decide.
+     */
+    static final Set<String> MANY = Set.of("reddit.com", "stackexchange.com", "stackoverflow.com", "superuser.com", "serverfault.com", "askubuntu.com", "quora.com",
+            "youtube.com", "youtu.be", "vimeo.com", "archive.org", "archive.ph", "archive.today", "arxiv.org", "doi.org", "ncbi.nlm.nih.gov", "biorxiv.org", "medrxiv.org",
+            "ssrn.com", "researchgate.net", "academia.edu", "semanticscholar.org", "books.google.com", "scholar.google.com", "news.ycombinator.com", "zenodo.org", "osf.io",
+            "figshare.com", "jstage.jst.go.jp", "ci.nii.ac.jp", "europepmc.org", "hal.science", "openreview.net", "aclanthology.org", "dl.acm.org", "ieeexplore.ieee.org",
+            "link.springer.com", "sciencedirect.com", "onlinelibrary.wiley.com", "tandfonline.com", "jstor.org", "pubmed.ncbi.nlm.nih.gov", "podcasts.apple.com", "spotify.com");
+    /** A country's second level, under which a registered name is three labels: co.uk, ac.jp, com.au. */
+    static final Set<String> SECOND_LEVEL = Set.of("co", "or", "ne", "ac", "go", "gr", "ed", "lg", "ad", "com", "net", "org", "edu", "gov", "gob", "govt", "mil",
+            "ltd", "plc", "me", "nhs", "police", "sch", "nic", "res", "gv", "info", "biz");
+
+    /**
+     * Who published a source, read off its address: the site's registered name (its last two labels, three under a country's second
+     * level as in co.uk or ac.jp), with "www" and the like below it the same publisher; the account on a site where many publish under a
+     * path (github.com/owner); the whole host on a site that gives each person a host. An address by its port and number (a machine,
+     * not a name) is that address and port. Null when the locator names no publisher the library can tell: a paper or a record by its
+     * identifier, a site where every address is someone else's ({@link #MANY}), a file, or anything that is not an http address; then
+     * only the texts decide.
+     */
+    public static String publisher(String locator) {
+        if (locator == null || !locator.matches("(?i)^https?://.*")) return null;
+        if (Citations.identify(locator) != null) return null;   // a work by its identifier is its authors', wherever it is served
+        URI u;
+        try { u = URI.create(locator.strip().replace(" ", "%20")); } catch (IllegalArgumentException e) { return null; }
+        String host = u.getHost();
+        if (host == null || host.isBlank()) return null;
+        host = host.toLowerCase(Locale.ROOT);
+        if (host.endsWith(".")) host = host.substring(0, host.length() - 1);
+        if (host.matches("[0-9.]+") || host.contains(":") || host.equals("localhost")) return host + ":" + u.getPort();   // a machine by its number: the address and port
+        String[] labels = host.split("\\.");
+        if (labels.length < 2) return host;
+        int keep = labels.length >= 3 && labels[labels.length - 1].length() == 2 && SECOND_LEVEL.contains(labels[labels.length - 2]) ? 3 : 2;
+        String site = String.join(".", Arrays.copyOfRange(labels, labels.length - keep, labels.length));
+        for (String many : MANY) if (host.equals(many) || host.endsWith("." + many)) return null;
+        if (BY_HOST.contains(site) && !host.equals(site) && !host.equals("www." + site)) return host;
+        if (BY_PATH.contains(site)) {
+            String path = u.getRawPath() == null ? "" : u.getRawPath();
+            String first = path.replaceFirst("^/+", "").split("/", 2)[0].toLowerCase(Locale.ROOT);
+            return first.isEmpty() ? site : site + "/" + first;
+        }
+        return site;
+    }
+
+    /** A publisher as a reader reads it: the host without "www.", or the account on a site where many publish; null when {@link #publisher} names none. */
+    public static String publisherSaid(String locator) {
+        String p = publisher(locator);
+        if (p == null) return null;
+        if (p.contains("/") || p.contains(":")) return p.replaceFirst(":-1$", "");
+        try { String h = URI.create(locator.strip().replace(" ", "%20")).getHost().toLowerCase(Locale.ROOT); return h.startsWith("www.") ? h.substring(4) : h; }
+        catch (RuntimeException e) { return p; }
     }
 
     static Set<String> shingle(String text) {

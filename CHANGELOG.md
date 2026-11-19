@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.8.0
+
+What's new: multiple accounts, stronger prompt injection protection, shorter model unload times, chat fixed for gpt-oss-20b.
+
+### Multiple accounts (new)
+
+- One install can host libraries for many people, each with their own sign-in, libraries, keys and spending limits. Off by default; Linux only for now. See [ACCOUNTS.md](docs/ACCOUNTS.md).
+
+### Prompt injection protection
+
+- A page or document the library reads can no longer tell it what to do.
+- The chat asks before it starts research, saves something or changes a setting: "Do it? (yes, no, or tell me more)".
+- The library opens only web addresses you gave it or that it found, so a page cannot send your notes elsewhere.
+- Findings that rest on a single source are marked as such.
+
+### Models
+
+- Models unload when idle: the chat model after 10 minutes (was 20), the search model after 5 (was never). Both times can be changed in the settings.
+- Models load ahead when work starts.
+- The chat works again with gpt-oss-20b and has more room on smaller graphics cards.
+
+### Also
+
+- `researchzosho take` opens a library downloaded from a shared ResearchZosho service.
+
+### Fixed
+
+- Signing in through Google or another sign-in service finishes only in the browser where it started.
+- Findings are saved with the right source.
+- Page checks work with models that think before they answer.
+- Gemini costs include its thinking.
+- Windows: the service now starts promptly after a shutdown.
+
 ## 0.7.8
 
 What's new: a fix to what a person with write access to your library can reach.

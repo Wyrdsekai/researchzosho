@@ -1,5 +1,6 @@
 package org.researchzosho.tools;
 
+import org.researchzosho.librarian.Hosted;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -309,6 +310,7 @@ public final class Podcasts {
         URI at = URI.create(url);
         HttpResponse<Path> r = null;
         for (int hop = 0; hop <= MOST_HOPS; hop++) {
+            if (Hosted.any()) { String why = Fetch.refusal(at); if (why != null) throw new IOException("The episode's audio is not fetched: " + why + "."); }   // each address the audio is sent on to is held to the fetcher's rule in a library under an account service
             r = Stopping.send(Archives.HTTP, HttpRequest.newBuilder(at).timeout(Duration.ofMinutes(10)).header("User-Agent", Archives.UA).GET().build(),
                     HttpResponse.BodyHandlers.ofFile(audio), Duration.ofMinutes(10), "the episode's audio");
             if (r.statusCode() / 100 != 3) return r;

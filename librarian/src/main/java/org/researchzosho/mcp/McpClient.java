@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Version;
+import org.researchzosho.librarian.Hosted;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -255,6 +256,7 @@ public final class McpClient implements AutoCloseable {
 
         Stdio(List<String> command, Map<String, String> env, Path log) throws IOException {
             if (command == null || command.isEmpty()) throw new Failure(Failure.Kind.UNREACHABLE, "No command is set to start the server with.");
+            if (Hosted.any()) throw new Failure(Failure.Kind.UNREACHABLE, Hosted.MACHINE);   // a library under an account service starts no program a person named
             ProcessBuilder pb = new ProcessBuilder(command);
             Map<String, String> e = pb.environment();
             e.keySet().removeIf(k -> k.startsWith("RESEARCHZOSHO_") || k.startsWith("CODEZAIKU_"));   // the library's own settings, its keys among them, are none of another program's business

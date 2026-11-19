@@ -199,3 +199,37 @@ Lo de arriba sigue valiendo. Cambia o se añade esto:
 - Told (section, badge, button): Testimonios / testimonio / «Guardar como testimonio»; counts in the colon form («testimonios: {0}»).
 - The class of a claim's source: tipo. Its badges: registro público, publicación propia, testimonio, aportación, de terceros, canon.
 - Pattern of life = Patrón de vida; watch (a dossier) = Vigilar / «En vigilancia:»; superseded = sustituida (feminine, like the other states of a claim); research in full = Investigación completa.
+
+## Fourth round (the account service's pages, 0.8.0)
+
+| inglés | español |
+|---|---|
+| account service (several accounts, each with a library, on one ResearchZosho) | servicio de cuentas; "runs under an account service" = funciona bajo un servicio de cuentas |
+| whoever runs this service (the operator, not a library's keeper) | quien está a cargo de este servicio («administrar» sigue siendo el verbo de quien administra la biblioteca) |
+| join link | enlace de invitación |
+| let someone in / is let in (the keeper's act on the account page) | dar acceso («Dar acceso a alguien», botón «Dar acceso», «{0} ya tiene acceso a «{1}»») |
+| the people of a library | personas con acceso («Personas con acceso a «{0}»»), como la página Readers |
+| You keep it / You read it and write to it / You read it | La administras tú. / Puedes leer y escribir. / Puedes leer. |
+| What they may do + read / read and write (label and its choices) | «Acceso que tendrá» + lectura / lectura y escritura (etiqueta con sustantivo, porque las opciones lo son) |
+| Removed. (a person taken out of a library) | Acceso quitado. |
+| closed (an account) | cerrada |
+| the service it runs under / the model does not answer | el servicio bajo el que funciona / El modelo no responde |
+| has to look into it (the operator, when the service's model does not answer) / Research needs it. / This needs it. | Tiene que revisarlo quien está a cargo del servicio. / Para investigar hace falta ese modelo. / Para esto hace falta ese modelo. |
+| a library's copy / brought back from its copy / being moved / no longer served here / another process holds its folder | copia / se restauró desde su copia / se está trasladando / ya no está disponible aquí / otro proceso ocupa su carpeta; un momento ({0}) entre paréntesis tras «estado:» o «momento:» |
+| a machine of the service / the machine a library runs on / is kept on | equipo / el equipo en el que funciona la biblioteca «{0}» / que guarda la biblioteca «{0}»; minutos que pueden ser 1: «{1} min» |
+| an account's caps: the month's dollars / fetched pages / jobs at once; spending; a container | presupuesto de {0} / páginas descargadas / tareas a la vez; gasto; contenedor. El dinero («$5.00») y la fecha («2026-12-01») quedan como los escribe el programa: «a principios del mes que viene ({1})» |
+| work the service let start (a run, a chat turn, a translation) / searches this month / the model is busy | tarea / búsquedas / El modelo del servicio está ocupado; el día ({1} = «1 dic») entre paréntesis: «a principios del mes que viene ({1})» |
+| storage cap ({0} = «2.0 GB», tal cual) / removing something makes room / reading goes on | todo el espacio de almacenamiento que puede ({0}) / Quitar algo deja espacio / se puede seguir leyendo |
+| own key / the operator's page (Every account) / cap / used / left / no cap / yours (own money) | clave propia / Todas las cuentas / tope / usado / restante / sin tope / a tu cargo |
+| spending plug-in / the heavy helpers' time / pages fetched / a cap's names | plug-in de gasto / Tiempo de los modelos auxiliares / páginas descargadas / dólares al mes, búsquedas al mes, páginas descargadas al mes, tareas a la vez, minutos por tarea, dólares por tarea, megabytes guardados |
+| typed in the caps form | off, 5, 5.00, 5,00 and default stay as written: the program reads both the dot and the comma |
+| set today / set yesterday / the fold of own keys / a run stopped at its cap | puesta hoy / puesta ayer / Usar tus claves propias (opcional) / Se detuvo al llegar a su tope |
+| set on {0} (a day, never today or yesterday, which have keys of their own) | puesta el {0} (como puesta hoy / puesta ayer) |
+| suspend / delete (an account) / removal day / hand over (a library) / recent activity | suspender / eliminar / «fecha prevista: {0}» / pasar (pásasela a…) / Actividad reciente; los actos del registro: inicio de sesión, contraseña cambiada, biblioteca pasada a otra persona… |
+| rate limits: "Try again in {0}." / a wait / Wait a moment | Vuelve a intentarlo dentro de {0}. / {0} segundo – {0} segundos, {0} minuto – {0} minutos / Espera un momento |
+| take a library home (the link) / pack (for download) / the archive | Llevar a casa / empaquetar / la descarga ("archivo" would read as a file) |
+| a person lets a library go / the operator lets a library go (release to a folder) | dejar ir / liberar |
+| kept aside / out of service / take back / take in / hand over / move / days of grace / freeze / suspend, let back | guardada aparte / fuera de servicio / recuperar / incorporar / pasar / trasladar / período de gracia / congelar / suspender, reactivar |
+| the audit log / machine, node / awake, asleep / last word / … ago | registro de auditoría / equipo, nodo / activa, en reposo / última señal / hace {0} segundo(s)… |
+| Release (the operator's act, was "let go"; a person's own "Let it go" stays dejar ir) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | liberar / Conservar / Para la cuenta / antes la administraba {0} |
+| invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | invitación / Unirse / Retirar / enlace aún sin usar |

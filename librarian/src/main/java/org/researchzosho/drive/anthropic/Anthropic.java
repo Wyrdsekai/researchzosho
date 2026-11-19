@@ -1,5 +1,7 @@
 package org.researchzosho.drive.anthropic;
 
+import org.researchzosho.drive.Gated;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -57,7 +59,7 @@ public final class Anthropic {
 
     private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15)).build();
     private static final Transport REAL = (method, uri, headers, body, timeout) -> {
-        HttpRequest.Builder b = HttpRequest.newBuilder(uri).timeout(timeout);
+        HttpRequest.Builder b = Gated.request(uri.toString()).timeout(timeout);   // a call that costs carries its use and its lane, for a node's gate
         headers.forEach(b::header);
         b.method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
         HttpResponse<String> r = HTTP.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -83,7 +85,7 @@ public final class Anthropic {
     /** Whether a drive setting names Anthropic's API: its address, or the word. */
     public static boolean is(String drive) {
         if (drive == null) return false;
-        String d = drive.strip().toLowerCase(Locale.ROOT);
+        String d = Gated.upstream(drive.strip()).toLowerCase(Locale.ROOT);   // through a node's gate: the server it stands for
         return d.equals("anthropic") || d.equals("claude") || d.contains("://api.anthropic.com");
     }
 
@@ -100,7 +102,7 @@ public final class Anthropic {
     /** A chat-completions request in, a chat completion out. The output asked for is capped at what the model can write (the library asks for a
      *  share of the context window, which is a million tokens here, and the API refuses more than the model's output cap). */
     public ObjectNode chat(String model, JsonNode chatCompletionsBody, Duration timeout) {
-        if (key.isEmpty()) throw new Refused(401, "Anthropic needs a key: set api_key (researchzosho settings set api_key …) to the key from platform.claude.com.");
+        if (key.isEmpty() && !Gated.gated(base)) throw new Refused(401, "Anthropic needs a key: set api_key (researchzosho settings set api_key …) to the key from platform.claude.com.");
         ObjectNode request = Messages.request(chatCompletionsBody, model, Config.get(EFFORT));
         int cap = maxOutput(model);
         if (request.path("max_tokens").asInt(0) > cap) request.put("max_tokens", cap);
@@ -130,6 +132,7 @@ public final class Anthropic {
             catch (Exception e) { throw new RuntimeException("Anthropic could not be reached: " + e.getMessage(), e); }
             int s = a.status();
             if (s == 200) { pace(a); return a; }
+            Gated.throwIfRefused(s, a.body());   // a node's gate: a cap reached, said as it is
             String message = message(a.body());
             if (s == 429) {
                 if (message.contains("enforced_spend_limit_reached") || body(a.body()).path("error").path("details").path("error_code").asText("").equals("enforced_spend_limit_reached"))

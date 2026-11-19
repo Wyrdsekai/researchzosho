@@ -115,8 +115,11 @@ class RunProgressTest {
                 return a;
             }
         };
-        String reply = new Librarian(store, drive, Librarian.person(), s).say("find out how the gears were cut");
+        Librarian chat = new Librarian(store, drive, Librarian.person(), s);
+        String reply = chat.say("find out how the gears were cut");
         assertTrue(reply.startsWith("The run has started"), reply);
+        assertEquals(List.of(), s.watched(), "nothing is followed before the person's yes (round E)");
+        assertTrue(chat.say("yes").startsWith("Done."));
         assertEquals(List.of("J-0001"), s.watched(), "the run the chat started is followed");
         s.watch("J-0001"); assertEquals(1, s.watched().size(), "once");
         // the prompt tells the model not to make the person ask

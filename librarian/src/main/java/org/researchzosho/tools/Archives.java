@@ -1,5 +1,6 @@
 package org.researchzosho.tools;
 
+import org.researchzosho.librarian.Hosted;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -262,6 +263,7 @@ public final class Archives {
     /** The body of a GET that answered 200, else null; a stop while waiting is thrown as such. */
     static String text(String url, Duration limit, String what) {
         try {
+            if (Hosted.any() && Fetch.refusal(URI.create(url)) != null) return null;   // a library under an account service asks no address the fetcher would refuse: nothing on the service's own machine or network
             HttpResponse<String> r = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(url)).timeout(limit).header("User-Agent", UA).header("Accept", "application/json, */*").GET().build(),
                     HttpResponse.BodyHandlers.ofString(), limit, what);
             return r.statusCode() == 200 ? r.body() : null;

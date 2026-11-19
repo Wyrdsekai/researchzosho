@@ -133,9 +133,12 @@ class LibrarianChatTest {
     void findOutFilesAResearchRun() throws Exception {
         LibraryStore store = libraryWithAFinding();
         var drive = scripted(List.of(tool("library_research", "{\"question\":\"How were the Antikythera gears cut?\",\"mode\":\"broad\",\"max_minutes\":30}"), say("Filed as a run; it takes a while. I will tell you what it found when you ask.")), new ArrayList<>());
-        String reply = new Librarian(store, drive, Librarian.person(), Librarian.Session.open(store)).say("find out how the gears were cut");
-        assertTrue(reply.contains("Filed"), reply);
+        Librarian lib = new Librarian(store, drive, Librarian.person(), Librarian.Session.open(store));
+        String reply = lib.say("find out how the gears were cut");
+        assertTrue(reply.contains("Filed") && reply.contains("The model asks to start a research run: \"How were the Antikythera gears cut?\" Do it?"), reply);
         Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
+        assertEquals(0, jobs.active().size(), "nothing before the person's yes (round E)");
+        assertTrue(lib.say("yes").startsWith("Done."));
         assertEquals(1, jobs.active().size(), "one queued run");
         assertEquals("queued", jobs.active().get(0).path("state").asText());
     }

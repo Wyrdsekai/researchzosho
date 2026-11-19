@@ -297,31 +297,11 @@ public final class LibraryStore {
     /** A scan of the findings shelf: what parsed, and what did not (named, for the librarian). */
     public record Scan(List<Finding> findings, List<String> problems) { }
 
-    public Scan scanFindings() {
-        List<Finding> ok = new ArrayList<>();
-        List<String> problems = new ArrayList<>();
-        Path dir = findingsDir();
-        if (!Files.isDirectory(dir)) return new Scan(ok, problems);
-        try (var files = Files.list(dir)) {
-            for (Path p : files.sorted(Comparator.comparing(Path::getFileName)).toList()) {
-                String name = p.getFileName().toString();
-                if (!name.endsWith(".md")) continue;
-                try {
-                    Finding f = Finding.parse(Files.readString(p, StandardCharsets.UTF_8));
-                    if (!name.equals(f.id() + ".md")) {
-                        problems.add(name + ": id '" + f.id() + "' does not match filename");
-                    } else {
-                        ok.add(f);
-                    }
-                } catch (Exception e) {
-                    problems.add(name + ": " + e.getMessage());
-                }
-            }
-        } catch (IOException e) {
-            problems.add("findings/: " + e.getMessage());
-        }
-        return new Scan(ok, problems);
-    }
+    /**
+     * Every finding on the shelf, in the order of the files' names. The one place the findings are read in bulk: a file is read again
+     * only when it is new or changed on the disk since it was last read ({@link FindingsCache}), by this process or another.
+     */
+    public Scan scanFindings() { return FindingsCache.scan(findingsDir()); }
 
     /**
      * Whether {@code name} is a plain shelf name — one path segment, no separators, no {@code ..} —
@@ -344,12 +324,14 @@ public final class LibraryStore {
         return p.startsWith(base) && !p.equals(base) ? p : null;
     }
 
-    /** One finding by id, or null when absent. Malformed throws — a named entry must not lie. */
+    /** One finding by id, or null when absent. Malformed throws — a named entry must not lie. Read as the scan reads it ({@link FindingsCache}). */
     public Finding finding(String id) throws IOException {
         Path p = under(findingsDir(), id + ".md");
         if (p == null) return null;
         if (!Files.exists(p)) return null;
-        return Finding.parse(Files.readString(p, StandardCharsets.UTF_8));
+        Finding kept = FindingsCache.one(findingsDir(), p);
+        if (kept != null) return kept;
+        return Finding.parse(Files.readString(p, StandardCharsets.UTF_8));   // not a finding: read here, so it throws as it always did
     }
 
     /**

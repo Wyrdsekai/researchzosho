@@ -53,6 +53,8 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_JUDGE_DRIVE", Kind.address, "A second model server for the checks (the judge); the main one when unset.", "http://localhost:8081"),
             new Setting("RESEARCHZOSHO_JUDGE_MODEL", Kind.text, "The judge model's name on that server.", ""),
             new Setting("RESEARCHZOSHO_EMBED", Kind.address, "The embeddings server, for search by meaning; off when unset.", "http://localhost:30001"),
+            new Setting(ModelServer.MODEL_IDLE, Kind.number, "Minutes the model of this machine's own model server stays loaded with nothing asking it; 10 unless set, 0 for always. Work that runs keeps it loaded.", "10"),
+            new Setting(ModelsAwake.EMBED_IDLE, Kind.number, "Minutes the embeddings model, LaBSE and the embeddings server's container stay loaded with nothing asking them; 5 unless set, 0 for always.", "5"),
             // the heavy helpers: where they run (0.7.4)
             new Setting(Helpers.LOCAL, Kind.choice, "Whether this machine runs the heavy helpers itself: MetricX-24 and LaBSE (the scores of a checked translation), the likeness helper, speech-to-text and the embeddings server. off, for a laptop or a small machine: none of them is installed or started here; one an address names runs there, and one no address names is left out, which the work says. Unset: on.", "", List.of("on", "off")),
             new Setting(Helpers.HELPERS, Kind.address, "A machine that serves the heavy helpers (researchzosho helpers install on it): each helper it serves is used from there, unless the helper's own setting names another address. Unset: the machine that serves the main model is asked, and its helpers are used when it serves them; off: no machine is asked.", "http://homebox:" + Helpers.PORT),
@@ -146,6 +148,39 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_STALL_MINUTES", Kind.number, "After how many minutes without progress a run is marked as stalled (15 unless set).", "15"),
             new Setting("RESEARCHZOSHO_SUBMIT_CHECK_SECONDS", Kind.number, "How long a program's submit waits for the model's reading of a question before filing anyway (45 unless set).", "45"),
             new Setting("RESEARCHZOSHO_UPDATE", Kind.choice, "Updates: check and say, update by itself, or neither.", "check", List.of("check", "auto", "off")),
+            new Setting(AccountService.SETTING, Kind.choice, "Several accounts on this service, each with a library of its own, people let into each other's libraries to read or to write, and keys for programs. on: researchzosho serve is the account service, and your own library is left as it is and not served. Unset or off: one library and one keeper, as always.", "off", List.of("on", "off")),
+            new Setting(AccountService.SIGNUP, Kind.choice, "With accounts on: who gets an account by signing in for the first time. invited: nobody; you make each account (researchzosho accounts add). anyone: whoever signs in through the identity provider. domain: people of the mail domains in oidc_allowed_domain. Unset: invited.", "invited", List.of("invited", "anyone", "domain")),
+            new Setting(AccountService.STORE, Kind.text, "With accounts on: where the accounts are kept. Unset: a file on this machine (accounts.db). A PostgreSQL address (postgresql://user:password@host/database) when more than one machine serves them.", "postgresql://zosho@db.example.org/zosho"),
+            new Setting(AccountService.ROOT, Kind.text, "With accounts on: the folder the accounts' libraries are kept under. Unset: accounts, in the settings folder.", "/srv/researchzosho/accounts"),
+            new Setting(AccountService.ADDRESS, Kind.address, "With accounts on: the address people reach the service at, for the join links it writes. Unset: the address it listens on.", "https://zosho.example.org"),
+            new Setting(Node.SLEEP_AFTER, Kind.text, "With accounts on: after how many minutes with nothing to do a library is stopped; the next request starts it again and waits a second or two. A job, a chat turn, an open stream or work due soon keep it up. off: never. Unset: 15.", "15"),
+            new Setting(Scheduler.NIGHTS, Kind.choice, "With accounts on: whether the libraries have nights (their nightly tasks, which use your model). on: each at a minute of its own from 01:00 by this computer's clock, asleep or awake. off: none. Unset: on.", "on", List.of("on", "off")),
+            new Setting(Scheduler.AT_ONCE, Kind.number, "With accounts on: how many libraries' nights run at once; the others wait their turn. Unset: 2.", "2"),
+            new Setting(AccountService.SERVICE, Kind.address, "With accounts on: the address the libraries and the nodes reach the service at, on the private network between them; every process of the service has the same. Unset: the address it listens on.", "http://10.0.0.2:4649"),
+            new Setting(Node.OWN, Kind.choice, "With accounts on: whether serve runs the libraries on this machine itself (on), or only on nodes of their own started with researchzosho node (off). Unset: on.", "on", List.of("on", "off")),
+            new Setting(ChildLibraries.HOST, Kind.text, "With accounts on: the address of this machine its libraries and its node listen on, on the private network the service reaches them by. Unset: 127.0.0.1.", "10.0.0.3"),
+            new Setting(Node.PORT, Kind.number, "With accounts on: the port this machine's node answers the service on. Unset: any free one, written into the store.", "4690"),
+            new Setting(Nodes.TAKEOVER_AFTER, Kind.text, "With accounts on: after how many minutes of a machine's silence its libraries are brought back on another machine from their copies (a library whose disk another machine sees is started there at once). off: only when you say so. Unset: 15.", "15"),
+            new Setting(LibraryPlaces.COPIES, Kind.text, "With accounts on: the folder each library's copy is kept in, best on another disk or a mounted bucket. A copy is brought up to date when the library goes to sleep, after each job, before a move, and every few minutes when something changed (accounts_copy_after). Unset: no copies, and a disk lost is its libraries lost.", "/mnt/backup/researchzosho-copies"),
+            new Setting(LibraryPlaces.COPY_AFTER, Kind.number, "With accounts on: after how many minutes a library's copy is brought up to date at a quiet moment when something changed. Unset: 10.", "10"),
+            new Setting(AccountActs.DELETE_DAYS, Kind.number, "With accounts on: how many days a deleted account waits, frozen, before it is removed with the libraries it keeps; until then it can be kept. Unset: 30.", "30"),
+            new Setting(AccountActs.AUDIT_DAYS, Kind.number, "With accounts on: how many days the audit log keeps an entry (sign-ins, keys, members, caps, accounts, libraries). Unset: 400.", "400"),
+            new Setting(RateLimits.Limit.SIGNIN.setting(), Kind.text, "With accounts on: how many failed sign-ins one address may make, as 10 per 10 minutes, or off. A name tried wrongly 10 times in 10 minutes waits besides, whatever this says. Unset: " + RateLimits.Limit.SIGNIN.standard + ".", RateLimits.Limit.SIGNIN.standard),
+            new Setting(RateLimits.Limit.SIGNUP.setting(), Kind.text, "With accounts on: how many accounts one address may make by signing up, and one account by letting new names into its libraries, as 5 per hour, or off. Unset: " + RateLimits.Limit.SIGNUP.standard + ".", RateLimits.Limit.SIGNUP.standard),
+            new Setting(RateLimits.Limit.JOIN.setting(), Kind.text, "With accounts on: how many times one address may open a join link, as 20 per hour, or off. Unset: " + RateLimits.Limit.JOIN.standard + ".", RateLimits.Limit.JOIN.standard),
+            new Setting(RateLimits.Limit.CHANGES.setting(), Kind.text, "With accounts on: how many times one account may change its password or its own keys, a wrong current password counted, as 20 per hour, or off. Unset: " + RateLimits.Limit.CHANGES.standard + ".", RateLimits.Limit.CHANGES.standard),
+            new Setting(RateLimits.Limit.ADDRESS.setting(), Kind.text, "With accounts on: how many requests one address may send with no account signed in, as 120 per minute, or off. Unset: " + RateLimits.Limit.ADDRESS.standard + ".", RateLimits.Limit.ADDRESS.standard),
+            new Setting(RateLimits.Limit.API.setting(), Kind.text, "With accounts on: how many API and MCP calls one account's programs may make, as 120 per minute, burst 30 (up to 30 at once, then 2 a second), or off. Unset: " + RateLimits.Limit.API.standard + ".", RateLimits.Limit.API.standard),
+            new Setting(RateLimits.Limit.PAGES.setting(), Kind.text, "With accounts on: how many requests one account's browsers may send, the pages and what they ask for by themselves, as 300 per minute, or off. Unset: " + RateLimits.Limit.PAGES.standard + ".", RateLimits.Limit.PAGES.standard),
+            new Setting(PluginSpending.SETTING, Kind.address, "With accounts on: the address of a spending plug-in that answers whether an account may start each use and is told what it came to (docs/public/SPENDING_PLUGIN.md). Unset: the built-in caps answer.", "https://billing.example.org/researchzosho"),
+            new Setting(OwnKeys.FILE, Kind.text, "With accounts on: the file of the key that seals the persons' own keys, outside the accounts' folder. Unset: accounts-own-keys.key in this program's home. Keep a copy of it apart from the store's copies.", "/etc/researchzosho/own-keys.key"),
+            new Setting(ChildLibraries.HEAP, Kind.text, "With accounts on: the most memory the Java heap of each library's process takes, as Java writes it (512m, 2g); in a container, the container may use this and 768 MB more. Unset: 1g.", "1g"),
+            new Setting(LibraryRunner.FORM, Kind.choice, "With accounts on: what each library runs in. process: a process of its own on this machine, which needs nothing installed. container: a Docker container of its own, which sees no folder of the machine but its own library's and has no network but the web through its node, which keeps it from this machine and the private network; a service open to people you do not know should use it. Unset: process.", "container", List.of("process", "container")),
+            new Setting(ContainerLibraries.IMAGE, Kind.text, "With accounts_runner container: the image each library's container runs. Unset: ghcr.io/wyrdsekai/researchzosho at this program's own version.", "ghcr.io/wyrdsekai/researchzosho:0.8.0"),
+            new Setting(ContainerLibraries.SOCKETS, Kind.text, "With accounts_runner container: the folder the node makes each library's sockets in, a short path (a socket's path holds at most 107 bytes). Unset: a folder of this user's in the temporary folder.", "/run/rz-sockets"),
+            new Setting(ContainerLibraries.SOCKETS_HOST, Kind.text, "With accounts_runner container, for a node that runs in a container itself: the same folder as accounts_sockets, as the machine Docker runs on sees it. Unset: the same path.", "/srv/researchzosho/data/sockets"),
+            new Setting(ContainerLibraries.CPUS, Kind.text, "With accounts_runner container: how many processors each library's container may use (1, 1.5, 2). Unset: 2.", "2"),
+            new Setting(AccountService.FIRST_PORT, Kind.number, "With accounts on: the first port of this computer's loopback a library is given; each library takes the next one that is free. Unset: 4700.", "4700"),
             new Setting(Oidc.ISSUER, Kind.address, "Sign-in through your identity provider (Google Workspace, Entra, Okta, Dex): the provider's issuer address, as its discovery document names it. Unset: no such sign-in.", "https://accounts.google.com"),
             new Setting(Oidc.CLIENT_ID, Kind.text, "The client id the provider gave this library.", ""),
             new Setting(Oidc.CLIENT_SECRET, Kind.secret, "The client secret, when the provider gave one.", ""),
@@ -175,7 +210,27 @@ public final class Settings {
         String n = name.strip().replace('.', '_').replace('-', '_').toUpperCase(Locale.ROOT);
         if (!n.startsWith("RESEARCHZOSHO_")) n = "RESEARCHZOSHO_" + n;
         for (Setting s : KNOWN) if (s.key().equals(n)) return s;
+        Setting family = family(n);
+        if (family != null) return family;
         return McpServers.keySetting(n);   // a key one of the keeper's MCP servers wants: a secret setting of its own
+    }
+
+    /** The prefix of a paid search place's price a search ({@code search_price.<place>}, 0.8.0). */
+    public static final String SEARCH_PRICE = "RESEARCHZOSHO_SEARCH_PRICE_";
+
+    /**
+     * The settings named for something (0.8.0, an account service's): a model entry's calls at once and the slots kept for a person who
+     * waits ({@code entry.<name>.calls}, {@code entry.<name>.kept}), and a paid search place's price a search ({@code search_price.<place>}).
+     */
+    static Setting family(String n) {
+        String entry = "RESEARCHZOSHO_ENTRY_";
+        if (n.startsWith(entry) && n.endsWith("_CALLS") && n.length() > entry.length() + "_CALLS".length())
+            return new Setting(n, Kind.number, "Under an account service: how many calls at once this model entry is given at its server. Unset: what a server of one's own says it answers (4 when it says nothing), and no limit for an API on the internet.", "8");
+        if (n.startsWith(entry) && n.endsWith("_KEPT") && n.length() > entry.length() + "_KEPT".length())
+            return new Setting(n, Kind.number, "Under an account service: how many of this model entry's calls at once are kept for a person who waits (a chat turn), while runs and translations wait their turn. 1 unless set; 0 for none.", "1");
+        if (n.startsWith(SEARCH_PRICE) && NodeGates.PRICE_READ.containsKey(n.substring(SEARCH_PRICE.length()).toLowerCase(Locale.ROOT)))
+            return new Setting(n, Kind.text, "Under an account service: what one search at this place costs, in dollars, counted against the month of the account that made it. Unset: the place's published price.", NodeGates.PRICE_READ.get(n.substring(SEARCH_PRICE.length()).toLowerCase(Locale.ROOT)));
+        return null;
     }
 
     /** A value as it may be shown: a secret only as set or not, and its last three characters. */
@@ -192,6 +247,7 @@ public final class Settings {
         return switch (s.kind()) {
             case address -> {
                 if (v.equalsIgnoreCase("off") && (Helpers.Helper.ofSetting(s.key()) != null || s.key().equals(Helpers.HELPERS))) yield "";   // a heavy helper's own setting, or the helpers address: an address, or off
+                if (s.key().equals(DRIVE) && ModelEntries.knownHost(v) != null) yield "";   // the drive by a host's word, as models add takes it (gemini, openrouter …)
                 boolean several = s.key().equals(JOB_DRIVES);
                 for (String part : several ? v.split("\\s*,\\s*") : new String[]{v})
                     if (!part.matches("^https?://\\S+$")) yield s.shortName() + " is an address" + (several ? ", or several with commas between," : "") + " and must start with http:// or https://, for example " + s.example() + ".";
@@ -201,6 +257,8 @@ public final class Settings {
             case choice -> s.choices().contains(v.toLowerCase(Locale.ROOT)) ? "" : s.shortName() + " is one of " + String.join(", ", s.choices()) + ".";
             default -> s.key().equals(ReportOptions.LENGTH_SETTING) ? (ReportOptions.length(v) == null ? s.shortName() + " is short, medium, long or a number of words, for example 800." : "")
                      : s.key().equals(MARKET) ? (v.matches("(?i)^[a-z]{2}$") ? "" : "market is a country as two letters, for example JP or US.")
+                     : s.key().startsWith(SEARCH_PRICE) ? (v.matches("^\\d+(\\.\\d+)?$") ? "" : s.shortName() + " is dollars a search, for example " + s.example() + ".")
+                     : s.key().startsWith(RateLimits.PREFIX) ? RateLimits.refuse(s.shortName(), v)
                      : v.contains("\n") ? s.shortName() + " is one line."
                      : s.key().equals(CustomSearchTool.NAME) && Places.builtIn(v.replaceAll("[\\s_]+", "-")) ? s.shortName() + " is the name of a place on the table, and " + v + " is already one of the library's own places: choose another word." : "";
         };
@@ -208,6 +266,8 @@ public final class Settings {
 
     public static final String MARKET = "RESEARCHZOSHO_MARKET";
     public static final String JOB_DRIVES = "RESEARCHZOSHO_JOB_DRIVES";
+    /** The model server's address: an address, or the word of a host {@code models add} takes. */
+    public static final String DRIVE = "RESEARCHZOSHO_DRIVE";
     public static final String CALIBRE = "RESEARCHZOSHO_CALIBRE";
 
     /** The country the person buys in, as two upper-case letters: the setting, else this machine's country, else US. */
@@ -254,6 +314,7 @@ public final class Settings {
         if (s.kind() == Kind.choice) v = v.toLowerCase(Locale.ROOT);
         if (s.key().equals(MARKET)) v = v.toUpperCase(Locale.ROOT);
         if (s.key().equals(ReportOptions.LENGTH_SETTING) && ReportOptions.length(v) != null) v = ReportOptions.length(v);
+        if (s.key().equals(DRIVE) && ModelEntries.knownHost(v) != null) v = ModelEntries.knownHost(v);   // written as the address the word names
         Config.set(s.key(), v);
     }
 }

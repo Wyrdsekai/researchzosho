@@ -276,12 +276,14 @@ class ReportOptionsTest {
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"How were the gears of the Antikythera mechanism cut?\"}"),
                 LibrarianChatTest.say("Filed: a short report with APA citations.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         lib.say("Find out how the Antikythera gears were cut. A short report, and use APA citations please.");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         JsonNode args = new Jobs(store, j -> "").active().get(0).path("args");
         assertEquals("short", args.path("length").asText(), args.toString()); assertEquals("apa", args.path("citations").asText()); assertFalse(args.has("shape"));
         // the person's own words win over what the model passed; what the model passed fills what they left unsaid
         Librarian two = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"What survives of the workshop that made the Antikythera mechanism?\", \"shape\": \"outline\", \"length\": \"long\"}"),
                 LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         two.say("Give me a reading list on what survives of the workshop.");
+        two.say("yes");
         List<ObjectNode> active = new Jobs(store, j -> "").active();
         JsonNode second = active.get(active.size() - 1).path("args");
         assertEquals("reading-list", second.path("shape").asText(), "the person said a reading list: " + second); assertEquals("long", second.path("length").asText(), "the model's length stands where the person said none");

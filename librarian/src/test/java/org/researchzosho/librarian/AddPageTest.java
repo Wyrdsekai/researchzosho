@@ -24,7 +24,7 @@ class AddPageTest {
         assertTrue(page.contains("enctype=\"multipart/form-data\"") && page.contains("<input type=\"file\" name=\"file\"") && page.contains("name=\"url\""), page);
         assertTrue(Pages.addPost(store, new LibraryProtocol(store), Patrons.Patron.PERSON, Map.of()).startsWith("<p>Choose a file, or write a page's address.</p>"));
         // only a file this server wrote for an upload counts as one: its own folder, named for an upload, directly under the temp folder
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path f = up.resolve("saros notes.txt");
         Files.writeString(f, "The Saros dial of the Antikythera mechanism predicts eclipses over 223 lunar months.\n".repeat(20), StandardCharsets.UTF_8);
         assertTrue(Uploads.isUpload(f));
@@ -42,7 +42,7 @@ class AddPageTest {
         String page = Pages.addPage();
         assertTrue(page.contains("<input type=\"file\" name=\"file\" multiple required") && page.contains("<input type=\"file\" name=\"folder\" webkitdirectory multiple required"), page);
         assertTrue(page.contains("up to 500 files and 64 MB in one go") && page.contains("An archive among them (zip, tar, tar.gz, tgz) is unpacked"), page);
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path a = Files.writeString(up.resolve("gears.txt"), "The Antikythera gears were cut by hand with files; the teeth are triangular.\n".repeat(8), StandardCharsets.UTF_8);
         Path b = Files.writeString(up.resolve("dials.md"), "# Dials\n\nThe back dials show the Metonic and Saros cycles.\n".repeat(8), StandardCharsets.UTF_8);
         Path empty = Files.write(up.resolve("empty.txt"), new byte[0]);
@@ -70,7 +70,7 @@ class AddPageTest {
         assertFalse(Files.exists(up), "the upload, folders and all, is removed once read");
         assertEquals(7, ArchivesTest.raws(store).size(), "three files, two of the folder, two of the archive");
         // a collection named goes to every file and to the folder; a folder's files sent with their names alone are each a file
-        Path up2 = Files.createTempDirectory(Uploads.DIR);
+        Path up2 = Uploads.newFolder();
         Path c = Files.writeString(up2.resolve("c.txt"), "One more note about the Saros dial.\n".repeat(8));
         String out2 = Pages.addPost(store, new LibraryProtocol(store), Patrons.Patron.WEB, Map.of("folder.path", c.toString(), "folder.name", "c.txt", "collection", "mine"));
         assertTrue(out2.contains("<b>Added:</b> c.txt"), out2);
@@ -81,7 +81,7 @@ class AddPageTest {
     @Test void whileSignInIsRequiredSomeoneSignedInMayPostAFileButNotNameAPathOnTheMachine(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Path mine = tmp.resolve("on the machine.txt"); Files.writeString(mine, "A file that lies on the library's own machine.\n".repeat(20), StandardCharsets.UTF_8);
-        Path up = Files.createTempDirectory(Uploads.DIR);
+        Path up = Uploads.newFolder();
         Path posted = up.resolve("posted.txt"); Files.writeString(posted, "A file the browser posted, the person's own.\n".repeat(20), StandardCharsets.UTF_8);
         Patrons.set(store, "did:key:friend", "A friend", Patrons.Level.write);
         Patrons.Patron friend = new Patrons.Patron("did:key:friend", "A friend", "web");   // signed in, with write access, not the keeper

@@ -228,6 +228,34 @@ class ComicPagesTest {
     }
 
     /**
+     * A RAR's own list is looked at before the machine's program is asked to unpack it (0.8.0): a name that leads out of the folder
+     * it is unpacked into, by ".." on its way or by beginning at the root or at a drive, stops the volume, and the program never runs
+     * on it. A name that only has dots in it is a page as before.
+     */
+    @Test void aRarWhoseListNamesAFileOutsideItIsNotUnpacked(@TempDir Path tmp) throws Exception {
+        Path cbr = tmp.resolve("volume.cbr"); Files.write(cbr, new byte[]{'R', 'a', 'r', '!', 0x1A, 0x07, 0x00, 9, 9, 9});
+        int n = 0;
+        for (String listed : List.of("v1\\001.png\n..\\..\\outside.png\n", "001.png\n/etc/elsewhere.png\n", "001.png\nC:\\Users\\someone\\y.png\n", "v1/001.png\nv1/../../up.png\n")) {
+            List<List<String>> ran = new ArrayList<>();
+            Searx.runner = cmd -> {
+                ran.add(cmd);
+                if (!cmd.get(0).equals("bsdtar")) throw new IOException("Cannot run program \"" + cmd.get(0) + "\"");
+                if (cmd.get(1).equals("--version")) return new Searx.Result(0, "bsdtar 3.7");
+                if (cmd.get(1).equals("-tf")) return new Searx.Result(0, listed);
+                Files.writeString(tmp.resolve("unpacked-anyway.txt"), "x");
+                return new Searx.Result(0, "");
+            };
+            Path work = Files.createDirectories(tmp.resolve("work-out-" + n++));
+            IOException e = assertThrows(IOException.class, () -> ComicPages.open(cbr, work), listed);
+            assertTrue(e.getMessage().startsWith("volume.cbr holds a file named to be written outside it") && e.getMessage().endsWith("so it was not unpacked."), e.getMessage());
+            assertTrue(ran.stream().anyMatch(c -> c.contains("-tf")) && ran.stream().noneMatch(c -> c.contains("-xf")), "listed, and never unpacked: " + ran);
+            assertFalse(Files.exists(tmp.resolve("unpacked-anyway.txt")));
+        }
+        for (String page : List.of("v1/001..png", "a.b/c...d/e.png", "..cover/001.png", "v1/...png", "001.png")) assertFalse(ComicPages.leadsOut(page), page);
+        for (String out : List.of("../x.png", "a/../../x.png", "/x.png", "\\x.png", "C:\\x.png", "c:/x.png", "a\\..\\x.png", "..")) assertTrue(ComicPages.leadsOut(out), out);
+    }
+
+    /**
      * A link among a volume's pages is no page, so the picture it points to anywhere on this machine is never read: in a folder of
      * pages, and in what the machine's own program wrote out of a RAR, where a link in the archive is written as a link (bsdtar
      * does that; a zip's entries are written by the library itself, which writes no link).

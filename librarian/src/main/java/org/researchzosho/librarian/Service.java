@@ -450,6 +450,7 @@ public final class Service {
                 int rc = exec(plan.status(), out);
                 Long pid = recordedPid(pidFile());
                 if (pid != null && !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) out.println("  (a stale pid record, " + pid + ", of a server that has ended)");
+                else if (pid != null && notTheServer(pidFile()) != null) out.println("  (a pid record, " + pid + ", names a process that is not the ResearchZosho server)");
                 return rc;
             }
             case "stop" -> { return stop(plan, out); }
@@ -495,6 +496,14 @@ public final class Service {
      */
     static int stop(Plan plan, PrintStream out) throws IOException, InterruptedException {
         boolean installed = Files.exists(plan.definition());
+        // a record whose number is now another program's: that program is left alone, and the stale record goes, said in a sentence
+        List<String> strangers = new ArrayList<>();
+        for (Path record : List.of(pidFile(), pidFileIn(defaultLibrary()))) {
+            Long other = notTheServer(record);
+            if (other != null) { strangers.add(leftAlone(other)); forget(record, other); }
+            Long unknown = cannotTell(record);
+            if (unknown != null) strangers.add("The record names a running process (" + unknown + ") whose command line could not be read, so it was not stopped, and the record is kept; if it is the server, stop it yourself.");
+        }
         Long before = serverNow();
         int rc = 0;
         if (installed) {
@@ -512,6 +521,7 @@ public final class Service {
         if (installed) said.add(before == null ? "The service was not running." : now != null && rc != 0 ? "The service could not be stopped (exit " + rc + ")." : "Stopped the service.");
         if (left != null) said.add(installed ? "A server started with researchzosho serve was running too (pid " + left + "); it is stopped." : "No service is installed here; stopped the server started with researchzosho serve (pid " + left + ").");
         if (!installed && left == null) said.add("No service is installed here and no server was running, so there was nothing to stop.");
+        said.addAll(strangers);
         said.add(now != null ? "A server is still running (pid " + now + ")." : installed ? "No server runs now; researchzosho service start starts it again, and it starts by itself at your next login." : "No server runs now.");
         out.println(String.join(" ", said));
         return now == null ? 0 : 1;
@@ -644,25 +654,52 @@ public final class Service {
         catch (IOException | NumberFormatException e) { return null; }
     }
 
-    /** The recorded server's pid when it is running and is a JVM other than this one; else null. */
+    /**
+     * The recorded server's pid when it is running and proven to be this program's own server (0.8.0, {@link ProcessProof}): its whole
+     * command line is this program's {@code serve}, and it started no later than the record was written. Else null: a number the system
+     * gave to another program since is not the server, whatever that program is.
+     */
     static Long runningServer(Path pidFile) {
         Long pid = recordedPid(pidFile);
         if (pid == null || pid == ProcessHandle.current().pid()) return null;
-        var h = ProcessHandle.of(pid);
-        if (h.isEmpty() || !h.get().isAlive()) return null;
-        return h.get().info().command().orElse("").toLowerCase(Locale.ROOT).contains("java") ? pid : null;
+        if (ProcessProof.proven(pid, pidFile, ProcessProof::server)) return pid;
+        // its start reads later than its record (a clock stepped forward after it started: WSL2 after a sleep, a machine with no clock
+        // of its own), and its command line is read and is the server's: it is the server, as the check before 0.8.0 said (ROB 6)
+        if (!ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) return null;
+        return ProcessProof.server(ProcessProof.words(pid)) ? pid : null;
     }
 
-    /** Stop the recorded server if it is alive and is a JVM (never a pid that was reused by something else). */
+    /**
+     * The number a record names when a process with it runs and its command line was read and is not the server's: a stranger, left
+     * alone, and the record forgotten. Null otherwise; a command line that cannot be read proves nothing either way, and the record stays
+     * (ROB 6: a server that kept running while its record was deleted could not be stopped any more).
+     */
+    static Long notTheServer(Path pidFile) {
+        Long pid = recordedPid(pidFile);
+        if (pid == null || pid == ProcessHandle.current().pid() || !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) return null;
+        List<String> words = ProcessProof.words(pid);
+        return !words.isEmpty() && !ProcessProof.server(words) ? pid : null;
+    }
+
+    /** The number a record names when a process with it runs and its command line cannot be read: nothing is known of it. Null otherwise. */
+    static Long cannotTell(Path pidFile) {
+        Long pid = recordedPid(pidFile);
+        if (pid == null || pid == ProcessHandle.current().pid() || !ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false)) return null;
+        return ProcessProof.words(pid).isEmpty() ? pid : null;
+    }
+
+    /** What is said of a process the record names that is not the server. */
+    static String leftAlone(long pid) { return "A process with the number " + pid + " is running, and it is not the ResearchZosho server, so it was left alone; the old record of that number is removed."; }
+
+    /** Stop the recorded server if it is running and proven to be this program's own (never a number given since to something else). */
     static boolean stopRecorded(Path pidFile, PrintStream out) {
         Long pid = recordedPid(pidFile);
         if (pid == null) return false;
         var h = ProcessHandle.of(pid);
         if (h.isEmpty() || !h.get().isAlive()) { forget(pidFile, pid); return false; }
-        String cmd = h.get().info().command().orElse("").toLowerCase(Locale.ROOT);
-        if (!cmd.contains("java")) {
-            // the server is gone and another program has its number now: that program is left alone, and the stale record goes
-            out.println("  pid " + pid + " is not the server any more (" + cmd + "); left alone");
+        if (runningServer(pidFile) == null) {
+            // the server is gone and another program has its number now, or nothing proves it is the server: left alone, and the stale record goes
+            out.println("  " + leftAlone(pid));
             forget(pidFile, pid);
             return false;
         }

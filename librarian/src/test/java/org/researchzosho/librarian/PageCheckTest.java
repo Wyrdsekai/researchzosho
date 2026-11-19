@@ -274,6 +274,7 @@ class PageCheckTest {
             }
         };
         drive.criticWantsMore = false;
+        GivenAddresses.received("1. " + ORDINARY + "\n2. " + EXPLICIT);   // as a search names them; this run has no search tool (the library opens only what a result gave, 2026-11-18)
         Researcher r = new Researcher(drive, drive, tools, logged::add, 1, store);
         r.contentJudge(judge);
         Researcher.Result res = r.run(new Researcher.Ask("How were the placeholder gears cut?", "depth", 40, List.of("how were the gears cut?")), "");

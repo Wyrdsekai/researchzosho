@@ -1,5 +1,7 @@
 package org.researchzosho;
 
+import org.researchzosho.drive.Gated;
+
 import java.io.Closeable;
 import java.io.FilterInputStream;
 import java.io.IOException;
@@ -112,8 +114,9 @@ public final class Stopping {
 
     /** {@code work}, to be run on another thread under the stop this thread is under now. */
     public static <T> Callable<T> carried(Callable<T> work) {
+        Callable<T> withUse = Gated.carried(work);   // and the use the work is, under an account service (0.8.0): its readers' calls carry it too
         BooleanSupplier stop = CURRENT.get();
-        if (stop == null) return work;
+        if (stop == null) return withUse;
         List<BooleanSupplier> keys = UNDER.get() == null ? List.of() : List.copyOf(UNDER.get());
         return () -> {
             BooleanSupplier had = CURRENT.get();
@@ -122,7 +125,7 @@ public final class Stopping {
             UNDER.set(keys);
             Thread me = Thread.currentThread();
             for (BooleanSupplier k : keys) WORKING.computeIfAbsent(k, x -> ConcurrentHashMap.newKeySet()).add(me);
-            try { return work.call(); }
+            try { return withUse.call(); }
             finally {
                 if (had == null) CURRENT.remove(); else CURRENT.set(had);
                 if (hadKeys == null) UNDER.remove(); else UNDER.set(hadKeys);

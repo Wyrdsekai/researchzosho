@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.Appender;
@@ -26,6 +27,9 @@ public final class Logs {
         if (setting != null && !setting.isBlank()) return setting.strip().equalsIgnoreCase("stdout");
         return !terminal;
     }
+
+    /** A logger turned down to warnings and worse: its notes are for the service's log, not for a person's terminal. Nothing when the log is not logback's. */
+    public static void warnOnly(String logger) { if (LoggerFactory.getLogger(logger) instanceof Logger l) l.setLevel(Level.WARN); }
 
     /** The log's console appender turned to stdout, and stderr with it, so every line of this process goes to one stream. */
     public static void toStdout() {

@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -106,10 +107,10 @@ class ModelServerTest {
         Path model = tmp.resolve("models/gpt-oss-20b-F16.gguf"), dir = tmp.resolve("model");
         var linux = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16, 16), model, dir, tmp.resolve("unit.service"), "all", 20, false, null);
         assertTrue(linux.configYaml().contains("cmd: " + dir.resolve("run.sh") + " ${PORT}") && linux.configYaml().contains("cmdStop: docker stop researchzosho-model") && linux.configYaml().contains("ttl: 1200") && linux.configYaml().contains("\"local-model\""), linux.configYaml());
-        assertTrue(linux.runScript().contains("--gpus all") && linux.runScript().contains("-m /m/gpt-oss-20b-F16.gguf") && linux.runScript().contains("-c 32768 --parallel 2") && linux.runScript().contains("reasoning_effort"), linux.runScript());
+        assertTrue(linux.runScript().contains("--gpus all") && linux.runScript().contains("-m /m/gpt-oss-20b-F16.gguf") && linux.runScript().contains("-c 32768 --parallel 1") && linux.runScript().contains("reasoning_effort"), linux.runScript());
         assertTrue(linux.unitText().contains("ExecStart=" + dir.resolve("llama-swap")) && linux.unitText().contains("--listen 127.0.0.1:8211"), linux.unitText());
         var mac = ModelServer.plan(ModelServer.Os.macos, ModelServer.rowFor(11, 16), tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf"), dir, tmp.resolve("org.x.plist"), "all", 20, false, null);
-        assertTrue(mac.configYaml().contains("cmd: " + dir.resolve("llama").resolve("llama-server") + " -m " + tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf") + " --host 127.0.0.1 --port ${PORT} --jinja -c 16384 --parallel 1 -ngl 99 --flash-attn on --chat-template-kwargs '{\"enable_thinking\":false}'"), mac.configYaml());
+        assertTrue(mac.configYaml().contains("cmd: " + dir.resolve("llama").resolve("llama-server") + " -m " + tmp.resolve("models/Qwen3.5-9B-Q4_K_M.gguf") + " --host 127.0.0.1 --port ${PORT} --jinja -c 32768 --parallel 1 -ngl 99 --flash-attn on --chat-template-kwargs '{\"enable_thinking\":false}'"), mac.configYaml());
         assertFalse(mac.configYaml().contains("cmdStop"), "no container to stop on macOS");
         assertNull(mac.runScript());
         assertTrue(mac.unitText().contains("<string>org.researchzosho.model</string>") && mac.unitText().contains("<string>--listen</string>\n    <string>127.0.0.1:8211</string>") && mac.unitText().contains("<key>KeepAlive</key><true/>"), mac.unitText());
@@ -127,7 +128,7 @@ class ModelServerTest {
         assertTrue(linux.embeds());
         String y = linux.configYaml();
         assertTrue(y.contains("  \"embed\":\n    cmd: " + dir.resolve("run-embed.sh") + " ${PORT}\n    cmdStop: docker stop researchzosho-model-embed\n"), y);
-        assertTrue(y.contains("    checkEndpoint: /health\n    ttl: 0\n") && y.contains("groups:\n  \"embedding\":\n    swap: false\n    exclusive: false\n    persistent: true\n    members: [\"embed\"]"), y);
+        assertTrue(y.contains("    checkEndpoint: /health\n    ttl: 300\n") && y.contains("groups:\n  \"embedding\":\n    swap: false\n    exclusive: false\n    persistent: true\n    members: [\"embed\"]"), y);
         assertTrue(y.indexOf("\"gpt-oss-20b\":") < y.indexOf("\"embed\":"), "the drive stays the first model (status reads the first name)");
         assertTrue(linux.embedScript().contains("--gpus '\"device=3\"'") && linux.embedScript().contains("-p 127.0.0.1:$1:80") && linux.embedScript().contains("text-embeddings-inference:89-1.8") && linux.embedScript().contains("--model-id Qwen/Qwen3-Embedding-0.6B --pooling last-token"), linux.embedScript());
         var none = ModelServer.plan(ModelServer.Os.linux, ModelServer.rowFor(16, 16), model, dir, tmp.resolve("unit.service"), "all", 20, false, null);
@@ -472,10 +473,58 @@ class ModelServerTest {
             assertTrue(ran.stream().anyMatch(c -> c.get(0).equals("schtasks") && c.contains("/create") && c.contains("ResearchZoshoModel") && c.contains("onlogon")), ran.toString());
             assertTrue(ran.stream().anyMatch(c -> c.get(0).equals("powershell") && c.contains("-File") && c.contains(dir.resolve("start.ps1").toString())), "started now, detached: " + ran);
             assertEquals("http://127.0.0.1:8211", Config.get("RESEARCHZOSHO_DRIVE"));
+            // the script keeps the number of the llama-swap it starts, and starts one unless that one runs: never looked for by its name (0.8.0)
+            String script = Files.readString(dir.resolve("start.ps1"));
+            assertTrue(script.contains("$kept = '" + dir.resolve(ModelServer.SWAP_PID) + "'") && script.contains("-PassThru") && script.contains("Set-Content -Path $kept -Value $started.Id"), script);
+            assertFalse(script.contains("Get-Process llama-swap"), "no llama-swap is found by its name: " + script);
+            // and uninstall stops nothing by its name: no taskkill /im, for llama-swap or llama-server
+            ModelServer.health = base -> false;
+            ModelServer.uninstall(true);
+            assertTrue(ran.stream().noneMatch(c -> c.contains("/im") || c.contains("/IM")), ran.toString());
         } finally {
             System.setProperty("user.home", realHome);
             Config.invalidate();
         }
+    }
+
+    /**
+     * On Windows the program stops only the llama-swap it started (0.8.0): by the number it kept when it started it, and only when that
+     * process is proven to be it: it started no later than the number was kept, and its command line is llama-swap's with this program's
+     * own config file. One the person started themselves is left alone, and a sentence says so when it holds the port.
+     */
+    @Test
+    void onWindowsOnlyTheLlamaSwapThisProgramStartedIsStoppedByItsNumber(@TempDir Path home) throws Exception {
+        Path dir = Files.createDirectories(home.resolve("model"));
+        String config = dir.resolve("config.yaml").toString();
+        List<List<String>> ran = new ArrayList<>();
+        ModelServer.os = ModelServer.Os.windows;
+        ModelServer.runner = cmd -> { ran.add(cmd); return new ModelServer.Result(0, ""); };
+        Process process = new ProcessBuilder("sleep", "600").start();   // a live process with a number, standing for llama-swap
+        try {
+            Thread.sleep(200);
+            Files.writeString(dir.resolve(ModelServer.SWAP_PID), process.pid() + "\r\n");
+            // ours: its command line names llama-swap and this program's config
+            ProcessProof.READ = pid -> pid == process.pid() ? List.of("C:\\Users\\ann\\.researchzosho\\model\\llama-swap.exe", "--config", "\"" + config + "\"", "--listen", "127.0.0.1:8211") : List.of();
+            ModelServer.health = base -> false;
+            assertEquals("", ModelServer.stopOurProxy(dir));
+            assertEquals(List.of(List.of("taskkill", "/pid", String.valueOf(process.pid()), "/t", "/f")), ran, "by its number, with the model servers it started");
+            assertFalse(Files.exists(dir.resolve(ModelServer.SWAP_PID)));
+            // not ours: a llama-swap the person started with a config of their own; nothing is stopped, and since it holds the port, it is said
+            ran.clear();
+            Files.writeString(dir.resolve(ModelServer.SWAP_PID), process.pid() + "\r\n");
+            ProcessProof.READ = pid -> List.of("C:\\tools\\llama-swap.exe", "--config", "C:\\Users\\ann\\my-models.yaml");
+            ModelServer.health = base -> true;
+            String said = ModelServer.stopOurProxy(dir);
+            assertTrue(ran.isEmpty(), "nothing is stopped: " + ran);
+            assertEquals("A model proxy this program did not start answers at http://127.0.0.1:8211 (a llama-swap you started yourself?), so it was left alone; stop it, then run researchzosho model install again.", said);
+            // a number kept from before a process started is not that process's: nothing is stopped
+            ran.clear();
+            Files.writeString(dir.resolve(ModelServer.SWAP_PID), process.pid() + "\r\n");
+            Files.setLastModifiedTime(dir.resolve(ModelServer.SWAP_PID), FileTime.fromMillis(System.currentTimeMillis() - 3_600_000));
+            ProcessProof.READ = pid -> List.of("llama-swap.exe", "--config", config);
+            ModelServer.stopOurProxy(dir);
+            assertTrue(ran.isEmpty(), "the number was kept before this process started: " + ran);
+        } finally { ProcessProof.READ = null; process.destroy(); }
     }
 
     @Test

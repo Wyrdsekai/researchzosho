@@ -59,7 +59,8 @@ class ChoiceOfferTest {
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         List<ArrayNode> seen = new ArrayList<>();
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Which spectrometer should the lab buy?\", \"choices\": [\"Raman\", \"FTIR\", \"UV-Vis\"], \"choice_question\": \"Which kind is the question about?\"}"), LibrarianChatTest.say("Filed; the library asks which kind.")), seen), Librarian.person(), Librarian.Session.open(store));
-        String reply = lib.say("Find out which spectrometer the lab should buy");
+        lib.say("Find out which spectrometer the lab should buy");
+        String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.contains("Which kind is the question about? Which: 1 Raman, 2 FTIR, 3 UV-Vis? Say the number or the name."), "the library's question with its choices under the reply: " + reply);
         String page = Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id));
         assertTrue(page.contains("<div class=\"ask\"><p>Which kind is the question about?</p><div class=\"opts\">") && page.contains("name=\"say\" value=\"FTIR\"><button class=\"btn opt\">FTIR</button>") && page.contains("or say which in your own words"), "buttons on the page: " + page);
@@ -81,10 +82,12 @@ class ChoiceOfferTest {
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         Librarian lib = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Which laser should the lab buy for its Raman work?\", \"choices\": [\"a green one\", \"a red one\"], \"choice_question\": \"Which laser is meant?\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         lib.say("Find out which laser");
+        lib.say("yes");   // the model's run waits for the person's yes first (round E)
         Librarian again = new Librarian(store, LibrarianChatTest.scripted(List.of(), new ArrayList<>()), Librarian.person(), lib.session());
         assertTrue(again.say("the red one, please").startsWith("Taken: a red one."));
         Librarian lib2 = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.tool("library_research", "{\"question\": \"Which lens should the camera get for the field work?\", \"choices\": [\"wide\", \"long\"], \"choice_question\": \"Which lens is meant?\"}"), LibrarianChatTest.say("Filed.")), new ArrayList<>()), Librarian.person(), Librarian.Session.open(store));
         lib2.say("Find out which lens");
+        lib2.say("yes");
         String none = new Librarian(store, LibrarianChatTest.scripted(List.of(), new ArrayList<>()), Librarian.person(), lib2.session()).say("none of them");
         assertTrue(none.contains("Nothing started"), none);
         List<ObjectNode> active = new Jobs(store, x -> "").active();

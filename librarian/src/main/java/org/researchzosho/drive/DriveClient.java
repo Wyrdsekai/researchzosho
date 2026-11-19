@@ -37,6 +37,7 @@ import java.util.ArrayDeque;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.function.BooleanSupplier;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
@@ -47,6 +48,7 @@ import org.researchzosho.drive.aws.AwsCredentials;
 import org.researchzosho.drive.anthropic.Anthropic;
 import org.researchzosho.drive.openai.OpenAI;
 import org.researchzosho.drive.aws.Bedrock;
+import org.researchzosho.librarian.Untrusted;
 import java.util.HashMap;
 import java.util.HashSet;
 /**
@@ -364,7 +366,7 @@ public final class DriveClient {
      */
     private Integer fromModelsContextLength() {
         try {
-            HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/models")))
+            HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/models"))
                     .timeout(Duration.ofSeconds(5)).GET().build();
             HttpResponse<String> resp = send(req, HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(5));
             if (resp.statusCode() != 200) return null;
@@ -385,7 +387,7 @@ public final class DriveClient {
         if (openai != null) return openai.reachable();
         for (String path : new String[]{Config.v1(baseUrl) + "/models", baseUrl + "/"}) {
             try {
-                HttpRequest req = auth(HttpRequest.newBuilder(URI.create(path)))
+                HttpRequest req = auth(Gated.request(path))
                         .timeout(Duration.ofSeconds(8)).GET().build();
                 send(req, HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(8));
                 return true;
@@ -424,7 +426,7 @@ public final class DriveClient {
 
     /** {@code default_generation_settings.n_ctx} from a llama.cpp /props page at {@code url}, or null. */
     private Integer propsAt(String url) throws Exception {
-        HttpRequest req = auth(HttpRequest.newBuilder(URI.create(url))).timeout(Duration.ofSeconds(10)).GET().build();
+        HttpRequest req = auth(Gated.request(url)).timeout(Duration.ofSeconds(10)).GET().build();
         HttpResponse<String> resp = send(req, HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(10));
         if (resp.statusCode() != 200) return null;
         JsonNode n = json.readTree(resp.body()).path("default_generation_settings").path("n_ctx");
@@ -435,7 +437,7 @@ public final class DriveClient {
     private Integer fromOllamaShow() {
         try {
             String body = "{\"model\":\"" + model + "\"}";
-            HttpRequest req = auth(HttpRequest.newBuilder(URI.create(baseUrl + "/api/show")))
+            HttpRequest req = auth(Gated.request(baseUrl + "/api/show"))
                     .timeout(Duration.ofSeconds(10))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
@@ -542,6 +544,7 @@ public final class DriveClient {
         // prevents the 500 at the source (proven against the live drive: malformed history → 500, repaired
         // history → 200). Mutates in place, which also heals the loop's own history for later turns.
         sanitizeToolCallArgs(messages);
+        withoutTemplateMarkers(messages);
         ObjectNode body = json.createObjectNode();
         body.put("model", model);
         body.set("messages", messages);
@@ -636,7 +639,7 @@ public final class DriveClient {
                 if (openRouter() && tools != null && !tools.isEmpty()) body.putObject("provider").put("require_parameters", true);
                 payload = json.writeValueAsString(body);
             }
-            HttpRequest.Builder rb = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
+            HttpRequest.Builder rb = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit)
                     .header("Content-Type", "application/json");
             if (openRouter()) rb.header("HTTP-Referer", "https://researchzosho.org").header("X-Title", "ResearchZosho");
@@ -658,6 +661,7 @@ public final class DriveClient {
                 resp = send(req, HttpResponse.BodyHandlers.ofString(), limit);
             }
             if (resp.statusCode() != 200) {
+                Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // the service's content filter stopped the request: a decline, never an outage to retry
                 // RECOVERY (A): a 5xx whose body says the MODEL's tool call wouldn't parse is a known
@@ -687,13 +691,16 @@ public final class DriveClient {
     }
 
     /** Whether this drive is OpenRouter, which has its own headers and routing fields. */
-    boolean openRouter() { String h = hostOf(baseUrl); return h != null && h.endsWith("openrouter.ai"); }
+    boolean openRouter() { String h = apiHost(baseUrl); return h != null && h.endsWith("openrouter.ai"); }
+
+    /** The host of the API an address stands for: through a node's gate, the server the gate passes to; else its own. */
+    static String apiHost(String url) { return url == null ? null : hostOf(Gated.upstream(url.strip())); }
 
     /** Whether this drive is a hosted API that rejects or ignores llama.cpp's template field: OpenRouter, OpenAI, Gemini, DeepSeek, Mistral, Groq, xAI. */
     boolean hostedApi() { return hostedApi(baseUrl); }
 
     public static boolean hostedApi(String url) {
-        String h = hostOf(url);
+        String h = apiHost(url);   // through a node's gate, the API it stands for: its stream is asked for its usage, and its shape is its own
         if (h == null) return false;
         for (String suffix : new String[]{"openrouter.ai", "googleapis.com", "nebius.com", "huggingface.co", "api.deepseek.com", "api.mistral.ai", "api.groq.com", "api.x.ai", "api.together.xyz", "api.fireworks.ai"}) if (h.endsWith(suffix)) return true;
         return false;
@@ -707,7 +714,7 @@ public final class DriveClient {
     public static ObjectNode hostedShape(ObjectNode body, String url) {
         JsonNode kw = body.remove("chat_template_kwargs");
         boolean quick = kw != null && kw.path("enable_thinking").isBoolean() && !kw.path("enable_thinking").asBoolean();
-        String h = hostOf(url);
+        String h = apiHost(url);
         if (h == null) return body;
         if (quick && templateHost(h)) {
             // a host that runs vLLM hands the field to the model's own template, whose word for no thinking differs by model (DeepSeek's is
@@ -839,7 +846,13 @@ public final class DriveClient {
      * library's ledger when it ends. Every call's token counts reach {@link #counted}, the one place they are all read, which gives them to
      * the research run's own count when one is open, else to this purse, unless the step that made the call meters it itself.
      */
-    public interface Purse { void add(String drive, String model, long prompt, long cached, long completion); }
+    public interface Purse {
+        void add(String drive, String model, long prompt, long cached, long completion);
+        /** The use the work is, under an account service (0.8.0): every call that costs carries it; null in a library of one's own. */
+        default String use() { return null; }
+        /** The lane its calls go in at the service's model: {@link Gated#WAITING} for a person who waits, else {@link Gated#BACKGROUND}. */
+        default String lane() { return Gated.BACKGROUND; }
+    }
     private static final ThreadLocal<Purse> PURSE = new ThreadLocal<>();
     /** The purse this thread's calls go into from now (null for none); the one it replaces is returned, to be put back when the work ends. */
     public static Purse useFor(Purse p) { Purse was = PURSE.get(); if (p == null) PURSE.remove(); else PURSE.set(p); return was; }
@@ -859,6 +872,17 @@ public final class DriveClient {
      * One call's token counts, where they count, once: nowhere here when the step that made it meters it itself; else the research run's
      * own count when this thread works for one; else the purse of the work it belongs to, or the library's for calls outside any work.
      */
+    /**
+     * The tokens a call wrote as its server bills them, its thinking among them: completion_tokens, or what total_tokens says beyond the
+     * prompt when that is more. OpenAI counts the thinking in completion_tokens (and again in its details); Gemini's OpenAI door leaves it out
+     * and has it in the total (849 of 2,203 on a call of 2026-11-18), billed as written. Not on Bedrock, whose total may count the cache too.
+     */
+    static long written(JsonNode usage, boolean bedrock) {
+        long said = usage.path("completion_tokens").asLong(0);
+        if (bedrock || !usage.path("total_tokens").canConvertToLong()) return said;
+        return Math.max(said, usage.path("total_tokens").asLong() - usage.path("prompt_tokens").asLong(0));
+    }
+
     private void counted(long prompt, long cached, long completion) {
         if (METERED.get()[0] > 0) return;   // the step that made it puts it on the ledger: first, or a research run's count would hold it too
         long[] acc = COUNT.get();
@@ -891,9 +915,10 @@ public final class DriveClient {
                         u.path("total_tokens").asInt());
                 SESSION_CACHED_TOKENS.addAndGet(cached);
                 SESSION_PROMPT_TOKENS.addAndGet(u.path("prompt_tokens").asLong(0));
-                SESSION_COMPLETION_TOKENS.addAndGet(u.path("completion_tokens").asLong(0));
-                counted(u.path("prompt_tokens").asLong(0), cached, u.path("completion_tokens").asLong(0));
-                LAST_USAGE.set(new long[]{u.path("prompt_tokens").asLong(0), u.path("completion_tokens").asLong(0)});
+                long wrote = written(u, bedrock != null);   // the thinking a server bills as written, counted once
+                SESSION_COMPLETION_TOKENS.addAndGet(wrote);
+                counted(u.path("prompt_tokens").asLong(0), cached, wrote);
+                LAST_USAGE.set(new long[]{u.path("prompt_tokens").asLong(0), wrote});
             } else LAST_USAGE.set(null);
             // the model declined: said once, where the caller can say it; the reply is not handed on as if it were an answer
             raiseDecline(parsed);
@@ -985,7 +1010,16 @@ public final class DriveClient {
      * One request to the model server, waited for under the stop of the run it is for and a total limit ({@link Stopping#send}): a stop
      * ends it within a second, and a server that took it and never answers is given up at the limit. Each is logged.
      */
+    /**
+     * What every request to a model server asks first, in a process that may lose the right to work (a library's start under an account
+     * service, frozen and let go after another start took it over): a reason means no request is sent. Null: none is ever refused here.
+     */
+    public static volatile Supplier<String> GATE;
+
     private <T> HttpResponse<T> send(HttpRequest req, HttpResponse.BodyHandler<T> body, Duration limit) throws IOException, InterruptedException {
+        Supplier<String> gate = GATE;
+        String shut = gate == null ? null : gate.get();
+        if (shut != null) throw new IOException(shut);
         boolean chat = req.uri().getPath().endsWith("/chat/completions");
         Semaphore slot = chat ? takeSlot() : null;
         try { return Stopping.send(http, req, body, limit, who(), chat ? lost() : null); }
@@ -1125,7 +1159,7 @@ public final class DriveClient {
      * model) is asked again later, and nothing is said on the person's console: it is not their request that went unanswered.
      */
     private HttpResponse<String> look(String url) throws IOException, InterruptedException {
-        try { return Stopping.send(http, auth(HttpRequest.newBuilder(URI.create(url))).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE, who()); }
+        try { return Stopping.send(http, auth(Gated.request(url)).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE, who()); }
         catch (HttpTimeoutException t) { log.debug("drive ← {} (a look at what the server is; asked again in a minute)", t.getMessage()); throw t; }
     }
 
@@ -1162,14 +1196,16 @@ public final class DriveClient {
      */
     public JsonNode postChat(ObjectNode body) throws Exception {
         if (!body.has("model")) body.put("model", model);
+        if (body.path("messages").isArray()) withoutTemplateMarkers((ArrayNode) body.path("messages"));
         if (bedrock != null || anthropic != null || openai != null) throw new IllegalStateException("a typed decision needs token probabilities, which " + (bedrock != null ? "Bedrock" : anthropic != null ? "Anthropic's API" : "OpenAI's API") + " does not give");
         String payload = json.writeValueAsString(body);
         Duration limit = decisionLimitFor(payload.length(), body.path("max_tokens").asInt(0));
-        HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
+        HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                 .timeout(limit).header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
         HttpResponse<String> resp = sendWaitingWhileLoading(req, limit);
         if (resp.statusCode() != 200) {
+            Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is
             String said = "HTTP " + resp.statusCode() + ": " + (resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body());
             // an error in place of a reply is no answer, as a request that did not get through; the server's word about the request's shape stays what it was
             IOException none = Judge.refusesTheRequest(said) ? null : noAnswer(resp.statusCode(), who() + " answered HTTP " + resp.statusCode() + ": " + serverSaid(resp.body()));
@@ -1188,7 +1224,14 @@ public final class DriveClient {
      */
     public static final long PICTURE_SEED = 0;
 
-    public String classify(ArrayNode messages, int maxTokens) {
+    public String classify(ArrayNode messages, int maxTokens) { return classify(messages, maxTokens, System.nanoTime()); }
+
+    /**
+     * The same, inside a limit that began at {@code began} ({@link System#nanoTime}): a typed question the server refused, then asked this
+     * way, waits one limit in all, never one for each ask (round G).
+     */
+    public String classify(ArrayNode messages, int maxTokens, long began) {
+        withoutTemplateMarkers(messages);
         ObjectNode body = json.createObjectNode();
         body.put("model", model);
         body.set("messages", messages);
@@ -1201,11 +1244,25 @@ public final class DriveClient {
         CLASSIFY_PROBLEM.set("");
         CLASSIFY_UNANSWERED.remove();
         Duration limit = decisionLimitFor(promptChars(body), maxTokens);
+        if (decisionLimit != null) {
+            limit = decisionLimit.minus(Duration.ofNanos(System.nanoTime() - began));
+            if (limit.toMillis() < 50) { CLASSIFY_PROBLEM.set("the time for the question had run out"); CLASSIFY_UNANSWERED.set(new HttpTimeoutException("the time for the question had run out")); return ""; }
+        }
         if (bedrock != null || anthropic != null || openai != null) {
             String where = bedrock != null ? "bedrock" : anthropic != null ? "anthropic" : "openai";
             try {
                 ObjectNode msg = accept(bedrock != null ? bedrock.chat(model, body, limit) : anthropic != null ? anthropic.chat(model, body, limit) : openai.chat(model, body, limit), where);
                 String content = msg.path("content").asText("");
+                if (content.isBlank() && !msg.path("reasoning_content").asText("").isBlank() && maxTokens < THINKING_ROOM) {
+                    // a model that reasons spent the small budget thinking (gpt-oss, the live check of 2026-11-18): once more with room, and
+                    // inside a request within what is left of its one limit; never after a refusal or a time out, which throw before this
+                    Duration left = decisionLimit != null ? decisionLimit.minus(Duration.ofNanos(System.nanoTime() - began)) : decisionLimitFor(promptChars(body), THINKING_ROOM);
+                    if (left.toMillis() >= 50) {
+                        body.put("max_tokens", THINKING_ROOM);
+                        msg = accept(bedrock != null ? bedrock.chat(model, body, left) : anthropic != null ? anthropic.chat(model, body, left) : openai.chat(model, body, left), where);
+                        content = msg.path("content").asText("");
+                    }
+                }
                 if (content.isBlank() && !msg.path("reasoning_content").asText("").isBlank()) CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer");
                 return content.isBlank() ? msg.path("reasoning_content").asText("") : content;
             } catch (Declined | Stopping.Requested d) { throw d; }   // a decline is the model's answer, never an empty one; a stop ends the call
@@ -1224,17 +1281,18 @@ public final class DriveClient {
             // be Ollama; the kind is learnt below, after a first empty answer, never by probing a server that may not be answering at all.
             else if (serverStyle.equals("ollama")) body.put("reasoning_effort", "none");
             for (int attempt = 1; ; attempt++) {
-            HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
+            HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
             long t0 = System.nanoTime();
             HttpResponse<String> resp = sendWaitingWhileLoading(req, limit);
             try {
                 JsonNode cu = json.readTree(resp.body()).path("usage");
-                LAST_USAGE.set(cu.isObject() ? new long[]{cu.path("prompt_tokens").asLong(0), cu.path("completion_tokens").asLong(0)} : null);
-                if (cu.isObject() && resp.statusCode() == 200) counted(cu.path("prompt_tokens").asLong(0), cu.path("prompt_tokens_details").path("cached_tokens").asLong(0), cu.path("completion_tokens").asLong(0));
+                LAST_USAGE.set(cu.isObject() ? new long[]{cu.path("prompt_tokens").asLong(0), written(cu, bedrock != null)} : null);
+                if (cu.isObject() && resp.statusCode() == 200) counted(cu.path("prompt_tokens").asLong(0), cu.path("prompt_tokens_details").path("cached_tokens").asLong(0), written(cu, bedrock != null));
             } catch (Exception e) { LAST_USAGE.set(null); }
             if (resp.statusCode() != 200) {
+                Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // a decline, never an empty answer
                 String said = resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body();
@@ -1263,7 +1321,11 @@ public final class DriveClient {
                     if (serverStyle.equals("ollama")) body.put("reasoning_effort", "none");
                 }
                 body.put("max_tokens", THINKING_ROOM);
-                limit = decisionLimitFor(body.toString().length(), THINKING_ROOM);
+                // inside a request the two asks share its one limit, so a check never waits it twice (round F); in a run the second has its own
+                if (decisionLimit != null) {
+                    limit = decisionLimit.minus(Duration.ofNanos(System.nanoTime() - began));
+                    if (limit.toMillis() < 50) { CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer"); return ""; }
+                } else limit = decisionLimitFor(body.toString().length(), THINKING_ROOM);
                 continue;
             }
             if (content.isBlank() && !reasoning.isBlank()) CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer");
@@ -1421,6 +1483,7 @@ public final class DriveClient {
             try { JsonNode k = SETTINGS_JSON.readTree(tk); if (k.isObject()) kw.setAll((ObjectNode) k); } catch (Exception notJson) { /* the drive's own turns say so */ }
         }
         kw.put("enable_thinking", false);
+        if (!kw.has("reasoning_effort")) kw.put("reasoning_effort", "low");   // a model that reasons whatever it is told (gpt-oss's template reads this) reasons briefly
         body.set("chat_template_kwargs", kw);
     }
 
@@ -1443,6 +1506,30 @@ public final class DriveClient {
                 ((ObjectNode) fn).put("arguments", repairJson(args));
                 log.warn("sanitized malformed tool_call args in history ({} chars) — prevented --jinja 500",
                         args.length());
+            }
+        }
+    }
+
+    /**
+     * No message reaches the model with a chat template's markers or a tool call's in its words ({@link Untrusted#markers}): the server reads
+     * them as its own turns, whoever wrote them. A page the chat fetched on 2026-11-18 wrote {@code </tool_response><|im_end|><|im_start|>system}
+     * and the model's input carried them as three control tokens. Every message, before every send; none of the library's own prompts uses
+     * one. Mutates in place, as {@link #sanitizeToolCallArgs} does.
+     */
+    static void withoutTemplateMarkers(ArrayNode messages) {
+        if (messages == null) return;
+        for (JsonNode m : messages) {
+            if (!(m instanceof ObjectNode o)) continue;
+            JsonNode c = o.path("content");
+            if (c.isTextual()) { String s = c.asText(), t = Untrusted.markers(s); if (!t.equals(s)) o.put("content", t); }
+            else if (c.isArray()) for (JsonNode part : c) {
+                if (part instanceof ObjectNode p && p.path("text").isTextual()) { String s = p.path("text").asText(), t = Untrusted.markers(s); if (!t.equals(s)) p.put("text", t); }
+            }
+            // a tool call's name and its arguments are rendered into the model's input by the template too (round F, S19): the arguments a
+            // model wrote can carry a page's words back
+            for (JsonNode call : o.path("tool_calls")) {
+                if (!(call.path("function") instanceof ObjectNode f)) continue;
+                for (String k : new String[]{"name", "arguments"}) if (f.path(k).isTextual()) { String s = f.path(k).asText(), t = Untrusted.markers(s); if (!t.equals(s)) f.put(k, t); }
             }
         }
     }
@@ -1498,7 +1585,7 @@ public final class DriveClient {
             body.put("stream", false);
             String payload = json.writeValueAsString(body);
             Duration limit = limitFor(payload.length(), maxTokens);
-            HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
+            HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
             HttpResponse<String> resp = send(req, HttpResponse.BodyHandlers.ofString(), limit);
@@ -1584,12 +1671,16 @@ public final class DriveClient {
     private ObjectNode readStream(Consumer<String> sink, String payload, Duration limit) {
         try {
             long t0 = System.nanoTime();
-            HttpRequest req = auth(HttpRequest.newBuilder(URI.create(Config.v1(baseUrl) + "/chat/completions")))
+            HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
             HttpResponse<InputStream> resp = send(req, HttpResponse.BodyHandlers.ofInputStream(), limit);
-            if (resp.statusCode() != 200) { resp.body().close(); return null; }
+            if (resp.statusCode() != 200) {
+                if (resp.statusCode() == 402 || resp.statusCode() == 403) Gated.throwIfRefused(resp.statusCode(), new String(resp.body().readAllBytes(), StandardCharsets.UTF_8));   // a node's gate
+                resp.body().close();
+                return null;
+            }
             // the answer arrives in pieces: the reading ends when the run is stopped or the call's limit has passed, whatever the server does
             Duration left = limit.minusNanos(System.nanoTime() - t0);
             try (var guard = Stopping.guard(resp.body(), left.isNegative() || left.isZero() ? Duration.ofSeconds(1) : left);
@@ -1670,8 +1761,8 @@ public final class DriveClient {
             }
         }
         if (used != null) {   // a streamed call counts as a plain one does
-            counted(used.path("prompt_tokens").asLong(0), used.path("prompt_tokens_details").path("cached_tokens").asLong(0), used.path("completion_tokens").asLong(0));
-            LAST_USAGE.set(new long[]{used.path("prompt_tokens").asLong(0), used.path("completion_tokens").asLong(0)});
+            counted(used.path("prompt_tokens").asLong(0), used.path("prompt_tokens_details").path("cached_tokens").asLong(0), written(used, bedrock != null));
+            LAST_USAGE.set(new long[]{used.path("prompt_tokens").asLong(0), written(used, bedrock != null)});
         }
         ObjectNode msg = json.createObjectNode();
         msg.put("role", "assistant");

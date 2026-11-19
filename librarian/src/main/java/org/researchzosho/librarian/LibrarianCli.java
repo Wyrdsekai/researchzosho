@@ -67,7 +67,6 @@ import org.researchzosho.tools.WebFetchTool;
 import org.researchzosho.tools.ExaSearchTool;
 import org.researchzosho.tools.TavilySearchTool;
 import org.researchzosho.tools.CustomSearchTool;
-import org.slf4j.LoggerFactory;
 import org.researchzosho.drive.Declined;
 /**
  * {@code researchzosho <verb>} — the Librarian's own command surface, in its own class:
@@ -283,6 +282,15 @@ public final class LibrarianCli {
               serve [--host H] [--port P] [--crew-hour H|--no-crews]
                                            the service: the protocol over HTTP (default 127.0.0.1:4649), research
                                            runs, and nightly maintenance (default 03:00 local)
+              access · access invite "<name>" [read|write] · access remove "<name>" · access keys · access key new "<label>" [--read|--write] ·
+                       access key revoke <id>
+                                           connected to a library under an account service (connect <address> <key>): the people of
+                                           the library and your own keys for it
+              take <archive> [folder]      a library an account service packed to take home (.rzlib.zip), opened as a library of your own
+              accounts · accounts add "<name>" [--mail <address>] [--admin] · link "<name>" · remove "<name>" · library "<name>" "<title>" ·
+                       member "<library>" "<name>" read|write|remove · key "<name>" [--read|--write] [--library <library>] "<label>"
+                                           several accounts on one service, each with a library of its own (off unless the setting accounts is on:
+                                           researchzosho settings set accounts on; serve is then the account service)
               crews [--weekly] [--monthly]  run nightly maintenance once, now (source re-checks · nightly research · review · inventory · summaries · enrich · heat ·
                                            [weekly: duplicates · orphans] · refresh|rebuild · backup)
               raw prune                    delete the saved pages the weekly orphans report listed (catalog/orphans.md)
@@ -631,14 +639,45 @@ public final class LibrarianCli {
         }
     }
 
+    /**
+     * {@code serve} for a library under an account service: the daemon alone. Nothing of the machine is looked after from here (the
+     * model server, the helpers, sharing, updates are the service's), and the library answers to the service's statements only.
+     * {@code serviceAt}: where the library reaches the service, when not at its own address (a library in a container, through its node).
+     */
+    static int serveVouched(LibraryStore store, String host, int port, String baseUrl, String model, int hour, String vouchedBy, String serviceAt, long epoch) throws Exception {
+        if (!Files.isDirectory(store.root())) store.init();
+        try { Repairs.onceFor(store, Version.number() == null ? "dev" : Version.number()); } catch (Exception e) { System.out.println("  repair skipped: " + e.getMessage()); }
+        try { int put = LibraryPlaces.relocated(store); if (put > 0) System.out.println("  the folder was moved: " + put + " job record(s) put right to name it"); } catch (IOException e) { System.out.println("  the jobs' paths were not put right: " + e.getMessage()); }
+        LibrarianDaemon d = LibrarianDaemon.start(store, host, port, baseUrl, model, hour, -1, new Vouching(vouchedBy, serviceAt), epoch);
+        if (epoch > 0) d.heldAs(epoch);   // this start of the library, by the count the service's registry keeps
+        Service.recordPid(store);
+        var id = store.identity();
+        System.out.println("The Librarian is at " + d.url() + "  (" + id.id() + " — " + id.name() + ", contract " + LibraryProtocol.CONTRACT + "), under the account service at " + vouchedBy + ".");
+        System.out.println("  Every request is answered by the statement the service signed for it; the library keeps no accounts of its own.");
+        if (epoch > 0) System.out.println("  This is start " + epoch + " of the library by the service's count. " + (hour < 0 ? "Its nights are the service's to start." : "Its nightly tasks run at " + String.format("%02d:00", hour) + ".")
+                + " Its heap is limited to " + Runtime.getRuntime().maxMemory() / (1024 * 1024) + " MB.");
+        d.join();
+        String gaveUp = d.gaveUpLine();
+        if (gaveUp != null) { System.err.println(gaveUp); return GAVE_UP; }
+        return 0;
+    }
+
     /** What {@code serve} ends with when another process holds the library: not a success, so a service manager sees it ended. */
     static final int GAVE_UP = 3;
 
+    /** A library in a container: the relays to its node's sockets, kept for the life of the process. */
+    static volatile Relays RELAYS;
+
     static int serve(LibraryStore store, String[] args, String baseUrl, String model) throws Exception {
-        String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; int hour = 3; Path log = null; int door = -1;
+        String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; int hour = 3; Path log = null; int door = -1; String vouchedBy = null, serviceAt = null, libraryId = null; long epoch = 0; Path relays = null;
         try {
             for (int i = 2; i < args.length; i++) {
                 switch (args[i]) {
+                    case "--vouched-by" -> vouchedBy = flagValue(args, i++);   // the account service this library runs under (0.8.0): it starts the library with this, a person does not
+                    case "--service-at" -> serviceAt = flagValue(args, i++);   // where a library in a container reaches the service it runs under: through its node
+                    case "--relays" -> relays = Path.of(flagValue(args, i++));   // a library in a container with no network: its node's sockets are in this folder
+                    case "--epoch" -> epoch = Long.parseLong(flagValue(args, i++));   // which start of the library this is, by the service's count
+                    case "--library-id" -> libraryId = flagValue(args, i++);   // the library the service means: a folder that holds another one is not served
                     case "--host" -> host = flagValue(args, i++);
                     case "--port" -> port = flagInt(args, i++);
                     case "--door" -> door = flagInt(args, i++);   // the shared door, on loopback, for a relay only (researchzosho share)
@@ -659,8 +698,16 @@ public final class LibrarianCli {
             var ps = new PrintStream(Files.newOutputStream(log, StandardOpenOption.CREATE, StandardOpenOption.APPEND), true, StandardCharsets.UTF_8);
             System.setOut(ps); System.setErr(ps);
         } else if (Logs.wantsStdout(false)) Logs.toStdout();   // no terminal (a container, a cloud runner), or the setting says so: the log on stdout
+        if (libraryId != null && Files.isRegularFile(store.libraryFile()) && !store.identity().id().equals(libraryId)) {
+            System.err.println("The folder " + store.root() + " holds the library " + store.identity().id() + ", not " + libraryId + ", so it is not served.");
+            return 2;
+        }
+        if (vouchedBy != null && relays != null) RELAYS = Relays.inside(relays, Config.get(Relays.SPEC), host, port);   // its ways out and its way in, before anything asks
+        if (vouchedBy != null) return serveVouched(store, host, port, baseUrl, model, hour, vouchedBy, serviceAt, epoch);
         // a model server of this machine's own, installed by an earlier release: bring it up to this one (the embeddings server beside the model)
         try { String up = ModelServer.upgrade(System.out); if (up.startsWith("!")) System.out.println("  model server not upgraded: " + up.substring(1)); } catch (Exception ignored) { }
+        // LaBSE's and the embeddings server's containers stop when nothing used them for their idle time (round C2)
+        try { ModelsAwake.watchContainers(); } catch (RuntimeException ignored) { }
         // and one an earlier release saved with a stop command that stops nothing: put right, once
         try { String fixed = ModelServer.repairStop(); if (!fixed.isEmpty()) System.out.println(fixed.startsWith("!") ? "  model server not repaired: " + fixed.substring(1) : "  model server repaired: " + fixed + "."); } catch (Exception ignored) { }
         // the new version's table of models, read against this machine as it is today: said, never acted on
@@ -718,6 +765,13 @@ public final class LibrarianCli {
         return !verb.equals("service") || args.length > 2 && args[2].equals("install");
     }
 
+    /** Whether the command sets or unsets one of the account service's own settings ({@code settings set accounts on}). */
+    private static boolean accountsSetting(String[] args) {
+        if (args.length < 4 || !(args[2].equals("set") || args[2].equals("unset"))) return false;
+        Settings.Setting s = Settings.named(args[3]);
+        return s != null && s.key().startsWith(AccountService.SETTING);
+    }
+
     static int dispatch(String[] args, String baseUrl, String model) {
         if (args.length < 2) { System.err.print(USAGE); return 2; }
         String verb = args[1];
@@ -726,7 +780,13 @@ public final class LibrarianCli {
         // and the folder's verbs refuse; the library setting is an address then, so nothing below must open it as a folder
         try {
             if (verb.equals("connect")) return Remote.connect(args, System.out, System.err);
+            if (verb.equals("take")) return LibraryArchive.take(args, System.out, System.err);   // a library an account service packed, opened as one's own (0.8.0)
             if (Remote.connected()) return Remote.run(args, System.out, System.err);
+            // several accounts (0.8.0): the accounts command, and with the setting on, serve is the account service in place of one library's
+            // daemon. A library the service starts is told so by a flag (--vouched-by), never by the setting, and goes on below as a library.
+            if (verb.equals("accounts")) return AccountsCli.run(args, System.out, System.err);
+            if (verb.equals("node")) return AccountsCli.node(args, System.out, System.err);   // a node of an account service (0.8.0)
+            if (verb.equals("serve") && AccountService.on() && !Arrays.asList(args).contains("--vouched-by")) return AccountsCli.serve(args, baseUrl, System.out, System.err);
         } catch (IOException e) { System.err.println(e.getMessage()); return 1; }
         LibraryStore store = LibraryStore.open();
         if (verb.equals("setup")) {
@@ -748,7 +808,12 @@ public final class LibrarianCli {
         try {
             if (verb.equals("model")) return ModelServer.command(args, 2, System.out);   // the machine's model server: no library needed
             if (verb.equals("helpers")) return HelpersCli.run(args, 2);   // a machine that only serves the heavy helpers has no library of its own
-            if (needsLibrary(args) && !Files.isDirectory(store.root())) {
+            // several accounts (0.8.0): a machine set up only to serve accounts has no library of its own either, and its settings are set all
+            // the same, with no library made: every settings command while accounts are on, and the accounts settings themselves
+            if (verb.equals("settings") && !Files.isDirectory(store.root()) && (AccountService.on() || accountsSetting(args))) return AccountsCli.settings(args, System.out, System.err);
+            // and its model entries, which are settings too: what the service's start line says to run (the Gemini check, 2026-11-18); auto reads a library
+            boolean entriesOnly = verb.equals("models") && !Files.isDirectory(store.root()) && AccountService.on() && !(args.length > 2 && args[2].equalsIgnoreCase("auto"));
+            if (needsLibrary(args) && !entriesOnly && !Files.isDirectory(store.root())) {
                 // an MCP client starting `researchzosho mcp` on a machine with no library (npx @wyrdsekai/researchzosho-mcp,
                 // 2026-09-11) never sees a refusal on stdout: the library is made, and stderr says so
                 if (verb.equals("mcp")) {
@@ -762,8 +827,9 @@ public final class LibrarianCli {
             switch (verb) {
                 case "models" -> {
                     // the named models a run may use (add, remove, key, test, list), then which model to run on this card: measured, with the command that serves it
-                    if (args.length > 2 && Set.of("add", "set", "remove", "key", "test", "list", "auto").contains(args[2].toLowerCase())) return modelsCommand(store, args);
-                    int rc = modelsCommand(store, new String[]{args[0], args[1], "list"});
+                    LibraryStore of = entriesOnly ? null : store;
+                    if (args.length > 2 && Set.of("add", "set", "remove", "key", "test", "list", "auto").contains(args[2].toLowerCase())) return modelsCommand(of, args);
+                    int rc = modelsCommand(of, new String[]{args[0], args[1], "list"});
                     System.out.println();
                     System.out.print(Arrays.asList(args).contains("--all") ? Models.describeAll() : Models.describeThisMachine());
                     return rc;
@@ -2308,7 +2374,7 @@ public final class LibrarianCli {
         Researcher.Drive drive = Researcher.watchedChat(baseUrl, model);   // watched: when the model declines, the chat says so
         if (!Crews.driveAnswers(baseUrl)) { System.err.println("no model answers at " + baseUrl + " — the Librarian needs one to talk (researchzosho setup, or researchzosho model install)"); return 1; }
         // a quiet screen: the drive's request lines belong in a log, not between the person and the Librarian
-        try { ((ch.qos.logback.classic.Logger) LoggerFactory.getLogger("org.researchzosho")).setLevel(ch.qos.logback.classic.Level.WARN); } catch (Throwable ignored) { }
+        try { Logs.warnOnly("org.researchzosho"); } catch (Throwable ignored) { }
         Librarian lib = new Librarian(store, drive, Librarian.person(), session);
         ChatIo io = ChatIo.open(store);
         String name = store.identity().name();
@@ -2671,9 +2737,13 @@ public final class LibrarianCli {
                 + (m.path("cap_counts").asBoolean(true) ? "" : "; the cap counts nothing until " + name + " has prices (researchzosho models set " + name + " --prices " + ("openrouter.ai".equals(m.path("host").asText()) ? "list" : "in/out/cache") + ")");
     }
 
+    /** library_models, through a library or, on a machine that only serves accounts, with none. */
+    private interface ModelsCall { JsonNode models(JsonNode args) throws IOException; }
+
+    /** {@code researchzosho models …}; {@code store} null on a machine that only serves accounts, whose entries are its settings all the same (not auto, which reads a library). */
     static int modelsCommand(LibraryStore store, String[] args) throws IOException {
         String op = args.length > 2 ? args[2].strip().toLowerCase() : "list";
-        LibraryProtocol p = new LibraryProtocol(store);
+        ModelsCall p = store != null ? new LibraryProtocol(store)::models : a -> LibraryProtocol.modelEntries(a, new ObjectMapper().createObjectNode());
         ObjectNode a = new ObjectMapper().createObjectNode();
         a.putObject("patron").put("did", "person").put("name", "").put("runtime", "cli");
         try {

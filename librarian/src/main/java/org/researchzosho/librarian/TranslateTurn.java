@@ -16,6 +16,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import org.researchzosho.drive.Gated;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -423,7 +426,8 @@ final class TranslateTurn {
         ArrayNode m = M.createArrayNode();
         m.addObject().put("role", "system").put("content", system);
         m.addObject().put("role", "user").put("content", message);
-        return CompletableFuture.supplyAsync(() -> d.classify(m, 400)).get(READ_SECONDS, TimeUnit.SECONDS);
+        Callable<String> ask = Gated.carried(() -> d.classify(m, 400));   // under an account service: the call carries the chat turn's use
+        return CompletableFuture.supplyAsync(() -> { try { return ask.call(); } catch (Exception x) { throw new CompletionException(x); } }).get(READ_SECONDS, TimeUnit.SECONDS);
     }
 
     /** What the model's reading came to: the person's own words it copied out, or none; {@code failed} when it could not be asked or gave no answer. */

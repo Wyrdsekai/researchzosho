@@ -16,6 +16,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.researchzosho.Stopping;
 
 /**
@@ -61,14 +63,23 @@ public final class Judge {
     /** The call behind the judge: a request body in, the response body out (a test passes its own). */
     public interface Post { JsonNode send(ObjectNode body) throws Exception; }
 
+    /**
+     * The question asked the plain way, as the one-word questions are ({@link DriveClient#classify}): a few tokens, and once more with room
+     * when the model thought them away, all inside the limit that began at {@code began}. What the model said comes back as text.
+     */
+    public interface Plain { String ask(ArrayNode messages, long began) throws Exception; }
+
     private final Post post;
     private final String model;
     /** The drive this judge asks ({@link DriveClient#decisionKey}), so that a server that does not keep to a grammar is remembered; null in a test. */
     private final String driveKey;
+    /** The plain way on the same drive, for a server that refuses the typed request; null: none (a test, a caller of its own). */
+    private final Plain plain;
 
-    public Judge(DriveClient drive) { this(drive.model(), drive::postChat, drive.decisionKey()); }
+    public Judge(DriveClient drive) { this(drive.model(), drive::postChat, drive.decisionKey(), (m, began) -> drive.classify(m, 4, began)); }
     public Judge(String model, Post post) { this(model, post, null); }
-    public Judge(String model, Post post, String driveKey) { this.model = model; this.post = post; this.driveKey = driveKey; }
+    public Judge(String model, Post post, String driveKey) { this(model, post, driveKey, null); }
+    public Judge(String model, Post post, String driveKey, Plain plain) { this.model = model; this.post = post; this.driveKey = driveKey; this.plain = plain; }
 
     /**
      * The drives whose server does not keep to the answer's grammar, or refuses the typed request: remembered for as long as the program
@@ -126,15 +137,25 @@ public final class Judge {
         body.put("grammar", g.toString());
         body.put("logprobs", true); body.put("top_logprobs", 20);
         PROBLEM.set("");
+        PLAINLY.set(false);
+        long began = System.nanoTime();   // the typed question and the plain one share one limit
         Answer notRan = new Answer(labels.get(labels.size() - 1), Map.of(), 0.0);
-        if (!grammarWorks(driveKey)) { PROBLEM.set("the server does not keep to the answer's grammar, as an earlier question found"); return notRan; }
+        if (!grammarWorks(driveKey)) {
+            if (plain != null) return plainly(msgs, labels, options, yesNo, began);   // the server refuses the typed form, as an earlier question found
+            PROBLEM.set("the server does not keep to the answer's grammar, as an earlier question found"); return notRan;
+        }
         JsonNode resp;
         try { resp = post.send(body); }
         catch (Stopping.Requested stop) { throw stop; }   // a person stopped the run: the decision is not unanswered, the work ends
         catch (Exception e) {
             String said = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
             PROBLEM.set("the server answered: " + said);
-            if (refusesTheRequest(said) && driveKey != null) NO_GRAMMAR.add(driveKey);   // the server refuses the typed request itself: not asked it again
+            if (refusesTheForm(said)) {
+                // the server refuses the typed request itself, or cannot give its answer in that form (llama.cpp with gpt-oss-20b: HTTP 500
+                // "does not match the expected peg-native format", 372 of 372 times on 2026-11-19): not asked it again, and asked the plain way now
+                if (driveKey != null) NO_GRAMMAR.add(driveKey);
+                if (plain != null) return plainly(msgs, labels, options, yesNo, began);
+            }
             // no answer came at all: the question is unanswered, never answered no
             if (e instanceof IOException io && !(e instanceof JsonProcessingException)) return new Answer(notRan.choice(), Map.of(), 0.0, io);
             return notRan;
@@ -144,6 +165,7 @@ public final class Judge {
             boolean held = grammarHeld(resp, labels);
             PROBLEM.set(held ? "the model meant to say something else than the answers allowed" : "the server did not keep to the answer's grammar");
             if (!held && driveKey != null) NO_GRAMMAR.add(driveKey);   // a server that ignores the grammar: not asked the typed question again
+            if (!held && plain != null) return plainly(msgs, labels, options, yesNo, began);
         }
         return a;
     }
@@ -151,6 +173,69 @@ public final class Judge {
     /** Whether a refusal is the server's answer to the request's shape (400, 404, 405, 415, 422, 501), not a passing failure (a timeout, 429, 5xx). */
     static boolean refusesTheRequest(String said) {
         return said != null && said.matches("(?s)^HTTP (400|404|405|415|422|501)\\b.*");
+    }
+
+    /**
+     * Whether the server refuses the typed form: the request's shape ({@link #refusesTheRequest}), or a server error that says the answer
+     * could not be given in the form asked (a grammar, the model's own output format, token probabilities). A server that is down, busy or
+     * slow is none of these: its question is unanswered, and asked the same way next time.
+     */
+    static boolean refusesTheForm(String said) {
+        return refusesTheRequest(said) || said != null && said.matches("(?is).*\\bHTTP 5\\d\\d\\b.*\\b(grammar|does not match the expected|peg-native|logprobs?)\\b.*");
+    }
+
+    /** Whether the last question this thread asked was asked the plain way: a caller with a plain question of its own does not ask it again. */
+    private static final ThreadLocal<Boolean> PLAINLY = ThreadLocal.withInitial(() -> false);
+    public static boolean askedPlainly() { return PLAINLY.get(); }
+
+    /**
+     * The question asked the plain way, inside the limit that began at {@code began}: the answer is the word or the letter the model gave,
+     * its probability 1, the others 0. Nothing usable said: the question did not run, and {@link #lastProblem} says why.
+     */
+    private Answer plainly(ArrayNode msgs, List<String> labels, List<String> options, boolean yesNo, long began) {
+        PLAINLY.set(true);
+        Answer notRan = new Answer(labels.get(labels.size() - 1), Map.of(), 0.0);
+        ArrayNode asked = msgs.deepCopy();
+        JsonNode last = asked.path(asked.size() - 1);
+        String more = yesNo ? " Answer with one word: yes or no." : "";
+        if (last.path("content").isTextual()) ((ObjectNode) last).put("content", last.path("content").asText() + more);
+        else if (last.path("content").path(0).path("text").isTextual()) ((ObjectNode) last.path("content").path(0)).put("text", last.path("content").path(0).path("text").asText() + more);
+        String said;
+        DriveClient.forgetClassify();
+        try { said = String.valueOf(plain.ask(asked, began)).strip(); }
+        catch (Stopping.Requested stop) { throw stop; }
+        catch (Exception e) { PROBLEM.set("the server answered: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())); return e instanceof IOException io ? new Answer(notRan.choice(), Map.of(), 0.0, io) : notRan; }
+        String answer = plainAnswer(said, labels);
+        if (answer == null) {
+            IOException none = DriveClient.lastClassifyUnanswered();
+            String problem = DriveClient.lastClassifyProblem();
+            PROBLEM.set(!problem.isBlank() ? problem : said.isEmpty() ? "the server gave an empty answer" : "the model answered \"" + (said.length() > 60 ? said.substring(0, 60) + "…" : said) + "\" instead of " + (yesNo ? "yes or no" : "a letter"));
+            return none != null ? new Answer(notRan.choice(), Map.of(), 0.0, none) : notRan;
+        }
+        PROBLEM.set("");
+        Map<String, Double> probs = new LinkedHashMap<>();
+        String best = null;
+        for (int i = 0; i < labels.size(); i++) {
+            String option = yesNo ? labels.get(i) : options.get(i);
+            boolean it = labels.get(i).equals(answer);
+            probs.put(option, it ? 1.0 : 0.0);
+            if (it) best = option;
+        }
+        return new Answer(best, probs, 1.0);
+    }
+
+    /** The answer in what a model said the plain way: its first word when it is yes or no, or a letter of the options standing alone. */
+    private static final Pattern FIRST_WORD = Pattern.compile("[^\\p{L}]*(\\p{L}+)");
+    static String plainAnswer(String said, List<String> labels) {
+        if (said == null) return null;
+        String s = said.strip();
+        Matcher w = FIRST_WORD.matcher(s);   // as the one-word questions read it: the first word, whatever marks come before it
+        if (!w.find()) return null;
+        String word = w.group(1);
+        if (labels.equals(List.of("yes", "no"))) { word = word.toLowerCase(Locale.ROOT); return labels.contains(word) ? word : null; }
+        if (word.equalsIgnoreCase("option") && w.find()) word = w.group(1);
+        word = word.toUpperCase(Locale.ROOT);
+        return word.length() == 1 && labels.contains(word) ? word : null;
     }
 
     /** Whether the token the server generated is one of the allowed answers: a server that ignores the grammar generates another. */

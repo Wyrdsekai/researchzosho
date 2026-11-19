@@ -96,6 +96,15 @@ public final class ModelSlots {
         return plan(0, "the model server did not answer; the usual numbers until it does");
     }
 
+    /** How many calls at once the server says it answers, in llama.cpp's own word (its props page, also through llama-swap); null when it does not say. */
+    public static Integer saidSlots(String drive, String model) {
+        if (drive == null || drive.isBlank()) return null;
+        String base = drive.strip().replaceAll("/+$", "");
+        Integer slots = totalSlots(base + "/props");
+        if (slots == null && model != null && !model.isBlank()) slots = totalSlots(base + "/upstream/" + URLEncoder.encode(model, StandardCharsets.UTF_8).replace("+", "%20") + "/props");
+        return slots;
+    }
+
     private static Integer totalSlots(String url) {
         try {
             HttpResponse<String> r = HTTP.send(request(url), HttpResponse.BodyHandlers.ofString());

@@ -80,7 +80,7 @@ public final class Repos {
         int i = Math.max(s.lastIndexOf('/'), Math.max(s.lastIndexOf('\\'), s.lastIndexOf(':')));
         String n = i < 0 ? s : s.substring(i + 1);
         n = n.replaceAll("[^A-Za-z0-9._-]+", "-").replaceAll("^-+|-+$", "");
-        return n.isEmpty() ? "repo" : n;
+        return n.isEmpty() || n.matches("\\.+") ? "repo" : n;   // dots alone name no folder of their own: an address ending in "/." or "/.." would be the folder above
     }
 
     /** Whether git answers on this machine. */
@@ -98,6 +98,9 @@ public final class Repos {
      * that list): the clone is checked against both lists, as a fetch is.
      */
     public static Repo obtain(LibraryStore store, String spec) throws IOException {
+        // the second wall: the protocol's gate (LibraryProtocol.survey) comes first and refuses this for everyone who comes through it; this
+        // one is for a caller that does not. A folder on the machine, or git run with a person's address: neither in a library under an account service
+        if (Hosted.any()) throw new IOException(Hosted.MACHINE);
         String s = spec.strip();
         if (!isUrl(s)) {
             Path dir = Path.of(s).toAbsolutePath().normalize();

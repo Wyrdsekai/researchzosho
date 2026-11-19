@@ -16,6 +16,8 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.Set;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -294,28 +296,55 @@ public final class Uploads {
         return -1;
     }
 
-    /** The folder this server made for the upload a path lies in, at any depth: named for an upload, directly under the system's temp folder. Null when the path is not inside one. */
+    /**
+     * The folders this server made for uploads, while they stand. The server knows its own: a folder is an upload's because it is on
+     * this list, never because of what it is called or where it lies, so a folder somebody else made under the temporary folder with
+     * the same kind of name is not one.
+     */
+    private static final Set<Path> OWN = ConcurrentHashMap.newKeySet();
+
+    /** A new folder for one post's files, under the system's temp folder, known to this server as its own until it is dropped. */
+    public static Path newFolder() throws IOException {
+        Path dir = Files.createTempDirectory(DIR).toAbsolutePath().normalize();
+        OWN.add(dir);
+        return dir;
+    }
+
+    /**
+     * A post read into a new folder of this server's own, as {@link #multipart(InputStream, String, Path, long, String)} reads it. The
+     * folder stands only while the form holds a file in it: a post that brought no file, or one that was refused, leaves no folder and
+     * no entry on the list behind.
+     */
+    public static Map<String, String> posted(InputStream in, String contentType, long limit, String over) throws IOException {
+        Path dir = newFolder();
+        boolean holds = false;
+        try {
+            Map<String, String> m = multipart(in, contentType, dir, limit, over);
+            for (String k : m.keySet()) if (k.endsWith(".path")) holds = true;
+            return m;
+        } finally { if (!holds) { remove(dir); OWN.remove(dir); } }
+    }
+
+    /** How many upload folders this server knows as its own now. */
+    static int known() { return OWN.size(); }
+
+    /** The folder this server made for the upload a path lies in, at any depth; null when the path is not inside one. */
     static Path uploadDirOf(Path file) {
         if (file == null) return null;
-        Path tmp = Path.of(System.getProperty("java.io.tmpdir")).toAbsolutePath().normalize();
-        for (Path p = file.toAbsolutePath().normalize().getParent(); p != null; p = p.getParent()) {
-            if (p.getFileName() != null && p.getFileName().toString().startsWith(DIR) && tmp.equals(p.getParent())) return p;
-        }
+        for (Path p = file.toAbsolutePath().normalize().getParent(); p != null; p = p.getParent()) if (OWN.contains(p)) return p;
         return null;
     }
 
-    /** True for a file or a folder this server wrote from a browser's upload: inside a folder of its own, named for an upload, directly under the system's temp folder; nothing else on the machine qualifies. */
+    /** True for a file or a folder this server wrote from a browser's upload: inside a folder it made for one; nothing else on the machine qualifies. */
     public static boolean isUpload(Path file) { return uploadDirOf(file) != null; }
 
-    /** Removes the folders the uploads were written to, once the page has read the files; only a folder this server made for an upload, and everything under it. */
+    /** Removes the folders the uploads were written to, once the page has read the files: only a folder this server made for an upload, and everything under it. A path a form names anywhere else is left alone. */
     public static void drop(Map<String, String> form) {
         for (var e : form.entrySet()) {
             if (!e.getKey().endsWith(".path")) continue;
             try {
-                Path dir = Path.of(e.getValue()).getParent();
-                Path up = dir;
-                while (up != null && (up.getFileName() == null || !up.getFileName().toString().startsWith(DIR))) up = up.getParent();
-                if (up != null) remove(up);
+                Path up = uploadDirOf(Path.of(e.getValue()));
+                if (up != null) { remove(up); OWN.remove(up); }
             } catch (RuntimeException ignored) { /* a leftover temp folder costs nothing */ }
         }
     }

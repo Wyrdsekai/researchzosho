@@ -1,11 +1,11 @@
 package org.researchzosho;
 
 import org.researchzosho.librarian.LibrarianCli;
+import org.researchzosho.librarian.Logs;
 import org.researchzosho.librarian.Webhooks;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import org.slf4j.LoggerFactory;
 /**
  * ResearchZosho — 研究蔵書, the research holdings. "The Research Harness For The Rest Of Us."
  * The Librarian is its voice. This is the {@code researchzosho} command ({@code zosho} for
@@ -25,10 +25,7 @@ public final class Main {
     /** On a person's terminal the search steerer's notes are noise; in the service's log they are the audit trail. */
     static void quietForTerminal(String verb) {
         if ("serve".equals(verb) || "mcp".equals(verb)) return;
-        try {
-            var l = LoggerFactory.getLogger("org.researchzosho.tools.SearchSteer");
-            if (l instanceof ch.qos.logback.classic.Logger lb) lb.setLevel(ch.qos.logback.classic.Level.WARN);
-        } catch (Throwable ignored) { }
+        try { Logs.warnOnly("org.researchzosho.tools.SearchSteer"); } catch (Throwable ignored) { }
     }
 
     public static void main(String[] args) {

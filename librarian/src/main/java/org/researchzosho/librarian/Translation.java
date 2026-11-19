@@ -8,6 +8,7 @@ import org.researchzosho.Config;
 import org.researchzosho.drive.DeclineJudge;
 import org.researchzosho.drive.Declined;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Gated;
 import org.researchzosho.Stopping;
 import org.researchzosho.librarian.DocUnits.Chapter;
 import org.researchzosho.librarian.DocUnits.Doc;
@@ -34,6 +35,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -1414,7 +1416,8 @@ public final class Translation {
      */
     static List<Double> scoredUnlessStopped(Scorers sc, Scorer s, List<String[]> pairs, BooleanSupplier stop) throws IOException {
         CompletableFuture<List<Double>> f = new CompletableFuture<>();
-        Thread t = new Thread(() -> { try { f.complete(s.score(pairs)); } catch (Throwable e) { f.completeExceptionally(e); } }, "translation-scoring");
+        Callable<List<Double>> scoring = Gated.carried(() -> s.score(pairs));   // under an account service, the helper's calls carry the translation's use
+        Thread t = new Thread(() -> { try { f.complete(scoring.call()); } catch (Throwable e) { f.completeExceptionally(e); } }, "translation-scoring");
         t.setDaemon(true);
         t.start();
         while (true) {

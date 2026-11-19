@@ -27,6 +27,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.core.JacksonException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ import org.slf4j.LoggerFactory;
 import org.researchzosho.Stopping;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.drive.Gated;
 import org.researchzosho.mcp.McpServer;
 import org.researchzosho.drive.Declined;
 import java.time.Duration;
@@ -165,6 +167,34 @@ public final class LibrarianDaemon {
         }
     }
 
+    /** How often a hosted library asks the service whether its running jobs' uses have reached their caps. */
+    static volatile long CAP_WATCH_MS = Long.getLong("researchzosho.accounts.cap_watch_ms", 5_000);
+
+    /**
+     * Under an account service: every few seconds, each running job's use is asked about at the service; one that has reached its cap
+     * (its own ceiling, or its account's month) is stopped after the call it is making, its work kept to resume ({@link Jobs#capped}).
+     * The gate's hard ceiling, a tenth above, stops a call that would go further meanwhile.
+     */
+    private void watchCaps() {
+        Thread t = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try { Thread.sleep(CAP_WATCH_MS); } catch (InterruptedException e) { return; }
+                for (String id : jobs.running()) {
+                    try {
+                        ObjectNode j = jobs.get(id);
+                        String use = j == null ? "" : j.path("use").asText("");
+                        if (use.isEmpty() || jobs.isCapped(id)) continue;
+                        long started = 0;   // a job's minutes count from when it started running, not from when it was filed (round F, money 10)
+                        try { if (j.hasNonNull("started_at")) started = Instant.parse(j.get("started_at").asText()).toEpochMilli(); } catch (RuntimeException unread) { started = 0; }
+                        String said = ServiceUses.over(use, started);
+                        if (said != null) jobs.capped(use, said);
+                    } catch (Exception ignored) { /* asked again at the next round */ }
+                }
+            }
+        }, "cap-watch");
+        t.setDaemon(true); t.start();
+    }
+
     private void watchStalls() {
         Thread t = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
@@ -198,7 +228,7 @@ public final class LibrarianDaemon {
         JOB_MODEL.set(entry == null ? model() : entry.model());
         JOB_ENTRY.set(entry == null ? ModelEntries.defaultEntry() : entry);
         // the job's model calls outside its run's own count (the steps around it, a job with no run) go on the ledger, for what the job is for
-        try (SpendPurse paid = SpendPurse.open(store, SpendPurse.purposeOfJob(job.path("kind").asText()), job.path("job_id").asText(job.path("id").asText("")))) {
+        try (SpendPurse paid = SpendPurse.open(store, SpendPurse.purposeOfJob(job.path("kind").asText()), job.path("job_id").asText(job.path("id").asText("")), job.path("use").asText(""), Gated.BACKGROUND)) {
             return dispatchNow(job, entry == null ? drive : entry.drive());
         }
         finally { JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove(); }
@@ -405,6 +435,7 @@ public final class LibrarianDaemon {
         researcher.entry(JOB_ENTRY.get() == null ? ModelEntries.defaultEntry() : JOB_ENTRY.get());   // the run's model, for its report and its cost
         researcher.why(JOB_WHY.get());
         researcher.paid(a.path("paid").asBoolean(true));   // the paid search places left off for this run when the ask said so
+        if (a.path("from_chat").asBoolean(false)) researcher.personWords(a.path("person_words").asText(""));   // the model wrote the question: only the person's words give addresses
         if (a.hasNonNull("title")) researcher.title(a.get("title").asText());
         researcher.options(ReportOptions.forRun(a));   // the ask's length, citations and shape, and the library's defaults for the rest
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
@@ -580,20 +611,38 @@ public final class LibrarianDaemon {
      * nowhere else, since on the main port any program on the machine could write them (docs/AFTER_0_6.md §5).
      */
     public static LibrarianDaemon start(LibraryStore store, String host, int port, String driveUrl, String model, int crewHour, int doorPort) throws IOException {
-        Lease lease = Lease.acquire(store);   // one daemon per library; refused with the holder's pid otherwise
+        return start(store, host, port, driveUrl, model, crewHour, doorPort, null);
+    }
+
+    /**
+     * The same for a library that runs under an account service (0.8.0), when {@code vouching} names the service: every request but
+     * {@code /healthz} is then answered by the statement the service signed for it and by nothing else ({@link Vouching}), the library's
+     * own sign-in is never asked, the shared door stays shut, and the calls and settings that act on the machine are closed
+     * ({@link Hosted}). Null: the library as it always was.
+     */
+    public static LibrarianDaemon start(LibraryStore store, String host, int port, String driveUrl, String model, int crewHour, int doorPort, Vouching vouching) throws IOException {
+        return start(store, host, port, driveUrl, model, crewHour, doorPort, vouching, 0);
+    }
+
+    /** The same as one start of a library under an account service, the registry's {@code epoch}: an earlier start of it gives its folder's lease to this one at once. */
+    public static LibrarianDaemon start(LibraryStore store, String host, int port, String driveUrl, String model, int crewHour, int doorPort, Vouching vouching, long epoch) throws IOException {
+        if (vouching != null && doorPort >= 0) throw new IOException("A library under an account service has no shared door: it is reached through the service alone.");
+        Lease lease = vouching != null && epoch > 0 ? Lease.acquire(store, epoch, vouching.service) : Lease.acquire(store);   // one daemon per library; refused with the holder's pid otherwise
         HttpServer s;
         try { s = HttpServer.create(new InetSocketAddress(host, port), 0); } catch (IOException e) { lease.close(); throw e; }
         // The Librarian's endpoint serves THE LIBRARY: a patron must not reach `fix` or `secure` through it
         // (seen 2026-09-03 — a Claude Code session registered against /rpc listed every codezaiku tool).
-        McpServer.setToolFilter(n -> n.startsWith("library_"));
+        McpServer.setToolFilter(vouching == null ? n -> n.startsWith("library_") : n -> n.startsWith("library_") && (!Hosted.any() || Hosted.offered(n)));   // a hosted library's list leaves the machine's tools out, while one runs in this process
         McpServer.trustProven(true);   // over /rpc the patron is the one this daemon proved by a key or a session, the keeper included
         LibrarianDaemon d = new LibrarianDaemon(store, s, driveUrl, model);
         d.lease = lease;
+        if (vouching != null) { d.vouching = vouching; Gated.CONTEXT = ServiceUses::context; Gated.CAPTURE = ServiceUses::capture; Gated.UNMARKED = ServiceUses::unmarked; Gated.WEB = ServiceUses::webUse; NodeGates.placesThrough(Config.get(NodeGates.SEARCH_GATE)); Hosted.begin(store); Config.writable(Hosted::ownSetting); ServiceAccess.service = vouching.at; ServiceUses.keepEndsIn(store.root().resolve("catalog")); }   // the ends of uses it kept before it stopped are told again   // from here this process changes only the library's own settings
         lease.whenTaken(d::anotherHolds);   // another process holds the library now: this one stops working on it, and ends
         SpendPurse.outsideWork(store);   // a model call answered at once, outside a chat turn or a job, goes on this library's ledger as other work
         d.loopbackOnly = LocalName.loopbackOnly(s.getAddress());   // listening on the loopback only: it answers only to the loopback's names
         d.followVault();
         d.watchStalls();
+        if (vouching != null) { Gated.CAPPED = d.jobs::capped; Checkpoint.CAPPED = d.jobs::isCapped; d.watchCaps(); }   // a cap stops a run after its call, kept to resume (stage 3)
         Runtime.getRuntime().addShutdownHook(new Thread(lease::close, "serve-lease-release"));   // systemd stops us with SIGTERM
         // the jobs it leaves running say why when they resume: an update, or a restart
         d.stopping = new Thread(() -> { String to = Updater.restartingTo(); d.jobs.stopping(to == null ? Jobs.RESTART : Jobs.UPDATE, to); }, "serve-stopping");
@@ -667,7 +716,7 @@ public final class LibrarianDaemon {
     /** Released when the daemon has stopped, by {@link #stop()} or because another process holds the library. */
     private final CountDownLatch ended = new CountDownLatch(1);
 
-    private void stopNow() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); SpendPurse.outsideWorkEnds(store); if (lease != null) lease.close(); }
+    private void stopNow() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); if (held != null) { DriveClient.GATE = null; NotHolder.unfence(store.root()); } server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); SpendPurse.outsideWorkEnds(store); if (vouching != null) { Hosted.end(store); if (!Hosted.any()) Config.writable(null); } if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
         return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
@@ -710,16 +759,30 @@ public final class LibrarianDaemon {
      * {@link #GIVE_UP_WAIT_MS}, it stops, and the serve command ends with {@link #gaveUpLine()} and a code that is not zero.
      */
     void anotherHolds(Lease.Holder h) {
+        giveUp("This process does not hold the library's lease: pid " + h.pid() + " on " + h.host() + " holds it (until " + h.expires() + ").",
+                "Stopped: another process holds this library's lease (pid " + h.pid() + " on " + h.host() + ", until " + h.expires() + "), and the jobs this one was running resume there or at the next start.");
+    }
+
+    /**
+     * A library under an account service has lost the lease the service's registry keeps (0.8.0): its node has not said "still yours"
+     * for the length of a lease, or a statement of a later start reached it. It does what a library does when another process holds
+     * its folder: no new job, the running ones left for the next start, every write refused, and it ends. It never takes the lease back.
+     */
+    void lostToService(String why) {
+        giveUp("This start of the library no longer holds it: " + why + ".", "Stopped: " + why + ". The jobs this start was running resume at the library's next start.");
+    }
+
+    private void giveUp(String why, String endLine) {
         synchronized (this) {
             if (notHolder != null) return;
-            notHolder = "This process does not hold the library's lease: pid " + h.pid() + " on " + h.host() + " holds it (until " + h.expires() + ").";
+            notHolder = why;
         }
         NotHolder.giveUp(store.root(), notHolder);
         jobs.giveUp(notHolder);
         log.warn("{} It takes no new job, stops its running ones for that process or the next start to resume, refuses every write and ends.", notHolder);
         if (crews != null) crews.interrupt();
         if (stallWatch != null) stallWatch.interrupt();
-        gaveUpLine = "Stopped: another process holds this library's lease (pid " + h.pid() + " on " + h.host() + ", until " + h.expires() + "), and the jobs this one was running resume there or at the next start.";
+        gaveUpLine = endLine;
         Thread t = new Thread(() -> {
             long now = System.currentTimeMillis(), until = now + GIVE_UP_WAIT_MS, earliest = now + GIVE_UP_LEAST_MS;
             while ((!jobs.running().isEmpty() && System.currentTimeMillis() < until) || System.currentTimeMillis() < earliest) { try { Thread.sleep(50); } catch (InterruptedException e) { break; } }
@@ -789,6 +852,119 @@ public final class LibrarianDaemon {
         // on the loopback only, a request under another name came from a page elsewhere that pointed its own name here (LocalName)
         if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !Proxy.proxied(x) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
         if ("/healthz".equals(path)) { health(x, method); return; }   // a proxy's or a platform's check: no sign-in, no body
+        if (vouching != null) {   // a library under an account service: the statement the service signed for this request, or nothing
+            if (path.startsWith(Held.INTERNAL)) {   // the service's own calls: what they start (the night) is asked for under the service's statement
+                Vouching.CURRENT.set(x.getRequestHeaders().getFirst(Statement.HEADER));
+                try { internal(x, path, method); } finally { Vouching.CURRENT.remove(); }
+                return;
+            }
+            if (!vouched(x, path)) return;
+            Held h = Held.quiet(path) ? null : held;   // what a page asks by itself is not use: it keeps no library awake
+            if (h != null) { h.open.incrementAndGet(); h.used(); }
+            Vouching.CURRENT.set(x.getRequestHeaders().getFirst(Statement.HEADER));
+            ServiceUses.RequestUse asked = new ServiceUses.RequestUse(store);   // a call that costs outside any run is this request's use (stage 3)
+            ServiceUses.REQUEST.set(asked);
+            try { served(x, path, method); } finally { ServiceUses.REQUEST.remove(); asked.end(); Vouching.CURRENT.remove(); if (h != null) { h.open.decrementAndGet(); h.used(); } }
+            return;
+        }
+        served(x, path, method);
+    }
+
+    /** The service this library runs under; null for a library on its own. */
+    private Vouching vouching;
+    /** Request attribute: who the request's statement says it is. */
+    static final String VOUCHED = "rz.vouched";
+    /** The library's own sign-in pages, which a hosted library does not have: the account service answers at these addresses. */
+    private static final Set<String> OWN_SIGN_IN = Set.of("/login", "/login/code", "/login/oidc", "/login/oidc/callback", "/login/passkey", "/login/passkey/options", "/logout", "/join", "/account", "/account/passkey", "/account/passkey/options");
+
+    /** Whether the request carries a statement that checks; when not, it is answered 403 with the sentence and nothing of it is read. */
+    /** This start's side of the lease the account service keeps; null for a library started with no epoch (a test's, in its own process). */
+    private volatile Held held;
+
+    /**
+     * The library is this start of it, the registry's {@code epoch}: statements of another start are not answered, and a watch ends
+     * the library when its node has been silent for the length of a lease.
+     */
+    void heldAs(long epoch) {
+        Held h = new Held(epoch);
+        held = h;
+        // from the moment the service has been silent for a lease, this start asks no model and writes nothing more, whatever thread
+        // tries first: a process frozen and let go must not race another start of the library before its watch has looked
+        String lost = "This start of the library no longer holds it: the account service has not said for a lease's time that it does.";
+        DriveClient.GATE = () -> h.silent() ? lost : null;
+        NotHolder.fence(store.root(), () -> h.silent() ? lost : null);
+        Thread t = new Thread(() -> {
+            while (!stopped.get() && notHolder == null) {
+                try { Thread.sleep(Math.max(50, Held.LEASE_MS / 20)); } catch (InterruptedException e) { return; }
+                if (h.silent()) { lostToService("the account service has not said for " + Held.LEASE_MS / 1000 + " seconds that the library is still this start's"); return; }
+            }
+        }, "library-held");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** The statement's epoch against this start's: a later start has the library now, and an earlier one's statement is not answered. */
+    private void sameStart(Statement.Claims c) throws IOException {
+        Held h = held;
+        if (h == null || c.epo() == h.epoch) return;
+        if (c.epo() > h.epoch) {
+            lostToService("the account service has started this library again (start " + c.epo() + "; this is start " + h.epoch + ")");
+            throw new IOException("This start of the library has been replaced by a later one. Ask again.");
+        }
+        throw new IOException("The statement was made for an earlier start of this library.");
+    }
+
+    /**
+     * The account service's own calls, under its own statement: "still yours", answered with what the library is doing, and the
+     * night's tasks, which the service starts for a hosted library at the library's minute.
+     */
+    private void internal(HttpExchange x, String path, String method) throws IOException {
+        try {
+            Statement.Claims c = vouching.claims(x, store);
+            if (!c.via().equals(Statement.SERVICE)) throw new IOException("This call is the account service's own.");
+            sameStart(c);
+            byte[] said = x.getRequestBody().readAllBytes();
+            if (!"POST".equals(method)) { reply(x, 405, error("invalid_args", "POST")); return; }
+            if (path.equals(Held.STILL_YOURS)) {
+                // the service's word on who may open this library now: anyone it no longer names is forgotten here, their webhook with them (S15)
+                if (said.length > 0) { JsonNode p = M.readTree(said); if (p.path("members").isObject()) Hosted.keepOnly(store, p.path("members")); }
+                Held h = held;
+                if (h != null) h.heard();
+                Jobs.Line line = jobs.line();
+                ObjectNode o = M.createObjectNode();
+                o.put("epoch", h == null ? 0 : h.epoch); o.put("version", Version.string());
+                o.put("open", h == null ? 0 : h.open.get()); o.put("idle_ms", h == null ? 0 : h.idleMs());
+                o.put("jobs_running", line.running()); o.put("jobs_waiting", line.waiting()); o.put("jobs_held", line.held()); o.put("night", line.night()); o.put("jobs_ended", jobs.ended());
+                o.put("chat_live", Pages.turnInProgress());
+                o.put("due_at", line.held() > 0 ? ResearchSettings.nextOpen() : 0);
+                reply(x, 200, o);
+            } else if (path.equals(Held.NIGHT)) {
+                if (notHolder != null) { reply(x, 503, error("unavailable", notHolder)); return; }
+                Jobs.Line line = jobs.line();
+                String id = line.night() ? "" : jobs.submit("crews", "", M.createObjectNode());   // one night at a time: a second word while one runs starts nothing
+                reply(x, 200, M.createObjectNode().put("job_id", id).put("state", line.night() ? "running" : "queued"));
+            } else reply(x, 404, error("not_found", "No such call."));
+        } catch (IOException | RuntimeException e) {
+            try { x.getRequestBody().close(); } catch (IOException ignored) { }
+            reply(x, 403, error("forbidden", e.getMessage() == null ? "The statement cannot be read." : e.getMessage()));
+        }
+    }
+
+    private boolean vouched(HttpExchange x, String path) throws IOException {
+        try {
+            Statement.Claims c = vouching.claims(x, store);
+            x.setAttribute(VOUCHED, vouching.patron(store, c));
+            sameStart(c);
+            if (OWN_SIGN_IN.contains(path)) { reply(x, 404, error("not_found", "Signing in and accounts are at the account service this library runs under (" + vouching.service + ").")); return false; }
+            return true;
+        } catch (IOException | RuntimeException e) {
+            x.getRequestBody().close();
+            reply(x, 403, error("forbidden", e.getMessage() == null ? "The statement cannot be read." : e.getMessage()));
+            return false;
+        }
+    }
+
+    private void served(HttpExchange x, String path, String method) throws IOException {
         boolean reads = "GET".equals(method) || "HEAD".equals(method);
         if (!reads && notHolder == null && lease != null) { try { lease.check(); } catch (IOException ignored) { } }   // a request that may write: is the library still this process's?
         if (!reads && notHolder != null && Pages.isPage(path)) { refuse(x, notHolder); return; }   // a form writes: refused; the pages themselves are still read
@@ -813,7 +989,7 @@ public final class LibrarianDaemon {
                     String over = translate ? Uploads.translateOverSaid() : "The file is larger than the page takes, 64 MB. Add it at the command line on this machine instead.";
                     try {
                         if (Uploads.declared(x.getRequestHeaders().getFirst("Content-Length")) > limit) { Uploads.drain(x.getRequestBody()); throw ProtocolError.invalidArgs(over); }   // said by the post itself: refused before a byte is kept
-                        form = Uploads.multipart(x.getRequestBody(), contentType, Files.createTempDirectory(Uploads.DIR), limit, over);
+                        form = Uploads.posted(x.getRequestBody(), contentType, limit, over);
                     } catch (ProtocolError e) {
                         if (!translate) throw e;   // every other page answers as it did
                         form = new LinkedHashMap<>(); refused = e.getMessage();   // the Translate page says it above its form, as it says its other refusals
@@ -918,6 +1094,7 @@ public final class LibrarianDaemon {
                 out = p.status(body);
             } else if (path.startsWith("/v1/") && "POST".equals(method)) {
                 String name = path.substring(4);
+                Hosted.call(store, name);   // a call of the machine's, in a library under an account service: refused whole
                 Route route = V1.get(name);
                 if (route == null) throw ProtocolError.notFound("route " + path);
                 out = route.apply(p, body);
@@ -929,6 +1106,7 @@ public final class LibrarianDaemon {
         } catch (ProtocolError e) {
             ObjectNode body = error(e.code, e.getMessage());
             if (e.extra != null) ((ObjectNode) body.get("error")).setAll(e.extra.deepCopy());   // a confirm's helplines, beside the message
+            if (e.code.equals(ProtocolError.RATE_LIMITED) && e.extra != null) x.getResponseHeaders().set("Retry-After", e.extra.path("retry_after").asText("60"));   // the account service's limit, as its own answers say it
             reply(x, status(e.code), body);
         } catch (NotHolder.Refused e) {
             reply(x, 503, error("unavailable", e.getMessage()));   // a write into a library another process holds now
@@ -957,11 +1135,11 @@ public final class LibrarianDaemon {
         if (entry != null && entry.name().equals(ModelEntries.DEFAULT)) entry = null;
         if (!named.isEmpty() && !named.equalsIgnoreCase(ModelEntries.DEFAULT) && !named.equalsIgnoreCase(Auto.NAME) && entry == null) throw ProtocolError.invalidArgs("No model is named " + named + ". The names are: " + String.join(", ", ModelEntries.names()) + " (researchzosho models adds one).");
         if (entry != null) {
-            if (Crews.driveState(entry.drive(), entry.model(), Duration.ofSeconds(20)) != Crews.DriveState.ANSWERS) throw ProtocolError.unavailable("No model answers at " + entry.drive() + " for " + entry.name() + " (" + entry.model() + ")." + (entry.hosted() && DriveClient.hostKey(entry.host()) == null ? " No key is kept for " + entry.host() + ": researchzosho models key " + entry.host() + " <key>." : " Research needs one."));
+            if (Crews.driveState(entry.drive(), entry.model(), Duration.ofSeconds(20)) != Crews.DriveState.ANSWERS) throw ProtocolError.unavailable(Hosted.on(store) ? Pages.t(Hosted.NO_MODEL) + " " + Pages.t("Research needs it.") : "No model answers at " + entry.drive() + " for " + entry.name() + " (" + entry.model() + ")." + (entry.hosted() && DriveClient.hostKey(entry.host()) == null ? " No key is kept for " + entry.host() + ": researchzosho models key " + entry.host() + " <key>." : " Research needs one."));
         } else {
             boolean any = false;
             for (String d : jobs.drives()) if (Crews.driveAnswers(d.isEmpty() ? driveNow() : d)) { any = true; break; }
-            if (!any) throw ProtocolError.unavailable("No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
+            if (!any) throw ProtocolError.unavailable(Hosted.on(store) ? Pages.t(Hosted.NO_MODEL) + " " + Pages.t("Research needs it.") : "No model is answering (" + String.join(", ", jobs.drives()) + "). Research needs one.");
         }
         ObjectNode r = new LibraryProtocol(store).research(body, way);
         jobs.pickUp();
@@ -988,6 +1166,8 @@ public final class LibrarianDaemon {
                 return;
             }
             o.put("ok", true); o.put("library_id", id.id()); o.put("library_name", id.name());
+            Held h = held;
+            if (h != null) o.put("epoch", h.epoch);   // which start of the library answers: the account service takes back only the one it started
             reply(x, 200, o);
         } catch (IOException | RuntimeException e) {
             o.put("ok", false); o.put("why", "The library could not be read: " + e.getMessage());
@@ -998,6 +1178,7 @@ public final class LibrarianDaemon {
     // ---- identity ----
 
     private Patrons.Patron patron(HttpExchange x, ObjectNode body) throws IOException {
+        if (vouching != null) return (Patrons.Patron) x.getAttribute(VOUCHED);   // a hosted library: the statement was read before anything else, and nothing else says who this is
         String auth = x.getRequestHeaders().getFirst("Authorization");
         if (auth == null) { String c = Pages.cookie(x, Pages.COOKIE); if (c != null && !c.isBlank()) auth = "Bearer " + c; }   // a browser signed in on /login
         JsonNode claimed = body.get("patron");
@@ -1082,7 +1263,7 @@ public final class LibrarianDaemon {
             case "forbidden" -> 403;
             case "no_sources", "declined", "confirm" -> 422;   // declined: the model's answer, which a retry would only ask for again; confirm: the person's yes, which a retry does not give
             case "invalid_args" -> 400;
-            case "budget_exceeded" -> 429;
+            case "budget_exceeded", ProtocolError.RATE_LIMITED -> 429;
             default -> 503;
         };
     }
@@ -1117,7 +1298,7 @@ public final class LibrarianDaemon {
     }
 
     private static void reply(HttpExchange x, int status, JsonNode body) throws IOException {
-        byte[] bytes = M.writeValueAsBytes(body);
+        byte[] bytes = Hosted.any() ? Hosted.shown(M.writeValueAsString(body)).getBytes(StandardCharsets.UTF_8) : M.writeValueAsBytes(body);   // a hosted library shows its people no path of the service's machine
         x.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         x.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }

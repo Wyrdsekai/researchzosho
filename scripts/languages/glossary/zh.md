@@ -180,3 +180,37 @@ Latin or kana name.
 - Dossier sections: 基本情况, 解读 (Reading), 所做的事, 检索范围, 时间线, 决定, 原话, 影像 (Media: 媒体 reads as "the press"), 各方面 (Facets), 生活规律 (Pattern of life), 关系, 告知 (Told), 分析, 未找到, 矛盾, 检查, 关联, 共有, 更新, 尚未提供.
 - The badges of a claim's source: 公开记录 / 自己发布 / 告知 / 提供 / 第三方 / 原作.
 - watch (a dossier) = 跟踪; the plan's clauses are joined as `{0}。{1}`; a service with its description is written "Exa（…）".
+
+## Fourth round (the account service's pages, 0.8.0)
+
+| English | zh |
+|---|---|
+| account service (several accounts, each with a library, on one ResearchZosho) | 账户服务; "runs under an account service" = 在账户服务下运行 |
+| whoever runs this service (the operator, not a library's keeper) | 这项服务的运营者 / 服务的运营者 (never 管理人, which is the keeper) |
+| join link | 邀请链接 |
+| let someone in / is let in (the keeper's act on the account page) | 让…进入 / 允许进入 (button) / 获准进入; "{0} is let into {1}" = {0} 现在可以进入“{1}”了 |
+| the people of a library | 成员 (“{0}”的成员) |
+| You keep it / You read it and write to it / You read it | 你是管理人。/ 你可以阅读和写入。/ 你可以阅读。 |
+| What they may do + read / read and write (label and its choices) | 对方的权限 + 只读 / 可读写; the other person in a sentence is 对方 |
+| make a key / an agent (a program) | 生成密钥 / 智能体 |
+| closed (an account) | 已关闭 |
+| the service it runs under / the model does not answer | 它所在的服务 (“它所在服务的模型”) / 模型没有回应 |
+| has to look into it (the operator, when the service's model does not answer) / Research needs it. / This needs it. | 需要由服务的运营者来排查。 / 调查需要这个模型。 / 这项请求需要这个模型。 |
+| a library's copy / brought back from its copy / being moved / no longer served here / another process holds its folder | 副本 / 从副本恢复 / 正在迁移 / 这里已不再提供 / 另一个进程占用着它的文件夹; a moment the pages write ({0} = "今天 13:40") stands after 是 or 在…时 |
+| a machine of the service / the machine a library runs on / is kept on | 机器 / 运行图书馆“{0}”的机器 / 存放图书馆“{0}”的机器; "within {1} minutes" = {1}分钟内 |
+| an account's caps: the month's dollars / fetched pages / jobs at once; spending; a container | 本月的{0}额度 / 抓取的页面 / 同时进行的任务; 花费; 容器. Money ("$5.00") and the date of next month ("2026-12-01") stay as the program writes them: 下个月初（{1}） |
+| work the service let start (a run, a chat turn, a translation) / searches this month / the model is busy | 任务 (as for jobs) / 搜索次数（{0}次） / 服务的模型正忙; the next-month day ({1} = "12月1日") stays in brackets: 下个月初（{1}） |
+| storage cap ({0} = "2.0 GB", as written) / removing something makes room / reading goes on | 存储空间已用到上限（{0}） / 移除一些内容就能腾出空间 / 阅读不受影响 |
+| own key (a person's own API key) / the operator's page (Every account) / cap / used / left / no cap / yours (own money) | 自己的密钥 / 所有账户 / 上限 / 已用 / 剩余 / 无上限 / 自付 |
+| spending plug-in / the heavy helpers' time / pages fetched / a cap's names | 支出插件 / 辅助模型的用时 / 抓取的页面 / 每月金额、每月搜索次数、每月抓取页面数、同时进行的任务数、每项任务的分钟数、每项任务的金额、存储的兆字节数 |
+| typed in the caps form | off, 5, 5.00, 5,00 and default stay as written: the program reads both the dot and the comma |
+| set today / set yesterday / the fold of own keys / a run stopped at its cap | 今天设置 / 昨天设置 / 使用你自己的密钥（可选） / 已达上限，已停止 |
+| set on {0} (a day, never today or yesterday, which have keys of their own) | {0}设置 (as 今天设置 / 昨天设置) |
+| suspend / delete (an account) / removal day / hand over (a library) / recent activity | 暂停 / 删除 / 删除日（定于{0}删除） / 交给 / 最近的活动; the acts of the log are short phrases: 登录、密码已更改、图书馆已交给他人… |
+| rate limits: "Try again in {0}." / a wait ({0} second(s), {0} minute(s)) / Wait a moment | 请{0}后再试。 / {0}秒、{0}分钟 / 请稍候 |
+| take a library home (the link) / pack (for download) / the archive | 带回本地 / 打包 / 归档文件 |
+| a person lets a library go (out of service, kept aside, then removed) / the operator lets a library go (out of the service, an ordinary library at a folder) | 放弃 / 释放 |
+| kept aside / out of service / take back / take in / hand over / move / days of grace / freeze / suspend, let back | 暂存 / 已停用 / 收回 / 接收 / 移交 / 迁移 / 宽限期 / 冻结 / 暂停、恢复 |
+| the audit log / machine, node / awake, asleep / last word / … ago | 审计日志 / 机器、节点 / 运行、休眠 / 最近一次报到 / {0}秒前、{0}分钟前、{0}小时前、{0}天前 |
+| Release (the operator's act, was "let go"; a person's own "Let it go" stays 放弃) / Keep it ⟦keeps an account or a library as it is⟧ / For ⟦the account a library is taken in for⟧ / kept before by {0} | 释放 / 保留 / 归属账户 / 原管理人：{0} |
+| invitation (letting someone in by a link) / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | 邀请 / 加入 / 撤回 / 尚未使用的链接 |

@@ -98,6 +98,7 @@ final class HelperServer implements AutoCloseable {
         // stop or a score must still find one free while the most comics this machine reads at once are under way
         s.setExecutor(Executors.newFixedThreadPool(16, r -> { Thread t = new Thread(r, "helpers-serve"); t.setDaemon(true); return t; }));
         s.start();
+        ModelsAwake.watchContainers();   // LaBSE and the embeddings server stop when idle here too (round C2)
         return h;
     }
 
@@ -129,6 +130,7 @@ final class HelperServer implements AutoCloseable {
             if (name.equals(Helper.COMIC.path) && comic != null) { comic.handle(x, rest); return; }   // served by this front itself: the requests carry their pictures
             Managed own = managed.get(name);
             String to = own != null ? own.forRequest() : backends.get(name);
+            if (to != null) ModelsAwake.used(to);   // a container of this machine's: its use written down for its idle rule (round C2)
             if (own != null && to == null) { reply(x, 503, M.createObjectNode().put("error", own.line()).toString()); return; }   // not loaded now: why, and a new try when it is due
             if (to == null && absent.containsKey(name)) { reply(x, 503, M.createObjectNode().put("error", absent.get(name)).toString()); return; }
             if (to == null) { reply(x, 404, "{\"error\":\"this machine does not serve " + name.replaceAll("[^a-z]", "") + "\"}"); return; }

@@ -107,7 +107,7 @@ final class Pages {
         DRIVE_NOW = d::driveNow;
         try {
             switch (path) {
-                case "/" -> send(x, 200, chat(store, p, patron, q));
+                case "/" -> { ModelsAwake.intent("chat"); send(x, 200, chat(store, p, patron, q)); }   // its models warm while the person reads (round C2)
                 case "/past" -> send(x, 200, past(d, store, p, patron, q));
                 case "/connect" -> { if ("POST".equals(method)) redirect(x, connect(store, p, patron, q, form, true)); else send(x, 200, connect(store, p, patron, q, form, false)); }
                 case "/updates" -> { if ("POST".equals(method) && "seen".equals(form.get("op"))) { Patrons.check(store, patron, Patrons.Level.read); seenNow(store, patron); redirect(x, "/updates"); } else send(x, 200, updatesPage(store, p, patron)); }
@@ -202,6 +202,7 @@ final class Pages {
                 }
                 case "/add" -> {   // a document of the person's own onto the shelves: a file from their computer, or a page by its address
                     Patrons.check(store, patron, Patrons.Level.write);
+                    ModelsAwake.intent("add");   // what indexes and describes it warms while the person chooses (round C2)
                     if ("POST".equals(method)) send(x, 200, page(store, patron, t("Add"), addPost(store, p, patron, form)));
                     else send(x, 200, page(store, patron, t("Add"), addPage()));
                 }
@@ -277,9 +278,11 @@ final class Pages {
                 case "/login/code" -> { if ("POST".equals(method)) SignIn.code(x, store, form); else redirect(x, "/login"); }
                 case "/login/oidc" -> {   // to the identity provider, with a state and a code challenge the callback will answer for
                     if (!Oidc.configured()) { redirect(x, "/login"); break; }
-                    try { redirect(x, Oidc.start(x)); } catch (IOException e) { send(x, 503, SignIn.loginPage(store, t("The identity provider could not be reached: {0}", e.getMessage()), x)); }
+                    try { Oidc.Started began = Oidc.begin(x, Map.of()); Oidc.bindToBrowser(x, began.state()); redirect(x, began.url()); }   // bound to this browser (0.8.0 review, SEC 4)
+                    catch (IOException e) { send(x, 503, SignIn.loginPage(store, t("The identity provider could not be reached: {0}", e.getMessage()), x)); }
                 }
                 case "/login/oidc/callback" -> {   // back from the provider: the code for a token, the token checked, the person signed in
+                    if (!Oidc.fromThisBrowser(x, q.get("state"))) { send(x, 403, SignIn.loginPage(store, t("This sign-in was not begun in this browser. Sign in from here."), x)); break; }   // nothing of the answer is read
                     try { Accounts.Account a = Oidc.finish(store, q); SignIn.signedIn(x, store, a); redirect(x, "/"); }
                     catch (IOException e) { send(x, 403, SignIn.loginPage(store, e.getMessage(), x)); }
                 }
@@ -793,11 +796,40 @@ final class Pages {
     static final String[][] HOSTS = {{"anthropic", "Anthropic (Claude)"}, {"openai", "OpenAI"}, {"openrouter", "OpenRouter"}, {"gemini", "Gemini"}, {"deepseek", "DeepSeek"}, {"moonshot", "Moonshot (Kimi)"}, {"nebius", "Nebius Token Factory"}, {"huggingface", "Hugging Face"}, {"address", "Another OpenAI-style address"}};   // the last is a sentence: translated where it is shown
 
     /**
+     * What a person of a hosted library is told when no model answers, in place of the first screen: the model is the service's, it does
+     * not answer, and whoever runs the service has to look. Nothing is offered, since nothing here is theirs to connect.
+     */
+    static String hostedNoModel() {
+        return "<div class=\"connect\"><h2 class=\"plain\">" + t("The model does not answer") + "</h2><p class=\"lede\">"
+                + t("This library uses the model of the service it runs under, and that model does not answer now. Whoever runs the service has to look into it. Until then the library still takes files and finds them by words.") + "</p></div>";
+    }
+
+    /**
+     * Keep and Settings in a hosted library (0.8.0): what works there and nothing else. The person who keeps the library sets its own
+     * settings (how its reports are written, what its nights do); its people and the keys of their programs are on the account page,
+     * which the page points to. Nobody is shown a form that would only refuse.
+     */
+    static String hostedSettings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q, String title) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        StringBuilder b = new StringBuilder();
+        String note = q.getOrDefault("note", "");
+        if (!note.isEmpty()) b.append("<p class=\"note\">").append(esc(note)).append("</p>\n");
+        if (Hosted.keeper(store, patron)) {
+            ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
+            b.append("<p>").append(t("These are this library's own settings. Every other setting is set by whoever runs the service it runs under.")).append("</p>");
+            b.append(settingsForm(p.settings(a), false));
+        } else b.append("<p>").append(t("The person who keeps this library sets how its reports are written.")).append("</p>");
+        b.append("<p>").append(t("The people of this library and the keys of their programs are on your account page.")).append(" <a class=\"btn\" href=\"/account\">").append(t("Account")).append("</a></p>");
+        return page(store, patron, title, b.toString(), 0, null, true);
+    }
+
+    /**
      * The first screen when no model answers, and the page at /connect: a model you own on this machine, found on the usual ports or
      * given by its address; one you rent, by host, key and model; a test of the connection that says what answered; a way to add
      * things while you choose; the models page; and Keep for the keeper. {@code result} is the last test's or change's word.
      */
     static String connectBlock(LibraryStore store, Patrons.Patron patron, String result, boolean look) {
+        if (Hosted.on(store)) return hostedNoModel();   // a library under an account service has the service's model: nothing here is its people's to connect
         boolean keeper = mayWrite(store, patron);
         StringBuilder b = new StringBuilder("<div class=\"connect\"><p class=\"kicker\">").append(t("The first screen")).append("</p><h2 class=\"plain\">").append(t("Connect a model")).append("</h2>");
         b.append("<p class=\"lede\">").append(t("The library needs a model to answer and to research. There are two ways; pick one, test it, and you are in. Without a model it still takes files and finds them by words.")).append("</p>");
@@ -850,6 +882,7 @@ final class Pages {
     /** /connect, GET: the screen; POST: look on the ports, use an address, test one, keep a rented host's key and add its model. */
     static String connect(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q, Map<String, String> form, boolean post) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
+        if (Hosted.on(store)) return post ? "/connect" : page(store, patron, t("The model does not answer"), hostedNoModel(), 0, null, "", true);   // no model is connected or tested from a hosted library
         String result = q.getOrDefault("note", ""), op = post ? form.getOrDefault("op", "") : "";
         boolean look = "look".equals(op) || "1".equals(q.get("look"));
         if (post && !op.equals("look")) {
@@ -910,6 +943,7 @@ final class Pages {
      * after these.
      */
     static String keep(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        if (Hosted.on(store)) return hostedSettings(store, p, patron, q, t("Keep"));
         Patrons.check(store, patron, Patrons.Level.read);
         if (!mayWrite(store, patron)) return page(store, patron, t("Keep"), "<p>" + t("Keep is the page of the person who keeps this library: the model it runs on, the sources it mines, who may read it, and its settings. You read this library; its keeper looks after those.") + "</p>");
         ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
@@ -1256,6 +1290,8 @@ final class Pages {
              .append("<a href=\"/read?locator=").append(enc(e.path("locator").asText())).append("\">").append(t("Read the whole saved page")).append("</a>.</p>");
             b.append("<pre class=\"raw\">").append(esc(e.path("body").asText())).append("</pre>");
         } else {
+            // a claim that rests on one source is that source's claim, said before the claim (round E)
+            if (e.path("single_source").asBoolean(false)) b.append("<p class=\"k\"><span class=\"mark\">").append(esc(t("{0} says this; no other source found confirms it.", e.path("one_source").asText()))).append("</span></p>");
             b.append("<div class=\"body\">").append(withRefs(md(body), body)).append("</div>");
         }
         if (e.path("sources").size() > 0 && !"raw".equals(kind)) {
@@ -1931,6 +1967,7 @@ final class Pages {
     /** POST /remove: the first post shows the plan with a Confirm button; the post with confirm=1 and an unspent token removes. */
     /** The settings page (0.5.5): every setting with what it is for and its value, a key only as set or not, and a form to change one. */
     static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
+        if (Hosted.on(store)) return hostedSettings(store, p, patron, q, t("Settings"));
         ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
         JsonNode r = p.settings(a);
         StringBuilder b = new StringBuilder();
@@ -2001,7 +2038,10 @@ final class Pages {
     }
 
     /** The settings form and the table of every setting with its value and what it is for. */
-    static String settingsForm(JsonNode r) {
+    static String settingsForm(JsonNode r) { return settingsForm(r, true); }
+
+    /** The same; {@code terminal} false where the command line does not set them, as for a library under an account service, whose people reach it from other machines. */
+    static String settingsForm(JsonNode r, boolean terminal) {
         StringBuilder b = new StringBuilder();
         b.append("<form method=\"post\" action=\"/settings\"><p><label>").append(t("Setting")).append(" <select name=\"name\">");
         for (JsonNode s : r.path("settings")) b.append("<option value=\"").append(esc(s.path("name").asText())).append("\">").append(esc(s.path("name").asText())).append("</option>");
@@ -2012,7 +2052,7 @@ final class Pages {
             b.append("<tr><td><code>").append(esc(s.path("name").asText())).append("</code></td><td>").append(v.isEmpty() ? "<i>" + t("not set") + "</i>" + (s.hasNonNull("example") && !s.path("example").asText().isEmpty() ? " <small>" + t("for example {0}", esc(s.path("example").asText())) + "</small>" : "") : esc(v))
              .append("</td><td>").append(esc(s.path("what").asText())).append(s.has("choices") ? " <small>(" + esc(String.join(", ", toStrings(s.path("choices")))) + ")</small>" : "").append("</td></tr>\n");
         }
-        b.append("</table>\n<p>").append(t("The same from a terminal: {0}; and in the chat, in a sentence.", "<code>researchzosho settings</code>")).append("</p>\n");
+        b.append("</table>\n<p>").append(terminal ? t("The same from a terminal: {0}; and in the chat, in a sentence.", "<code>researchzosho settings</code>") : t("The same in the chat, in a sentence.")).append("</p>\n");
         return b.toString();
     }
 
@@ -2228,7 +2268,7 @@ final class Pages {
         String op = form.getOrDefault("op", "");
         if (!op.equals("pause") && !op.equals("resume") && !op.equals("stop")) throw ProtocolError.invalidArgs(t("This form is not known. Go back and try again."));
         a.put("op", op);
-        if (op.equals("stop")) a.put("job_id", form.getOrDefault("job_id", ""));
+        if (op.equals("stop") || op.equals("resume") && !form.getOrDefault("job_id", "").isBlank()) a.put("job_id", form.getOrDefault("job_id", ""));   // resume with a run named: one its cap stopped
         p.job(a);
     }
 
@@ -2478,10 +2518,10 @@ final class Pages {
         if (cur == null || (cur.done && cur.error != null) || (cur.done && System.currentTimeMillis() - cur.started > 10 * 60_000L)) {
             Sharpening nw = new Sharpening();
             if (SHARPENING.putIfAbsent(key, nw) == null || cur != null && SHARPENING.replace(key, cur, nw)) {
-                Thread t = new Thread(() -> {
+                Thread t = new Thread(ServiceUses.beside(store, () -> {   // under an account service: a use of its own, the page asks again after the request
                     try { nw.result = Sharpen.run(store, patron, drive, Researcher.webTools(), q); } catch (Throwable e) { nw.error = e; }
                     nw.done = true;
-                }, "sharpen-" + key);
+                }), "sharpen-" + key);
                 t.setDaemon(true); t.start();
             }
         }
@@ -2670,13 +2710,13 @@ final class Pages {
             Working nw = new Working();
             if (WORKING.putIfAbsent(key, nw) == null) {
                 final boolean f = fresh;
-                Thread t = new Thread(() -> {
+                Thread t = new Thread(ServiceUses.beside(store, () -> {   // under an account service: a use of its own, the page asks again after the request
                     try {
                         if (term.isEmpty()) Explain.entry(store, drive, id, rung, f, nw.progress());
                         else Explain.term(store, drive, term, in, rung, f, nw.progress());
                     } catch (Throwable e) { nw.error = e; }
                     nw.done = true;
-                }, "reading-" + key);
+                }), "reading-" + key);
                 t.setDaemon(true); t.start();
             }
             return workingPage(store, patron, WORKING.get(key), term.isEmpty() ? id : term, in.isEmpty() ? id : in, rung);
@@ -3060,6 +3100,43 @@ final class Pages {
         return b.toString();
     }
 
+    /**
+     * A picture at an address on the web, as Markdown writes one. The browser loads a picture when the page is shown, so its address goes
+     * out with nobody choosing to follow it: a page read in a chat asked the model to add its "badge" with the person's notes in the
+     * address, and the chat page, opened again, loaded it (2026-11-18). In the chat a model's reply shows one as a link ({@link #transcript});
+     * the pictures the library found itself are shown.
+     */
+    static final Pattern REMOTE_PICTURE = Pattern.compile("!\\[([^\\]]*)\\]\\((https?://[^)\\s]+)\\)");
+
+    /**
+     * The text with every picture at an address on the web made a link to that address: shown, never loaded. Pictures of this library
+     * (/images/…) stay pictures. Made a link once, a picture can leave another behind ("!![…](…)", or a picture inside another's words),
+     * so it is done again until none is left; each pass takes one "!" away, so it ends.
+     */
+    /**
+     * The mark the library puts on a picture it shows from an address on the web (a found picture, small, in the chat or on the pictures
+     * page): the page's policy lets the web's pictures in only when it is there. It is made at random when the program starts, so no text a
+     * model or a page wrote can carry it (round F: the policy opened for any "class=thumb src=https" a report's text could make).
+     */
+    static final String SHOWN = "data-shown=\"" + Long.toHexString(new SecureRandom().nextLong()) + Long.toHexString(new SecureRandom().nextLong()) + "\"";
+
+    /** The page's picture sources: the library's own, and the web's only when the library itself chose to show a picture from there ({@link #SHOWN}). */
+    static String imgPolicy(String html) { return html.contains(SHOWN) ? "img-src 'self' https:" : "img-src 'self'"; }
+
+    static String picturesAsLinks(String text) {
+        if (text == null || text.indexOf("![") < 0) return text == null ? "" : text;
+        String s = text, was;
+        do {
+            was = s;
+            Matcher m = REMOTE_PICTURE.matcher(s);
+            StringBuilder b = new StringBuilder();
+            while (m.find()) m.appendReplacement(b, Matcher.quoteReplacement("[" + (m.group(1).isBlank() ? m.group(2) : m.group(1)) + "](" + m.group(2) + ")"));
+            m.appendTail(b);
+            s = b.toString();
+        } while (!s.equals(was));
+        return s;
+    }
+
     /** Just enough Markdown: headings, lists, paragraphs, links, bold, code, a picture on a line of its own, a ```mermaid diagram, and [[F-…]] shelf links. */
     static String md(String text) {
         text = unentity(text);
@@ -3089,7 +3166,7 @@ final class Pages {
                 continue;
             } else if (inTable) { out.append("</table></div>"); inTable = false; }
             Matcher fig = FIGURE_LINE.matcher(raw);
-            if (fig.matches()) {   // a picture on a line of its own at the margin, as a writer places one under the paragraph that cites it: reading size; indented under a list item, or among words, it stays small
+            if (fig.matches() && fig.group(2).startsWith("/")) {   // a picture on a line of its own at the margin, as a writer places one under the paragraph that cites it: reading size; indented under a list item, or among words, it stays small
                 flush(out, para); if (inList) { out.append("</ul>"); inList = false; }
                 out.append(figure(fig.group(1), fig.group(2)));
                 continue;
@@ -3150,7 +3227,7 @@ final class Pages {
     /** A picture at reading size: the whole column wide at most, the picture itself a link that opens the whole file in a new tab, its title under it. */
     static String figure(String alt, String src) {
         String a = esc(alt == null ? "" : alt.strip()), s = esc(src);
-        return "<figure class=\"fig\"><a href=\"" + s + "\" target=\"_blank\" rel=\"noopener noreferrer\"><img class=\"figure\" src=\"" + s + "\" alt=\"" + a + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"></a>"
+        return "<figure class=\"fig\"><a href=\"" + s + "\" target=\"_blank\" rel=\"noopener noreferrer\"><img class=\"figure\" src=\"" + s + "\" alt=\"" + a + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"" + (src.startsWith("/") ? "" : " " + SHOWN) + "></a>"
                 + (a.isEmpty() ? "" : "<figcaption>" + a + "</figcaption>") + "</figure>";
     }
 
@@ -3213,7 +3290,10 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         while (m.find()) {
             String rep;
-            if (m.group(2) != null) rep = "<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">";
+            // a picture of this library is drawn; one at an address on the web is a link to it, shown and never loaded: a report's, a claim's or a
+            // job's text is written by a model a page could steer, and a picture's address can carry what it read (round F, the second review)
+            if (m.group(2) != null) rep = m.group(2).startsWith("/") ? "<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"
+                    : "<a href=\"" + m.group(2) + "\" rel=\"noreferrer\">" + (m.group(1).isBlank() ? m.group(2) : m.group(1)) + "</a>";
             else if (m.group(4) != null) rep = m.group(4).startsWith("/") ? "<a href=\"" + m.group(4) + "\">" + m.group(3) + "</a>" : "<a href=\"" + m.group(4) + "\" rel=\"noreferrer\">" + m.group(3) + "</a>";
             else if (m.group(5) != null) rep = "<a href=\"/entry/" + enc(m.group(5)) + "\">" + (m.group(6) != null ? m.group(6) : m.group(5)) + "</a>";
             else if (m.group(7) != null) rep = "<a href=\"" + m.group(7) + "\" rel=\"noreferrer\">" + m.group(7) + "</a>";
@@ -3262,6 +3342,8 @@ final class Pages {
         StringBuilder b = new StringBuilder();
         b.append("<div class=\"convhead\"><button type=\"button\" class=\"btn quiet\" id=\"sessions-toggle\">").append(t("Conversations")).append("</button><span class=\"title\">").append(esc(sessionTitle(s))).append("</span>")
          .append("<a class=\"small k3\" href=\"/chat?new=1\">").append(t("new conversation")).append("</a>").append(Files.exists(s.file) ? deleteForm(s.id, s.id) : "").append("<span class=\"small k3 counts\">").append(counts(lp, patron)).append("</span></div>");   // a conversation with nothing in it yet is on no list, and has nothing to delete
+        JsonNode back = LibraryPlaces.broughtBack(store);   // a library brought back from its copy says which copy, for a week
+        if (back != null) b.append("<p class=\"notice\">").append(esc(broughtBackSaid(back))).append("</p>");
         boolean first = !modelAnswers(store);   // the first screen, until a model answers once; the composer does not take the focus then, or the page would scroll past the screen
         if (first) b.append("<div class=\"first\">").append(connectBlock(store, patron, "", false)).append("</div>");
         b.append("<div id=\"chat-view\" class=\"chat-view\">").append(chatView(store, lp, patron, s, note)).append("</div>");
@@ -3365,7 +3447,11 @@ final class Pages {
         String[] firstAsk = waiting.stream().min(Comparator.comparingInt(Librarian::rank)).orElse(null);
         if (firstAsk != null && Librarian.isChoice(firstAsk)) {
             // the library asked which of these: a button for each, or the number or the name typed; with no answer in time a run is not started
-            b.append("<div class=\"ask\"><p>").append(esc(Librarian.choiceQuestion(store, firstAsk))).append("</p><div class=\"opts\">");
+            b.append("<div class=\"ask\">");
+            // every change the model asked for, each in its own line: one yes does them all, so all are shown (round F)
+            if (firstAsk[0].startsWith(Librarian.ACT)) { for (String[] w : waiting) if (w[0].startsWith(Librarian.ACT)) b.append("<p>").append(esc(Librarian.choiceQuestion(store, w))).append("</p>"); }
+            else b.append("<p>").append(esc(Librarian.choiceQuestion(store, firstAsk))).append("</p>");
+            b.append("<div class=\"opts\">");
             for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(Librarian.labelSaid(l))).append("</button></form> ");   // the name as the person reads it; the value posted is the name the answer is read by
             b.append("<span class=\"k3\">").append(t("or say which in your own words. No answer within {0} minutes counts as none.", Librarian.OFFER_MINUTES)).append("</span></div></div>");
         } else if (!waiting.isEmpty()) {
@@ -3388,6 +3474,18 @@ final class Pages {
     }
 
     static final Map<String, Live> LIVE = new ConcurrentHashMap<>();
+
+    /** What a library brought back from its copy says of it, in the person's language. */
+    static String broughtBackSaid(JsonNode back) {
+        boolean half = back.path("interrupted").asBoolean(false);
+        long at = half || back.path("copy_ended").asLong(0) == 0 ? back.path("copy_began").asLong() : back.path("copy_ended").asLong();
+        String when = Chrome.now().dayTime(Instant.ofEpochMilli(at).toString());
+        return half ? t("This library was brought back from a copy that was being brought up to date at {0}. What was done in it after that is not in it.", when)
+                : t("This library was brought back from its copy of {0}. What was done in it after that is not in it.", when);
+    }
+
+    /** Whether a chat turn is being answered now. A turn that has ended stays on the list for a while, for the page that reads its end; it is not one. */
+    static boolean turnInProgress() { for (Live l : LIVE.values()) if (!l.done) return true; return false; }
 
     /**
      * One turn from the page, with the answer streamed as the model writes it, for the page to poll, and the person's stop honoured: the
@@ -3481,7 +3579,7 @@ final class Pages {
             + "inp.addEventListener('keydown',function(ev){if(ev.key==='Enter'&&!ev.shiftKey&&!ev.isComposing){ev.preventDefault();if(form.requestSubmit)form.requestSubmit();else form.dispatchEvent(new Event('submit',{cancelable:true}))}});"
             + "function strip(){return document.getElementById('runs-strip')}"
             + "function poll(now){if(timer)clearTimeout(timer);timer=null;var el=strip();if(!el)return;var active=!!el.querySelector('[data-active=\"1\"]');"
-            + "timer=setTimeout(function(){var el=strip();if(!el)return;fetch('/chat/runs?session='+encodeURIComponent(el.dataset.session),{credentials:'same-origin'}).then(function(r){return r.text()}).then(function(t){var now=strip();if(now&&t){now.innerHTML=t;stops()}poll()}).catch(function(){poll()})},now?0:active?15000:60000)}"
+            + "timer=setTimeout(function(){var el=strip();if(!el)return;fetch('/chat/runs?session='+encodeURIComponent(el.dataset.session),{credentials:'same-origin'}).then(function(r){return r.ok?r.text():''}).then(function(t){var now=strip();if(now&&t){now.innerHTML=t;stops()}poll()}).catch(function(){poll()})},now?0:active?15000:60000)}"
             + "function stops(){var fs=document.querySelectorAll('#runs-strip form');for(var i=0;i<fs.length;i++){fs[i].addEventListener('submit',function(ev){ev.preventDefault();var f=ev.target;var bs=f.querySelectorAll('button');for(var j=0;j<bs.length;j++)bs[j].disabled=true;"
             + "fetch('/jobs',{method:'POST',body:new URLSearchParams(new FormData(f)),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(){poll(true)}).catch(function(){poll(true)})})}}"
             + "function hold(on){var bs=document.querySelectorAll('.conv button');for(var i=0;i<bs.length;i++){bs[i].disabled=on}}"
@@ -3508,9 +3606,9 @@ final class Pages {
             + "var sid=f.querySelector('input[name=session]')?f.querySelector('input[name=session]').value:'',lv=null,lt=null;function liveOff(){if(lt)clearTimeout(lt);lt=null}"
             + "function live(){lt=setTimeout(function(){fetch('/chat/live?session='+encodeURIComponent(sid),{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(!busy)return;if(j.text){if(!lv){lv=document.createElement('div');lv.className='turn lib live';lv.innerHTML='<div class=\"mark model\"><b></b></div><div class=\"say\"><p></p></div><p class=\"att\"><button type=\"button\" class=\"stop\"></button></p>';lv.querySelector('.mark b').textContent='Being written';lv.querySelector('.stop').textContent='stop';lv.querySelector('.stop').addEventListener('click',function(){this.disabled=true;this.textContent='stopping\\u2026';fetch('/chat',{method:'POST',body:'op=stop&session='+encodeURIComponent(sid),credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}})});th.replaceWith(lv)}var ps=lv.querySelector('.say p');ps.textContent=j.text;var c=document.createElement('span');c.className='caret';ps.appendChild(c);end()}if(!j.done)live()}).catch(function(){live()})},700)}"
             + "live();"
-            + "fetch('/chat',file?{method:'POST',body:fd,credentials:'same-origin'}:{method:'POST',body:fd,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(!r.ok)throw new Error(String(r.status));return r.text()})"
+            + "fetch('/chat',file?{method:'POST',body:fd,credentials:'same-origin'}:{method:'POST',body:fd,credentials:'same-origin',headers:{'Content-Type':'application/x-www-form-urlencoded'}}).then(function(r){if(r.status===429)return r.json().then(function(j){var e=new Error('429');e.said=j&&j.error&&j.error.message;throw e});if(!r.ok)throw new Error(String(r.status));return r.text()})"
             + ".then(function(h){liveOff();var had=document.activeElement;view.innerHTML=h;if(view.querySelector('pre.mermaid')){if(window.rzDraw)window.rzDraw();else{location.reload();return}}busy=false;hold(false);var go=view.querySelector('[data-open-session]');if(go){location.href='/chat?session='+encodeURIComponent(go.getAttribute('data-open-session'));return}if(file){picked=[];chips();say('')}wire();end();poll(true);if(had===document.body||(had&&had.form===form))inp.focus()})"
-            + ".catch(function(){liveOff();th.textContent='The reply did not arrive here; the conversation keeps it. Reload the page in a moment.';busy=false;hold(false)})}"
+            + ".catch(function(e){liveOff();th.textContent=e&&e.said?e.said:'The reply did not arrive here; the conversation keeps it. Reload the page in a moment.';busy=false;hold(false)})}"
             + "var st=document.getElementById('sessions-toggle'),sc=document.getElementById('sessions-close'),scrim=document.getElementById('scrim');function drawer(o){document.body.classList.toggle('sessions-open',o)}"
             + "if(st)st.addEventListener('click',function(){drawer(!document.body.classList.contains('sessions-open'))});if(sc)sc.addEventListener('click',function(){drawer(false)});if(scrim)scrim.addEventListener('click',function(){drawer(false)});"
             + "form.addEventListener('submit',send);wire();stops();end();window.addEventListener('load',end);poll()})();";
@@ -3536,7 +3634,9 @@ final class Pages {
             } else if (role.equals("tool")) tools.add(m.path("name").asText(""));
             else if (role.equals("assistant") && !m.has("tool_calls") && !m.path("content").asText("").isBlank()) {
                 String content = m.path("content").asText("");
-                b.append("<div class=\"turn lib\">").append(mark(m, tools, askedAt)).append("<div class=\"say\">").append(prose(content)).append("</div>").append(cites(store, content)).append("</div>");
+                // a picture from the web is shown only in the library's own reply (the pictures it found); in the model's words it is a link
+                String shown = m.path("by").asText("").equals("library") ? content : picturesAsLinks(content);
+                b.append("<div class=\"turn lib\">").append(mark(m, tools, askedAt)).append("<div class=\"say\">").append(prose(shown)).append("</div>").append(cites(store, content)).append("</div>");
                 tools.clear(); askedAt = 0;
             }
         }
@@ -3709,6 +3809,12 @@ final class Pages {
     /** The same; {@code resumed}: where a run a restart or an update interrupted picked up, said beside its stage. */
     static String rline(RunProgress.View v, String name, String waiting, String resumed) {
         String link = "<a href=\"/jobs/" + enc(v.id()) + "\" title=\"" + esc(v.id()) + "\">" + esc(name) + "</a>";
+        if (Jobs.CAPPED.equals(v.state())) {   // stopped at its cap, its work kept (0.8.0): why, and the person's resume
+            return "<div class=\"rline queued\"><span class=\"nm\">" + link + "</span>"
+                 + "<form class=\"inline\" method=\"post\" action=\"/jobs\"><input type=\"hidden\" name=\"op\" value=\"resume\"><input type=\"hidden\" name=\"job_id\" value=\"" + esc(v.id()) + "\"><button class=\"stop\">" + t("Resume") + "</button></form>"
+                 + "<span class=\"ph\">" + esc(waiting == null || waiting.isBlank() ? t("Stopped at its cap.") : waiting) + "</span><span class=\"bar\"><i style=\"width:" + Math.max(0, Math.min(100, v.percent())) + "%\"></i></span>"
+                 + "<span class=\"el\">" + esc(t("Stopped at its cap.")) + "</span></div>";
+        }
         if (v.active()) {
             boolean q = !v.state().equals("running");
             String phase = (q ? v.stage() : waiting.isBlank() ? v.stage() : t("waiting for the model: {0}", waiting)) + (resumed == null || resumed.isBlank() ? "" : " · " + resumed);
@@ -3869,7 +3975,7 @@ final class Pages {
             if (p.indexOf("![") >= 0) {   // pictures among other lines: small
                 Matcher m = PICTURE.matcher(e);
                 StringBuilder small = new StringBuilder();
-                while (m.find()) m.appendReplacement(small, Matcher.quoteReplacement("<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"));
+                while (m.find()) m.appendReplacement(small, Matcher.quoteReplacement("<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"" + (m.group(2).startsWith("/") ? "" : " " + SHOWN) + ">"));
                 m.appendTail(small);
                 e = small.toString();
             }
@@ -3920,7 +4026,7 @@ final class Pages {
                 : esc(patron.person() && "the person".equals(patron.name()) ? t("you") : patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/account\">" + t("account") + "</a> · <a href=\"/logout\">" + t("sign out") + "</a>";
         String path = PATH.get() == null ? "" : PATH.get();
         Chrome lang = Chrome.now();
-        boolean keeper = mayWrite(store, patron), fill = mainClass.equals("chat") || mainClass.equals("split");   // the chat, and a report beside it: the window's height, the whole width
+        boolean keeper = Hosted.on(store) ? Hosted.keeper(store, patron) : mayWrite(store, patron), fill = mainClass.equals("chat") || mainClass.equals("split");   // the chat, and a report beside it: the window's height, the whole width
         return "<!doctype html><html lang=\"" + lang.code + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
                 + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><script>" + LOOK_BOOT + "</script><style>" + CSS + "</style></head><body" + (fill ? " class=\"fill\"" : "") + ">"
                 + "<header class=\"top\"><a class=\"brand\" href=\"/\">ResearchZosho <i>· " + esc(name) + "</i></a><span class=\"ver\">" + esc(Version.number() == null ? "dev" : Version.number()) + "</span>"
@@ -4102,6 +4208,9 @@ final class Pages {
             .sessions details.remove>summary,.convhead details.remove>summary{list-style:none;cursor:pointer;font-size:.78em;color:var(--ink-3)}.sessions details.remove>summary::-webkit-details-marker,.convhead details.remove>summary::-webkit-details-marker{display:none}
             .sessions details.remove[open],.convhead details.remove[open]{flex-basis:100%}details.remove form p{margin:.3em 0 .5em}
             .scrim{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:29;display:none}body.sessions-open .scrim{display:block}
+            .meter{height:.35em;background:var(--paper-3);border-radius:.2em;margin:.35em 0 .1em;max-width:14em;overflow:hidden}.meter i{display:block;height:100%;background:var(--accent)}.meter i.full{background:var(--dispute)}
+            .caps{display:grid;grid-template-columns:repeat(auto-fill,minmax(10em,1fr));gap:.6em 1.2em}.caps input{width:100%}table.month td{vertical-align:top}table.accounts td:first-child{min-width:9em}table.accounts tr.has-acts td{border-bottom:0}table.accounts tr.acts td{padding-top:0}table.stack tr.has-acts{border-bottom:0;padding-bottom:0}table.stack tr.acts{padding-top:.2em}.nw{white-space:nowrap}
+            details.fold>summary{cursor:pointer;list-style:none}details.fold>summary::-webkit-details-marker{display:none}details.fold>summary h2{display:inline-block}details.fold>summary h2::after{content:" ▸";color:var(--ink-3);font-weight:400}details.fold[open]>summary h2::after{content:" ▾"}
             @media (max-width:900px){.shell.beside{display:flex;flex-direction:column;grid-template-columns:1fr}.shell.beside .conv{flex:1;min-height:0;max-width:none}.strip.side{position:static;margin-top:.8em;max-height:12em;flex:none}}
             @media (max-width:700px){body{font-size:16px}header.top{padding:.8em 1em .6em;gap:.4em 1em}header.top nav.verbs{gap:.6em 1em;width:100%;order:3;font-size:.95em}header.top .keep{margin-left:0;order:4}header.top .who{font-size:.86em}.look-switch{order:5}.lang-switch{order:5}details.contents{order:6}.btn,header.top .keep{white-space:normal;max-width:100%}button{max-width:100%;white-space:normal}
             main{padding:1.6em 1em 4em}h1{font-size:1.7em}.entries li{grid-template-columns:1fr;gap:0}table{display:block;overflow-x:auto;max-width:100%}
@@ -4151,21 +4260,22 @@ final class Pages {
 
     /** A JSON answer, for the passkey calls the page's script makes. */
     static void sendJson(HttpExchange x, int status, JsonNode body) throws IOException {
-        byte[] bytes = M.writeValueAsBytes(body);
+        byte[] bytes = Hosted.any() ? Hosted.shown(M.writeValueAsString(body)).getBytes(StandardCharsets.UTF_8) : M.writeValueAsBytes(body);
         x.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
         x.getResponseHeaders().set("Cache-Control", "no-store");
         x.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
     }
 
-    static void send(HttpExchange x, int status, String html) throws IOException {
+    static void send(HttpExchange x, int status, String page) throws IOException {
+        String html = Hosted.shown(page);   // a hosted library shows its people no path of the service's machine
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
         x.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         x.getResponseHeaders().set("Cache-Control", "no-store");   // every page is the library as it is now; a browser must never show an old one (a denial kept showing after access opened, 2026-10-09)
         // no scripts, except: the map (its own script, its own data), the runs strip, the look switch in every page's header, a pick form (the "all" and group boxes tick the others
         // with an inline handler; with scripts blocked they ticked nothing, 2026-09-09), and the Mermaid this library serves itself on a page that draws a diagram
         // pictures come from this library alone, except a found picture shown small from its address on the web (the chat's "find pictures of …"), which that page then allows over https
-        String img = html.contains("class=\"thumb\" src=\"https://") || html.contains("class=\"figure\" src=\"https://") ? "img-src 'self' https:" : "img-src 'self'";
+        String img = imgPolicy(html);
         // a page that draws a diagram loads Mermaid from this library's own /static/ ('self' joins its script sources); every other page's policy is as it was
         String script = html.contains("<script src=\"" + MERMAID_PATH + "\"") ? "script-src 'self' 'unsafe-inline'" : "script-src 'unsafe-inline'";
         x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>") || html.contains("id=\"runs-strip\"") || html.contains("id=\"chat-scroll\"") || html.contains("class=\"look-switch\"") || html.contains("id=\"signin\"") || html.contains("id=\"passkey-add\"")
