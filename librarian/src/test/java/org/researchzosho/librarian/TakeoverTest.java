@@ -9,6 +9,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.researchzosho.Config;
 import org.researchzosho.Main;
 
@@ -55,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * and its library are let go after B took over: the library asks its model nothing more and exits, and node A starts nothing again.
  * Every process stopped or frozen here is one this test started, or a child of one, by its number; nothing is looked for by name.
  */
+@EnabledOnOs(value = OS.LINUX, disabledReason = "the machines of the service (accounts node) run on Linux only in 0.8.0 and refuse to start elsewhere; one test reads /proc/<pid>/environ")
 class TakeoverTest {
     static final ObjectMapper M = new ObjectMapper();
     static final String BATCH = "You translate the numbered lines";

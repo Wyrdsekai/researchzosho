@@ -56,8 +56,8 @@ class OneProcessPerLibraryTest {
     static List<String> leaseRound(Path tmp, Path lib, int n, String round) throws Exception {
         Path go = tmp.resolve("go-" + round);
         List<Process> children = new ArrayList<>();
-        for (int i = 0; i < n; i++) children.add(CrossProcess.start(tmp.resolve("home"), "lease", lib.toString(), go.toString(), "3000"));
-        Thread.sleep(2500);   // every child is up and waiting
+        for (int i = 0; i < n; i++) children.add(CrossProcess.start(tmp.resolve("home"), "lease", lib.toString(), go.toString(), "1500"));
+        CrossProcess.allReady(go, n);   // every child is up and waiting (it slept 2.5 s for this, and each holder held 3 s)
         Files.writeString(go, "go");
         List<String> held = new ArrayList<>();
         for (Process p : children) for (String line : CrossProcess.output(p).split("\n")) if (line.startsWith("held ")) held.add(line);
@@ -84,7 +84,7 @@ class OneProcessPerLibraryTest {
         int n = 6, each = 150;
         List<Process> children = new ArrayList<>();
         for (int i = 0; i < n; i++) children.add(CrossProcess.start(tmp.resolve("home"), "ids", store.root().toString(), go.toString(), String.valueOf(each)));
-        Thread.sleep(2500);
+        CrossProcess.allReady(go, n);
         Files.writeString(go, "go");
         List<String> ids = new ArrayList<>();
         for (Process p : children) for (String line : CrossProcess.output(p).split("\n")) if (line.startsWith("J-")) ids.add(line.strip());

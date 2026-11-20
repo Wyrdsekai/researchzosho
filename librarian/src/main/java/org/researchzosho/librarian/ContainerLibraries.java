@@ -283,7 +283,7 @@ public final class ContainerLibraries implements LibraryRunner.Local {
             long until = System.currentTimeMillis() + START_MS;
             while (System.currentTimeMillis() < until) {
                 if (!client.isAlive()) {
-                    LOG.warn("The container of the library {} ({}) ended as it started (exit {}); its log is {}", lib.title(), lib.id(), client.exitValue(), log);
+                    LOG.warn("The container of the library {} ({}) ended as it started (exit {}); its log is {}{}", lib.title(), lib.id(), client.exitValue(), log, ChildLibraries.lastLines(log.toPath()));
                     removeIfOurs(lib.id());
                     throw new EndedAtOnce("The library " + lib.title() + " did not start. Whoever runs this service finds why in the service's log.");
                 }

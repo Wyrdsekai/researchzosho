@@ -3,10 +3,13 @@ package org.researchzosho.librarian;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 
 import java.io.IOException;
+import java.util.stream.Collectors;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -38,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * network; started, stopped and removed by the name and labels the service gave it, and a container of that name that the service did
  * not make left alone. The node drives it as it drives the process form: asleep with nothing to do, started again by the next request.
  */
+@EnabledOnOs(value = OS.LINUX, disabledReason = "the accounts mode is Linux only in 0.8.0: a container library's socket is proven by SO_PEERCRED, and macOS cuts a socket's path at 104 bytes")
 class ContainerLibrariesTest {
     final HttpClient c = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
     long lease = Node.LEASE_MS, renew = Node.RENEW_MS, soon = Node.DUE_SOON_MS;
@@ -66,6 +70,16 @@ class ContainerLibrariesTest {
         });
         node = n[0] = new Node(store, svc.url(), local = new ContainerLibraries(store, svc.url()), "node_test", root);
         node.start();
+    }
+
+    /** What each library's own log says, for a start that failed: the service's sentence names it and the folder goes with the test. */
+    static String logsOf(Path root) {
+        StringBuilder b = new StringBuilder();
+        try (var all = Files.walk(root)) {
+            for (Path f : all.filter(p -> p.getFileName().toString().equals("serve.log")).toList())
+                b.append("\n--- ").append(f).append(":\n").append(Files.readString(f).lines().limit(40).collect(Collectors.joining("\n")));
+        } catch (IOException | RuntimeException e) { b.append("\n(the logs could not be read: ").append(e).append(')'); }
+        return b.toString();
     }
 
     @AfterEach void stop() {
@@ -100,7 +114,7 @@ class ContainerLibrariesTest {
         String annKey = store.mintKey(ann.account().id(), ann.library().id(), "write", "the test").secret();
         String boKey = store.mintKey(bo.account().id(), bo.library().id(), "write", "the test").secret();
         HttpResponse<String> a = get("/v1/status", annKey), b = get("/v1/status", boKey);
-        assertEquals(200, a.statusCode(), a.body()); assertEquals(200, b.statusCode(), b.body());
+        assertEquals(200, a.statusCode(), a.body() + logsOf(root)); assertEquals(200, b.statusCode(), b.body() + logsOf(root));
         assertTrue(a.body().contains(ann.library().id()) && b.body().contains(bo.library().id()), "each answered by its own library");
 
         assertTrue(standIn.ran.stream().noneMatch(c -> c.get(0).equals("network")), "no network is made: the containers have none " + standIn.ran);

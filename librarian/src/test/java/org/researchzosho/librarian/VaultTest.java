@@ -101,7 +101,8 @@ class VaultTest {
             store.write(f);
             assertTrue(Vault.newest(store) >= mark);
             boolean seen = false;
-            for (int i = 0; i < 100 && !seen; i++) {
+            long until = System.currentTimeMillis() + 60_000;   // at once on a quiet machine; a loaded one (four forks on the Mac mini) took longer than ten seconds
+            while (!seen && System.currentTimeMillis() < until) {
                 Thread.sleep(100);
                 try (var s = Files.walk(vault)) { seen = s.anyMatch(p -> p.getFileName().toString().contains("late-claim") || p.getFileName().toString().contains("A late claim")); }
             }

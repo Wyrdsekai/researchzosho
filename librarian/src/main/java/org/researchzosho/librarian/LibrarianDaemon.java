@@ -512,8 +512,11 @@ public final class LibrarianDaemon {
      * an added document. Only notes that changed are rewritten, so a refresh with nothing to do costs a walk.
      */
     private void followVault() {
+        // what the vault has seen is read now, as the service starts, not when the thread first runs: a change made in between (a claim
+        // filed at once, a loaded machine slow to start the thread) was counted as seen and never written (round G, the Mac mini's suite)
+        long first = Vault.exists(store) ? Vault.newest(store) : 0;
         Thread t = new Thread(() -> {
-            long seen = Vault.exists(store) ? Vault.newest(store) : 0;
+            long seen = first;
             while (!Thread.currentThread().isInterrupted()) {
                 try { Thread.sleep(VAULT_FOLLOW_MS); } catch (InterruptedException e) { return; }
                 try {

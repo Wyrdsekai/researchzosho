@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.researchzosho.Config;
 import org.researchzosho.Main;
 
@@ -167,6 +169,7 @@ class RateLimitsTest {
     }
 
     @Test
+    @EnabledOnOs(value = OS.LINUX, disabledReason = "starts the accounts service as a second process, which runs on Linux only in 0.8.0 and refuses to start elsewhere")
     void theFrequentLimitsAreEachProcesssShareAndTheTwoTogetherHoldTheWholeOne(@TempDir Path tmp) throws Exception {
         Proxy.OVERRIDE = "127.0.0.1";   // the router in front of both processes: the address it forwards counts
         String window = "10 per 20 seconds";
@@ -236,6 +239,7 @@ class RateLimitsTest {
     }
 
     @Test
+    @EnabledOnOs(value = OS.LINUX, disabledReason = "starts the accounts service as a second process, which runs on Linux only in 0.8.0 and refuses to start elsewhere")
     void theRareActsAreCountedInTheStoreSoBothProcessesReadOneCount(@TempDir Path tmp) throws Exception {
         stub = new OidcTest.Stub();
         Oidc.OVERRIDE = OidcTest.settings(stub, "example.org");

@@ -33,6 +33,7 @@ final class CrossProcess {
     public static void main(String[] args) throws Exception {
         switch (args[0]) {
             case "lease" -> {
+                ready(Path.of(args[2]));
                 waitFor(Path.of(args[2]));
                 LibraryStore store = new LibraryStore(Path.of(args[1]));
                 try (Lease l = Lease.acquire(store)) {
@@ -42,6 +43,7 @@ final class CrossProcess {
                 } catch (IOException e) { System.out.println("refused"); }
             }
             case "ids" -> {
+                ready(Path.of(args[2]));
                 waitFor(Path.of(args[2]));
                 LibraryStore store = new LibraryStore(Path.of(args[1]));
                 int n = Integer.parseInt(args[3]);
@@ -84,6 +86,18 @@ final class CrossProcess {
             default -> throw new IllegalArgumentException(args[0]);
         }
         System.out.flush();
+    }
+
+    /** Says this child is up and about to wait for the signal: a file beside it, named for its process. */
+    static void ready(Path go) throws IOException { Files.writeString(go.resolveSibling(go.getFileName() + ".ready-" + ProcessHandle.current().pid()), ""); }
+
+    /** Waits until {@code n} children of the signal {@code go} said they are up (at most a minute), so that it is given when all of them wait. */
+    static void allReady(Path go, int n) throws IOException, InterruptedException {
+        long until = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < until) {
+            try (var s = Files.list(go.getParent())) { if (s.filter(p -> p.getFileName().toString().startsWith(go.getFileName() + ".ready-")).count() >= n) return; }
+            Thread.sleep(20);
+        }
     }
 
     /** Waits until the signal file is there: the children begin together. */

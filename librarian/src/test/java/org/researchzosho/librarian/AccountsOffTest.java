@@ -47,7 +47,9 @@ class AccountsOffTest {
      * An answer as it is compared: without the moment it was made, and without the chat page's new conversation, whose name is the
      * second it was opened in (two pages asked a second apart differ there, header or not).
      */
-    static String same(String body) { return body.replaceAll("\"at\":\"[^\"]*\"", "").replaceAll("name=\"session\" value=\"[^\"]*\"", "name=\"session\""); }
+    static String same(String body) {   // a conversation's id is the second it began: two looks a second apart begin two (round G, under three forks)
+        return body.replaceAll("\"at\":\"[^\"]*\"", "").replaceAll("name=\"session\" value=\"[^\"]*\"", "name=\"session\"").replaceAll("data-session=\"[^\"]*\"", "data-session=\"\"");
+    }
 
     @Test
     void aLibraryOnItsOwnTakesNoNoticeOfAStatement(@TempDir Path tmp) throws Exception {

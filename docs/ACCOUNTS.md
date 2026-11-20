@@ -304,7 +304,7 @@ says so, and that whoever runs the service has to look; there is nothing there t
 | `accounts_root` | the folder the accounts' libraries are under | `accounts` in the settings folder |
 | `accounts_store` | where the accounts are kept: a PostgreSQL address (`postgresql://user:password@host/database`) | the file `accounts.db` under the root |
 | `accounts_address` | the address people reach the service at; join links are written with it | the address it listens on |
-| `accounts_first_port` | the first port of the loopback a library is given; each takes the next free one | 4700 |
+| `accounts_first_port` | the first of the 2,000 loopback ports a library's port is taken from (a free one, looked for from a place chosen at random) | 4700 |
 | `accounts_sleep_after` | after how many minutes with nothing to do a library is stopped; `off`: never | 15 |
 | `accounts_nights` | whether the libraries have nights (their nightly tasks, which use your model): `on` or `off` | on |
 | `accounts_nights_at_once` | how many libraries' nights run at once | 2 |
@@ -742,8 +742,9 @@ spend, nothing starts.
   is them again when their last sign-in or proof is more than five minutes old: making a key for a program, keeping a key of their
   own, deleting a library, and deleting the account. A key is made on the account page only, never through a library's page. A
   name of its own for each library (a subdomain) is for a later version.
-- Several accounts run on Linux only (with processes or with Docker). The one-library program is not changed by this and runs on
-  Linux, macOS and Windows.
+- Several accounts run on Linux only (with processes or with Docker). On macOS and Windows, `serve` with accounts on and
+  `researchzosho node` stop at once with "Several accounts run on Linux only in this release." The one-library program is not
+  changed by this and runs on Linux, macOS and Windows.
 - A person's own keys are for the service's model API and its paid search places. A person cannot bring a model of their own,
   and a server of the operator's own (on this machine or the private network) takes no person's key.
 - Amazon Bedrock is not offered to a library under the service: the gate does not sign its requests yet.

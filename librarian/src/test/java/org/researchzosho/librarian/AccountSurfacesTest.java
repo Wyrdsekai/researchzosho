@@ -132,8 +132,10 @@ class AccountSurfacesTest {
         assertTrue(onPage.contains(Pages.esc(CapsSpending.monthUsed(100_000))), "and its button is told the same sentence");
         assertEquals(Jobs.CAPPED, json(key, "/v1/job", "{\"job_id\":\"" + job + "\"}").path("job").path("state").asText());
 
-        // the cap raised: it resumes where it stopped, and finishes
+        // the cap raised: it resumes where it stopped, and finishes (each call answered at once now: the delay was there for the cap's
+        // moment, a call in flight when the run crossed it, and the rest of the run only waited it out, some 25 s)
         store.setCap(acct, Caps.MONTH_DOLLARS, -1);
+        model.delayMs = 0;
         HttpResponse<String> resumed = post(key, "/v1/job", "{\"op\":\"resume\",\"job_id\":\"" + job + "\"}", "application/json");
         assertEquals(200, resumed.statusCode(), resumed.body());
         until("the run finished", 300_000, () -> { try { String st = json(key, "/v1/job", "{\"job_id\":\"" + job + "\"}").path("job").path("state").asText(); return st.equals("done") || st.equals("failed"); } catch (Exception e) { return false; } });

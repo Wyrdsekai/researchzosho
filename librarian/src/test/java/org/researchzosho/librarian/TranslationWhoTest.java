@@ -126,7 +126,13 @@ class TranslationWhoTest {
             go.countDown();
             long until = System.currentTimeMillis() + 60_000;
             while (!view(store, id).path("state").asText().equals("done") && System.currentTimeMillis() < until) Thread.sleep(100);
-        } finally { go.countDown(); jobs.stop(); }
+        } finally {
+            go.countDown(); jobs.stop();
+            // the job's thread writes its last lines after its record says done; the folder goes only once it has (on the Mac mini the
+            // temporary folder's removal met a file written into it meanwhile)
+            long until = System.currentTimeMillis() + 30_000;
+            while (!jobs.running().isEmpty() && System.currentTimeMillis() < until) Thread.sleep(50);
+        }
 
         // after: the hosted reader's cost is said beside its estimate, on every surface, and in the result and the chat's notice
         JsonNode done = view(store, id);

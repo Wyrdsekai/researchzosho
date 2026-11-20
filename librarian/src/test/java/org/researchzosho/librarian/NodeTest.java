@@ -208,6 +208,9 @@ class NodeTest {
         AccountService.Made ann = AccountService.newAccount(store, root, "Ann Example", "", false, "the test");
         AccountStore.Library lib = ann.library();
         String id = lib.id(), key = store.mintKey(ann.account().id(), id, "write", "the test").secret();
+        // a request of the person's is open on it until the service ends: this node starts an older build again at its first quiet
+        // moment, and on a loaded machine that came before the end, so the start taken back was a later one (round G: start 3, the gates)
+        node.ensure(lib);
         assertEquals(200, get("/v1/status", key).statusCode());
         String address = store.placement(id).address();
         assertEquals("0.0.1 (source tree)", health(address).path("version").asText(), "the library runs the older build");

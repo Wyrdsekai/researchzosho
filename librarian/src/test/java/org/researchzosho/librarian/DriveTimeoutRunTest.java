@@ -24,10 +24,10 @@ class DriveTimeoutRunTest {
         String realHome = System.getProperty("user.home");
         System.setProperty("user.home", home.toString());
         Config.invalidate();
-        try (HangingServer s = new HangingServer(HangingServer.Mode.HEAD_ONLY)) {
+        try (HangingServer s = new HangingServer(HangingServer.Mode.HEAD_ONLY, r -> !r.line().contains("/chat/completions"), "{}")) {   // the server's own pages answer, saying nothing: the drive's look at what kind of server it is (/props, /api/show, /v1/models) waited 25 s on them before its first call
             Config.set("ctx", "32768");   // the window, so that nothing asks the hanging server for it
             List<String> said = new CopyOnWriteArrayList<>();
-            DriveClient c = new DriveClient(s.url(), "placeholder-model").timeLimit(Duration.ofSeconds(1));
+            DriveClient c = new DriveClient(s.url(), "placeholder-model").timeLimit(Duration.ofMillis(300));   // every call runs out of time all the same: a second each made the test 31 s
             Researcher r = new Researcher(Researcher.drive(c), new ResearcherTest.FakeTools(), said::add);
             Researcher.Ask ask = new Researcher.Ask("How were the placeholder gears cut?", "depth", 6, List.of("how were the gears cut?"));
             assertTimeoutPreemptively(Duration.ofSeconds(120), () -> { try { r.run(ask, ""); } catch (RuntimeException ended) { } });

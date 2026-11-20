@@ -233,7 +233,8 @@ class LibraryArchiveTest {
         assertEquals(ann.library().id(), r.manifest().path("library_id").asText());
         assertEquals(svc.url(), r.manifest().path("from").asText());
         assertTrue(r.names().contains("library/raw/big.bin"));
-        assertEquals(200, api(annKey, "/v1/status").statusCode(), "it opens again after");
+        HttpResponse<String> after = api(annKey, "/v1/status");
+        assertEquals(200, after.statusCode(), "it opens again after: " + after.body());
         assertTrue(store.audits(ann.account().id(), 0, 50).stream().anyMatch(a -> a.act().equals("library_archived") && a.library().equals(ann.library().id())));
 
         // the account page offers it beside the libraries one keeps, and only there

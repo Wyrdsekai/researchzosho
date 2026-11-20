@@ -198,10 +198,11 @@ class LibraryPlacesTest {
                 assertTrue(r.startsWith("1\n") && r.contains("is being served"), r);
                 assertTrue(Files.isDirectory(own));
             }
+            Path ownReal = own.toRealPath();   // the take names the folder's real place: on macOS /var is /private/var
             String r = run("x", "accounts", "take", own.toString(), "--for", "Ann Example");
             assertTrue(r.startsWith("0\n"), r);
             assertTrue(r.contains("The library \"Harbour history\" is taken in as ann-example, kept by Ann Example. It keeps its id, its shelves and its jobs."), r);
-            assertTrue(r.contains("nothing is left at " + own), r);
+            assertTrue(r.contains("nothing is left at " + ownReal), r);
             assertTrue(r.contains("Its own settings came with it: report_length = short."), r);
             assertTrue(r.contains("    reader: Ben Example, reads and writes") && r.contains("    key: Ben's agent ("), r);
             assertFalse(Files.exists(own));

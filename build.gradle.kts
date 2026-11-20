@@ -26,7 +26,7 @@ subprojects {
 
     dependencies {
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.12.2")
-        "testRuntimeOnly"("org.junit.platform:junit-platform-launcher")
+        "testImplementation"("org.junit.platform:junit-platform-launcher")   // ForkHome: each test JVM's home, set when its launcher opens
     }
 
     tasks.withType<Test> {

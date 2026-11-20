@@ -3,6 +3,8 @@ package org.researchzosho.librarian;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.researchzosho.Config;
 import org.researchzosho.Main;
 
@@ -37,6 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * sign-out at one holds at the other at the next request; failed sign-ins are counted across both; and one scheduler runs between
  * them, the other taking over when it stops.
  */
+@EnabledOnOs(value = OS.LINUX, disabledReason = "starts the accounts service as a second process, which runs on Linux only in 0.8.0 and refuses to start elsewhere")
 class TwoServicesTest {
     final HttpClient c = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).followRedirects(HttpClient.Redirect.NEVER).build();
     long round = Scheduler.ROUND_MS;

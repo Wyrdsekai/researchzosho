@@ -621,9 +621,12 @@ public final class LibraryPlaces {
         if (!carried.isEmpty()) Files.writeString(home(to).resolve("config"), config.toString(), StandardCharsets.UTF_8);
         if (known != null) { store.libraryFolder(known.id(), to.toString()); store.libraryState(known.id(), "active"); keepCopy(known); }
         else store.addLibrary(id.id(), name, id.name(), keeper.id(), to.toString());
-        // taken back from where it was set aside: what is left of that folder (its home, tmp, its log) goes with it, and its record
-        Path set = from.getParent();
-        if (renamed && set != null && store.asideAt(set.toString()) != null) { remove(set); store.asideGone(set.toString()); }
+        // taken back from where it was set aside: what is left of that folder (its home, tmp, its log) goes with it, and its record. The record
+        // names the folder as it was written down, which may be reached through a link (macOS's /var is /private/var, a root on a linked disk):
+        // looked up as the library's real place and as it was given (round G: on macOS the folder was left, its record with it)
+        Path set = null;
+        for (Path p : new Path[]{from.getParent(), given.getParent()}) if (set == null && p != null && store.asideAt(p.toString()) != null) set = p;
+        if (renamed && set != null) { remove(set); store.asideGone(set.toString()); }
         return new Taken(store.library(id.id()), from, renamed, readers, keys, carried);
     }
 

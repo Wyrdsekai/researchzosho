@@ -4,6 +4,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.researchzosho.Config;
 
 import java.io.IOException;
@@ -25,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the service by its name (0.8.0 review, round A). In a deployment where the service is a name on a private network, the library's
  * calls (asking for a use, its people and keys) come to the service from its own machine, where they are answered.
  */
+@EnabledOnOs(value = OS.LINUX, disabledReason = "the accounts mode is Linux only in 0.8.0: the relays are Unix sockets proven by SO_PEERCRED, and macOS cuts a socket's path at 104 bytes")
 class ServiceRelayTest {
     HttpServer up; AccountStore store;
 

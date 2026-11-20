@@ -1377,6 +1377,7 @@ final class ComicHelper {
         /** The process ended under a request: gone, so that the next ask starts it once more. */
         private void ended() {
             Process pr = process; process = null;
+            if (aborted) { end(pr); return; }   // ended by a stop: nothing went wrong, and nothing starts again (it warned "starting it once more", seconds after the stop)
             String how = "with its output closed";
             try { if (pr != null && pr.waitFor(2, TimeUnit.SECONDS)) how = "with exit code " + pr.exitValue(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             end(pr);

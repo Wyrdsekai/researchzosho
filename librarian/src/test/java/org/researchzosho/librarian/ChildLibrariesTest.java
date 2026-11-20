@@ -168,4 +168,30 @@ class ChildLibrariesTest {
     }
 
     static String log(AccountService.Made m) { try { return Files.readString(Path.of(m.library().folder()).resolve("serve.log")); } catch (Exception e) { return "(no log)"; } }
+
+    /** A library that ended as it started is quoted in the service's log: its own log's last lines, since its folder may be gone or elsewhere. */
+    @Test
+    void aLibraryThatEndedAtOnceIsQuotedInTheServicesLog(@TempDir Path tmp) throws Exception {
+        Path log = tmp.resolve("serve.log");
+        StringBuilder b = new StringBuilder();
+        for (int i = 1; i <= 12; i++) b.append("line ").append(i).append('\n');
+        Files.writeString(log, b + "librarian: another daemon is serving this library: pid 4242 on box\n");
+        String said = ChildLibraries.lastLines(log);
+        assertTrue(said.startsWith("; it ends:\n    ") && said.endsWith("another daemon is serving this library: pid 4242 on box"), said);
+        assertFalse(said.contains("line 5\n"), "the last eight lines only: " + said);
+        assertEquals("", ChildLibraries.lastLines(tmp.resolve("none.log")), "nothing to quote: nothing said");
+    }
+
+    /**
+     * Two processes asking for a library's port at the same moment begin looking at different places of the window (round G: each began
+     * at the first, both gave out the same free port, and the second library to bind it ended at once, "Address already in use", at
+     * every try in the release gates, two suites side by side).
+     */
+    @Test
+    void aLibrarysPortIsLookedForFromAPlaceChosenAtRandom() throws Exception {
+        Set<Integer> got = new HashSet<>();
+        for (int i = 0; i < 20; i++) got.add(ChildLibraries.freePort(new HashSet<>(), Set.of()));
+        assertTrue(got.size() > 1, "twenty asks, as twenty processes would make at once, not all the same port: " + got);
+        assertTrue(got.stream().allMatch(p -> p >= ChildLibraries.FIRST_PORT && p < ChildLibraries.FIRST_PORT + 2000), "all of the window: " + got);
+    }
 }

@@ -168,6 +168,7 @@ class AccountLifecycleTest {
         JsonNode j = M.readTree(api(key, "/v1/job", "{\"job_id\":\"" + job + "\"}").body()).path("job");
         assertEquals(Jobs.CAPPED, j.path("state").asText(), "her run waits, stopped: " + j);
         assertEquals(said, j.path("waiting").asText(), "with the suspension's sentence");
+        model.delayMs = 0;   // the delay held her run in flight for the suspension; the rest of it only waited it out, some 30 s
         assertEquals(200, api(key, "/v1/job", "{\"op\":\"resume\",\"job_id\":\"" + job + "\"}").statusCode());
         until("her run finished", 300_000, () -> { try { return "done".equals(M.readTree(api(key, "/v1/job", "{\"job_id\":\"" + job + "\"}").body()).path("job").path("state").asText()); } catch (Exception e) { return false; } });
         assertTrue(acts(a).contains("account_unsuspended"));

@@ -157,7 +157,21 @@ class PlacesOnTheNodeTest {
 
     /** A library taken back within its grace (round C, round B's run): what is left of the folder it was set aside in goes too. */
     @Test
-    void aLibraryTakenBackLeavesNothingOfWhereItWasSetAside(@TempDir Path tmp) throws Exception {
+    void aLibraryTakenBackLeavesNothingOfWhereItWasSetAside(@TempDir Path tmp) throws Exception { takenBackLeavesNothing(tmp); }
+
+    /**
+     * The same where the node's root is reached through a link, as every temporary folder on macOS is (/var is /private/var): the record
+     * names the folder by the link, the take finds the library's real place, and the folder and its record still go (round G: on macOS
+     * the public CI found them left).
+     */
+    @Test
+    void aLibraryTakenBackLeavesNothingWhereItsRootIsReachedThroughALink(@TempDir Path tmp) throws Exception {
+        Files.createDirectories(tmp.resolve("node-root-itself"));
+        Files.createSymbolicLink(tmp.resolve("node-root"), tmp.resolve("node-root-itself"));
+        takenBackLeavesNothing(tmp);
+    }
+
+    void takenBackLeavesNothing(Path tmp) throws Exception {
         start(tmp);
         AccountStore.Library hal = onTheNode(tmp, "Hal Example");
         Files.createDirectories(LibraryPlaces.home(LibraryPlaces.folder(hal)));

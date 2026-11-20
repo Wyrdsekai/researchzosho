@@ -20,7 +20,9 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
  * The account service at the command line (0.8.0), for whoever runs it: {@code serve} with the setting {@code accounts} on, and
@@ -569,6 +571,18 @@ public final class AccountsCli {
      * {@code serve} with the setting accounts on: the account service in place of one library's daemon; blocks until it is stopped. It
      * says where it is, how accounts are made and signed in, and that the library of this computer's own is left as it is.
      */
+    /** The system this runs on, by its name; a test names another. */
+    static volatile Supplier<String> OS_NAME = () -> System.getProperty("os.name", "");
+
+    /**
+     * Why the accounts mode does not start on this system, or null on Linux. Its libraries run in containers or as processes of their own
+     * under a user of their own, it proves a library's socket by the kernel's word for its peer (SO_PEERCRED) and reads processes from /proc:
+     * Linux only in 0.8.0. On macOS a socket's path is also cut at 104 bytes, which the temporary folder alone nearly fills.
+     */
+    static String notHere(String osName) {
+        return osName != null && osName.toLowerCase(Locale.ROOT).startsWith("linux") ? null : "Several accounts run on Linux only in this release.";
+    }
+
     public static int serve(String[] args, String drive, PrintStream out, PrintStream err) throws IOException {
         String host = "127.0.0.1"; int port = LibrarianDaemon.DEFAULT_PORT; Path log = null;
         try {
@@ -590,6 +604,8 @@ public final class AccountsCli {
             PrintStream ps = new PrintStream(Files.newOutputStream(log, StandardOpenOption.CREATE, StandardOpenOption.APPEND), true, StandardCharsets.UTF_8);
             System.setOut(ps); System.setErr(ps); out = ps;
         } else if (Logs.wantsStdout(false)) { Logs.toStdout(); out = System.out; }
+        String elsewhere = notHere(OS_NAME.get());
+        if (elsewhere != null) { (log != null ? out : err).println(elsewhere); return 1; }   // in the service's log when it writes one: a service started at logon has no terminal
         AccountStore store = AccountService.openStore();
         // the node part runs inside the service on one machine (unless accounts_node is off): it holds each library's lease, puts the idle
         // ones to sleep and starts them again; nodes of their own (researchzosho node) on other machines are reached the same way
@@ -619,6 +635,8 @@ public final class AccountsCli {
      * port; its libraries reach the service at accounts_service. Blocks until it is stopped, which stops its libraries.
      */
     public static int node(String[] args, PrintStream out, PrintStream err) throws IOException {
+        String elsewhere = notHere(OS_NAME.get());
+        if (elsewhere != null) { err.println(elsewhere); return 1; }   // a machine of the service runs its libraries as the service does: Linux only
         String host = ChildLibraries.host(); int port = Node.port();
         try {
             for (int i = 2; i < args.length; i++) {

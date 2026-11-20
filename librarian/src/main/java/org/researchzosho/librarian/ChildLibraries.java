@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -281,7 +282,7 @@ public final class ChildLibraries implements LibraryRunner.Local {
             Process p = pb.start();
             long until = System.currentTimeMillis() + START_MS;
             while (System.currentTimeMillis() < until) {
-                if (!p.isAlive()) { LOG.warn("The library {} ({}) ended as it started, on port {}; its log is {}", lib.title(), lib.id(), port, log); throw new EndedAtOnce("The library " + lib.title() + " did not start. Whoever runs this service finds why in the service's log."); }
+                if (!p.isAlive()) { LOG.warn("The library {} ({}) ended as it started, on port {}; its log is {}{}", lib.title(), lib.id(), port, log, lastLines(log.toPath())); throw new EndedAtOnce("The library " + lib.title() + " did not start. Whoever runs this service finds why in the service's log."); }
                 if (answers(address, lib.id(), epoch)) {
                     store.libraryAddress(lib.id(), address);
                     running.put(lib.id(), new Running(p.toHandle(), address, System.currentTimeMillis()));
@@ -376,7 +377,7 @@ public final class ChildLibraries implements LibraryRunner.Local {
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
     }
 
-    /** A port of the loopback nothing listens on, from {@link #FIRST_PORT} up, that no running library of this runner was given. */
+    /** A port of the loopback nothing listens on, of the 2,000 from {@link #FIRST_PORT}, that no running library of this runner was given. */
     private int freePort(Set<Integer> tried) throws IOException {
         Set<String> taken = new HashSet<>();
         for (Running r : running.values()) taken.add(r.address());
@@ -384,9 +385,31 @@ public final class ChildLibraries implements LibraryRunner.Local {
     }
 
     /** The same for any form of the library: a port nothing listens on, not one of {@code tried}, and not one of the addresses {@code taken}. */
+    /**
+     * The last lines of a library's own log, for the service's log when the library ended as it started: the sentence a person is given
+     * says the service's log tells why, and the library's folder may be on another machine or gone (round G: the release gates' failed
+     * start named a log in a test's folder that was removed with it). "" when there is nothing to quote.
+     */
+    static String lastLines(Path log) {
+        try {
+            if (log == null || !Files.isRegularFile(log)) return "";
+            List<String> all = Files.readAllLines(log, StandardCharsets.UTF_8);
+            List<String> last = all.subList(Math.max(0, all.size() - 8), all.size());
+            return last.isEmpty() ? "" : "; it ends:\n    " + String.join("\n    ", last);
+        } catch (IOException | RuntimeException e) { return ""; }
+    }
+
+    /**
+     * A free port of the 2,000 from the first, looked through from a place chosen at random: two processes that ask at the same moment
+     * (two services or nodes on one machine, the test classes run side by side) begin at different places. Each began at the first, both
+     * found the same port free, gave it out, and the second library to bind it ended at once, again at each try (round G: "Address already
+     * in use", five tries in a row, in the release gates).
+     */
     static int freePort(Set<Integer> tried, Set<String> taken) throws IOException {
         int first = Math.max(1024, Math.min(63000, Config.getInt(AccountService.FIRST_PORT, FIRST_PORT)));
-        for (int port = first; port < first + 2000; port++) {
+        int from = ThreadLocalRandom.current().nextInt(2000);
+        for (int k = 0; k < 2000; k++) {
+            int port = first + (from + k) % 2000;
             String h = host();
             if (tried.contains(port) || taken.contains("http://" + (h.contains(":") ? "[" + h + "]" : h) + ":" + port)) continue;
             try (ServerSocket s = new ServerSocket(port, 1, InetAddress.getByName(h))) { return s.getLocalPort(); } catch (IOException inUse) { /* the next one */ }
