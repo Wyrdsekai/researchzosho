@@ -7,6 +7,8 @@
 
 研究蔵書, *the research holdings.* The Research Harness For The Rest Of Us.
 
+[![ResearchZosho on StartupScores](https://startupscores.com/badge/researchzosho.svg?style=shield&v=combo&theme=dark)](https://startupscores.com/open-source/researchzosho)
+
 ResearchZosho is an open-source deep research assistant. Give it a question and it searches the web
 and scholarly papers, or only your own PDFs, and writes a report in which every claim points at a
 source. It runs on your own computer with a local LLM (llama.cpp, Ollama, LM Studio) or a hosted API.
