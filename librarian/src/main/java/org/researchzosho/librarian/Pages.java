@@ -208,7 +208,7 @@ final class Pages {
                 }
                 case "/images" -> {   // the pictures page (0.7.0): the shelves' pictures as tiles, and a search by words; /images/<file> below serves one picture
                     Patrons.check(store, patron, Patrons.Level.read);
-                    if ("POST".equals(method)) { String note = ImagesPage.post(store, patron, form); redirect(x, ImagesPage.PATH + "?q=" + enc(form.getOrDefault("q", "")) + "&note=" + enc(note)); }
+                    if ("POST".equals(method)) { String note = ImagesPage.post(store, patron, form); redirect(x, ImagesPage.PATH + (form.getOrDefault("collection", "").isBlank() ? "?q=" + enc(form.getOrDefault("q", "")) : "?collection=" + enc(form.get("collection"))) + "&note=" + enc(note)); }
                     else send(x, 200, page(store, patron, t("Pictures"), ImagesPage.body(store, patron, q), 0, null, true));
                 }
                 case "/sources" -> {
@@ -2855,7 +2855,9 @@ final class Pages {
     /** /images/&lt;file&gt;: a picture kept under catalog/images/ ({@link Images}), shown in the page rather than downloaded, to anyone who may read the library. */
     private static void imageFile(HttpExchange x, LibraryStore store, Patrons.Patron patron, String name) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
-        Path p = Images.kept(store, name);
+        String[] in = name.startsWith("collections/") ? name.split("/", -1) : null;   // a collection's small copy: collections/<job>/<file>
+        Path p = in != null ? (in.length == 3 ? Collection.file(store, in[1], in[2]) : null) : Images.kept(store, name);
+        if (in != null) name = in[in.length - 1];
         if (p == null) throw ProtocolError.notFound("No picture is kept under the name " + name + ". Pictures are kept with researchzosho images find … --keep, or \"keep them\" in the chat.");
         byte[] bytes = Files.readAllBytes(p);
         x.getResponseHeaders().set("Content-Type", Images.contentType(name));
@@ -3435,22 +3437,34 @@ final class Pages {
      * buttons. The page's script puts a reply here in place of what was there, so the box to say the next thing is never redrawn and
      * what is typed in it stays (2026-10-12).
      */
+    /** The words of the conversation's last reply, "" when there is none. */
+    static String lastReply(Librarian.Session s) {
+        List<ObjectNode> ms = s.messages();
+        for (int i = ms.size() - 1; i >= 0; i--) { JsonNode m = ms.get(i); if (m.path("role").asText().equals("assistant") && !m.has("tool_calls")) return m.path("content").asText(""); }
+        return "";
+    }
+
     static String chatView(LibraryStore store, LibraryProtocol lp, Patrons.Patron patron, Librarian.Session s, String note) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
         // the runs this conversation started: a finished one is announced once, in the conversation itself
         for (String jobId : s.watched()) {
             try { RunProgress.View v = RunProgress.of(lp.job(args(patron).put("job_id", jobId)).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, args(patron).path("patron"))); if (!v.active()) s.told(jobId, v); } catch (Exception ignored) { }
         }
-        StringBuilder b = new StringBuilder("<div id=\"chat-scroll\" class=\"turns\">").append(transcript(store, s, Integer.MAX_VALUE));
+        StringBuilder b = new StringBuilder("<div id=\"chat-scroll\" class=\"turns\">");
+        String opened = s.openingNote();
+        if (!opened.isEmpty()) b.append("<p class=\"k note\">").append(esc(opened)).append("</p>");   // how the conversation began, above it, never inside a reply
+        b.append(transcript(store, s, Integer.MAX_VALUE));
         if (!note.isEmpty()) b.append("<p class=\"k note\">").append(esc(note)).append("</p>");   // under the latest turn, where the eye is
         List<String[]> waiting = Librarian.stillWaiting(store, s);
         String[] firstAsk = waiting.stream().min(Comparator.comparingInt(Librarian::rank)).orElse(null);
         if (firstAsk != null && Librarian.isChoice(firstAsk)) {
             // the library asked which of these: a button for each, or the number or the name typed; with no answer in time a run is not started
             b.append("<div class=\"ask\">");
-            // every change the model asked for, each in its own line: one yes does them all, so all are shown (round F)
-            if (firstAsk[0].startsWith(Librarian.ACT)) { for (String[] w : waiting) if (w[0].startsWith(Librarian.ACT)) b.append("<p>").append(esc(Librarian.choiceQuestion(store, w))).append("</p>"); }
-            else b.append("<p>").append(esc(Librarian.choiceQuestion(store, firstAsk))).append("</p>");
+            // every change the model asked for, each in its own line: one yes does them all, so all are shown (round F); a question the reply
+            // just above already says is not said again: the buttons stand under it (it showed twice on one screen, 2026-11-19)
+            String above = lastReply(s);
+            if (firstAsk[0].startsWith(Librarian.ACT)) { for (String[] w : waiting) if (w[0].startsWith(Librarian.ACT)) { String q = Librarian.choiceQuestion(store, w); if (!above.contains(q)) b.append("<p>").append(esc(q)).append("</p>"); } }
+            else { String q = Librarian.choiceQuestion(store, firstAsk); if (!above.contains(q)) b.append("<p>").append(esc(q)).append("</p>"); }
             b.append("<div class=\"opts\">");
             for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(Librarian.labelSaid(l))).append("</button></form> ");   // the name as the person reads it; the value posted is the name the answer is read by
             b.append("<span class=\"k3\">").append(t("or say which in your own words. No answer within {0} minutes counts as none.", Librarian.OFFER_MINUTES)).append("</span></div></div>");
@@ -3635,8 +3649,14 @@ final class Pages {
             else if (role.equals("assistant") && !m.has("tool_calls") && !m.path("content").asText("").isBlank()) {
                 String content = m.path("content").asText("");
                 // a picture from the web is shown only in the library's own reply (the pictures it found); in the model's words it is a link
-                String shown = m.path("by").asText("").equals("library") ? content : picturesAsLinks(content);
-                b.append("<div class=\"turn lib\">").append(mark(m, tools, askedAt)).append("<div class=\"say\">").append(prose(shown)).append("</div>").append(cites(store, content)).append("</div>");
+                boolean own = m.path("by").asText("").equals("library");
+                String shown = own ? content : picturesAsLinks(content);
+                // under it, what the library itself shows (ChatShown): the kept pictures and the gallery the reply names; in the library's own
+                // line, the gallery's address it wrote is a link where it stands
+                JsonNode under = m.path("shown");
+                boolean inWords = own && ChatShown.galleryIn(content, under);
+                String said = inWords ? ChatShown.linked(prose(shown), under) : prose(shown);
+                b.append("<div class=\"turn lib\">").append(mark(m, tools, askedAt)).append("<div class=\"say\">").append(said).append(ChatShown.html(under, inWords)).append("</div>").append(cites(store, content)).append("</div>");
                 tools.clear(); askedAt = 0;
             }
         }
@@ -3961,6 +3981,16 @@ final class Pages {
         return b.append(paragraphs(plain.toString(), true)).toString();
     }
 
+    /** Bold and code in the chat's words, as the reports' pages show them ({@link #inline}): **words** and `words`; the words are escaped already. */
+    static final Pattern EMPHASIS = Pattern.compile("\\*\\*([^*\\n]+?)\\*\\*|`([^`\\n]+)`");
+    static String emphasis(String escaped) {
+        Matcher m = EMPHASIS.matcher(escaped);
+        StringBuilder b = new StringBuilder();
+        while (m.find()) m.appendReplacement(b, Matcher.quoteReplacement(m.group(1) != null ? "<b>" + m.group(1) + "</b>" : "<code>" + m.group(2) + "</code>"));
+        m.appendTail(b);
+        return b.toString();
+    }
+
     private static final Pattern PICTURE = Pattern.compile("!\\[([^\\]]*)\\]\\(((?:https?://|/(?!/))[^)\\s]+)\\)");
 
     /** The paragraphs of some chat words; {@code skipBlank}: a stretch between two fences that holds nothing makes no paragraph. */
@@ -3971,7 +4001,7 @@ final class Pages {
             if (skipBlank && p.isEmpty()) continue;
             Matcher fig = FIGURE_LINE.matcher(p);
             if (fig.matches()) { b.append(figure(fig.group(1), fig.group(2))); continue; }   // a picture the Librarian placed, in a paragraph of its own
-            String e = esc(p).replaceAll("\\[((?:F|I|D)-\\d{4}-[a-z0-9-]+)\\]", "[<a href=\"/entry/$1\">$1</a>]").replace("\n", "<br>");
+            String e = emphasis(esc(p).replaceAll("\\[((?:F|I|D)-\\d{4}-[a-z0-9-]+)\\]", "[<a href=\"/entry/$1\">$1</a>]")).replace("\n", "<br>");
             if (p.indexOf("![") >= 0) {   // pictures among other lines: small
                 Matcher m = PICTURE.matcher(e);
                 StringBuilder small = new StringBuilder();
@@ -4182,6 +4212,7 @@ final class Pages {
             .chat-view{flex:1;min-height:0;display:flex;flex-direction:column}.turns{flex:1;min-height:6em;overflow:auto;padding-right:.4em;overscroll-behavior:contain}
             .turn{padding:1.1em 0;border-top:1px solid var(--rule)}.turn:first-child{border-top:0}.turn .who{font-variant-caps:all-small-caps;letter-spacing:.1em;color:var(--ink-3);margin-bottom:.25em}.turn.you .who{color:var(--ink-2)}.turn.you .say{font-style:italic}
             .thumb{display:block;max-width:160px;max-height:160px;width:auto;height:auto;margin:.3em 0;border-radius:4px;border:1px solid var(--rule)}
+            .shown .tiles{display:flex;flex-wrap:wrap;gap:.5em;margin:.4em 0}.shown figure.tile{margin:0}.shown figure.tile figcaption{font-size:.8em;color:var(--ink-3)}.shown .gallery{margin:.5em 0 .2em}
             figure.fig{margin:1em 0}figure.fig a{display:inline-block;max-width:100%}.figure{display:block;max-width:100%;max-height:60vh;width:auto;height:auto;border-radius:4px;border:1px solid var(--rule)}figure.fig figcaption{font-size:.86em;color:var(--ink-3);margin-top:.35em}
             figure.diagram{margin:1em 0}pre.mermaid.drawn{background:none;border:0;padding:0;white-space:normal;overflow-x:auto}pre.mermaid.drawn svg{max-width:100%;height:auto}details.diagram-text{font-size:.86em;color:var(--ink-3)}details.diagram-text summary{cursor:pointer}details.diagram-text pre{font-size:1em;margin-top:.4em}.diagram-error{font-size:.86em;color:var(--dispute)}
             .turn .say p{margin:0 0 .6em}.turn .say p:last-child{margin-bottom:0}.turn.lib .say p:first-child{margin-top:0}.turn .att{font-style:normal;font-size:.86em;color:var(--ink-3);margin-top:.4em}.turn .att b{font-weight:500;color:var(--ink-2);font-family:var(--mono);font-size:.92em}

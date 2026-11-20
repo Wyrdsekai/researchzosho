@@ -2381,7 +2381,7 @@ public final class LibrarianCli {
         System.out.println((session.messages().isEmpty() ? Chrome.now().t("The Librarian of {0}. Session {1}.", name, session.id) : Chrome.now().t("The Librarian of {0}. Session {1}, continued.", name, session.id)) + " " + Chrome.now().t("/help for the commands, /quit to leave."));
         if (kept != null) System.out.println(Chrome.now().t("Your last conversation, {0}, is kept: {1} continues it.", kept, "researchzosho chat --resume " + kept.replaceAll(" .*$", "")));
         if (!session.messages().isEmpty()) System.out.println("\n" + Chrome.now().t("Earlier in this session:"));
-        if (!session.messages().isEmpty()) { var ms = session.messages(); for (int i = Math.max(0, ms.size() - 2); i < ms.size(); i++) { var m = ms.get(i); if (m.path("role").asText().equals("user")) System.out.println("\n> " + m.path("content").asText()); else if (m.path("role").asText().equals("assistant") && !m.path("content").asText("").isBlank()) System.out.println("\n" + m.path("content").asText()); } }
+        if (!session.messages().isEmpty()) { var ms = session.messages(); for (int i = Math.max(0, ms.size() - 2); i < ms.size(); i++) { var m = ms.get(i); if (m.path("role").asText().equals("user")) System.out.println("\n> " + m.path("content").asText()); else if (m.path("role").asText().equals("assistant") && !m.path("content").asText("").isBlank()) System.out.println("\n" + ChatShown.terminal(m.path("content").asText(), m.path("shown"), ChatShown.address(store), Chrome.now())); } }   // the library's addresses full, and what it showed under the reply
         // the chat follows the runs it starts: a line when a run's stage changes, one notice when it is done
         final Librarian.Session[] current = {session};
         Thread watcher = new Thread(() -> {
@@ -2394,7 +2394,12 @@ public final class LibrarianCli {
                         var a = new ObjectMapper().createObjectNode().put("job_id", jobId);
                         a.putObject("patron").put("did", "person").put("name", System.getProperty("user.name", "person")).put("runtime", "cli");
                         RunProgress.View v = RunProgress.of(lp.job(a).path("job"), System.currentTimeMillis(), RunProgress.typicalSeconds(lp, a.path("patron")));
-                        if (!v.active()) { io.notifyLine("  " + current[0].told(jobId, v)); lastStage.remove(jobId); continue; }
+                        if (!v.active()) {
+                            int before = current[0].size();
+                            String told = current[0].told(jobId, v);
+                            for (ObjectNode m : current[0].repliesSince(before)) told = ChatShown.terminal(told, m.path("shown"), ChatShown.address(store), Chrome.now());   // a collection's end: its gallery and pictures by their full addresses
+                            io.notifyLine("  " + ChatShown.forTerminal(told, ChatShown.address(store)).replace("\n", "\n  ")); lastStage.remove(jobId); continue;
+                        }
                         long minute = v.elapsedSeconds() / 60;
                         boolean due = minute > 0 && minute % CHAT_STATUS_MINUTES == 0 && !String.valueOf(minute).equals(lastMinute.put(jobId, String.valueOf(minute)));   // a long stage is not silent
                         if (!v.stage().equals(lastStage.put(jobId, v.stage())) || due) io.notifyLine("  " + RunProgress.line(v));
@@ -2445,7 +2450,11 @@ public final class LibrarianCli {
             if (taken != null) { for (String l : taken.split("\n")) System.out.println("  " + l); continue; }
             System.out.print("  …"); System.out.flush();
             String reply;
+            int before = current[0].size();
             try { reply = libH[0].say(line); } catch (Exception e) { reply = Chrome.now().t("(the model did not answer: {0})", e.getMessage()); }
+            // the library's own addresses in it as a terminal opens them, and what it shows under the reply: the gallery and each picture by its full address
+            reply = ChatShown.forTerminal(reply, ChatShown.address(store));
+            for (ObjectNode m : current[0].repliesSince(before)) { String under = ChatShown.text(m.path("shown"), ChatShown.address(store), Chrome.now(), ChatShown.galleryIn(m.path("content").asText(""), m.path("shown"))); if (!under.isEmpty()) reply = reply + "\n\n" + under; }
             System.out.print("\r   \r");
             synchronized (System.out) { System.out.println(reply); }
             for (String jobId : current[0].watched()) if (announced.add(jobId)) System.out.println("  " + Chrome.now().t("following {0}: this chat shows its stage and says when it is done. /runs shows it now", jobId));

@@ -68,6 +68,7 @@ class NodeGatesTest {
         NodeGates.BASES.clear(); NodeGates.BASES.putAll(bases);
         NodeGates.LANES = true;
         Gated.CONTEXT = () -> null;
+        NodeGates.COUNTING = () -> { };
         if (gates != null) gates.close();
         if (store != null) store.close();
         if (model != null) model.close();
@@ -385,5 +386,24 @@ class NodeGatesTest {
             for (Future<HttpResponse<String>> f : readers) assertEquals(200, f.get().statusCode());
             assertTrue(model.most.get() <= 2, "never more at once than the server has slots: " + model.most.get());
         } finally { pool.shutdownNow(); }
+    }
+
+    /**
+     * A caller that has the whole answer finds the call counted (round G: on Java 21 the gate's answer ended before the count was written,
+     * and three of these tests read the month too early on GitHub's machines). The count is made slow here, so the order shows on any
+     * machine: the end of the answer waits for it.
+     */
+    @Test
+    void aCallerThatHasTheWholeAnswerFindsItCounted(@TempDir Path tmp) throws Exception {
+        start(tmp);
+        NodeGates.COUNTING = () -> { try { Thread.sleep(600); } catch (InterruptedException e) { Thread.currentThread().interrupt(); } };
+        String body = "{\"model\":\"stand-in\",\"messages\":[{\"role\":\"user\",\"content\":\"When was the lighthouse lit?\"}]}";
+        for (String b : List.of(body, body.replace("{\"model\"", "{\"stream\":true,\"model\""))) {
+            model.usage = true;
+            AccountStore.Use u = use("acct_end_" + b.length(), -1);
+            HttpResponse<String> r = call("/v1/chat/completions", u.id(), Gated.BACKGROUND, b);
+            assertEquals(200, r.statusCode(), r.body());
+            assertEquals(1, month(u.account()).size(), "counted before the caller had the answer's end: " + (b.contains("stream") ? "a stream" : "an answer"));
+        }
     }
 }

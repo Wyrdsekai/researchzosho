@@ -578,6 +578,7 @@ public class Librarian {
             session.append(user);
             // the answer to the library's own question is the library's reply, no model asked: its mark says so (it said "the model's own words" until 2026-11-10)
             ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", said); reply.put("at", System.currentTimeMillis()); reply.put("by", "library");
+            shown(reply);   // a collection the yes filed: its gallery, a link the person opens
             session.append(reply);
             record(words == null ? "" : words, List.of(), 0, 0, answerDeclined);
             answerDeclined = false;
@@ -710,6 +711,7 @@ public class Librarian {
                         continue;
                     }
                     JsonNode args = Researcher.parseArgs(c.path("function").path("arguments"));
+                    args = keepingIsCollecting(name, args);   // keeping found pictures is a collection: one path, its form read from the person's words
                     String unopened = offered.contains(name) ? GivenAddresses.notGiven(args, true) : null;   // an address the model put together is never opened, nor handed to a run (2026-11-18)
                     String result = !offered.contains(name) ? notOffered(name, offered) : unopened != null ? GivenAddresses.refused(unopened) : waitsForYes(name, args) ? askedFor(name, args) : call(name, args);
                     GivenAddresses.received(result, GivenAddresses.keysIn(args));   // what came back may be opened next; never the call's own address, which a refusal or an error repeats
@@ -759,10 +761,15 @@ public class Librarian {
         if (!said) { List<String> one = OneSource.chatLines(store, reply, madeUp); if (!one.isEmpty()) reply = reply + "\n\n" + String.join("\n", one); }
         // what the person's own words set for the runs of this turn, said back once, before the library's question
         if (!limitsThisTurn.isEmpty()) reply = reply + "\n\n" + limitsLine();
+        // a time the person's words set now, read as a research run's is, for a picture collection this conversation follows that is still going
+        String limited = actsThisTurn.isEmpty() && limitsThisTurn.isEmpty() && offeredThisTurn.isEmpty() ? collectionsLimited(personWords) : "";   // a limit said with a new ask is that ask's
+        if (!limited.isEmpty()) reply = reply + "\n\n" + limited;
         // where each translation this turn filed puts what its checks still doubt, as the run was filed
         if (!translationsThisTurn.isEmpty()) reply = reply + "\n\n" + String.join("\n", translationsThisTurn);
-        // what the model asked to change in the library, said by the library and done only on the person's yes
-        if (!actsThisTurn.isEmpty()) reply = reply + "\n\n" + String.join("\n", actsThisTurn);
+        // what the model asked to change in the library, said by the library and done only on the person's yes; once: the model, which saw the
+        // library's question under earlier replies, wrote it out itself as well, and the page showed one question two and three times (2026-11-19)
+        if (!actsThisTurn.isEmpty() || reply.contains(heldPrefix())) reply = withoutHeldCopies(reply);
+        if (!actsThisTurn.isEmpty()) reply = (reply.isEmpty() ? "" : reply + "\n\n") + String.join("\n", actsThisTurn);
         // the library's own question, once, under the reply: every run of this turn that waits for the person's answer
         if (!offeredThisTurn.isEmpty()) reply = reply + "\n\n" + offerLine(offeredThisTurn);
         askedThisTurn = !offeredThisTurn.isEmpty();   // known from the turn itself, never read off the end of a sentence in the person's language
@@ -774,6 +781,7 @@ public class Librarian {
         if (declinedThisTurn == null && !ownReply && store != null) { String under = ChatPicture.under(store, words, reply, toolsCalled, offeredThisTurn.isEmpty()); if (!under.isEmpty()) reply = reply + "\n\n" + under; }
         ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", reply); a.put("at", System.currentTimeMillis());
         if (ownReply) a.put("by", "library");   // the library's own sentence, marked as its other lines are
+        shown(a);   // the library's own pictures the reply names, and their gallery: shown under it by the library, on the record beside the words
         session.append(a);
         Pages.modelAnswered(store);   // a model has answered this library: the chat is the home from now on
         record(words, toolsCalled, unbacked.size(), System.currentTimeMillis() - t0, declinedThisTurn != null || !partlyDeclined.isEmpty());
@@ -958,7 +966,7 @@ public class Librarian {
             Map.entry("library_search", "Search the shelves for a term; returns hits with id, title and snippet. Open one with library_get."),
             Map.entry("library_get", "Open one entry by its full id (F-…, I-…, A-…, a raw file); a section or a slice when it is long. in=<language> reads a report in that language, translated by the model and kept."),
             Map.entry("library_research", "File a research run on a question. It takes a while; sources=shelves keeps it to what is held, collections narrows it. max_minutes or max_turns caps it when the person gives a time or a count of steps, paid=false keeps it to the free search places, and model names one of the library's models for it. choices (two to eight names) with choice_question holds the run until the person picks one: the library asks them under your reply, so ask nothing yourself."),
-            Map.entry("library_job", "How a research run is going, by job id; op=stop ends it; op=choose with choice answers a run that waits for one of its named choices."),
+            Map.entry("library_job", "How a research run is going, by job id; op=stop ends it; op=choose with choice answers a run that waits for one of its named choices; op=limit with minutes sets the time limit of a picture collection that runs, when the person gives one after it started."),
             Map.entry("library_inbox", "What waits for the person: drafts to accept, dispute or retire; op=list, or a decision with ids."),
             Map.entry("library_frontier", "The open questions: list them, add one, move one next or later, park, drop."),
             Map.entry("library_map", "The graph around a name: what connects to it, with the claims behind each edge."),
@@ -968,7 +976,7 @@ public class Librarian {
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
             Map.entry("library_help", "Questions about ResearchZosho itself: what it is, which version runs, what it can and cannot do, how to do something in it, why something does not work. From the program's own documentation and its live state; the question in English words."),
             Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; a comic (a CBZ, a CBR or a ZIP of page pictures) is translated the same way, its pages read and the translation set into the balloons: comic=on when the person says a PDF is a manga, a manhwa, a manhua, a webtoon, a comic, a graphic novel or a bande dessinée, comic=off when they say a file is a document; from = the language the document is written in or the comic is lettered in, only when the person names it (\"from Korean\"), else the library finds it; reads = right-to-left when the person says the comic reads from the right or calls a comic that is not Japanese a manga, left-to-right when they say it reads from the left, and no reads argument when they say neither; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists; direction = the person's own words for the voice, the tone or the wording when they give one (\"as if you were Shakespeare\", \"it is a comedy, keep it whimsical\", \"mind the puns\"), copied as they wrote them, never your summary, and left out when they give none: a run with one waits for their yes to the question the library shows; notes=end when the person asks for what the checks doubt (the notes) at the end of the document, notes=off when they ask for no notes, and no notes argument when they say neither. The answer is the plan with the time and any cost; the library says under your reply where the doubts go; the run's result has the file."),
-            Map.entry("library_images", "Pictures: op=find words=… returns candidates from the web (each with its page, title, engine and a small copy); keep=true puts them on the shelves (/images/<file>); criteria=… has the seeing model judge each (yes, no, unsure, one sentence why). op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
+            Map.entry("library_images", "Pictures. A collection (the person wants a number of pictures, or pictures with rules: a size, a shape, AI or not, each different, a time) is op=collect: fill the form from the person's request, words (what the pictures are of), kind (person for a real person, character for a fictional one, other for anything else), shows (what each must show), count, min_width and min_height (pixels; 4K is 3840 by 2160), orientation, format, ai (ok or no), name, shows and differ_by with differ_quote (each copied exactly from the person's request; the library checks the words are there and drops a field whose words are not; distinct pictures are kept distinct anyway), minutes, keep_full, each only where the request says it; the library shows the form to the person, runs it on their yes, and the pictures appear on the Pictures page, /images?collection=<job>, never a folder on disk. op=find words=… returns a few candidates from the web to look at; criteria=… has the seeing model judge each; keeping what is found is a collection (keep=true files one, as op=collect does). The library shows under your reply the pictures and the gallery your reply names by their addresses; write them as plain addresses. op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
             Map.entry("library_survey", "A code repository, a paper, a website or an issue tracker (a path or a url): read, shelved, one draft claim on what it is, and numbered research directions offered; op=pick runs the ones chosen, op=do runs the person's own."),
@@ -1179,6 +1187,28 @@ public class Librarian {
         return r;
     }
 
+    /**
+     * A time limit the person sets after a picture collection started ("o do not spend more than 30 min"), read from their words as a
+     * research run's limit is ({@link RunLimits}), set on every collection this conversation follows that is queued or running; the line
+     * said under the reply, "" when nothing was set. On 2026-11-19 the person's limit, said after the yes, reached nothing.
+     */
+    String collectionsLimited(String words) {
+        if (store == null || words == null || words.isBlank()) return "";
+        int minutes = RunLimits.fromWords(words).maxMinutes();
+        if (minutes <= 0) return "";
+        List<String> said = new ArrayList<>();
+        Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("read only"); });
+        for (String id : session.watched()) {
+            try {
+                ObjectNode j = jobs.get(id);
+                if (j == null || !Collection.JOB_KIND.equals(j.path("kind").asText()) || !Set.of("queued", "running").contains(j.path("state").asText())) continue;
+                Collection.limit(store, id, minutes);
+                said.add(t("Picture collection {0}, as you asked: it ends {1} minutes after it started, at the latest.", id, minutes));
+            } catch (IOException | RuntimeException ignored) { }
+        }
+        return String.join(" ", said);
+    }
+
     /** The line under the reply that says back what the person's words set for each run of this turn: "Research run J-0012, as you asked: up to 30 minutes, from the shelves only." */
     private String limitsLine() {
         List<String> parts = new ArrayList<>();
@@ -1298,8 +1328,8 @@ public class Librarian {
             // every candidate's pictures with the model
             case "homes", "look", "candidates", "sift" -> true;
             // a run's job: everything but a look at it (S13): pausing the runner, stopping a run, answering a run's question are the person's
-            case "library_job" -> !op.isEmpty() && !Set.of("status", "list", "read").contains(op);
-            case "library_images" -> op.equals("keep") || args.path("keep").asBoolean(false) || localPicture(args);
+            case "library_job" -> !op.isEmpty() && !Set.of("status", "list", "read", "limit").contains(op);   // limit: a time the person set for a running collection, only ever shorter than none
+            case "library_images" -> op.equals("keep") || op.equals("collect") || args.path("keep").asBoolean(false) || localPicture(args);
             case "library_add" -> {
                 String path = args.path("path").asText("").strip();
                 if (!path.isEmpty() && !path.matches("(?i)^https?://.*") && args.path("mode").asText("").strip().equalsIgnoreCase("survey")) yield false;   // a folder's counts and sizes, read and added nowhere: the read-in that follows is asked about
@@ -1308,6 +1338,21 @@ public class Librarian {
             }
             default -> false;
         };
+    }
+
+    /**
+     * A find that keeps, asked for in the chat, as the collection it is (0.8.0): the same form read from the person's own request, the same
+     * grounding, question, measuring, gallery and end; the model's search words and criteria are its reading and do not narrow it. A find
+     * without keep stays a look. On 2026-11-19 the chat's model asked for a find with keep three times for one request of a number of
+     * pictures with rules, and nothing of the collection ran: no measuring, no gallery, 5 of 35 kept.
+     */
+    static JsonNode keepingIsCollecting(String name, JsonNode args) {
+        if (!"library_images".equals(name) || args == null || !args.path("keep").asBoolean(false)) return args;
+        String op = args.path("op").asText("find").strip().toLowerCase(Locale.ROOT);
+        if (!op.equals("find") && !op.isEmpty()) return args;
+        ObjectNode c = M.createObjectNode(); c.put("op", "collect");
+        if (args.hasNonNull("collection")) c.set("collection", args.get("collection"));
+        return c;   // no words: the form is read from the person's request before the question (held)
     }
 
     /** Whether a picture call names a picture of this computer: a path, not an address on the web nor one of the library's (/images/…). */
@@ -1334,6 +1379,10 @@ public class Librarian {
         }
         if ((name.equals("library_items") || name.equals("library_questions")) && a.path("as").asText("").equalsIgnoreCase("runs"))
             return t("start a research run for each of these: \"{0}\"", clip(firstOf(a, "text", "items"), 300));
+        if (name.equals("library_images") && op.equals("collect")) {   // the form the model filled, in plain words: the person's yes, or what they add, is the check (0.8.0)
+            CollectionForm form = CollectionForm.fromArgs(a);
+            return form.words().isEmpty() ? t("collect pictures for the request: \"{0}\"", clip(form.ask(), 300)) : form.said(Chrome.now());
+        }
         return switch (name) {
             case "homes" -> t("start a home search: \"{0}\"", clip(firstOf(a, "words"), 300));
             case "look" -> t("look at the video {0} with the model and keep what it shows", clip(firstOf(a, "video").isEmpty() ? a.path("videos").toString() : firstOf(a, "video"), 300));
@@ -1421,11 +1470,48 @@ public class Librarian {
         return "ERROR: the person in this conversation reads this library and may not change it, so the library ran nothing (" + name + ") and asks them nothing about it.";
     }
 
+    /** How the library's question about a held act begins, in the person's language: the model may never write it itself. */
+    static String heldPrefix() { String q = t("The model asks to {0}. Do it? (yes, no, or tell me more)", "\u0000"); int at = q.indexOf('\u0000'); return at <= 0 ? "The model asks to" : q.substring(0, at).strip(); }
+
+    /** The model's words without the library's question copied into them: every line (and the rest of a line cut short) that begins as the library's question does. */
+    static String withoutHeldCopies(String reply) {
+        String prefix = heldPrefix();
+        StringBuilder out = new StringBuilder();
+        for (String line : reply.split("\n", -1)) {
+            if (line.replaceFirst("^[\\s>*_#-]+", "").startsWith(prefix)) continue;   // also quoted, bulleted or in bold
+            if (out.length() > 0) out.append('\n');
+            out.append(line);
+        }
+        return out.toString().replaceAll("\n{3,}", "\n\n").strip();
+    }
+
+    /** What the library shows under a reply: the kept pictures and the collections its words name ({@link ChatShown}), on its record. */
+    private void shown(ObjectNode reply) {
+        ObjectNode shown = ChatShown.of(store, reply.path("content").asText(""));
+        if (shown != null) reply.set("shown", shown);
+    }
+
     /** A call that waits for the person's yes: kept with the conversation's questions, asked under the reply in the library's words, and the model told nothing was done. */
     private String held(String name, JsonNode args) throws IOException {
         ObjectNode call = M.createObjectNode(); call.put("name", name);
         ObjectNode a = args != null && args.isObject() ? ((ObjectNode) args).deepCopy() : M.createObjectNode();
         a.remove("patron"); a.remove("allow");   // a field the model passed stays: done, it is put to the person as a question, as it would have been
+        boolean collect = name.equals("library_images") && a.path("op").asText("").strip().equalsIgnoreCase("collect");
+        if (collect) {
+            // a collection: the form as the model filled it from the person's request, and the person's own words beside it for the judge;
+            // what is held is what the question shows in plain words, and what the yes runs: the person's yes, or what they add, is the check
+            String words = personWords == null ? "" : personWords;
+            if (assent(words) && previousPersonWords() != null) words = previousPersonWords();
+            // only what the person's own words say narrows it: a field the model read in that the words do not hold is dropped, and not asked
+            CollectionForm given = CollectionForm.fromArgs(a).withAsk(words);
+            // the model passed the request alone: the form is read from it now, by the chat's model, so the question shows the rules the yes runs
+            if (given.words().isEmpty() && drive != null) { CollectionForm read = Collection.fill(drive, given.ask().isEmpty() ? words : given.ask()); if (read != null) given = read.withAsk(words).withKeepFull(given.keepFull()); }
+            CollectionForm.Grounded grounded = given.grounded(words);
+            CollectionForm form = grounded.form();
+            ObjectNode filled = form.json(M);
+            if (!grounded.dropped().isEmpty()) { ArrayNode dr = filled.putArray("dropped"); grounded.dropped().forEach(dr::add); }   // kept on the job for reading, never asked
+            a.removeAll(); a.setAll(filled);
+        }
         call.set("args", a);
         call.put("words", personWords);   // the person's words of the turn it was proposed in: what they set for it (a mode, a time) is read from them when it is done
         call.put("before", previousPersonWords());   // and the turn before it, which a bare yes to the model's offer carries
@@ -1437,7 +1523,9 @@ public class Librarian {
         boolean closes = phrase.matches("(?s).*[.?!]\"$");   // a quoted question or sentence ends the phrase: no full stop after it
         String question = (closes ? t("The model asks to {0} Do it? (yes, no, or tell me more)", phrase) : t("The model asks to {0}. Do it? (yes, no, or tell me more)", phrase))
                 + (readThisTurn.isEmpty() ? "" : " " + t("The model asks this after reading {0}.", String.join(", ", readThisTurn)))   // in the library's voice: a careless yes is less likely
-                + (phrase.contains(said) ? "" : " " + t("Exactly: {0}", said));   // the call itself beside the plain words: what the yes does is this, every argument of it (round F, S14)
+                + (phrase.contains(said) || collect ? "" : " " + t("Exactly: {0}", said));   // the call itself beside the plain words: what the yes does is this, every argument of it (round F, S14); a collection's form says every rule in plain words (0.8.0)
+        // the same act asked twice in one turn (two finds that keep, read into one form from the person's words) is one question, asked once
+        if (actsThisTurn.contains(question)) return "NOT DONE YET: the same request is already put to the person under your reply: " + said + ". Say in one sentence that it waits for their answer.";
         session.offerChoice(ACT + Base64.getUrlEncoder().withoutPadding().encodeToString(M.writeValueAsBytes(call)), question, List.of("yes", "no"));
         actsThisTurn.add(question);
         return "NOT DONE YET: the library asks the person under your reply and does it only on their yes: " + said
@@ -1482,7 +1570,8 @@ public class Librarian {
                 + (partlyDeclined.isEmpty() ? "" : "\n\n" + String.join("\n\n", partlyDeclined));
         translationsThisTurn.clear(); limitsThisTurn.clear(); partlyDeclined.clear();
         List<String> runs = new ArrayList<>();
-        if (STARTS_RUNS.contains(call.path("name").asText("")) || call.path("name").asText("").equals("library_translate")) {   // the chat follows the runs a yes starts
+        boolean collected = call.path("name").asText("").equals("library_images") && call.path("args").path("op").asText("").equalsIgnoreCase("collect");
+        if (STARTS_RUNS.contains(call.path("name").asText("")) || call.path("name").asText("").equals("library_translate") || collected) {   // the chat follows the runs a yes starts
             Matcher jm = JOB_ID.matcher(r);
             while (jm.find()) if (!runs.contains(jm.group(1))) { runs.add(jm.group(1)); session.watch(jm.group(1)); }
         }
@@ -1493,7 +1582,8 @@ public class Librarian {
             if (!r.strip().startsWith("{")) throw new IOException("not a result of the library's own");   // a text answer: a leading number is no JSON
             JsonNode j = M.readTree(r);
             // a run's result speaks to the model ("say in one sentence …"): the person reads the runs filed, in their language
-            note = !runs.isEmpty() ? t("Filed: {0}. This chat says when it is done.", String.join(", ", runs)) : j.path("note").asText(j.path("summary").asText(j.path("text").asText("")));
+            note = collected ? j.path("note").asText(j.path("summary").asText(""))   // the collection: filed, in plain words, and where the pictures show
+                    : !runs.isEmpty() ? t("Filed: {0}. This chat says when it is done.", String.join(", ", runs)) : j.path("note").asText(j.path("summary").asText(j.path("text").asText("")));
             for (JsonNode o : j.path("options")) if (o.has("n") && o.has("question")) note += "\n" + o.path("n").asText() + ". " + o.path("question").asText();   // a survey's directions, to pick from
         } catch (Exception notJson) {
             // an instrument's answer (what the look found, the home search filed) is the person's to read: the model hears it next turn
@@ -2053,7 +2143,9 @@ public class Librarian {
         public String told(String jobId, RunProgress.View v) throws IOException {
             String error = v.state().equals("failed") ? ModelsTurn.firstLine(v.result()) : "";
             ModelEntries.Entry ranOn = error.isEmpty() ? null : ModelsTurn.ranOn(v.model(), v.drive());
-            String notice = v.translates() ? translationTold(jobId, v, error)   // a document's translation: who did what in it, and what a hosted model cost
+            ObjectNode collection = Collection.JOB_KIND.equals(v.kind()) ? Collection.manifestUnder(file, jobId) : null;
+            String notice = collection != null ? t("The picture collection {0} is done after {1}.", jobId, RunProgress.elapsed(v.elapsedSeconds())) + " " + Collection.told(collection, Chrome.now())   // how many, why it ended, and the gallery's address
+                    : v.translates() ? translationTold(jobId, v, error)   // a document's translation: who did what in it, and what a hosted model cost
                     : v.state().equals("done") && v.report().isEmpty() && !v.declined().isEmpty()
                     ? t("Research run {0} ended after {1}.", jobId, RunProgress.elapsed(v.elapsedSeconds())) + " " + v.declined()   // the model declined it: nothing to show
                     : v.state().equals("done")
@@ -2066,6 +2158,8 @@ public class Librarian {
                       + " " + t("Say \"what happened\" and I will look.")
                     : t("Research run {0} ended as {1} after {2}. Say \"what happened\" and I will look.", jobId, t(v.state()), RunProgress.elapsed(v.elapsedSeconds()));
             ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", notice); a.put("by", "library");   // the library's own line, labelled as its other lines are, never as the model's words
+            ObjectNode shown = collection == null ? null : ChatShown.collection(collection, jobId);   // a collection's end: its gallery and its pictures, shown by the library
+            if (shown != null) a.set("shown", shown);
             if (gone()) return notice;   // its conversation was deleted while this object held it: announced nowhere, and nothing written back
             append(a);
             List<String> lines = new ArrayList<>();
@@ -2150,11 +2244,16 @@ public class Librarian {
         public String day() { return id.length() >= 12 && id.startsWith("C-") ? id.substring(2, 12) : ""; }
 
         /** A line the conversation's first reply begins with ("This is a new conversation; the earlier one … is on the list"), set by whoever opened it; spent on that reply. */
-        private String opening;
-        public void opening(String line) { opening = line == null || line.isBlank() ? null : line; }
+        /** Where the line a conversation was opened with is kept: a note the page shows above it, never a part of a reply (the owner, 2026-11-19: it "does not belong under an answer to a new request"). */
+        Path openingFile() { return file.resolveSibling(id + ".opening"); }
+        public void opening(String line) {
+            if (line == null || line.isBlank() || gone()) return;
+            try { Files.createDirectories(file.getParent()); Files.writeString(openingFile(), line.strip(), StandardCharsets.UTF_8); } catch (IOException ignored) { }
+        }
+        /** The line this conversation was opened with ("This is a new conversation; the earlier one … is on the list"), "" for none. */
+        public String openingNote() { try { return Files.isRegularFile(openingFile()) ? Files.readString(openingFile(), StandardCharsets.UTF_8).strip() : ""; } catch (IOException e) { return ""; } }
 
         void append(ObjectNode m) throws IOException {
-            if (opening != null && "assistant".equals(m.path("role").asText()) && m.has("at") && !m.has("tool_calls")) { m.put("content", opening + "\n\n" + m.path("content").asText("")); opening = null; }   // the first reply begins with the line
             messages.add(m);
             if (gone()) return;   // deleted while held: the turn that is ending keeps it in memory, and nothing is written
             Files.writeString(file, m.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -2162,6 +2261,16 @@ public class Librarian {
         }
 
         public List<ObjectNode> messages() { return List.copyOf(messages); }
+
+        /** How many messages the conversation holds, for {@link #repliesSince}. */
+        public int size() { return messages.size(); }
+
+        /** The replies added since that many messages, with what the library showed under each: the terminal prints them with full addresses. */
+        public List<ObjectNode> repliesSince(int from) {
+            List<ObjectNode> out = new ArrayList<>();
+            for (int i = Math.max(0, from); i < messages.size(); i++) if ("assistant".equals(messages.get(i).path("role").asText()) && !messages.get(i).has("tool_calls")) out.add(messages.get(i));
+            return out;
+        }
 
         /** The first thing the person said, for a list. */
         public String title() { for (JsonNode m : messages) if ("user".equals(m.path("role").asText())) return Acquisitions.compress(m.path("content").asText(""), 70); return "(empty)"; }

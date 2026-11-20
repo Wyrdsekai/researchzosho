@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * {@code researchzosho images find <words…> [--count N] [--keep] [--judge "<criteria>"] [--collection <name>]}, {@code images describe
@@ -28,6 +29,9 @@ final class ImagesCli {
             + "       researchzosho images judge \"<criteria>\" [--like <reference>] <url | path | kept file | entry>…\n"
             + "       researchzosho images like <url | path | kept file | entry> [<words…>] [--what person|place|object|…] [--concept \"<aspect>\"] [--count N] [--keep] [--collection <name>]\n"
             + "       researchzosho images likeness install | status | serve [--bind ADDR] [--port N] [--secret-file FILE]      (the likeness helper: CLIP for pictures, SFace for faces, on the CPU; serve gives it to other machines)\n"
+            + "       researchzosho images collect <words…> [--shows \"<what each shows>\"] [--count N] [--min-width W] [--min-height H] [--orientation landscape|portrait|square] [--format png|jpg|webp] [--ai ok|no] [--differ-by \"<what differs>\"] [--minutes N] [--keep-full] [--ask \"<the request in words>\"] [--wait]\n"
+            + "       researchzosho images collection <job>      (a collection's pictures: each one's size, page, address and why it passed)\n"
+            + "  collect: a collection of pictures as a job. A model chooses where to look and with what words; the program measures each picture's size, shape and format from its file, reads what the file declares about AI, counts near-duplicates once, has the seeing model judge what each shows, and keeps what passed as its address and a small copy (--keep-full keeps the files). --ask alone has the model read the rest from the request. The Pictures page shows it as a gallery; --wait follows it here.\n"
             + "  like: a picture as the ask. The seeing model describes the reference, the candidates are found for its words and yours, and each is judged beside it: the same person, place or thing (--what says which; person unless said), or, with --concept, like it in the aspect you name. The reference given as a path is kept on the shelves as yours.\n"
             + "  find: pictures for the words, from Brave when its key is kept and from the library's SearXNG, each said with the page it stands on; --keep fetches them onto the shelves (catalog/images/, shown at /images/<file>), --judge asks the seeing model whether each shows the criteria.\n"
             + "  describe: the seeing model's words about one picture, and its answer to the question when one is given. judge: yes, no or unsure for each picture, with one sentence why.\n"
@@ -73,6 +77,11 @@ final class ImagesCli {
                     if (!criteria.isEmpty()) a.put("criteria", criteria);
                     if (!collection.isEmpty()) a.put("collection", collection);
                     JsonNode r = p.images(a);
+                    if (r.hasNonNull("job_id")) {   // keeping found pictures is a collection: filed, and followed with images collection <job>
+                        System.out.println(ChatShown.forTerminal(r.path("summary").asText(), ChatShown.address(store)));
+                        System.out.println("researchzosho images collection " + r.path("job_id").asText() + " lists what it kept.");
+                        return 0;
+                    }
                     System.out.println(r.path("summary").asText());
                     int i = 0;
                     for (JsonNode f : r.path("found")) {
@@ -85,6 +94,57 @@ final class ImagesCli {
                         for (JsonNode k : r.path("not_kept")) if (k.path("image").asText().equals(f.path("image").asText())) System.out.println("   not kept: " + k.path("why").asText());
                     }
                     return r.path("found").size() == 0 ? 1 : 0;
+                }
+                case "collect" -> {
+                    List<String> words = new ArrayList<>(); boolean wait = false;
+                    for (int i = 3; i < args.length; i++) {
+                        String f = args[i];
+                        switch (f) {
+                            case "--count", "-n", "--min-width", "--min-height", "--minutes" -> {
+                                String v = LibrarianCli.flagValue(args, i++);
+                                try { a.put(f.equals("-n") ? "count" : f.substring(2).replace('-', '_'), Integer.parseInt(v)); } catch (NumberFormatException e) { System.err.println(f + " takes a number."); return 2; }
+                            }
+                            case "--shows", "--orientation", "--format", "--ai", "--differ-by", "--ask" -> a.put(f.substring(2).replace('-', '_'), LibrarianCli.flagValue(args, i++));
+                            case "--keep-full" -> a.put("keep_full", true);
+                            case "--wait" -> wait = true;
+                            default -> { if (f.startsWith("--")) { System.err.println(USAGE); return 2; } words.add(f); }
+                        }
+                    }
+                    if (words.isEmpty() && a.path("ask").asText("").isBlank()) { System.err.println("Say what the pictures are of: researchzosho images collect red fox in snow --count 30"); return 2; }
+                    a.put("op", "collect"); if (!words.isEmpty()) a.put("words", String.join(" ", words));
+                    JsonNode r = p.images(a);
+                    System.out.println(ChatShown.forTerminal(r.path("summary").asText(), ChatShown.address(store)));
+                    if (!wait) return 0;
+                    String id = r.path("job_id").asText("");
+                    Jobs jobs = new Jobs(store, j -> { throw new IllegalStateException("followed only"); });
+                    String last = "";
+                    while (true) {
+                        ObjectNode j = jobs.get(id);
+                        if (j == null) break;
+                        String phase = j.path("progress").path("phase").asText("");
+                        if (!phase.isEmpty() && !phase.equals(last)) { System.out.println("  " + phase); last = phase; }
+                        String st = j.path("state").asText("");
+                        if (!st.equals("queued") && !st.equals("running") && !st.equals(Jobs.OFFERED)) break;
+                        try { Thread.sleep(3000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return 1; }
+                    }
+                    ObjectNode m = Collection.manifest(store, id);
+                    System.out.println(m == null ? "The collection " + id + " ended with nothing kept." : ChatShown.forTerminal(Collection.told(m, Chrome.ENGLISH), ChatShown.address(store)));
+                    return m == null || m.path("passed").isEmpty() ? 1 : 0;
+                }
+                case "collection" -> {
+                    if (args.length < 4) { System.err.println(USAGE); return 2; }
+                    ObjectNode m = Collection.manifest(store, args[3]);
+                    if (m == null) { System.err.println("No collection is filed as " + args[3] + "."); return 1; }
+                    System.out.println(m.path("said").asText());
+                    for (JsonNode x : m.path("passed")) {
+                        System.out.println(x.path("n").asInt() + ". " + (x.path("title").asText("").isBlank() ? "A picture" : x.path("title").asText()) + " — " + x.path("width").asInt() + "×" + x.path("height").asInt() + " " + x.path("format").asText("").toUpperCase(Locale.ROOT));
+                        System.out.println("   page: " + (x.path("page").asText("").isBlank() ? "(none given)" : x.path("page").asText()));
+                        System.out.println("   image: " + x.path("image").asText());
+                        if (!x.path("provenance").asText("").isBlank()) System.out.println("   record: " + x.path("provenance").asText());
+                        System.out.println("   why: " + x.path("why").asText() + (x.path("value").asText("").isBlank() ? "" : " (" + x.path("value").asText() + ")"));
+                    }
+                    if (m.hasNonNull("stopped")) System.out.println(Collection.told(m, Chrome.ENGLISH));
+                    return 0;
                 }
                 case "describe" -> {
                     if (args.length < 4) { System.err.println(USAGE); return 2; }

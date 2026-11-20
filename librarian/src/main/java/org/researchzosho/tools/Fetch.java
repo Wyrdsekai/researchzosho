@@ -19,6 +19,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.InflaterInputStream;
 
 import java.util.Map;
+import java.util.function.Predicate;
 
 import org.researchzosho.librarian.SourceRules;
 /**
@@ -228,7 +229,15 @@ public final class Fetch {
     public static Result get(String url, Duration timeout, Map<String, String> headers) throws Exception { return get(url, timeout, headers, Policy.DEFAULT); }
 
     /** The same, under {@code policy}. */
-    public static Result get(String url, Duration timeout, Map<String, String> headers, Policy policy) throws Exception {
+    public static Result get(String url, Duration timeout, Map<String, String> headers, Policy policy) throws Exception { return get(url, timeout, headers, policy, 0, null, MAX_BYTES); }
+
+    /**
+     * The same, read head first (0.8.0, picture collections): the first {@code peek} bytes of the body are given to {@code goOn}, and a
+     * false ends the reading there, the result carrying those bytes alone; a true reads on to the end, up to {@code maxBytes}. A picture's
+     * size is in its first bytes, so a picture too small for what was asked is not downloaded whole. A body the server compressed is read
+     * whole, as before.
+     */
+    public static Result get(String url, Duration timeout, Map<String, String> headers, Policy policy, int peek, Predicate<byte[]> goOn, int maxBytes) throws Exception {
         Policy p = policy == null ? Policy.DEFAULT : policy;
         String current = url;
         String firstHost = URI.create(url).getHost();
@@ -257,11 +266,18 @@ public final class Fetch {
                 continue;
             }
             byte[] body;
-            try (InputStream in = resp.body(); Stopping.Guard g = Stopping.body(in, timeout, MIN_BYTES_PER_SECOND, MAX_BYTES)) {
-                try { body = g.stream().readNBytes(MAX_BYTES + 1); } finally { g.rethrow(site); }
-            }
-            if (body.length > MAX_BYTES) throw new IllegalStateException("the body exceeds " + MAX_BYTES + " bytes; not read");
             String enc = resp.headers().firstValue("Content-Encoding").orElse("").toLowerCase(Locale.ROOT);
+            boolean head = peek > 0 && goOn != null && status == 200 && enc.isEmpty();
+            try (InputStream in = resp.body(); Stopping.Guard g = Stopping.body(in, timeout, MIN_BYTES_PER_SECOND, maxBytes)) {
+                try {
+                    if (head) {
+                        byte[] first = g.stream().readNBytes(peek);
+                        if (first.length < peek || !goOn.test(first)) body = first;   // the whole body was shorter, or the caller has what it needs
+                        else { byte[] rest = g.stream().readNBytes(maxBytes + 1 - first.length); body = new byte[first.length + rest.length]; System.arraycopy(first, 0, body, 0, first.length); System.arraycopy(rest, 0, body, first.length, rest.length); }
+                    } else body = g.stream().readNBytes(maxBytes + 1);
+                } finally { g.rethrow(site); }
+            }
+            if (body.length > maxBytes) throw new IllegalStateException("the body exceeds " + maxBytes + " bytes; not read");
             return new Result(canonical(current), status, decode(body, enc), resp.headers().firstValue("Content-Type").orElse(""));
         }
         throw new IllegalStateException("too many redirects from " + url);

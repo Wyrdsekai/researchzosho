@@ -308,6 +308,13 @@ public final class LibrarianDaemon {
                 try { return VideoRecall.runJob(store, job, p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid)); }
                 catch (IOException e) { throw new UncheckedIOException(e); }
             }
+            case Collection.JOB_KIND -> {   // a collection of pictures: the model chooses each search, the program measures and keeps what passed (0.8.0)
+                String jid = job.path("job_id").asText("");
+                ModelEntries.Entry entry = JOB_ENTRY.get();
+                try (Checkpoint cp = checkpoint(job, Checkpoint.basisOf(jid))) {   // its work is in its manifest; the checkpoint tells the service it goes forward
+                    return Collection.runJob(store, job, d, entry != null ? entry.model() : model(), p -> { try { jobs.progress(jid, p); } catch (IOException ignored) { } }, () -> !jid.isEmpty() && jobs.stopRequested(jid), cp);
+                } catch (IOException e) { throw new UncheckedIOException(e); }
+            }
             case Translation.JOB_KIND -> {   // a document a person handed over, translated unit by unit and written out in a format, with its note; onto the shelves with the original
                 String jid = job.path("job_id").asText("");
                 try (Checkpoint cp = checkpoint(job, Translation.basis(job))) {   // unit by unit: a restart resumes it where it was
@@ -629,7 +636,7 @@ public final class LibrarianDaemon {
         if (vouching != null && doorPort >= 0) throw new IOException("A library under an account service has no shared door: it is reached through the service alone.");
         Lease lease = vouching != null && epoch > 0 ? Lease.acquire(store, epoch, vouching.service) : Lease.acquire(store);   // one daemon per library; refused with the holder's pid otherwise
         HttpServer s;
-        try { s = HttpServer.create(new InetSocketAddress(host, port), 0); } catch (IOException e) { lease.close(); throw e; }
+        try { s = HttpServers.create(new InetSocketAddress(host, port), 0); } catch (IOException e) { lease.close(); throw e; }
         // The Librarian's endpoint serves THE LIBRARY: a patron must not reach `fix` or `secure` through it
         // (seen 2026-09-03 — a Claude Code session registered against /rpc listed every codezaiku tool).
         McpServer.setToolFilter(vouching == null ? n -> n.startsWith("library_") : n -> n.startsWith("library_") && (!Hosted.any() || Hosted.offered(n)));   // a hosted library's list leaves the machine's tools out, while one runs in this process
@@ -650,6 +657,7 @@ public final class LibrarianDaemon {
         s.createContext("/", x -> d.handle(new PerRequest(x)));   // each request's marks are its own: the server's are shared by every request
         s.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-http"); t.setDaemon(true); return t; }));
         s.start();
+        ChatShown.recordAddress(store, d.url());   // where its pages are, for the full addresses the chat in a terminal prints
         if (doorPort >= 0) { try { d.openDoor(doorPort); } catch (IOException e) { d.stop(); throw e; } }
         // once per library, before any run: the runs of fields that act only when asked, from before runs were recorded, go into the ledger
         try { Fields.Migrated m = Fields.migrate(store); if (m != null) Crews.log(store, "upgrade", "fields ledger: " + m.fromLog() + " run(s) from the research log, " + m.byCommand() + " filed by a field's own command, " + m.fromQuestions() + " that researched a question a field's own command filed" + (m.notes().isEmpty() ? "" : ". " + String.join(" ", m.notes())), 0); }
@@ -672,7 +680,7 @@ public final class LibrarianDaemon {
     /** Opens the shared door at a port on this machine's loopback (0 = any free one); nothing when it is open. The service's watcher calls this when `share` is on. */
     public synchronized void openDoor(int port) throws IOException {
         if (door != null) return;
-        HttpServer d2 = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 0);
+        HttpServer d2 = HttpServers.create(new InetSocketAddress("127.0.0.1", port), 0);
         d2.createContext("/", x -> { HttpExchange own = new PerRequest(x); own.setAttribute(DOOR, Boolean.TRUE); handle(own); });
         d2.setExecutor(Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "librarian-door"); t.setDaemon(true); return t; }));
         d2.start();

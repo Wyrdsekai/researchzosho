@@ -35,6 +35,10 @@ dependencies {
     // Daitch-Mokotoff sound codes, so a family check finds one surname in two spellings (Hale, Hail) (Apache Commons Codec, Apache-2.0, about 370 KB)
     implementation("commons-codec:commons-codec:1.20.0")
 
+    // WebP pictures, read through ImageIO like JPEG and PNG (a picture collection met WebP among the web's pictures and could not open it).
+    // TwelveMonkeys ImageIO, pure Java, BSD 3-Clause; the WebP reader and the TwelveMonkeys parts it needs, about 400 KB together.
+    implementation("com.twelvemonkeys.imageio:imageio-webp:3.12.0")
+
     // HTTP: java.net.http, no dependency. The daemon: com.sun.net.httpserver, no dependency.
 }
 
@@ -107,6 +111,9 @@ tasks.test {
     // and a test with no request timeout then hangs the whole suite (PagesTest, 2026-10-15, an hour under a loaded box). The pool drops
     // a connection idle for a second, so every request after a pause takes a fresh one.
     systemProperty("jdk.httpclient.keepalive.timeout", "1")
+    // the test JVM starts as the program does (Main sets it first): Java 21's HTTP server otherwise holds each answer about 40 ms, and a test's
+    // stand-in server made before the library's would fix the setting off for the whole JVM (HttpServers; HttpAnswersAtOnceTest asks a fresh process)
+    systemProperty("sun.net.httpserver.nodelay", "true")
 
     // GenealogyBoundaryTest writes its baseline when run with -Dboundary.write=true (the list only shrinks; never edit it by hand)
     systemProperty("boundary.write", System.getProperty("boundary.write") ?: "false")

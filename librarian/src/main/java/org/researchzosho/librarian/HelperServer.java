@@ -91,7 +91,7 @@ final class HelperServer implements AutoCloseable {
         if ((secret == null || secret.isBlank()) && !loopback(bind)) throw new IOException("A server listening beyond this machine needs a secret: --secret <words> or --secret-file <file>.");
         Map<String, String> health = new LinkedHashMap<>();
         for (var e : b.proxied().entrySet()) health.put(e.getKey(), healthOf(e.getValue()));
-        HttpServer s = HttpServer.create(new InetSocketAddress(InetAddress.getByName(bind), port), 32);
+        HttpServer s = HttpServers.create(new InetSocketAddress(InetAddress.getByName(bind), port), 32);
         HelperServer h = new HelperServer(s, new LinkedHashMap<>(b.proxied()), new LinkedHashMap<>(b.managed()), new LinkedHashMap<>(b.absent()), b.comic(), health, processes, secret);
         s.createContext("/", h::handle);
         // sixteen: a comic's request holds its thread while the helper works on its pages (seconds; minutes for a first load), and a

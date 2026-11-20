@@ -31,7 +31,7 @@ public final class NodeServer {
 
     /** Listens for the service's calls ({@code port} 0: any free one) and tells the node where, so it writes that into the registry. */
     public static NodeServer start(Node node, AccountStore store, String issuer, String host, int port) throws IOException {
-        HttpServer s = HttpServer.create(new InetSocketAddress(host, port), 0);
+        HttpServer s = HttpServers.create(new InetSocketAddress(host, port), 0);
         NodeServer n = new NodeServer(node, store, issuer, s);
         s.createContext("/", x -> { try { n.handle(x); } finally { x.close(); } });
         s.setExecutor(Executors.newVirtualThreadPerTaskExecutor());

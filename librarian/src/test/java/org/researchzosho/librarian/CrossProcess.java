@@ -3,6 +3,10 @@ package org.researchzosho.librarian;
 import org.researchzosho.Config;
 
 import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -60,6 +64,22 @@ final class CrossProcess {
                 int rc = LibrarianCli.run(new String[]{"librarian", "serve", "--host", "127.0.0.1", "--port", "0", "--no-crews"}, "http://127.0.0.1:1", "stand-in");
                 System.out.flush(); System.err.flush();
                 System.exit(rc);
+            }
+            case "answers" -> {   // a library's server in a fresh process, as the program makes it: the median time of an answer, in ms
+                LibraryStore store = new LibraryStore(Path.of(args[1])); store.init();
+                LibrarianDaemon d = LibrarianDaemon.start(store, "127.0.0.1", 0, "http://127.0.0.1:1", "none", -1);
+                try {
+                    HttpClient c = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+                    URI u = URI.create("http://127.0.0.1:" + d.port() + "/healthz");
+                    List<Long> took = new ArrayList<>();
+                    for (int i = 0; i < 45; i++) {
+                        long t0 = System.nanoTime();
+                        c.send(HttpRequest.newBuilder(u).GET().build(), HttpResponse.BodyHandlers.ofString());
+                        if (i >= 5) took.add((System.nanoTime() - t0) / 1_000_000);
+                    }
+                    took.sort(null);
+                    System.out.println("median " + took.get(took.size() / 2));
+                } finally { d.stop(); }
             }
             default -> throw new IllegalArgumentException(args[0]);
         }

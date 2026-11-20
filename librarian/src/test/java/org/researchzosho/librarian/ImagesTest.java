@@ -228,33 +228,38 @@ class ImagesTest {
         assertEquals("Brave", r.path("found").get(0).path("source").asText()); assertTrue(r.path("found").get(0).has("said") && r.path("found").get(0).has("found"));
         assertEquals("Brave", r.path("engines").get(0).asText()); assertFalse(r.has("kept"));
         assertEquals("Say what pictures to find: words.", assertThrows(ProtocolError.class, () -> p.images(person().put("op", "find"))).getMessage());
-        assertEquals("op is find, keep, describe, judge or like.", assertThrows(ProtocolError.class, () -> p.images(person().put("op", "no-such-op"))).getMessage());
+        assertEquals("op is find, keep, describe, judge, like or collect.", assertThrows(ProtocolError.class, () -> p.images(person().put("op", "no-such-op"))).getMessage());
         // no model sees: judging and describing say what the library has and how one is added
         String noEyes = assertThrows(ProtocolError.class, () -> p.images(person().put("op", "find").put("words", "red fox").put("criteria", "a fox"))).getMessage();
         assertTrue(noEyes.startsWith("No model that sees pictures is set up. The library has: default (qwen3.8-27b, not probed for pictures)."), noEyes);
         assertTrue(assertThrows(ProtocolError.class, () -> { ObjectNode a = person().put("op", "describe"); a.putArray("images").add("https://x.example/a.jpg"); p.images(a); }).getMessage().startsWith("No model that sees pictures"));
-        // keeping, with the find or after it
-        r = p.images(person().put("op", "find").put("words", "red fox").put("count", 2).put("keep", true).put("collection", "foxes"));
-        assertEquals(2, r.path("kept").size()); assertEquals(0, r.path("not_kept").size());
-        assertTrue(r.path("summary").asText().endsWith("2 of 2 pictures are on the shelves under foxes."), r.path("summary").asText());
+        // keeping: a find that keeps is a collection, judged by a seeing model (with none, it says how one is added); found pictures are kept by their addresses
+        assertTrue(assertThrows(ProtocolError.class, () -> p.images(person().put("op", "find").put("words", "red fox").put("count", 2).put("keep", true))).getMessage().startsWith("No model that sees pictures"));
+        JsonNode look = p.images(person().put("op", "find").put("words", "red fox").put("count", 2));
+        ObjectNode some = person().put("op", "keep").put("collection", "foxes"); some.putArray("images").add(look.path("found").get(0));
+        r = p.images(some);
+        assertEquals(1, r.path("kept").size()); assertEquals(0, r.path("not_kept").size());
+        assertTrue(r.path("summary").asText().contains("on the shelves under foxes."), r.path("summary").asText());
         String url = r.path("kept").get(0).path("url").asText(); assertTrue(url.startsWith("/images/") && url.endsWith(".png"), url);
         assertTrue(Files.isRegularFile(store.root().resolve(r.path("kept").get(0).path("file").asText())));
         assertNotNull(RawCapture.find(store, r.path("kept").get(0).path("raw").asText()));
-        ObjectNode keep = person().put("op", "keep"); keep.putArray("images").add("https://cdn.example/icon.svg").add(r.path("found").get(1));
+        ObjectNode keep = person().put("op", "keep"); keep.putArray("images").add("https://cdn.example/icon.svg").add(look.path("found").get(1));
         r = p.images(keep);
         assertEquals(1, r.path("kept").size()); assertEquals(1, r.path("not_kept").size()); assertTrue(r.path("not_kept").get(0).path("why").asText().contains("not a picture the library keeps"));
         assertTrue(assertThrows(ProtocolError.class, () -> p.images(person().put("op", "keep"))).getMessage().startsWith("keep needs images"));
         // a model sees: the verdicts ride with the find and go onto the kept entries; a description comes back as prose
         ModelEntries.Entry eyes = seeingDefault();
         Vision.DRIVES = (d, m) -> eyes("Yes, a red fox on snow.", new ArrayList<>());
-        r = p.images(person().put("op", "find").put("words", "red fox").put("count", 3).put("criteria", "a fox").put("keep", true));
+        r = p.images(person().put("op", "find").put("words", "red fox").put("count", 3).put("criteria", "a fox"));
         assertEquals(3, r.path("verdicts").size()); assertEquals("yes", r.path("verdicts").get(0).path("verdict").asText()); assertEquals("a red fox on snow", r.path("verdicts").get(0).path("why").asText());
         assertTrue(r.path("summary").asText().contains("Judged against \"a fox\" by default: 3 of 3 show it."), r.path("summary").asText());
-        assertEquals(3, r.path("kept").size());
-        // the first two were kept before this judgement: the raw tier keeps the first capture of an address, so their entries stand as they were; the third is new and carries its verdict
-        Path raw = RawCapture.find(store, r.path("kept").get(2).path("raw").asText());
-        assertEquals("yes", RawCapture.field(raw, "verdict")); assertEquals("a red fox on snow", RawCapture.field(raw, "verdict_why"));
-        assertEquals("", RawCapture.field(RawCapture.find(store, r.path("kept").get(0).path("raw").asText()), "verdict"), "kept earlier without a judgement: the first entry stands");
+        assertFalse(r.has("kept"), "a find without keep is a look");
+        // with keep, the same find is filed as a collection: its words, its count, its criteria as what each picture shows
+        r = p.images(person().put("op", "find").put("words", "red fox").put("count", 3).put("criteria", "a fox").put("keep", true));
+        assertEquals("collect", r.path("op").asText()); assertFalse(r.has("kept"));
+        ObjectNode filed = new Jobs(store, x -> { throw new IllegalStateException("read only"); }).get(r.path("job_id").asText());
+        assertEquals(Collection.JOB_KIND, filed.path("kind").asText());
+        assertEquals("red fox", filed.path("args").path("words").asText()); assertEquals(3, filed.path("args").path("count").asInt()); assertEquals("a fox", filed.path("args").path("shows").asText());
         ObjectNode judge = person().put("op", "judge").put("criteria", "a fox"); judge.putArray("images").add(url).add("https://x.example/b.jpg");
         r = p.images(judge);
         assertEquals(2, r.path("verdicts").size()); assertEquals(url, r.path("verdicts").get(0).path("image").asText()); assertEquals("yes", r.path("verdicts").get(1).path("verdict").asText());
@@ -286,11 +291,15 @@ class ImagesTest {
             assertEquals(1, ImagesCli.run(store, new String[]{"researchzosho", "images", "find", "red", "fox", "--judge", "a fox"}), "no model sees");
             assertTrue(e.toString().startsWith("No model that sees pictures is set up."), e.toString());
             e.reset();
-            assertEquals(0, ImagesCli.run(store, new String[]{"researchzosho", "images", "find", "red", "fox", "--count", "1", "--keep"}));
-            assertTrue(o.toString().contains("   kept as 20") && o.toString().contains(".md, shown at /images/"), o.toString());
+            assertEquals(1, ImagesCli.run(store, new String[]{"researchzosho", "images", "find", "red", "fox", "--count", "1", "--keep"}), "keeping is a collection, which a seeing model judges");
+            assertTrue(e.toString().startsWith("No model that sees pictures is set up."), e.toString());
+            e.reset();
             assertEquals(2, ImagesCli.run(store, new String[]{"researchzosho", "images"})); assertTrue(e.toString().startsWith("usage: researchzosho images find"), e.toString());
             o.reset(); e.reset();
             ModelEntries.Entry eyes = seeingDefault();
+            assertEquals(0, ImagesCli.run(store, new String[]{"researchzosho", "images", "find", "red", "fox", "--count", "1", "--keep"}));
+            assertTrue(o.toString().matches("(?s)Filed as (J-\\d+): collect .*as they are found: http://127\\.0\\.0\\.1:\\d+/images\\?collection=\\1.*researchzosho images collection \\1 lists what it kept\\.\n"), "filed, with the gallery's full address: " + o);
+            o.reset();
             Vision.DRIVES = (d, m) -> eyes("No — a red square, not an animal.", new ArrayList<>());
             assertEquals(0, ImagesCli.run(store, new String[]{"researchzosho", "images", "judge", "a fox", "https://x.example/a.jpg"}));
             assertEquals("Judged against \"a fox\" by default (qwen3.8-27b): 0 of 1 show it.\n  https://x.example/a.jpg: no — a red square, not an animal\n", o.toString());

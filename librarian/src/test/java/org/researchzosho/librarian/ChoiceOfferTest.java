@@ -63,7 +63,10 @@ class ChoiceOfferTest {
         String reply = lib.say("yes");   // the model's run waits for the person's yes first (round E)
         assertTrue(reply.contains("Which kind is the question about? Which: 1 Raman, 2 FTIR, 3 UV-Vis? Say the number or the name."), "the library's question with its choices under the reply: " + reply);
         String page = Pages.chat(store, Patrons.Patron.PERSON, Map.of("session", lib.session().id));
-        assertTrue(page.contains("<div class=\"ask\"><p>Which kind is the question about?</p><div class=\"opts\">") && page.contains("name=\"say\" value=\"FTIR\"><button class=\"btn opt\">FTIR</button>") && page.contains("or say which in your own words"), "buttons on the page: " + page);
+        // the buttons stand under the reply that asks: the question is said once on the page (0.8.0; the box said it again under the reply)
+        assertTrue(page.contains("<div class=\"ask\"><div class=\"opts\">") && page.contains("name=\"say\" value=\"FTIR\"><button class=\"btn opt\">FTIR</button>") && page.contains("or say which in your own words"), "buttons on the page: " + page);
+        assertEquals(1, page.split("Which kind is the question about\\? Which:", -1).length - 1, "the question once: " + page);
+        assertFalse(page.contains("<p>Which kind is the question about?</p>"), "not again in the box: " + page);
         // other words are not an answer: the question keeps waiting and the words go on to the model
         Librarian again = new Librarian(store, LibrarianChatTest.scripted(List.of(LibrarianChatTest.say("A spectrometer measures light.")), new ArrayList<>()), Librarian.person(), lib.session());
         String other = again.say("what does a spectrometer do");

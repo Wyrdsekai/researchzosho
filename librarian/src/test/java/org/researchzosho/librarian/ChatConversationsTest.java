@@ -69,13 +69,18 @@ class ChatConversationsTest {
             assertEquals("user", ms.get(0).path("role").asText()); assertEquals("which models do we have?", ms.get(0).path("content").asText());
             String reply = ms.get(1).path("content").asText();
             System.out.println("[conversations] opening reply:\n" + reply);
-            assertTrue(reply.startsWith("This is a new conversation; the earlier one, What is the saros? (" + old.day() + "), is on the list.\n\nThe default is the entry named default: "), reply);
+            // the line that says a new conversation was opened stands above the conversation on its page, never inside the reply to the new request (the owner, 2026-11-19)
+            assertTrue(reply.startsWith("The default is the entry named default: "), reply);
+            assertFalse(reply.contains("This is a new conversation"), reply);
             assertEquals(2, Librarian.Session.resume(store, old.id).messages().size(), "the earlier conversation is untouched");
             // both are on the list, the drawer shows both
             List<String> ids = Librarian.Session.list(store);
             assertTrue(ids.contains(old.id) && ids.contains(fresh) && ids.contains(recent.id), ids.toString());
             String page = c.send(HttpRequest.newBuilder(URI.create(base + "/chat?session=" + fresh)).build(), HttpResponse.BodyHandlers.ofString()).body();
             assertTrue(page.contains("href=\"/chat?session=" + old.id + "\">What is the saros?") && page.contains("href=\"/chat?session=" + fresh + "\">which models do we have?"), "the drawer lists the earlier one and the new one: " + page);
+            assertTrue(page.contains("<p class=\"k note\">This is a new conversation; the earlier one, What is the saros? (" + old.day() + "), is on the list.</p>"), "the note above the new conversation: " + page);
+            String oldPage = c.send(HttpRequest.newBuilder(URI.create(base + "/chat?session=" + old.id)).build(), HttpResponse.BodyHandlers.ofString()).body();
+            assertFalse(oldPage.contains("This is a new conversation"), "the earlier conversation carries no such note");
             // a plain form post (no script) to the day-old conversation: sent on to the new one
             HttpResponse<String> plain = ChatStreamTest.post(c, base + "/chat", "session=" + old.id + "&say=which+models+do+we+have%3F");
             assertTrue(plain.statusCode() / 100 == 3 && plain.headers().firstValue("Location").orElse("").startsWith("/chat?session=C-"), plain.statusCode() + " " + plain.headers().map());

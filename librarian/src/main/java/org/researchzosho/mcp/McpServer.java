@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.researchzosho.librarian.CollectionForm;
 import org.researchzosho.librarian.Translation;
 import org.researchzosho.librarian.LibraryProtocol;
 import org.researchzosho.librarian.Patrons;
@@ -266,12 +267,28 @@ public final class McpServer {
                 + "with criteria each is judged (verdicts[]: yes, no or unsure and one sentence why); with keep=true (write access) each is fetched onto the shelves under catalog/images/, given an entry on the shelves with its page and shown at /images/<file>. "
                 + "op=keep with images (addresses, or the found[] objects) keeps them. op=describe with images returns the seeing model's words about each (what it shows, the people, the place, the time, any writing), and its answer to question. "
                 + "op=judge with criteria and images returns one typed verdict per picture. An image is a web address, a kept picture's file name or shelf entry, or (from the keeper) a path on this machine. "
+                + "op=collect files a collection of pictures as a job (write access): a number of pictures held to the person's rules (a size, a shape, a format, AI-made or not, what each shows, what must differ between them, a time limit); "
+                + "a model chooses where to look and with what words as it goes, the program measures each picture's size, shape and format from its file, reads what the file declares about AI, counts near-duplicates once, has the model that sees judge what each shows, and keeps only what passed, as its address and a small copy (keep_full keeps the files, in a library of one's own); "
+                + "the answer names the job and the gallery's address (/images?collection=<job>); library_job follows it. "
                 + "When no model sees pictures the answer is unavailable, with the sentence that says what the library has and how one is added (researchzosho models test <name> probes an entry).",
                 schema(new String[]{},
-                        enumProp("op", "find (default) | keep | describe | judge.", "find", "keep", "describe", "judge"),
-                        prop("words", "string", "For find: what the pictures should be of, as a search engine takes it (an event's name, a person's name, a thing)."),
-                        prop("count", "integer", "For find: how many candidates at most (default 8, at most 40)."),
-                        prop("keep", "boolean", "For find: fetch the candidates onto the shelves (write access)."),
+                        enumProp("op", "find (default) | keep | describe | judge | collect.", "find", "keep", "describe", "judge", "collect"),
+                        prop("words", "string", "For find: what the pictures should be of, as a search engine takes it (an event's name, a person's name, a thing). For collect: what the pictures are of."),
+                        prop("count", "integer", "For find: how many candidates at most (default 8, at most 40). For collect: how many pictures (default 20, at most 200)."),
+                        prop("kind", "string", CollectionForm.FIELDS.get("kind")[1]),
+                        prop("name", "string", CollectionForm.FIELDS.get("name")[1]),
+                        prop("shows", "string", CollectionForm.FIELDS.get("shows")[1]),
+                        prop("min_width", "integer", CollectionForm.FIELDS.get("min_width")[1]),
+                        prop("min_height", "integer", CollectionForm.FIELDS.get("min_height")[1]),
+                        prop("orientation", "string", CollectionForm.FIELDS.get("orientation")[1]),
+                        prop("format", "string", CollectionForm.FIELDS.get("format")[1]),
+                        prop("ai", "string", CollectionForm.FIELDS.get("ai")[1]),
+                        prop("differ_by", "string", CollectionForm.FIELDS.get("differ_by")[1]),
+                        prop("differ_quote", "string", CollectionForm.FIELDS.get("differ_quote")[1]),
+                        prop("minutes", "integer", CollectionForm.FIELDS.get("minutes")[1]),
+                        prop("keep_full", "boolean", CollectionForm.FIELDS.get("keep_full")[1]),
+                        prop("ask", "string", CollectionForm.FIELDS.get("ask")[1] + " Given alone, without words, the job's model reads the form from it."),
+                        prop("keep", "boolean", "For find: keep what is found (write access). A find that keeps is a collection, filed as op=collect is: words, count, and criteria as what the pictures show."),
                         prop("criteria", "string", "For find and judge: what a picture should show, in words; each is judged against it."),
                         prop("images", "array", "For keep, describe and judge: the pictures, as web addresses, kept pictures' file names or shelf entries, or the found[] objects of a find."),
                         prop("question", "string", "For describe: what to answer about the picture after describing it."),
@@ -972,11 +989,13 @@ public final class McpServer {
                 + "your jobs (active[], finished[], paused) when job_id is omitted. op=stop {job_id} stops one run: queued, it never starts; running, it ends within seconds. "
                 + "op=pause holds the runner (queued runs wait, a running one holds at its next turn); op=resume lets it go (write access). "
                 + "op=choose {job_id, choice} answers a run held for one of its named choices, by number or by name; op=allow and op=decline answer for the person on a run the service held for their yes about help: "
-                + "a program sends any of the three only after it asked the person (write access).",
+                + "a program sends any of the three only after it asked the person (write access). "
+                + "op=limit {job_id, minutes} sets the time limit of a picture collection that is queued or running, counted from its start (write access).",
                 schema(new String[]{},
-                        enumProp("op", "read (default) | stop | pause | resume | choose | allow | decline.", "read", "stop", "pause", "resume", "choose", "allow", "decline"),
+                        enumProp("op", "read (default) | stop | pause | resume | choose | allow | decline | limit.", "read", "stop", "pause", "resume", "choose", "allow", "decline", "limit"),
                         prop("job_id", "string", "The job to read, stop or answer for, e.g. J-0007."),
                         prop("choice", "string", "With choose: the choice, by its number or its name as offered."),
+                        prop("minutes", "integer", "With limit: the most the picture collection may take, in minutes from its start."),
                         prop("limit", "integer", "Without a job id: how many finished runs a page holds (default 20)."),
                         prop("cursor", "string", "Without a job id: next_cursor from the previous page."),
                         patronProp())));

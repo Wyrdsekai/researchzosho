@@ -51,7 +51,7 @@ final class SpendPurse implements DriveClient.Purse, AutoCloseable {
             case "research", "career-search", "career-read", HomeFind.JOB_KIND -> RESEARCH;
             case "crews" -> NIGHTLY;
             case "translate", Translation.JOB_KIND -> TRANSLATION;
-            case VideoRecall.JOB_KIND -> PICTURE;
+            case VideoRecall.JOB_KIND, Collection.JOB_KIND -> PICTURE;
             default -> OTHER;
         };
     }

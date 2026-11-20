@@ -538,7 +538,10 @@ public final class LibraryProtocol {
     public ObjectNode images(JsonNode args) throws IOException {
         Patrons.Patron patron = Patrons.Patron.from(args);
         String op = args.path("op").asText("find").strip().toLowerCase(Locale.ROOT);
-        boolean keep = args.path("keep").asBoolean(false) || op.equals("keep");
+        // keeping found pictures is a collection (0.8.0): a find with keep is filed as one, with its words, its count and its criteria as what
+        // the pictures show, measured, judged and shown as a gallery like any other; a find without keep stays a look
+        if ((op.equals("find") || op.isEmpty()) && args.path("keep").asBoolean(false)) op = "collect";
+        boolean keep = args.path("keep").asBoolean(false) || op.equals("keep") || op.equals("collect");
         Patrons.check(store, patron, keep ? Patrons.Level.write : Patrons.Level.read);
         boolean paths = patron.person() || (patron.web() && !WebAccess.signInRequired());
         String collection = args.path("collection").asText("").strip();
@@ -565,9 +568,8 @@ public final class LibraryProtocol {
                 }
                 String summary = found.said(words);
                 if (!criteria.isEmpty()) { long yes = verdicts.values().stream().filter(Images.Judged::yes).count(); summary += " Judged against \"" + criteria + "\" by " + eyes.name() + ": " + yes + " of " + verdicts.size() + (yes == 1 ? " shows" : " show") + " it."; }
-                if (keep) summary += " " + keepAll(r, found.found(), collection, verdicts);
-                r.put("summary", summary);
-                r.put("next", found.found().isEmpty() ? "Try other words, or fewer." : keep ? "The kept pictures are entries on the shelves; library_search finds them by their words, and each is shown at its url." : "op=keep with images (the addresses found) puts them on the shelves; op=judge with criteria judges them; op=describe reads one.");
+                r.put("summary", summary);   // a look: a find that keeps is filed as a collection above
+                r.put("next", found.found().isEmpty() ? "Try other words, or fewer." : "op=keep with images (the addresses found) puts them on the shelves; op=judge with criteria judges them; op=describe reads one.");
             }
             case "keep" -> {
                 List<Images.Found> found = foundArgs(args);
@@ -650,7 +652,25 @@ public final class LibraryProtocol {
                 r.put("summary", summary);
                 r.put("next", "op=keep with the images judged yes puts them on the shelves; op=judge with reference judges pictures you name against it; mode=concept with what=<an aspect> looks for pictures like it rather than the same one.");
             }
-            default -> throw ProtocolError.invalidArgs("op is find, keep, describe, judge or like.");
+            case "collect" -> {   // a collection of pictures (0.8.0): the form filed as a job; the Pictures page shows it as a gallery as it grows
+                ModelEntries.Entry eyes = ModelEntries.seeing();
+                if (eyes == null) throw ProtocolError.unavailable(ModelEntries.noEyes());
+                CollectionForm.Grounded grounded = CollectionForm.fromArgs(args).grounded(args.path("ask").asText(""));   // with the request's words given, what narrows it must stand in them
+                CollectionForm form = grounded.form();
+                if (form.words().isEmpty() && form.ask().isEmpty()) throw ProtocolError.invalidArgs("collect needs what the pictures are of: words (or the request in words: ask).");
+                boolean refused = form.keepFull() && Hosted.on(store);
+                if (refused) form = form.linksOnly();
+                String id = Collection.file(store, form, patron.did());
+                String said = form.words().isEmpty() ? Pages.t("collect pictures for the request: \"{0}\"", Images.cut(form.ask(), 200)) : form.said(Chrome.now());
+                r.put("job_id", id); r.put("gallery", Collection.gallery(id)); r.put("said", said); r.set("form", form.json(M));
+                if (!grounded.dropped().isEmpty()) { ArrayNode dr = r.putArray("dropped"); grounded.dropped().forEach(dr::add); }   // the fields left out: their words are not in ask
+                if (refused) r.put("refused_full", Pages.t(Collection.REFUSED_FULL));
+                String note = Pages.t("Filed as {0}: {1}. The pictures appear on the Pictures page as they are found: {2}", id, said, Collection.gallery(id)) + (refused ? " " + Pages.t(Collection.REFUSED_FULL) : "");
+                r.put("summary", note); r.put("note", note + " " + Pages.t("This chat says when it is done."));
+                r.put("next", "Send the person to the Pictures page, " + Collection.gallery(id) + ", where the collection shows as a gallery as it grows; library_job op=status job_id=" + id + " follows it.");
+                store.circulate("images", "collection " + id + " :: " + (form.words().isEmpty() ? form.ask() : form.words()));
+            }
+            default -> throw ProtocolError.invalidArgs("op is find, keep, describe, judge, like or collect.");
         }
         return r;
     }
@@ -3670,6 +3690,20 @@ public final class LibraryProtocol {
             if (!jobs.releaseHelp(id, op.equals("allow"))) throw ProtocolError.invalidArgs("Research run " + id + " is not waiting for an answer about help.");
             ObjectNode j = jobs.get(id);
             r.put("job_id", id); r.put("state", j == null ? "" : j.path("state").asText());
+            return r;
+        }
+        if (op.equals("limit")) {   // a time limit the person sets for a picture collection after it started (0.8.0): the running job takes it at its next step
+            Patrons.check(store, patron, Patrons.Level.write);
+            if (id.isEmpty()) throw ProtocolError.invalidArgs("limit needs job_id and minutes.");
+            int minutes = args.path("minutes").asInt(0);
+            if (minutes <= 0) throw ProtocolError.invalidArgs("limit needs minutes: the most the collection may take, counted from its start.");
+            ObjectNode j = jobs.get(id);
+            if (j == null || !Jobs.visibleTo(patron, j) || !Collection.JOB_KIND.equals(j.path("kind").asText())) throw ProtocolError.notFound("No picture collection has the id " + id + ".");
+            String st = j.path("state").asText();
+            if (!st.equals("running") && !st.equals("queued")) throw ProtocolError.invalidArgs("The collection " + id + " is not queued or running. It is " + st + ".");
+            Collection.limit(store, id, minutes);
+            r.put("job_id", id); r.put("minutes", minutes);
+            r.put("summary", Pages.t("The collection {0} now ends after at most {1} minutes from its start.", id, minutes));
             return r;
         }
         if (op.equals("stop")) {   // one run: a queued one never starts, a running one ends within seconds, also in the middle of a call; the nightly tasks after their step

@@ -567,9 +567,12 @@ public final class Images {
      * The same, for a candidate already fetched: a run judges a picture on its bytes and keeps it on the same bytes. A picture whose
      * SHA-256 is already on the shelves is the existing entry, whatever address it came by this time: nothing is written or checked again.
      */
-    public static Kept keep(LibraryStore store, Found f, Fetched got, String description, String collection, Judged judged) throws IOException {
+    public static Kept keep(LibraryStore store, Found f, Fetched got, String description, String collection, Judged judged) throws IOException { return keep(store, f, got, description, collection, judged, MAX_BYTES); }
+
+    /** The same, up to {@code most} bytes: a collection keeps a large picture the person asked to keep at full size (a 4K PNG weighs more than 8 MB). */
+    public static Kept keep(LibraryStore store, Found f, Fetched got, String description, String collection, Judged judged, long most) throws IOException {
         if (got == null || got.bytes() == null || got.bytes().length == 0) throw new IOException("Nothing came back from " + f.image() + ".");
-        if (got.bytes().length > MAX_BYTES) throw new IOException("The picture at " + f.image() + " weighs " + String.format(Locale.ROOT, "%.1f", got.bytes().length / 1048576.0) + " MB; the library keeps pictures up to 8 MB.");
+        if (got.bytes().length > most) throw new IOException("The picture at " + f.image() + " weighs " + String.format(Locale.ROOT, "%.1f", got.bytes().length / 1048576.0) + " MB; the library keeps pictures up to " + (most / 1048576) + " MB.");
         String ext = extension(got.contentType(), got.bytes());
         if (ext == null) throw new IOException("What is at " + f.image() + " is not a picture the library keeps (" + (got.contentType() == null || got.contentType().isBlank() ? "no type named" : got.contentType()) + "): JPEG, PNG, GIF, WebP, BMP or TIFF.");
         Kept same = existing(store, got.bytes(), f);
@@ -840,8 +843,10 @@ public final class Images {
     static boolean namesIn(String text, String name) {
         String t = fold(text);
         if (t.isBlank()) return false;
+        String[] ws = fold(name).strip().split("\\s+");
+        if (ws.length > 1 && t.contains(" " + String.join("", ws) + " ")) return true;   // the name's words written as one ("hitgirl" in an address for Hit-Girl)
         int words = 0;
-        for (String w : fold(name).strip().split("\\s+")) { if (w.length() < 2) continue; words++; if (!t.contains(" " + w + " ")) return false; }
+        for (String w : ws) { if (w.length() < 2) continue; words++; if (!t.contains(" " + w + " ")) return false; }
         return words > 0;
     }
 

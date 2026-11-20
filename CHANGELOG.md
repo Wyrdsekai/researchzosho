@@ -2,7 +2,7 @@
 
 ## 0.8.0
 
-What's new: multiple accounts, stronger prompt injection protection, shorter model unload times, chat fixed for gpt-oss-20b.
+What's new: multiple accounts, picture collections, stronger prompt injection protection, shorter model unload times, chat fixed for gpt-oss-20b.
 
 ### Multiple accounts (new)
 
@@ -21,6 +21,13 @@ What's new: multiple accounts, stronger prompt injection protection, shorter mod
 - Models load ahead when work starts.
 - The chat works again with gpt-oss-20b and has more room on smaller graphics cards.
 
+### Picture collections (new)
+
+- Ask for pictures with rules, e.g. "20 horizontal 4K wallpapers of …, no more than 15 minutes". The chat shows what it understood and starts on your yes.
+- Real size and shape are checked, copies count once, and only matching pictures are kept, up to your number.
+- A character means the character, not the actor out of the role. "No AI" counts only pictures with a dated record.
+- Results show as thumbnails in the chat and in a gallery on the Pictures page; the terminal chat prints their addresses.
+
 ### Also
 
 - `researchzosho take` opens a library downloaded from a shared ResearchZosho service.
@@ -32,6 +39,9 @@ What's new: multiple accounts, stronger prompt injection protection, shorter mod
 - Page checks work with models that think before they answer.
 - Gemini costs include its thinking.
 - Windows: the service now starts promptly after a shutdown.
+- Java 21: the library now answers promptly.
+- Chat: bold and code now display properly.
+- The "new conversation" note no longer appears inside the first answer.
 
 ## 0.7.8
 

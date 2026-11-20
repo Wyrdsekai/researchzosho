@@ -22,6 +22,10 @@ you supply and license separately.
 The site's wordmark is set in CMU Serif (SIL Open Font License), vendored under
 site/fonts/ with its license.
 
+Pictures in WebP are read with TwelveMonkeys ImageIO 3.12.0 (BSD 3-Clause License, Copyright (c) 2008-2024
+Harald Kuhr), the imageio-webp reader and the TwelveMonkeys parts it needs (imageio-core, imageio-metadata,
+common-lang, common-io, common-image), bundled as their jars.
+
 The web pages draw diagrams with Mermaid 11.17.2 (MIT, Copyright (c) 2014 - 2022
 Knut Sveidqvist), vendored as the browser build of the npm package under
 librarian/src/main/resources/org/researchzosho/librarian/static/ with its license

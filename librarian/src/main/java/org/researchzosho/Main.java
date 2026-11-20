@@ -1,5 +1,6 @@
 package org.researchzosho;
 
+import org.researchzosho.librarian.HttpServers;
 import org.researchzosho.librarian.LibrarianCli;
 import org.researchzosho.librarian.Logs;
 import org.researchzosho.librarian.Webhooks;
@@ -29,6 +30,7 @@ public final class Main {
     }
 
     public static void main(String[] args) {
+        HttpServers.noDelay();   // before any HTTP server of the JDK's is made: on Java 21 each answer otherwise waited about 40 ms
         System.exit(runToExit(args));
     }
 

@@ -1888,14 +1888,59 @@ starts one). The two lists are merged rank by rank, a picture that both found is
 left out. Each candidate is said with the page it stands on, its size when the engine said, the engine that found it
 and when; the chat shows a small copy of each. Nothing is written to disk by a search.
 
-**Keeping.** "Keep them", or "keep 1, 3", or `--keep` at the command line (`--collection <name>` shelves them under a
-collection). Each picture is fetched once, 8 MB at most, a picture format only (JPEG, PNG, GIF, WebP, BMP, TIFF). Before
+**Keeping.** "Keep them", or "keep 1, 3", after a search keeps the pictures it showed. Asking for pictures to be found
+and kept in one go ("find and keep …", `--keep` at the command line, `keep` with a find from a program) is a collection,
+below: measured, judged, and shown as a gallery. Each picture kept by "keep them" is fetched once, 8 MB at most, a picture format only (JPEG, PNG, GIF, WebP, BMP, TIFF). Before
 it is written, the model that sees pictures is asked the one question every picture from the web is asked (section 4,
 Pictures in web pages); a yes is not kept, and the answer says so. When no model sees, that check cannot run and the
 picture is kept as you chose it, from a search with safe search on. The bytes go under `catalog/images/<name>` and an
 entry goes onto the shelves with the page, the engine, the time it was found, its size and, when it was judged, the
 verdict and the reason, so the picture can be cited as evidence; `researchzosho search` finds it by its words, the
 pages show it at `/images/<name>`, and the chat shows it small.
+
+**Collections.** Ask for a number of pictures with rules, in your own words: "20 horizontal 4K wallpapers of mountain
+lakes, AI-made is fine, no more than 15 minutes", "100 historical photographs of Winston Churchill, none made by AI",
+"50 pictures of Godzilla fighting another monster, each monster different". The chat's model fills in a form from what
+you said (how many, the least width and height, horizontal, vertical or square, a file format, AI allowed or not, what
+each picture must show, what must differ from one to the next, a time limit if you gave one) and the library shows the
+form back in plain words before anything runs: "collect up to 20 pictures of mountain lakes: horizontal, at least
+3840×2160, AI-made allowed, each a different picture, for at most 15 minutes, kept as links and small copies. Do it?".
+Yes starts it as a job (the Runs page shows how far it has come); anything else you say changes it first. At the command
+line: `researchzosho images collect "red fox in snow" --count 30 --min-width 1920 --min-height 1080 --orientation
+landscape`, or `--ask "<the request in words>"` to have the model read the form, and `--wait` to follow it.
+
+A model chooses where to look and with what words, search by search: pictures from across the web (SearXNG, and Brave
+with your key, at most 10 Brave searches a collection), Wikimedia Commons, the Library of Congress's photographs,
+Openverse and wallhaven. After each search it is told what was kept and why the rest was set aside, and it searches next
+for what is still missing. The library does what a model should not: each picture's width and height are read from the
+file itself (a site that says "4K" is not believed, and a picture too small is dropped before the rest of it is
+downloaded), and so are its format (JPEG, PNG, GIF, WebP, BMP, TIFF are opened; an AVIF picture is looked at through
+its site's small copy) and what the file declares about AI (the IPTC "made by AI" tag, content credentials,
+an image generator's settings). With "no AI", a picture counts only when an archive's record gives it a date, or its
+caption names a photographer and a year before 2022; the others are listed apart, not counted. Nothing guesses whether a
+picture looks AI-made. A copy of a picture already kept (smaller, cropped to another shape, recoloured, mirrored, in a mat
+or a black mask) counts once, by a perceptual hash; a picture the hash finds close to a kept one, or the likeness helper's
+embedding does when it is set up, is shown to the model that sees beside it, which says whether they are one photograph.
+Then the model that sees judges each picture against your own words: the thing itself, not something in its style. The
+form says whether the pictures are of a real person, whose likeness counts in any role, or of a fictional character, who
+must be shown as the character (in costume, drawn, or on screen); a photograph of the actor out of the role does not
+count. Pictures of a person or a character are looked for by name: one whose page, address and caption do not name it
+gets a closer look, and the gallery says which name was used. When
+you asked for a different thing in each, it names which one each picture shows. Only what passed is kept,
+up to the number you asked. The job ends at that number, at your time limit, when its last searches in more than one
+place kept nothing new, or when the model searching is sure there are no more; with no time limit it ends by those
+alone, as a research run does. A time limit you say after it started ("don't spend more than 30 minutes on this")
+is read as a research run's is and applies to the collection that runs; the library says so under the reply.
+
+The result is on the Pictures page, `/images?collection=<job>`: each picture's small copy with its measured size and
+format, the page it stands on, the full picture's address, its author, date and licence when its record gives them, and
+why it passed; then what was not counted, the copies beside the picture each copies, and the searches the model chose.
+The chat says when it is done, with a link to the gallery and its first pictures under the line; in a terminal the
+chat prints the gallery's full address and each picture's address and page instead. Whenever a reply names pictures
+the library keeps, the library shows them under it the same way. By default a collection keeps each picture's address and a small
+copy; "keep them in my library", or the button under the gallery, keeps the files themselves on the shelves (up to 40 MB
+each). With accounts on, a collection is always addresses and small copies: the full pictures stay on the sites that
+publish them.
 
 **Judging.** "Which of these show a bronze gear?" after a find, or `researchzosho images find "Antikythera mechanism"
 --judge "a bronze gear with teeth"`, or `researchzosho images judge "a red fox" ~/Pictures/fox.jpg

@@ -209,7 +209,7 @@ public final class NodeGates implements Closeable {
 
     private NodeGates(AccountStore store) throws IOException {
         this.store = store;
-        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 100);
+        server = HttpServers.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 100);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.createContext("/", x -> { try { handle(x); } finally { x.close(); } });
         server.start();
@@ -595,7 +595,11 @@ public final class NodeGates implements Closeable {
      * that did not reach its end ({@code whole} false) is counted from what passed: the usage it said so far, and its output at least
      * as much as the text that passed; marked estimated.
      */
+    /** Tests: what runs just before a call is written down, to show that a caller with the whole answer finds it written. */
+    static volatile Runnable COUNTING = () -> { };
+
     private void count(AccountStore.Use use, String payer, String drive, String model, byte[] request, byte[] reply, String type, boolean whole) {
+        COUNTING.run();
         long[] t = usage(reply, type);
         long streamed = streamedTokens(reply, type);
         boolean estimated = t == null || !whole;
@@ -751,6 +755,7 @@ public final class NodeGates implements Closeable {
         finally {   // a search the caller left before its answer was made all the same: counted
             if (r.statusCode() >= 200 && r.statusCode() < 300 && kind != null) {
                 byte[] reply = kept.toByteArray();
+                COUNTING.run();
                 try { store.addUsage(List.of(new AccountStore.Usage(System.currentTimeMillis(), use.account(), use.library(), use.id(), kind, payer, p.name(), 0, 0, 0, 1, reply.length, callMicros(p.name(), tail, body, reply), false))); }
                 catch (IOException ex) { LOG.warn("A search of the use {} could not be written: {}", use.id(), ex.getMessage()); }
             }
@@ -794,7 +799,8 @@ public final class NodeGates implements Closeable {
                 if (!caller) continue;
                 try { out.write(buf, 0, n); out.flush(); } catch (IOException left) { if (streamed) throw left; caller = false; }
             }
-            try { out.close(); } catch (IOException left) { /* gone already */ }
+            // the answer's end is not written here: the exchange ends it once the call is counted, so a caller that has the whole answer finds
+            // it counted (round G: Java 21's server sent the end at once, and its counting tests read the month before the count was written)
         }
     }
 
@@ -854,6 +860,7 @@ public final class NodeGates implements Closeable {
             double heard = heard(reply);
             rows.add(new AccountStore.Usage(now, account, libraryId, useId, "speech", payer, name, 0, 0, 0, heard >= 0 ? Math.max(1, Math.round(Math.ceil(heard))) : seconds, 0, 0, heard < 0));
         }
+        COUNTING.run();
         try { store.addUsage(rows); } catch (IOException e) { LOG.warn("A helper's call of the library {} could not be written: {}", libraryId, e.getMessage()); }
     }
 
