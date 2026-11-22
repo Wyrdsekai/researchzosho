@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Consumer;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipException;
@@ -69,6 +70,13 @@ public final class Archives {
     }
 
     /**
+     * Told each folder an archive is unpacked into, as it is made. For the tests: the temp folder is every process's on the machine, so
+     * its listing before and after says nothing of one test's own folder (two suites side by side failed each other's archive tests
+     * that way in 0.8.1's release checks); this names the folder, and a test looks at that one.
+     */
+    static volatile Consumer<Path> unpackedInto = made -> { };
+
+    /**
      * Unpack an archive into a folder of the library's own and shelve what came out as the folder's documents, under {@code collection}
      * (the archive's own name when blank). The folder is removed after, whatever happened. The archive itself is never changed.
      */
@@ -77,6 +85,7 @@ public final class Archives {
         List<String> safe = Uploads.segments(stem(name));
         String stem = safe.isEmpty() ? "archive" : safe.get(safe.size() - 1);
         Path tmp = Files.createTempDirectory(DIR);
+        unpackedInto.accept(tmp);
         try {
             Path root = Files.createDirectories(tmp.resolve(stem));
             Unpacked u = unpack(archive, root);

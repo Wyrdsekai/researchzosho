@@ -6,10 +6,16 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Pattern;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.security.NoSuchAlgorithmException;
@@ -102,8 +108,10 @@ public final class RawCapture {
             }
             StringBuilder extra = new StringBuilder();
             for (var e : more.entrySet()) if (e.getKey() != null && e.getValue() != null && e.getKey().matches("[a-z_]+") && !e.getValue().isBlank()) extra.append('\n').append(e.getKey()).append(": ").append(e.getValue().replaceAll("[\\r\\n]+", " ").strip());
-            Files.writeString(p, "---\nurl: " + locator + "\ntitle: " + t + "\nfetched_at: "
-                    + Instant.now() + "\nfetched_by: " + by + (collection == null || collection.isBlank() ? "" : "\ncollection: " + collection) + (published == null || published.isBlank() ? "" : "\npublished: " + published) + extra + "\n---\n" + body, StandardCharsets.UTF_8);
+            // the head is read line by line, and its first line says where the copy came from: nothing in a locator, a writer's name or a
+            // collection's starts a line of its own
+            Files.writeString(p, "---\nurl: " + oneLine(locator) + "\ntitle: " + t + "\nfetched_at: "
+                    + Instant.now() + "\nfetched_by: " + oneLine(by) + (collection == null || collection.isBlank() ? "" : "\ncollection: " + oneLine(collection)) + (published == null || published.isBlank() ? "" : "\npublished: " + oneLine(published)) + extra + "\n---\n" + body, StandardCharsets.UTF_8);
             // raw joins the catalog: "do we hold anything on X?" must see the documents, not
             // just the claims extracted from them.
             try {
@@ -123,7 +131,10 @@ public final class RawCapture {
      * extracted once here for the index and then again whenever something reads the capture. Returns
      * the raw/ path, or null on error.
      */
-    public static Path link(LibraryStore store, Path file, String text, String title, String by, String collection) {
+    public static Path link(LibraryStore store, Path file, String text, String title, String by, String collection) { return link(store, file, text, title, by, collection, Map.of()); }
+
+    /** The same, with more lines for the head ({@link #eyeHead}: a picture or a scan, whose text the model that sees gives each time it is read). */
+    public static Path link(LibraryStore store, Path file, String text, String title, String by, String collection, Map<String, String> more) {
         try {
             Path abs = file.toAbsolutePath().normalize();
             String locator = "file://" + abs;
@@ -135,9 +146,11 @@ public final class RawCapture {
             String sha = fileHash(abs);
             long bytes = Files.size(abs);
             Files.createDirectories(p.getParent());
-            Files.writeString(p, "---\nurl: " + locator + "\ntitle: " + t + "\nfetched_at: " + Instant.now() + "\nfetched_by: " + by
-                    + (collection == null || collection.isBlank() ? "" : "\ncollection: " + collection)
-                    + "\nlinked: " + abs + "\nsha256: " + sha + "\nbytes: " + bytes + "\n---\n", StandardCharsets.UTF_8);
+            StringBuilder extra = new StringBuilder();
+            for (var e : more.entrySet()) if (e.getKey() != null && e.getValue() != null && e.getKey().matches("[a-z_]+") && !e.getValue().isBlank()) extra.append('\n').append(e.getKey()).append(": ").append(oneLine(e.getValue()));
+            Files.writeString(p, "---\nurl: " + oneLine(locator) + "\ntitle: " + t + "\nfetched_at: " + Instant.now() + "\nfetched_by: " + oneLine(by)
+                    + (collection == null || collection.isBlank() ? "" : "\ncollection: " + oneLine(collection))
+                    + "\nlinked: " + abs + "\nsha256: " + sha + "\nbytes: " + bytes + extra + "\n---\n", StandardCharsets.UTF_8);
             synchronized (LINKED) { LINKED.remove(abs.toString()); }
             try {
                 new LibrarianIndex(store).upsertRaw(p.getFileName().toString(), t, locator,
@@ -226,6 +239,88 @@ public final class RawCapture {
     }
 
     /** The captured document for a locator: raw/<file>, a bare file name, or the URL it was fetched from (newest capture wins). */
+    /** The web addresses a library holds saved copies of, by the form addresses are compared in, each as its copy records it; read once, then only the new copies. */
+    private static final class Held { final Map<String, String> byKey = new ConcurrentHashMap<>(); final Set<String> read = new HashSet<>(); }
+    private static final Map<Path, Held> HELD = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        @Override protected boolean removeEldestEntry(Map.Entry<Path, Held> e) { return size() > 64; }
+    });
+
+    /**
+     * Every web address this library holds a saved copy of ({@link GivenAddresses#key} → the address as the copy's first line records it).
+     * A copy's first line is written by {@link #capture} from the address the library itself opened (a fetch, the person's own add); a
+     * line a title or a later head line could imitate is never read, only the first. What a model wrote into a report or a note is in no
+     * copy's first line, so this is how an address the library recorded is told from one a model wrote down.
+     */
+    static Map<String, String> locators(LibraryStore store) {
+        Path dir = store.rawDir().toAbsolutePath().normalize();
+        Held h = HELD.computeIfAbsent(dir, d -> new Held());
+        synchronized (h) {
+            if (Files.isDirectory(dir)) try (var s = Files.list(dir)) {
+                for (Path p : s.filter(x -> x.toString().endsWith(".md")).toList()) {
+                    if (!h.read.add(p.getFileName().toString())) continue;
+                    String url = recordedAddress(p);
+                    if (!url.matches("(?i)^https?://\\S+")) continue;
+                    String k = GivenAddresses.key(url);
+                    if (k != null) h.byKey.putIfAbsent(k, url);
+                }
+            } catch (IOException | UncheckedIOException e) { /* what was read so far stands */ }
+        }
+        return h.byKey;
+    }
+
+    /** The address a saved copy records as its own: its head's first line, and no other. "" when the file does not begin as a copy does. */
+    private static String recordedAddress(Path p) {
+        try (BufferedReader r = Files.newBufferedReader(p, StandardCharsets.UTF_8)) {
+            String first = r.readLine(), second = r.readLine();
+            return "---".equals(first) && second != null && second.startsWith("url: ") ? second.substring(5).strip() : "";
+        } catch (IOException | UncheckedIOException e) { return ""; }
+    }
+
+    /** A value of the head on one line: a line's end in it would start a head line of its own. */
+    private static String oneLine(String s) { return s == null ? "" : s.replaceAll("[\\r\\n\\u0085\\u2028\\u2029]+", " "); }
+
+    /**
+     * The head line of a saved copy whose text, or part of it, is the transcription of the model that sees: a picture's writing
+     * ({@code ImageText}), the pages of a PDF that are pictures of text ({@code PdfReading}), a comic's pages. The file may be the
+     * person's own or a page from outside; the words are a model's.
+     */
+    public static final String BY_EYE = "read_by_eye";
+
+    /** The head line for a document as its reader gave it ({@link #BY_EYE}), or none when every word of it was in the file. */
+    public static Map<String, String> eyeHead(DocText.Doc doc) {
+        if (doc == null) return Map.of();
+        if ("image".equals(doc.kind())) return Map.of(BY_EYE, "the picture");
+        if (doc.reading() != null && !doc.reading().byEye().isEmpty()) return Map.of(BY_EYE, "pages " + PdfReading.pages(doc.reading().byEye()));
+        return Map.of();
+    }
+
+    /** The endings of a picture's file name: a copy saved from one before 0.8.1 has no {@link #BY_EYE} line, and its text is the seeing model's all the same. */
+    private static final Pattern PICTURE = Pattern.compile("(?i)\\.(?:jpe?g|png|gif|bmp|tiff?|webp)(?:[?#].*)?$");
+
+    /**
+     * Whether a saved copy's text is what came from outside or from the person, word for word: a page the library fetched, a file or a
+     * page the person added or supplied, a file of a folder they shelved. Such text gives the addresses written in it when it is read
+     * back, as it did when it was first read. A copy the library wrote from a model's words does not: a translation, a list of candidates
+     * with their verdicts, what a model saw in a video; and a picture or a scanned page of the person's own, whose text in the library is
+     * what the model that sees read off it (0.8.1: a seeing model that wrote an address holding a scan's words into its transcription
+     * had the address opened when the scan was read back).
+     */
+    static boolean verbatim(Path raw) {
+        String by = "", url = "";
+        boolean eye = false;
+        try (BufferedReader r = Files.newBufferedReader(raw, StandardCharsets.UTF_8)) {
+            if (!"---".equals(r.readLine())) return false;
+            String l;
+            for (int n = 0; n < 64 && (l = r.readLine()) != null && !l.equals("---"); n++) {
+                if (n == 0 && l.startsWith("url: ")) url = l.substring(5).strip();
+                else if (l.startsWith("fetched_by: ") && by.isEmpty()) by = l.substring(12).strip();
+                else if (l.startsWith(BY_EYE + ": ") || l.startsWith("comic: ") || (l.startsWith("pdf_reading: ") && l.contains("read by eye by "))) eye = true;
+            }
+        } catch (IOException | UncheckedIOException e) { return false; }
+        if (eye || PICTURE.matcher(url).find()) return false;
+        return by.equals("researchzosho-web-fetch") || by.equals("researchzosho-add") || by.equals("person-supplied") || by.startsWith("corpus:");
+    }
+
     public static Path find(LibraryStore store, String locator) throws IOException {
         if (locator == null || locator.isBlank()) return null;
         String loc = locator.strip();

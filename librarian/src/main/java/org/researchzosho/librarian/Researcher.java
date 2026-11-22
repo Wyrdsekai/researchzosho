@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.librarian.profiles.YoutubeProfile;
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.Tool;
 
 import java.util.ArrayList;
@@ -1311,8 +1312,16 @@ public final class Researcher {
     static String forExplorer(LibraryStore store, String driveUrl, String model, String question, List<String> subQuestions, int maxTurns, int maxMinutes, String field, String writer, Consumer<String> log) throws IOException {
         Declines.Notes notes = Declines.toCrewsLog(store, "explorer");   // the nightly run has no trace: what the judge was unsure of goes on the crews log
         Researcher runner = new Researcher(watched(driveUrl, model, "workers", notes), watchedJudge(driveUrl, model, notes), webTools(), log, store);
-        ContentJudge contentJudge = ContentJudge.of(new DriveClient(driveUrl, model));
+        return forExplorer(store, runner, ContentJudge.of(new DriveClient(driveUrl, model)), question, subQuestions, maxTurns, maxMinutes, field, writer);
+    }
+
+    /**
+     * The same, on a runner already made: its model, its tools. The question is one the library stored (an open question a report left,
+     * a person's from days ago, a survey's direction), so it is nobody's words of now and gives the run no address ({@link #seedAddresses}).
+     */
+    static String forExplorer(LibraryStore store, Researcher runner, ContentJudge contentJudge, String question, List<String> subQuestions, int maxTurns, int maxMinutes, String field, String writer) throws IOException {
         runner.contentJudge(contentJudge);
+        runner.personWords("");
         // nobody is there at night to be shown where to find help, or to say yes: a question that reads as a person asking about harming
         // themselves is not researched at night
         if (ContentOffer.harm(question, contentJudge) == ContentOffer.Harm.SURE) throw new ContentOffer.NotStarted(ContentOffer.NOT_STARTED);
@@ -2201,6 +2210,7 @@ public final class Researcher {
                     workersDone.incrementAndGet(); progress("workers");
                 } catch (Exception e) {
                     if (e.getCause() instanceof Stopping.Requested s) throw stopped(s);
+                    if (e.getCause() instanceof DriveClient.NotServed n) throw n;   // nobody serves the run's model: no other worker will be answered either
                     if (e.getCause() instanceof Declined d) {
                         // this sub-question only: the others go on, and it is never sent round again in other words
                         declinedSubs.add(open.get(i));
@@ -2351,6 +2361,8 @@ public final class Researcher {
                 throw e;   // a person stopped the run: out of the worker, out of the round, out of the run
             } catch (Declined e) {
                 throw e;   // the model declined this sub-question: said, not nudged and not asked again
+            } catch (DriveClient.NotServed e) {
+                throw e;   // the router has nobody left to serve the model: the run ends with that sentence, and no turn asks again
             } catch (Exception e) {
                 log.accept("worker: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                 break;
@@ -2399,8 +2411,8 @@ public final class Researcher {
                     else try (var off = Checkpoint.lane(null)) {   // what the tool asks a model by itself is the tool's answer, kept with it, not a call of the worker's
                         ArrayNode events = J.createArrayNode(); EFFECTS.set(events);
                         Instruments.step(budget, stopWhen, drive);
-                        String unopened = GivenAddresses.unopened(name, args);   // an address no search, page or tool gave, and not the person's: never opened (2026-11-18)
-                        observation = unopened != null ? unopened : t.execute(GivenAddresses.asGiven(args));   // an address goes out exactly as it was given
+                        String unopened = GivenAddresses.unopened(name, args, t.addressArguments(args));   // an address no search, page or tool gave, and not the person's: never opened (2026-11-18)
+                        observation = unopened != null ? unopened : carriedOut(t, args);   // an address goes out exactly as it was given
                         // what an instrument read by itself and kept (a patent's claims from the office's full text) is a source read this run, and the pools of patents it worked on are the run's
                         List<String> readByIt = Instruments.readNow();
                         for (String address : readByIt) { fetchedInRun.add(address); fetchedHere++; readsInRun.incrementAndGet(); }
@@ -2422,6 +2434,8 @@ public final class Researcher {
                         }
                     } catch (Stopping.Requested e) {
                         throw stopped(e);   // a person stopped the run while the tool waited: the run ends here
+                    } catch (DriveClient.NotServed e) {
+                        throw e;   // a tool asked the model by itself and the router has nobody left to serve it: the run ends with that sentence, as where the reader's own turn meets it
                     } catch (Exception e) {
                         observation = "ERROR: " + name + " failed — " + e.getMessage();
                     } finally { EFFECTS.remove(); }
@@ -2467,6 +2481,7 @@ public final class Researcher {
                             + "A fact you do not note is lost when your turns run out. To read more of this page, fetch it again "
                             + "with a different `find`.)";
                 }
+                gave(t, args, observation);
                 ObjectNode toolMsg = history.addObject();
                 toolMsg.put("role", "tool"); toolMsg.put("tool_call_id", id); toolMsg.put("content", observation);
             }
@@ -2678,9 +2693,42 @@ public final class Researcher {
 
     /**
      * The person's own words give their addresses to the run: the question, when they wrote it; for a run the chat's model filed, the words
-     * of the person's turn it was filed in, never the model's question (round F: a bare address in it was opened).
+     * of the person's turn it was filed in, never the model's question (round F: a bare address in it was opened). Whatever else the
+     * question holds is text the library stored, which a model may have written: an earlier report's answer handed to a run that asks
+     * what is new since, an open question a run left and a later run researches. That text gives only the addresses the library holds a
+     * saved copy of ({@link GivenAddresses#recorded}; 0.8.1: a run asked what is new since a report opened the address that report's
+     * model had written into its answer, and so did a run of a question a run had left open).
      */
-    void seedAddresses(Ask ask) { GivenAddresses.personSaid(personWords != null ? personWords : ask.question()); }
+    void seedAddresses(Ask ask) {
+        GivenAddresses.personSaid(personWords != null ? personWords : ask.question());
+        GivenAddresses.recorded(store, ask.question(), Set.of());
+    }
+
+    /**
+     * What a tool's answer gives the run to open next, said where the answer is known (a kept answer of a resumed run among them): an
+     * answer from outside the library gives the addresses in it, an answer from the shelves only the ones the library holds a saved copy
+     * of, and neither the addresses of its own call ({@link GivenAddresses#gave}).
+     */
+    private void gave(Tool t, JsonNode args, String observation) {
+        if (t == null || observation == null || observation.isEmpty()) return;
+        GivenAddresses.gave(t.fromOutside(args), store, observation, GivenAddresses.Own.of(args));
+    }
+
+    /**
+     * A model's call carried out: each address argument as it was given, and every request the tool makes for it checked as it leaves
+     * ({@link Outbound}): a host the call's own words name is asked only for an address that was given.
+     */
+    private String carriedOut(Tool t, JsonNode args) throws Exception {
+        Outbound.Call call = Outbound.call(t.name(), args);
+        try { return t.execute(GivenAddresses.asGiven(args, t.addressArguments(args))); }
+        finally {
+            call.close();
+            // a request the guard did not send is written into the run's trace, so that a wrong refusal can be found from a person's report
+            for (Outbound.Refusal r : call.refusals()) { ObjectNode d = J.createObjectNode(); d.put("tool", r.tool()); d.put("host", r.host()); d.put("rule", r.rule()); event(REQUEST_REFUSED, d); }
+        }
+    }
+    /** The trace event of a request the guard refused during a tool call: {tool, host, rule}. */
+    public static final String REQUEST_REFUSED = "request_refused";
     static final Pattern LANGUAGE_ASKED = Pattern.compile("(?i)(japanese|english|german|french|spanish|chinese|korean|italian|portuguese|russian|日本語|英語|中文|한국어|deutsch|français|español|português|italiano|русский)");
 
     /** The line of the writer's brief that names the language the report is written in: the library's setting, unless the question asked for a language itself; "" when neither. */
@@ -2914,7 +2962,7 @@ public final class Researcher {
         if (!draft.fallback() && wantsAnalysisLayer() && !sections.isEmpty()) for (String name : Analysis.SECTIONS) if (sections.stream().noneMatch(s -> s.startsWith("## " + name + "\n") || s.equals("## " + name))) missing.add(name);
         if (!missing.isEmpty() && missing.size() < Analysis.SECTIONS.length + 1) {
             try (var seat = RunTrace.stage(RunTrace.ANALYSIS)) { sections.addAll(analysisPass(ask, sections, sourceList, budget, missing)); }
-            catch (Stopped | Declined e) { throw e; }
+            catch (Stopped | Declined | DriveClient.NotServed e) { throw e; }
             catch (Exception e) { log.accept("analysis pass: drive failed (" + e.getMessage() + ")"); }
         }
         if (draft.finished() && !draft.caveats().isBlank()) sections.add("## Caveats\n\n" + draft.caveats());
@@ -3059,6 +3107,8 @@ public final class Researcher {
                     throw e;
                 } catch (Declined e) {
                     throw e;   // the model declined to write: the run ends as declined, and nobody writes in its place
+                } catch (DriveClient.NotServed e) {
+                    throw e;
                 } catch (Exception e) {
                     log.accept("synthesis: drive failed on turn " + turn + " (" + e.getMessage() + ")");
                     break;
@@ -3080,6 +3130,12 @@ public final class Researcher {
                     JsonNode args = parseArgs(call.path("function").path("arguments"));
                     Tool t = byName.get(name);
                     String observation;
+                    // an address nobody gave: looked at once for this call (the check was written out twice in a row, and between the two
+                    // another thread of the run could have been given the address: the call then got neither the refusal nor an answer).
+                    // A tool that asks the model by itself may be answered that nobody serves it (DriveClient.NotServed): the run ends with
+                    // that sentence there, as where the writer's own turn meets it, and the model is not asked again (the last reading of
+                    // 0.8.1: it was told ERROR, and the next turn asked the same model)
+                    String unopened = t == null ? null : GivenAddresses.unopened(name, args, t.addressArguments(args));
                     if (deadline && !done.name().equals(name)) observation = "Only `done` is available on this turn.";
                     else if (t == null) observation = "ERROR: no tool named " + name;
                     else if ("web_fetch".equals(name)) {
@@ -3087,14 +3143,14 @@ public final class Researcher {
                         // against the write-up's allowance, and once read it is a source read this run, as a reader's fetch is
                         String served = servedFromRun(args);
                         if (served != null) { observation = served; servedFromRun.incrementAndGet(); }
-                        else if (GivenAddresses.unopened(name, args) != null) observation = GivenAddresses.unopened(name, args);   // the writer opens only what was given, as the readers do: no allowance spent on it
+                        else if (unopened != null) observation = unopened;   // the writer opens only what was given, as the readers do: no allowance spent on it
                         else if (fetches >= allowance) { refused++; observation = allowanceUsed(allowance); }
                         else {
                             fetches++;
                             String key = cp.toolKey(name, args);
                             Checkpoint.Kept kept = cp.kept(key);
                             if (kept != null) observation = kept.observation();
-                            else try (var off = Checkpoint.lane(null)) { observation = t.execute(GivenAddresses.asGiven(args)); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                            else try (var off = Checkpoint.lane(null)) { observation = carriedOut(t, args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (DriveClient.NotServed e) { throw e; } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                             if (observation == null) observation = "";
                             String src = observation.startsWith("source: ") ? observation.substring(8).split(" — |\\n", 2)[0].strip() : "";
                             if (!src.isEmpty() && fetchedInRun.add(src)) {
@@ -3106,11 +3162,12 @@ public final class Researcher {
                         String key = keepsTool(name) ? cp.toolKey(name, args) : null;
                         Checkpoint.Kept kept = cp.kept(key);
                         if (kept != null) observation = kept.observation();
-                        else if (GivenAddresses.unopened(name, args) != null) observation = GivenAddresses.unopened(name, args);
-                        else if (key == null) { try { observation = t.execute(GivenAddresses.asGiven(args)); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); } }
-                        else try (var off = Checkpoint.lane(null)) { observation = t.execute(GivenAddresses.asGiven(args)); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
+                        else if (unopened != null) observation = unopened;
+                        else if (key == null) { try { observation = carriedOut(t, args); } catch (Stopping.Requested e) { throw stopped(e); } catch (DriveClient.NotServed e) { throw e; } catch (Exception e) { observation = "ERROR: " + e.getMessage(); } }
+                        else try (var off = Checkpoint.lane(null)) { observation = carriedOut(t, args); cp.keep(key, observation, null); } catch (Stopping.Requested e) { throw stopped(e); } catch (DriveClient.NotServed e) { throw e; } catch (Exception e) { observation = "ERROR: " + e.getMessage(); }
                     }
                     observation = cut(observation == null ? "" : observation);
+                    gave(t, args, observation);
                     ObjectNode toolMsg = history.addObject();
                     toolMsg.put("role", "tool"); toolMsg.put("tool_call_id", id); toolMsg.put("content", observation);
                     if (done.name().equals(name)) finished = true;
@@ -3334,6 +3391,7 @@ public final class Researcher {
             int pages = Math.max(1, (text.length() + PAGE_CHARS - 1) / PAGE_CHARS);
             if (page > pages) return "ERROR: " + url + " has " + pages + " page(s).";
             String body = text.substring((page - 1) * PAGE_CHARS, Math.min(text.length(), page * PAGE_CHARS));
+            if (RawCapture.verbatim(p)) GivenAddresses.received(body);   // a page from outside, or the person's own file, read back: its links as when it was first read
             return "page " + page + " of " + pages + " — " + url + "\n" + Fence.wrap("SOURCE TEXT", body) + "\n" + Fence.rule("SOURCE TEXT")
                     + (page < pages ? "\n(read_pages with page " + (page + 1) + " continues.)" : "");
         }
@@ -3369,12 +3427,13 @@ public final class Researcher {
             for (LibrarianIndex.Hit h : hits) {
                 if (n++ >= 10) break;
                 String locator = h.id();
+                boolean verbatim = false;   // the hit's passage is a page's or the person's own words, not text the library wrote from a model's
                 if ("raw".equals(h.kind()) || "chunk".equals(h.kind())) {
-                    try { Path rp = LibraryStore.under(store.rawDir(), h.id()); if (rp != null && Files.exists(rp)) locator = RawCapture.read(rp)[0]; } catch (Exception ignored) { }
+                    try { Path rp = LibraryStore.under(store.rawDir(), h.id()); if (rp != null && Files.exists(rp)) { locator = RawCapture.read(rp)[0]; verbatim = RawCapture.verbatim(rp); } } catch (Exception ignored) { }
                 }
                 sb.append(n).append(". ").append(h.title()).append("  [").append(h.kind()).append(h.state().isEmpty() ? "" : ", " + h.state()).append("]\n   ").append(locator).append('\n');
                 GivenAddresses.fromTheLibrary(locator);   // the person's own shelved file, by the locator listed here, may be read next (round G)
-                if (!h.snippet().isBlank()) sb.append("   ").append(Acquisitions.compress(h.snippet(), 240)).append('\n');
+                if (!h.snippet().isBlank()) { String passage = Acquisitions.compress(h.snippet(), 240); sb.append("   ").append(passage).append('\n'); if (verbatim) GivenAddresses.received(passage); }
             }
             if (n == 0) return "the shelves hold nothing for: " + q;
             sb.append(Fence.close("SHELF RESULTS")).append('\n').append(Fence.rule("SHELF RESULTS")).append('\n');
@@ -3433,6 +3492,7 @@ public final class Researcher {
                 Databases.Result r = db.kind().equals("mongo")
                         ? Databases.queryMongo(store, db, args.path("collection").asText(""), args.path("filter").asText(""), args.path("pipeline").asText(""), args.path("limit").asInt(0))
                         : Databases.query(store, db, args.path("sql").asText(""), args.path("limit").asInt(0));
+                GivenAddresses.fromTheLibrary(r.saved());   // the saved rows may be read back by the locator said here
                 return (r.saved().isEmpty() ? "" : "saved as " + r.saved() + " (cite this locator)\n") + Fence.wrap("QUERY RESULT", r.text()) + "\n" + Fence.rule("QUERY RESULT");
             } catch (IOException e) { return "ERROR: " + e.getMessage(); }
         }
@@ -3644,7 +3704,6 @@ public final class Researcher {
         try { throttle.enter(workersNow()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("interrupted"); }
         long t0 = System.currentTimeMillis();
         WAITED.get()[0] = 0;
-        GivenAddresses.receivedIn(history);   // what the run's tools returned may be opened, each result without its own call's addresses
         int in = 0;
         for (JsonNode m : history) in += estTokens(m.path("content").asText("")) + estTokens(m.path("tool_calls").toString()) + 8;
         ObjectNode reply = null;

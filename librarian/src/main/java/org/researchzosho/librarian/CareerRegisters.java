@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -637,7 +638,7 @@ public final class CareerRegisters {
             // the official Overpass servers answer 406 to a browser-like user agent ("Mozilla/5.0 (compatible; …)", measured 2026-10-31) and 200 to a plain program's name
             HttpRequest r = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(240)).header("User-Agent", OVERPASS_UA).header("Accept", "application/json")
                     .header("Content-Type", "text/plain; charset=utf-8").POST(HttpRequest.BodyPublishers.ofString(query, StandardCharsets.UTF_8)).build();
-            HttpResponse<String> resp = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).version(HttpClient.Version.HTTP_1_1).build().send(r, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> resp = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).version(HttpClient.Version.HTTP_1_1).build()).send(r, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (resp.statusCode() != 200) { why("HTTP " + resp.statusCode() + " from " + host); return null; }
             return resp.body();
         } catch (HttpTimeoutException e) { why("no answer within 240 s from " + host); return null;

@@ -1,5 +1,6 @@
 package org.researchzosho.records;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -63,7 +64,7 @@ public final class Ops {
     public static final List<String> FULL_TEXT = List.of("EP", "WO", "GB", "CA", "FR", "ES", "AT", "CH", "BE", "DK", "SE", "NO", "IE", "IT", "PT", "PL", "GR", "LU", "MC", "CZ", "SK", "BG", "RO", "RS", "HR", "EE", "LT", "CY", "MD", "ME");
     public static final String USER_AGENT = "ResearchZosho-research/1.0 (https://researchzosho.org)";
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
 
     /** Whether a key and a secret are set. */
     public static boolean keyed() { return !setting(KEY_NAME).isEmpty() && !setting(SECRET_NAME).isEmpty(); }

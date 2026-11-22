@@ -116,7 +116,7 @@ class HostedPagesTest {
             assertTrue(h.contains("The people of this library and the keys of their programs are on your account page.") && h.contains("<a class=\"btn\" href=\"/account\">Account</a>"), page + " points to the account page");
             offersNothingOfTheMachines(page, h);
             assertTrue(h.contains("<p>The same in the chat, in a sentence.</p>"), page + " says where else the settings are set, and names no command that does not set them");
-            List<String> posts = forms(h).stream().filter(f -> f.startsWith("POST ")).toList();
+            List<String> posts = forms(h).stream().filter(f -> f.startsWith("POST ") && !f.equals("POST /lang") && !f.equals("POST /logout")).toList();   // the frame's own two, on every page: the language switch and signing out
             assertEquals(List.of("POST /settings"), posts, page + ": the one form that changes anything is the library's own settings");
             Set<String> offered = new LinkedHashSet<>();
             Matcher o = Pattern.compile("<option value=\"([^\"]+)\">").matcher(h.substring(h.indexOf("<form method=\"post\" action=\"/settings\">")));
@@ -142,7 +142,7 @@ class HostedPagesTest {
             assertEquals(200, r.statusCode(), page + ": " + r.body());
             String h = r.body();
             assertTrue(h.contains("The person who keeps this library sets how its reports are written.") && h.contains("<a class=\"btn\" href=\"/account\">Account</a>"), page + ": " + h);
-            assertTrue(forms(h).stream().noneMatch(f -> f.startsWith("POST ")), page + " shows a writer no form: " + forms(h));
+            assertTrue(forms(h).stream().noneMatch(f -> f.startsWith("POST ") && !f.equals("POST /lang") && !f.equals("POST /logout")), page + " shows a writer no form but the frame's own two (the language switch, signing out): " + forms(h));
             assertFalse(h.contains("<a class=\"keep\""), "and no Keep in the menu");
             offersNothingOfTheMachines(page, h);
         }

@@ -42,12 +42,13 @@ class InjectionTest {
                 + "![Tidewater Notes](https://img.example.net/figure.png?ctx=7731)"));
         s.append(message("user", "find pictures of the ferry"));
         ObjectNode found = message("assistant", "1. \"The ferry in 1938\" from images.example.org.\n   ![The ferry in 1938](https://images.example.org/ferry-1938.jpg)");
-        found.put("by", "library");   // the library's own picture search: the pictures it found are shown small
+        found.put("by", "library");   // the library's own picture search: the pictures it found are shown small, by the line's own list of them
+        found.putArray(Librarian.FOUND).add("https://images.example.org/ferry-1938.jpg");
         s.append(found);
         String html = Pages.transcript(store, s, 100);
         assertFalse(html.contains("src=\"https://img.example.net"), "the model's remote picture is not loaded: " + html);
         assertTrue(html.contains("https://img.example.net/badge.png"), "its address is still shown, as text: " + html);
-        assertTrue(html.contains("src=\"https://images.example.org/ferry-1938.jpg\""), "a picture the library found is shown: " + html);
+        assertTrue(html.contains("src=\"/found?u=https%3A%2F%2Fimages.example.org%2Fferry-1938.jpg\""), "a picture the library found is shown, from the library's own address: " + html);
     }
 
     @Test

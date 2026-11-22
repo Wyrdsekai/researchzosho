@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.sun.net.httpserver.HttpExchange;
 
@@ -69,7 +70,7 @@ public final class Vouching {
         private final String service;
         private final Map<String, PublicKey> known = new ConcurrentHashMap<>();
         private volatile long read;
-        private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
+        private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build());
 
         Published(String service) { this.service = service.strip().replaceAll("/+$", ""); }
 

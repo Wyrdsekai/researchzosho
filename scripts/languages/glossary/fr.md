@@ -182,3 +182,23 @@ with the number: « acceptées : {0} », « Doublons d'une même question parmi 
 | the audit log / machine, node / awake, asleep / last word / … ago | journal d'audit / machine, nœud / active, en veille / dernier signe / il y a {0} seconde(s)… as two keys each; a name in a sentence goes in « » after "le compte" (no "de" that would have to elide) |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays laisser partir) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | libérer / Garder / Pour le compte / gérée auparavant par {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | invitation / Rejoindre / Retirer / lien pas encore utilisé |
+
+## Fifth round (0.8.1: the places a library avoids, the model server isolated from the network)
+
+| English | French |
+|---|---|
+| place (a country code the setting names: CN, HK…) | pays ou région (pl. pays et régions) |
+| keep away from / avoid; the places this library avoids | éviter; les pays et régions que cette bibliothèque évite |
+| a list of places the program fills in ({0} = « China, Hong Kong and Macao ») | after a colon (« ces pays ou régions : {0} »), never after en / au / dans, which would have to agree |
+| based or runs in (a provider) | avoir son siège ou fonctionner dans |
+| owned by a company based in a place; its owner's place | appartenir à une entreprise ayant son siège dans …; le pays ou la région de son propriétaire |
+| states no place / left out / allow / serve (a model) | n'indique ni pays ni région / exclu, exclure / autoriser / proposer (servir, when it is served to the library) |
+| provider / router / request | fournisseur / routeur / requête |
+| no way out to the network / can reach the network | isolé du réseau / peut accéder au réseau |
+| set up with no way out / able to reach the network / the earlier way | installer isolé du réseau / avec accès au réseau / de l'ancienne façon |
+| a reason the program fills in | after « Raison : », as a clause in small letters |
+| embeddings server / embeddings model | serveur d'embeddings / modèle d'embeddings |
+| Docker network / container / proxy / route / address range / start script / log | réseau Docker / conteneur / proxy / route / plage d'adresses / script de démarrage / journal |
+| open / closed (values of model_network) | stay as written: « est sur open » |
+| an MCP server's answers give addresses | « Les enquêtes peuvent ouvrir les adresses qu'il cite dans ses réponses. » Buttons: Laisser les enquêtes ouvrir les adresses trouvées / N'ouvrir aucune adresse de ses réponses |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | Chine, Hong Kong, Macao, Cuba, Iran, Corée du Nord, Russie, Venezuela; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

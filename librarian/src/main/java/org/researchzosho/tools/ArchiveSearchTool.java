@@ -7,6 +7,8 @@ import org.researchzosho.librarian.Fence;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -24,6 +26,17 @@ public final class ArchiveSearchTool implements Tool {
     public ArchiveSearchTool policy(Fetch.Policy p) { this.policy = p == null ? Fetch.Policy.DEFAULT : p; return this; }
 
     @Override public String name() { return "archive_search"; }
+
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the archive's own records
+
+    /**
+     * For a page's saved copy and its history, {@code query} is the page's address, and it goes to the archives as part of the
+     * request: it has to be an address that was given. For every other kind it is a search's words, or a site's name to list.
+     */
+    @Override public Set<String> addressArguments(JsonNode args) {
+        String kind = args == null ? "" : args.path("kind").asText("").strip().toLowerCase(Locale.ROOT);
+        return kind.equals("copy") || kind.equals("history") ? Set.of("query") : Set.of();
+    }
 
     @Override public String description() {
         return "The web archives and the Internet Archive. kind=copy: the saved copy of a page (query = its address) nearest a date, to web_fetch when the "

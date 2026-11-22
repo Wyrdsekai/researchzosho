@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -308,7 +309,7 @@ public final class TranslationScores {
     static volatile Duration SERVED_RETRY = Duration.ofMinutes(2);
     /** The pairs MetricX-24 is sent in one call: a stop or a failure costs at most these. */
     static final int SERVED_AT_ONCE = 8;
-    private static final HttpClient SERVED_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+    private static final HttpClient SERVED_HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
 
     /**
      * LaBSE or MetricX-24 at another machine's address (0.7.4): the pairs sent a few at a time, the helpers' secret with each call. A call

@@ -101,6 +101,8 @@ public final class TavilySearchTool implements Tool {
 
     @Override public String name() { return "tavily_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the search's answer
+
     @Override public String description() {
         return "Search the web through Tavily: each hit with the passages of its page that answer the query, longer than a web search's snippet, "
                 + "so a page can be judged before it is read. Paid: each search counts against the month's limit.";

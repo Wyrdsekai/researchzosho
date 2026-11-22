@@ -424,7 +424,8 @@ public final class LibrarianDaemon {
             Crews.log(store, "research " + jobId, "the report " + id + " was filed before the restart; the job ends with it, and the nightly housekeeping reads its claims", 0);
             return "investigation " + id + "\n\nThe report was filed before the service restarted. The claims in it are read by the nightly housekeeping.";
         }
-        String question = a.path("question").asText();
+        String asked = a.path("question").asText();   // as it was asked: what the library puts after it below is not the asker's words
+        String question = asked;
         if (a.hasNonNull("delta_of")) question = withEarlier(question, a.get("delta_of").asText());
         List<String> subs = new ArrayList<>();
         for (JsonNode s : a.path("sub_questions")) if (s.isTextual() && !s.asText().isBlank()) subs.add(s.asText());
@@ -442,7 +443,11 @@ public final class LibrarianDaemon {
         researcher.entry(JOB_ENTRY.get() == null ? ModelEntries.defaultEntry() : JOB_ENTRY.get());   // the run's model, for its report and its cost
         researcher.why(JOB_WHY.get());
         researcher.paid(a.path("paid").asBoolean(true));   // the paid search places left off for this run when the ask said so
-        if (a.path("from_chat").asBoolean(false)) researcher.personWords(a.path("person_words").asText(""));   // the model wrote the question: only the person's words give addresses
+        // the addresses a run may open come from the person's own words: the words of their turn when the chat's model wrote the question;
+        // the question as it was asked otherwise, never what the library put after it (an earlier report's answer, a model's words); and
+        // none when the question itself is text the library stored (an open question run from the questions page)
+        if (a.path("from_chat").asBoolean(false)) researcher.personWords(a.path("person_words").asText(""));
+        else researcher.personWords(a.path(LibraryProtocol.STORED_QUESTION).asBoolean(false) ? "" : asked);
         if (a.hasNonNull("title")) researcher.title(a.get("title").asText());
         researcher.options(ReportOptions.forRun(a));   // the ask's length, citations and shape, and the library's defaults for the rest
         // a run has a model: the pages the person gave that wait for their check are checked first, a few at a time
@@ -471,6 +476,12 @@ public final class LibrarianDaemon {
             ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "page check"); ev.put("statement", c.getMessage()); trace.event("stopped", ev);
             Crews.log(store, "research " + jobId, c.getMessage(), System.currentTimeMillis() - t0);
             throw new Jobs.Failure(c.getMessage());
+        }
+        catch (DriveClient.NotServed n) {
+            // the router has no provider left for the run's model among those this library allows: the run stops, and its result is that sentence
+            ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "router"); ev.put("statement", n.getMessage()); trace.event("stopped", ev);
+            Crews.log(store, "research " + jobId, n.getMessage(), System.currentTimeMillis() - t0);
+            throw new Jobs.Failure(n.getMessage());
         }
         catch (Stopping.Requested s) {
             // stopped between two turns or in the middle of a call: the worker marks the job stopped from the marker
@@ -667,6 +678,9 @@ public final class LibrarianDaemon {
         catch (IOException e) { Crews.log(store, "upgrade", "the fields ledger could not be written: " + e.getMessage() + ". researchzosho profile runs upgrade tries again", 0); }
         d.jobs.start();   // re-queues what a previous daemon left behind
         Help.prefetch();   // an installed release fetches its documentation now, off this thread, so the first question finds it kept
+        // a SearXNG settings file an earlier version wrote, unchanged, is written again for this one (0.8.1 leaves out the engines based in an avoided place); an edited one is the person's
+        Thread searx = new Thread(() -> { String did = Searx.upgrade(); if (!did.isEmpty()) Crews.log(store, "upgrade", did, 0); }, "searxng-settings");
+        searx.setDaemon(true); searx.start();
         if (crewHour >= 0) {
             d.crews = Crews.nightly(store, crewHour, () -> {
                 try { d.jobs.submit("crews", "", M.createObjectNode()); } catch (IOException e) { Crews.log(store, "nightly", "could not start the nightly tasks: " + e, 0); }
@@ -857,6 +871,7 @@ public final class LibrarianDaemon {
     private volatile boolean loopbackOnly;
 
     private void handle(HttpExchange x) throws IOException {
+        x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");   // nothing this program serves is read as another type than it says: only its own script files are scripts
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
         if (Proxy.behindTrusted(x)) x.setAttribute(Proxy.PROXIED, Boolean.TRUE);   // from a proxy the setting names: its forwarded headers are believed

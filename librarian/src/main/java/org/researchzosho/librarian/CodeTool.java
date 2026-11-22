@@ -207,6 +207,7 @@ public final class CodeTool implements Tool {
     }
 
     @Override public String name() { return "read_code"; }
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // a repository's own files, as its address gave them
 
     @Override public String description() {
         return "Read the files of the repository " + String.join(", ", names) + " as they are on disk. op=list shows the files under a folder; "

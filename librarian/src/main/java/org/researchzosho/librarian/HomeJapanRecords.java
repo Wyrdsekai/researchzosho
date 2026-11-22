@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -64,7 +65,7 @@ public final class HomeJapanRecords {
 
     public static boolean keySet() { String k = KEY_VALUE.get(); return k != null && !k.isBlank(); }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NORMAL).build());
     private static final Object PACE = new Object();
     private static long lastCall;
 

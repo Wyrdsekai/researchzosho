@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -97,7 +98,7 @@ public final class AccountService {
     private final HttpServer server;
     /** Whether the service listens on this computer's loopback only: then the address it listens on is the address people reach it at. */
     boolean reachedOnlyHere;
-    private final HttpClient client = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).executor(Executors.newVirtualThreadPerTaskExecutor()).build();
+    private final HttpClient client = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).executor(Executors.newVirtualThreadPerTaskExecutor()).build());
 
     /** Who a request is: the account, how it proved it (a browser's session, or a key that reads and writes or reads), and what it proved it with. */
     record Who(AccountStore.Account account, String via, AccountStore.Key key, String session) {
@@ -206,6 +207,7 @@ public final class AccountService {
     // ---- one request ----
 
     private void handle(HttpExchange x) throws IOException {
+        x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");   // nothing this program serves is read as another type than it says: only its own script files are scripts
         String path = x.getRequestURI().getPath(), method = x.getRequestMethod();
         try {
             if (Proxy.behindTrusted(x)) x.setAttribute(Proxy.PROXIED, Boolean.TRUE);   // a router in front of the service, named in the trusted-proxy setting: its forwarded headers are believed

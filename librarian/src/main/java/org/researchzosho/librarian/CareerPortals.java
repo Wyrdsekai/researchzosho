@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -443,7 +444,7 @@ public final class CareerPortals {
 
     // ---------------------------------------------------------------- a POST that needs a session
 
-    private static final HttpClient SESSION = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).cookieHandler(new CookieManager()).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient SESSION = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).cookieHandler(new CookieManager()).followRedirects(HttpClient.Redirect.NORMAL).build());
 
     static String postWithSession(String pageUrl, String postUrl, String json, Map<String, String> headers) {
         try {

@@ -52,7 +52,7 @@ public final class Databases {
     /** One connection as the owner added it. {@code hide}: column names, or table.column, whose values are never shown. */
     public record Db(String name, String kind, String url, List<String> hide, String addedAt) {
         /** The address without its password, for showing. */
-        public String shown() { return url.replaceAll("(://[^:/@]+):[^@/]*@", "$1:***@"); }
+        public String shown() { return Settings.withoutPasswords(url); }   // the user part's, and a parameter's (?password=…)
         boolean hidden(String table, String column) {
             String c = column.toLowerCase(Locale.ROOT), tc = (table == null ? "" : table.toLowerCase(Locale.ROOT)) + "." + c;
             for (String h : hide) { String x = h.toLowerCase(Locale.ROOT).strip(); if (x.equals(c) || x.equals(tc)) return true; }

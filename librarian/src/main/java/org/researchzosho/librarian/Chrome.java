@@ -114,6 +114,13 @@ public final class Chrome {
     /** What separates the items of a list the program joins: 、 where the language writes it (Japanese, Chinese), a comma and a space elsewhere. */
     public String sep() { return code.equals("ja") || code.equals("zh") ? "、" : ", "; }
 
+    /** Sentences one after another as the language sets them: a space between in English, none in Japanese or Chinese; an empty one is left out. */
+    public String sentences(List<String> said) {
+        List<String> out = new ArrayList<>();
+        for (String s : said) if (s != null && !s.isEmpty()) out.add(s);
+        return String.join(code.equals("ja") || code.equals("zh") ? "" : " ", out);
+    }
+
     /**
      * A language's name in this language, as it stands inside a sentence: "Japanese", 日本語, "japonais", "Japanisch" (the words file of the
      * language gives it, with its own capitals); else the interface's word; a language the table has no word for, as {@link ReadIn} names it.

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.tools.Fetch;
@@ -73,7 +74,7 @@ final class PriceList {
     /** The list, fetched: its body when the host answers with it, else null. */
     static String fetch(String url) {
         try {
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+            HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build());
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20)).header("User-Agent", Fetch.USER_AGENT).header("Accept", "application/json").GET().build(),
                     HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200 ? r.body() : null;

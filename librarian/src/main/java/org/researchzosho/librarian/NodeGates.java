@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -63,7 +64,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class NodeGates implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(NodeGates.class);
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build());
 
     /** A paid place: its name in the gate's path, where it is, the setting of its key, where the key goes, and what a call to it is. */
     record Place(String name, String base, String keySetting, String keyGoes, String kind) { }

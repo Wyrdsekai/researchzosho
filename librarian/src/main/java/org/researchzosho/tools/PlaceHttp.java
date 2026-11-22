@@ -25,7 +25,7 @@ public final class PlaceHttp {
 
     /** The library and its site; never an e-mail address. */
     public static final String UA = "ResearchZosho/" + Version.string() + " (a research library; https://researchzosho.org)";
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build());
 
     /** What came back: the status (0 when nothing did), the headers by lower-case name, and the body. */
     public record Res(int status, Map<String, String> headers, String body) {

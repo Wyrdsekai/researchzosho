@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
+import java.net.URI;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -107,6 +109,9 @@ public final class Repos {
             if (!Files.isDirectory(dir)) throw new IOException(dir + " is not a folder");
             return new Repo(dir, nameOf(dir.toString()), dir.toString(), false);
         }
+        if (s.startsWith("-")) throw new IOException(s + " is not an address git can clone.");
+        // git is asked like any request: in a model's call, a host its own words name only for an address that was given (Outbound)
+        try { Outbound.check(URI.create(asWebAddress(s).replace(" ", "%20"))); } catch (IllegalArgumentException notAnAddress) { throw new IOException(s + " is not an address git can clone."); }
         String leftOut = Fetch.Policy.DEFAULT.leftOut(asWebAddress(s));
         if (leftOut != null) throw new IOException("The library did not clone " + s + ", because " + leftOut + ".");
         if (!gitInstalled()) throw new IOException("git is not installed on this machine, so the library cannot clone " + s + ". Install git, or clone it yourself (git clone " + s + ") and give the folder's path instead.");
@@ -114,7 +119,7 @@ public final class Repos {
         Files.createDirectories(dir.getParent());
         List<String> cmd = Files.isDirectory(dir.resolve(".git"))
                 ? List.of("git", "-C", dir.toString(), "pull", "--ff-only", "--quiet")
-                : List.of("git", "clone", "--depth", "1", "--quiet", s, dir.toString());
+                : List.of("git", "clone", "--depth", "1", "--quiet", "--", s, dir.toString());   // --: what follows is an address, never an option
         try {
             Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
             String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

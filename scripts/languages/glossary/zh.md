@@ -214,3 +214,25 @@ Latin or kana name.
 | the audit log / machine, node / awake, asleep / last word / … ago | 审计日志 / 机器、节点 / 运行、休眠 / 最近一次报到 / {0}秒前、{0}分钟前、{0}小时前、{0}天前 |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays 放弃) / Keep it ⟦keeps an account or a library as it is⟧ / For ⟦the account a library is taken in for⟧ / kept before by {0} | 释放 / 保留 / 归属账户 / 原管理人：{0} |
 | invitation (letting someone in by a link) / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | 邀请 / 加入 / 撤回 / 尚未使用的链接 |
+
+## Fifth round (0.8.1: the places a library avoids, the model server cut off from the outside network)
+
+| English | zh |
+|---|---|
+| place (a country code the setting names: CN, HK…) | 国家或地区 |
+| keep away from / avoid; the places this library avoids | 避开; 这个图书馆避开的国家或地区 |
+| based or runs in (a provider) | 总部或运行地在…; short: 总部或运行地所在的国家或地区 |
+| owned by a company based in {0}; its owner | 归总部在 {0} 的公司所有; 所属公司 |
+| states no place / left out / allow / serve (a model) | 未注明国家或地区 / 排除 / 允许 / 提供 |
+| provider (a router's) / router / request | 服务商 (as a host is) / 路由服务 (路由 alone is a network route) / 请求 |
+| a host the person named, beside a router's providers | 你自己指定的服务商 |
+| no way out to the network / can reach the network | 与外网隔离 / 可以访问外网 |
+| set up with no way out / able to reach the network / the earlier way | 设置为与外网隔离 / 设置为可以访问外网 / 按以前的方式 |
+| a reason the program fills in | after 原因：, as a clause |
+| embeddings server / embeddings model | 嵌入服务器 / 嵌入模型 |
+| Docker network / container / proxy / route / address range / start script / log | Docker 网络 / 容器 / 代理 / 路由 / 地址段 / 启动脚本 / 日志 |
+| unload a model (from memory) | 从内存中释放 (卸载 is uninstall) |
+| open / closed (values of model_network) | stay as written: 设置项 {0} 为 open |
+| an MCP server's answers give addresses | “调查可以打开它在回答中给出的网址。” Buttons: 让调查打开找到的网址 / 不打开回答中的网址 |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | 中国、香港、澳门、古巴、伊朗、朝鲜、俄罗斯、委内瑞拉; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |
+| a placeholder that the places fill | the names are Chinese: no space around it (总部在{0}的, 运营地在{1}，) |

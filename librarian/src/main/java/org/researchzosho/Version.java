@@ -1,5 +1,6 @@
 package org.researchzosho;
 
+import org.researchzosho.tools.Outbound;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +16,7 @@ import java.util.regex.Pattern;
 /** The release version: the jar's manifest says it; a run from the source tree says so instead. */
 public final class Version {
     private Version() { }
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
 
     public static String string() {
         String v = Version.class.getPackage() == null ? null : Version.class.getPackage().getImplementationVersion();

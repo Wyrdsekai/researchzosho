@@ -1,5 +1,6 @@
 package org.researchzosho.drive.anthropic;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.drive.Gated;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -57,7 +58,7 @@ public final class Anthropic {
         public Refused(int status, String message) { super(message); this.status = status; }
     }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15)).build());
     private static final Transport REAL = (method, uri, headers, body, timeout) -> {
         HttpRequest.Builder b = Gated.request(uri.toString()).timeout(timeout);   // a call that costs carries its use and its lane, for a node's gate
         headers.forEach(b::header);

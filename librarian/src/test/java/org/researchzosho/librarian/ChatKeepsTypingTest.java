@@ -37,7 +37,8 @@ class ChatKeepsTypingTest {
             Librarian.Session s = Librarian.Session.open(store);
             HttpResponse<String> page = get(c, base + "/chat?session=" + s.id);
             assertEquals(200, page.statusCode(), page.body());
-            String html = page.body();
+            assertTrue(page.body().contains("<script src=\"/static/rz-chat.en.js\"></script>"), "the page's script is a file of the library's own: " + page.body());
+            String html = page.body() + get(c, base + "/static/rz-chat.en.js").body();   // the page, and its script
             for (String g : new String[]{"id=\"chat-view\"", "id=\"chat-say\"", "id=\"chat-scroll\"", "autocomplete=\"off\"", "fd.append('page','1')", "'rz.chat.draft'", "window.addEventListener('load',end)"})
                 assertTrue(html.contains(g), "the page has its changing part, its box, and the script that keeps the box: " + g);
             assertTrue(html.indexOf("id=\"chat-say\"") > html.indexOf("id=\"chat-view\""), "the box comes after the changing part, outside it");

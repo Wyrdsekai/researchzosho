@@ -12,6 +12,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,8 +59,8 @@ class ReportPicturesTest {
     void theChatsPlacedPictureIsAtReadingSizeAndItsCandidatesSmall() {
         assertEquals(FIGURE + "<p>Picture: the gear train, judged &quot;a diagram of the gear train&quot;: yes — it shows the four wheels (kept as A-0001).</p>",
                 Pages.prose("![A diagram of the gear train](/images/ab12.png)\n\nPicture: the gear train, judged \"a diagram of the gear train\": yes — it shows the four wheels (kept as A-0001)."));
-        String list = Pages.prose("2 pictures found.\n\n1. \"T\" from host.example.\n   https://host.example/page\n   ![T](https://imgs.example/t.jpg)\n\nSay \"keep 1\" to keep it.");
-        assertEquals("<p>2 pictures found.</p><p>1. &quot;T&quot; from host.example.<br>   https://host.example/page<br>   <img class=\"thumb\" src=\"https://imgs.example/t.jpg\" alt=\"T\" loading=\"lazy\" referrerpolicy=\"no-referrer\" " + Pages.SHOWN + "></p><p>Say &quot;keep 1&quot; to keep it.</p>", list, "the library's own list of found pictures carries its mark");
+        String list = Pages.prose("2 pictures found.\n\n1. \"T\" from host.example.\n   https://host.example/page\n   ![T](https://imgs.example/t.jpg)\n\nSay \"keep 1\" to keep it.", Set.of("https://imgs.example/t.jpg"));
+        assertEquals("<p>2 pictures found.</p><p>1. &quot;T&quot; from host.example.<br>   https://host.example/page<br>   <img class=\"thumb\" src=\"/found?u=https%3A%2F%2Fimgs.example%2Ft.jpg\" alt=\"T\" loading=\"lazy\" referrerpolicy=\"no-referrer\"></p><p>Say &quot;keep 1&quot; to keep it.</p>", list, "a picture of the library's own list of found pictures comes from the library's own address");
         assertFalse(list.contains("class=\"figure\""), "the chat's candidates are tiles: " + list);
         assertEquals("<p>![t](//evil.example/x)</p>", Pages.prose("![t](//evil.example/x)"));
     }
@@ -79,11 +80,11 @@ class ReportPicturesTest {
             assertEquals(200, own.statusCode(), own.body());
             assertTrue(own.body().contains("<div class=\"body\"><h3>Answer</h3><p>The gearing is a train of four.</p>" + FIGURE + "<p>The last wheel turns the pointer.</p></div>"), own.body());
             assertTrue(own.body().contains(".figure{display:block;max-width:100%;max-height:60vh;width:auto;height:auto;") && own.body().contains(".thumb{display:block;max-width:160px;max-height:160px;"), "reading size beside the tiles' size: " + own.body());
-            assertEquals("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'", own.headers().firstValue("Content-Security-Policy").orElse(""), "a picture of this library widens nothing");
+            assertEquals(Pages.POLICY, own.headers().firstValue("Content-Security-Policy").orElse(""), "a picture of this library widens nothing");
             for (String id : new String[]{"I-0011-web", "I-0012-inline"}) {
                 HttpResponse<String> web = c.send(HttpRequest.newBuilder(URI.create(base + "/entry/" + id)).build(), HttpResponse.BodyHandlers.ofString());
                 assertEquals(200, web.statusCode(), web.body());
-                assertEquals("default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'", web.headers().firstValue("Content-Security-Policy").orElse(""), id + ": a report's picture of the web is a link, and the policy lets nothing of the web in (round F)");
+                assertEquals(Pages.POLICY, web.headers().firstValue("Content-Security-Policy").orElse(""), id + ": a report's picture of the web is a link, and the policy lets nothing of the web in (round F)");
                 assertTrue(web.body().contains("<a href=\"https://pics.example/") && !web.body().contains("src=\"https://pics.example/"), web.body());
             }
         } finally { d.stop(); }

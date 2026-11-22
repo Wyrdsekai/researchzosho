@@ -19,6 +19,8 @@ public final class OldNewspapersTool implements Tool {
 
     @Override public String name() { return "old_newspapers"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the newspaper archives' records
+
     @Override public String description() {
         return "Search digitised historical newspapers by their text: the Library of Congress (United States, 1770–1963), Gallica (France), Delpher "
                 + "(the Netherlands), Papers Past (New Zealand) and Trove (Australia, with a key). Use it for a person, a place or an event before "

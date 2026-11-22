@@ -61,6 +61,8 @@ public final class ChannelsLikeTool implements Tool {
 
     @Override public String name() { return "channels_like"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the video site's answer
+
     @Override public String description() {
         return "YouTube channels like a given one: channels that make what it makes, found by searching for its subject the way a person would "
                 + "(several phrasings, channels and videos) and ranked by how many searches found each — never by subscribers, which are shown beside each. "

@@ -423,14 +423,15 @@ class SiftTest {
         JsonNode schema = s.schema(M);
         assertTrue(schema.path("required").toString().contains("what") && schema.path("properties").has("from") && schema.path("properties").has("videos") && schema.path("properties").has("limit") && schema.path("properties").has("page"), schema.toString());
         assertTrue(s.asTool().execute(M.readTree("{}")).startsWith("Say what you remember of the video"), "an empty call is told what to give");
+        // the chat's table no longer carries sift or candidates (0.8.1): the chat files a remembered video as a research run, which calls them
         List<Instrument> chat = Instruments.forChat(store);
-        assertTrue(Instruments.isInstrument(chat, "sift") && Instruments.isInstrument(chat, "candidates"), chat.stream().map(Instrument::name).toList().toString());
+        assertFalse(Instruments.isInstrument(chat, "sift") || Instruments.isInstrument(chat, "candidates"), chat.stream().map(Instrument::name).toList().toString());
         Map<String, Tool> none = new LinkedHashMap<>();
         List<Instrument> run = Instruments.forRun(store, none, new Researcher.Ask("q", "broad", 0, List.of(), "web", List.of(), 0, List.of(), List.of()));
         assertEquals(List.of("search", "open", "look", "candidates", "sift", "records", "homes", "dossier", "board"), run.stream().map(Instrument::name).toList(), "the sift sits after candidates on a run's table");
-        String small = new Brain(BrainTest.drive("w"), null, "qwen3.5-9b", null, Brain.Tier.SMALL, null).preamble(chat);
+        String small = new Brain(BrainTest.drive("w"), null, "qwen3.5-9b", null, Brain.Tier.SMALL, null).preamble(run);
         assertTrue(small.contains("sift " + Instruments.SIFT_EXAMPLE) && small.contains("then sift {\"what\": \"a striped apron; a red tag; the pattern pieces laid out at the start\", \"from\": \"the key candidates gave\"}, then look with the first five survivors in videos"), small);
-        String large = new Brain(BrainTest.drive("w"), null, "qwen3.8-27b", null, Brain.Tier.LARGE, null).preamble(chat);
+        String large = new Brain(BrainTest.drive("w"), null, "qwen3.8-27b", null, Brain.Tier.LARGE, null).preamble(run);
         assertTrue(large.contains("sift: after candidates and before any look") && large.contains("then sift over the pool's key; then look on the first five survivors together"), large);
         assertTrue(Goals.named("choose").instruments().equals(List.of("candidates", "sift", "look")) && Goals.named("choose").decisionRules().contains("Then sift, given that key in from and the remembered things in what") && Goals.named("choose").decisionRules().contains("sift again with page=2"), Goals.named("choose").decisionRules());
         assertTrue(YoutubeProfile.FIND_ONE.contains("Then sift, given that key in from") && YoutubeProfile.FIND_ONE.contains("the sift is the funnel"), YoutubeProfile.FIND_ONE);

@@ -149,6 +149,19 @@ sign in from any phone or computer. On the library's own computer your browser n
 a passkey, so your fingerprint or face signs you in, or a one-time code from an authenticator app as
 a second step. Programs still use tokens.
 
+## What leaves your machine
+
+Your library stays in a folder on your disk.
+
+Measured on 2026-11-20 with version 0.8.0 on Linux and a Qwen model: in two 25-minute sessions of research and chat, one of
+them a research run over a private document, the model server sent no packet to any address outside the machine and looked
+up no name.
+
+What does go out is what research needs, and it is written down host by host: the words of a search to the search engines,
+the pages a run opens, the paper indexes, the check for a new version, the downloads when you install a model. Through
+OpenRouter a hosted model is never served by a provider in a place your library avoids, nor by one owned from there. The
+whole account is in [SECURITY.md](SECURITY.md#what-leaves-your-machine).
+
 ## Getting started
 
 Research runs need a model server that speaks the OpenAI chat API. That can be a local one
@@ -194,6 +207,7 @@ the ones you are most likely to change:
 | `RESEARCHZOSHO_MODEL` | the model name to ask for |
 | `RESEARCHZOSHO_JUDGE_DRIVE` / `RESEARCHZOSHO_JUDGE_MODEL` | a second, stronger model for the judgment steps (planning, the critic, the write-up, the citation check), while a local model does the reading |
 | `RESEARCHZOSHO_MODEL_IDLE_MINUTES` | minutes the model of this machine's own model server stays loaded with nothing asking it; 10 unless set, 0 for always. Work that runs keeps it loaded |
+| `RESEARCHZOSHO_MODEL_NETWORK` | on Linux, whether the model server `model install` sets up may reach the network: `closed` (no way out; the default) or `open` (as before 0.8.1). It takes effect when `model install` is given again |
 | `RESEARCHZOSHO_EMBED_IDLE_MINUTES` | the same for the embeddings model, LaBSE's container and the one `embed start` runs; 5 unless set, 0 for always |
 | `RESEARCHZOSHO_EMBED` | an embeddings server (OpenAI embeddings call), so search works by meaning as well as by words; `off` for words only. `researchzosho embed start` runs one with Docker (Text Embeddings Inference, about nine times faster than llama.cpp on the same model) |
 | `RESEARCHZOSHO_LIBRARY` | where the library folder is (default `~/researchzosho-library`) |

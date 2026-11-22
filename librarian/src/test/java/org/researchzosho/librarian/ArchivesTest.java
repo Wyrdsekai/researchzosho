@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
@@ -189,18 +190,26 @@ class ArchivesTest {
         try (Stream<Path> s = Files.list(store.rawDir())) { return s.filter(p -> p.getFileName().toString().endsWith(".md")).sorted().toList(); }
     }
 
-    static List<Path> unpackFolders() throws IOException {
-        Path t = Path.of(System.getProperty("java.io.tmpdir"));
-        try (Stream<Path> s = Files.list(t)) { return s.filter(p -> p.getFileName().toString().startsWith(Archives.DIR)).toList(); }
+    /**
+     * The folders the program unpacks into from here on, as it names them itself ({@code Archives.unpackedInto}). The temp folder
+     * is shared with every other test process on the machine (another fork, another suite beside this one), so listing it before
+     * and after an add says nothing of this test's own folder: such a listing failed whenever a neighbour was unpacking.
+     */
+    static List<Path> unpackWatch() { List<Path> made = new CopyOnWriteArrayList<>(); Archives.unpackedInto = made::add; return made; }
+
+    /** At least {@code atLeast} folders were unpacked into (the control: the watch saw the unpacking), each in the temp folder under the program's name, and every one is gone again. */
+    static void gone(List<Path> made, int atLeast, String message) {
+        assertTrue(made.size() >= atLeast, "the program unpacked into " + made.size() + " folder(s), expected at least " + atLeast);
+        for (Path f : made) { assertTrue(f.getFileName().toString().startsWith(Archives.DIR), f.toString()); assertFalse(Files.exists(f), message + ": " + f); }
     }
 
     @Test void anArchiveAddedIsShelvedUnderACollectionNamedForItAndItsFolderIsRemoved(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         new LibrarianIndex(store, Embeddings.none()).rebuild();
         Path archive = Files.write(tmp.resolve("Antikythera things.zip"), trickyZip());
-        List<Path> before = unpackFolders();
+        List<Path> unpacked = unpackWatch();
         Archives.Added ad = Archives.add(store, archive, "");
-        assertEquals(before, unpackFolders(), "the folder the archive was unpacked into is gone");
+        gone(unpacked, 1, "the folder the archive was unpacked into is gone");
         assertEquals("antikythera-things", ad.collection(), "named for the archive");
         assertNotNull(ad.outcome());
         assertEquals(2, ad.outcome().added()); assertEquals(0, ad.outcome().skipped());
@@ -222,9 +231,9 @@ class ArchivesTest {
     @Test void theCommandLineAddsAnArchiveAndSaysWhatCameOfIt(@TempDir Path home) throws Exception {
         LibraryStore store = new LibraryStore(home.resolve("researchzosho-library")); store.init();
         Path archive = Files.write(home.resolve("things.zip"), trickyZip());
-        List<Path> before = unpackFolders();
+        List<Path> unpacked = unpackWatch();
         String out = cli(home, "add", archive.toString());
-        assertEquals(before, unpackFolders(), "no folder of this run is left");
+        gone(unpacked, 1, "no folder of this run is left");
         assertTrue(out.startsWith("From things.zip: 2 added, 0 unchanged, 0 skipped of 2 document(s), under the collection things; 3 entries of the archive were left out.\n"), out);
         assertTrue(out.contains("  \"../evil.txt\": its path points outside the folder, skipped\n") && out.contains("  \"things/inner.zip\": an archive inside the archive, not opened\n"), out);
         assertTrue(out.contains("ask them: researchzosho research ask"), out);

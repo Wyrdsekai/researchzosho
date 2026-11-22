@@ -210,3 +210,24 @@ The (y/N) prompts keep y; the text says "y나 예".
 | the audit log / machine, node / awake, asleep / last word / … ago | 감사 로그 / 컴퓨터, 노드 / 실행 중, 휴면 / 마지막 응답 / {0}초 전, {0}분 전, {0}시간 전, {0}일 전 |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays 포기) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | 내보내기 / 유지 / 맡을 계정 / 이전 관리자: {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | 초대 / 참여 / 철회 / 아직 쓰이지 않은 링크 |
+
+## Fifth round (0.8.1: the places a library avoids, the model server cut off from outside)
+
+| English | Korean |
+|---|---|
+| place (a country code the setting names: CN, HK…) | 국가·지역 |
+| keep away from / avoid; the places this library avoids | 피하다; 이 라이브러리가 피하는 국가·지역 |
+| a list of places the program fills in ({0} = "China, Hong Kong and Macao") | after a colon (“다음 국가·지역에 본사를 둔 …: {0}”), so that no particle follows it |
+| based or runs in (a provider) | 본사가 있거나 그곳에서 운영되는; in a short clause: 본사나 운영 국가·지역 |
+| owned by a company based in a place; its owner's place | …에 본사를 둔 회사가 소유한; 소유 회사의 국가·지역 |
+| states no place / left out / allow / serve (a model) | 국가·지역을 밝히지 않음 / 제외 / 허용 / 제공 |
+| provider (counted) / router / request | 제공자 (counter 곳, as for other companies) / 라우터 / 요청 |
+| no way out to the network / can reach the network | 외부와 차단되어 있음 / 외부에 접속할 수 있음 |
+| set up with no way out / able to reach the network / the earlier way | 외부와 차단된 상태로 설정 / 외부에 접속할 수 있게 설정 / 이전 방식 |
+| a reason the program fills in | after 이유:, as a short clause ending in -음 (…없음, …못함) |
+| the setting {0} is open | 설정 {0}의 값이 open (no particle after the name) |
+| embeddings server / embeddings model | 임베딩 서버 / 임베딩 모델 |
+| Docker network / container / proxy / route / address range / start script / log | Docker 네트워크 / 컨테이너 / 프록시 / 경로 / 주소 범위 / 시작 스크립트 / 로그 |
+| an MCP server's answers give addresses | “조사에서 이 서버가 응답에 적은 주소를 열 수 있습니다.” Buttons: 찾은 주소를 조사에서 열기 / 응답의 주소 열지 않기 |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | 중국, 홍콩, 마카오, 쿠바, 이란, 북한, 러시아, 베네수엘라; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |
+| the line of a model on OpenRouter | whole sentences, each with its full stop (제공자 6곳입니다. …제외됩니다(…).) |

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -197,7 +198,13 @@ public final class Sift {
         String over = !ask.videos().isEmpty() ? "the videos given" : ask.from().isEmpty() ? "the newest pool" : "the pool " + ask.from();
         String running = RUNNING.putIfAbsent(root, over);
         if (running != null) return new Result(List.of(), 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, "", "", "", List.of(busySentence(running)), busySentence(running));
-        try { return sift(store, ask, progress, stopWhen, untilMs, root); }
+        try {
+            Result r = sift(store, ask, progress, stopWhen, untilMs, root);
+            // the survivors' own links (the video site's ids, as the pool got them) may be looked at next; the lines beside them are a model's
+            // words about a picture, and give nothing (0.8.1)
+            for (Sifted c : r.survivors()) GivenAddresses.received(c.hit.link());
+            return r;
+        }
         finally { RUNNING.remove(root); }
     }
 
@@ -727,7 +734,7 @@ public final class Sift {
 
     // ---- the pictures: fetched once, kept under the helper's folder
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build());
     private static volatile long lastFetchAt = 0;
 
     static byte[] fetchPlain(String url) throws Exception {

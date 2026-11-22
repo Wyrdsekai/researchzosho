@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -39,7 +40,7 @@ final class PicturePlaces {
     private PicturePlaces() { }
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build());
     /** Who asks: the program and its address, never a person. */
     static final String UA = "ResearchZosho/" + Version.string() + " (a research library; https://researchzosho.org)";
     static final Duration QUICK = Duration.ofSeconds(25), SLOW = Duration.ofSeconds(60);

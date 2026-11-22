@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -29,7 +30,7 @@ public final class ModelSlots {
 
     static final int READERS_MAX = 3, VLLM_GUESS = 8, OLLAMA_GUESS = 1;
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build());
 
     /** What one server can carry and what follows from it. {@code slots} is 0 when the server did not answer. */
     public record Plan(int slots, String source, int runs, int readers) {

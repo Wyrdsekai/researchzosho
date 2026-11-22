@@ -61,6 +61,7 @@ class ResearcherTest {
                 p.putArray("required").add(arg); return p;
             }
             @Override public String execute(JsonNode a) throws Exception { return exec.run(a); }
+            @Override public boolean fromOutside(JsonNode a) { return true; }   // a stand-in for a tool of the web: what it answers came from outside
         };
     }
 

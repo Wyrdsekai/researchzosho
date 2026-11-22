@@ -28,6 +28,14 @@ public interface ChatIo extends AutoCloseable {
     /** A line from another thread while the person may be typing: it appears above the prompt. */
     void notifyLine(String s);
 
+    /**
+     * Words as a terminal may be sent them: the line ends and tabs kept, every other control character left out. A model's reply is
+     * printed as it came, and a terminal reads an escape character as the start of a command of its own (a link drawn over other words,
+     * the window's title set, the screen cleared, on some a file asked for); the words of a model, or of a page it read, are never one
+     * (0.8.1).
+     */
+    static String plain(String s) { return s == null ? "" : s.replaceAll("[\\p{Cc}&&[^\\n\\t]]", ""); }
+
     @Override void close();
 
     /** Where the history is kept: in the library, beside the conversations. */
@@ -52,7 +60,7 @@ public interface ChatIo extends AutoCloseable {
             synchronized (System.out) { System.out.print(prompt); System.out.flush(); }
             try { return in.readLine(); } catch (IOException e) { return null; }
         }
-        @Override public void notifyLine(String s) { synchronized (System.out) { System.out.println("\n" + s); System.out.print("> "); System.out.flush(); } }
+        @Override public void notifyLine(String s) { synchronized (System.out) { System.out.println("\n" + ChatIo.plain(s)); System.out.print("> "); System.out.flush(); } }
         @Override public void close() { }
     }
 
@@ -79,8 +87,9 @@ public interface ChatIo extends AutoCloseable {
         }
 
         @Override public void notifyLine(String s) {
-            try { reader.printAbove(s); }
-            catch (RuntimeException e) { terminal.writer().println(s); terminal.writer().flush(); }
+            String shown = ChatIo.plain(s);
+            try { reader.printAbove(shown); }
+            catch (RuntimeException e) { terminal.writer().println(shown); terminal.writer().flush(); }
         }
 
         @Override public void close() {

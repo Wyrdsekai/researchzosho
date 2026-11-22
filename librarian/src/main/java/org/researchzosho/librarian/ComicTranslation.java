@@ -1930,7 +1930,7 @@ final class ComicTranslation {
             // onto the shelves: the volume's script, page by page and block by block, as the translation's entry with the archive as its file; the original's the same way when it was not there
             String title = DocUnits.stem(in.getFileName().toString());
             Path original = RawCapture.find(store, "file://" + in.toAbsolutePath().normalize());
-            if (original == null) original = RawCapture.capture(store, "file://" + in.toAbsolutePath().normalize(), ComicNote.script(title, rows, labels, false), title, collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection, collection == null ? "" : collection, "", Map.of("language", sourceCode, "comic", volume.container()));
+            if (original == null) original = RawCapture.capture(store, "file://" + in.toAbsolutePath().normalize(), ComicNote.script(title, rows, labels, false), title, collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection, collection == null ? "" : collection, "", Map.of("language", sourceCode, "comic", volume.container(), RawCapture.BY_EYE, "the comic's pages"));
             String coll = collection != null && !collection.isBlank() ? collection : original == null ? "" : RawCapture.collectionOf(original);
             Map<String, String> more = new LinkedHashMap<>();
             if (original != null) more.put("translation_of", original.getFileName().toString());

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -489,12 +490,17 @@ public final class HomeSensors {
         } catch (IOException e) { return ""; }
     }
 
-    static String get(String url) { try { return FETCH.apply(url); } catch (RuntimeException e) { return null; } }
+    static String get(String url) {
+        String body;
+        try { body = FETCH.apply(url); } catch (RuntimeException e) { return null; }
+        Outbound.found(body);   // for the records lookup (Outbound.FINDS): a host this answer names may be asked next; nothing for any other tool
+        return body;
+    }
     static String enc(String s) { return URLEncoder.encode(s == null ? "" : s, StandardCharsets.UTF_8); }
 
     static byte[] fetchBytes(String url) {
         try {
-            var http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build();
+            var http = Outbound.client(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build());
             var r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(120)).header("User-Agent", "researchzosho.org (research library)").GET().build(), HttpResponse.BodyHandlers.ofByteArray());
             return r.statusCode() == 200 ? r.body() : null;
         } catch (Exception e) { return null; }

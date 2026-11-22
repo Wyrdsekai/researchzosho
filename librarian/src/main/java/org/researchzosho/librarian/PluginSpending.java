@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -55,7 +56,7 @@ final class PluginSpending implements Spending {
 
     private final AccountStore store;
     private final String url, issuer;
-    private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
+    private final HttpClient http = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build());
     private volatile Sender sender;
 
     PluginSpending(AccountStore store, String url, String issuer) { this.store = store; this.url = url; this.issuer = issuer; }

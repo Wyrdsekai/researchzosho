@@ -106,7 +106,7 @@ public final class Recalls {
     static Path file(String feed) { return dir().resolve(feed + ".jsonl"); }
     static Path stamp(String feed) { return dir().resolve(feed + ".fetched"); }
 
-    static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build();
+    static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build());
 
     static String get(String url) throws IOException {
         try {

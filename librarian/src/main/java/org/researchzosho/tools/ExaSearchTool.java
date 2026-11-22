@@ -108,6 +108,8 @@ public final class ExaSearchTool implements Tool {
 
     @Override public String name() { return "exa_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the search's answer
+
     @Override public String description() {
         return "Search the web by meaning through Exa: each hit with the passages of its page that match, so a page can be judged before it is read. "
                 + "It finds pages about an idea or like a description when the words of a web search miss them. Paid: each search counts against the month's limit.";

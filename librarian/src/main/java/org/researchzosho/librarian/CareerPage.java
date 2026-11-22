@@ -23,6 +23,9 @@ import static org.researchzosho.librarian.Pages.n;
 
 /** The career page, {@code /career}: the reading of a person's working life, what they want with each topic's state, the facts, a box to say more, and what changed lately. */
 public final class CareerPage {
+    /** The page's script: the part of the page an address points at (#…) is opened, on arrival and when the address changes. */
+    static final String OPEN_JS = "(function(){function o(){var h=location.hash;if(!h)return;var d=document.querySelector(h);if(d&&d.tagName==='DETAILS')d.open=true;}window.addEventListener('hashchange',o);o();})()";
+
     private CareerPage() { }
 
     public static String body(LibraryStore store, Career.Seeker s, boolean writer) throws IOException {
@@ -145,7 +148,7 @@ public final class CareerPage {
         }
         out.append(page.substring(at));
         if (open) out.append("</details>");
-        out.append("<script>(function(){function o(){var h=location.hash;if(!h)return;var d=document.querySelector(h);if(d&&d.tagName==='DETAILS')d.open=true;}window.addEventListener('hashchange',o);o();})()</script>");
+        out.append(Pages.script("career"));
         return out.toString();
     }
 

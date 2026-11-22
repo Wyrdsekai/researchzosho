@@ -234,3 +234,25 @@ The phrases that name a model ("using deepseek", "translated by kimi", "checked 
 | the audit log / machine, node / awake, asleep / last word / … ago | журнал аудита / компьютер, узел / работает, спит / последний отклик / one «{0} минуту назад», many «{0} мин назад» (с, ч, дн.) |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays отказаться) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | отпустить / Оставить / Для учетной записи / прежний администратор: {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | приглашение / Присоединиться / Отозвать / еще не использованная ссылка |
+
+## Fifth round (0.8.1: the places a library avoids, the model server isolated from the network)
+
+| English | Russian |
+|---|---|
+| place (a country code the setting names: CN, HK…) | страна или регион (pl. страны и регионы) |
+| keep away from / avoid; the places this library avoids | избегать; страны и регионы, которых избегает эта библиотека; "in a place it avoids": в одной из стран или регионов, которых избегает эта библиотека (the relative refers to the plural) |
+| a list of places the program fills in ({0} = «China, Hong Kong and Macao») | after a colon («в одной из этих стран или регионов: {0}»), never after в / из, which would want a case |
+| based or runs in (a provider) | базироваться или работать в; short: страна или регион размещения |
+| owned by a company based in a place; its owner | принадлежать компании из …; компания-владелец |
+| states no place / left out / allow / serve (a model) | не указывает страну или регион / исключен, исключить / разрешить / предоставлять (обслуживать, when it serves the library) |
+| providers counted ("{0} are left out…") | the dash form: «из-за страны или региона размещения исключено — {0}», «Поставщиков: {0}» |
+| provider / router / request | поставщик / маршрутизатор / запрос |
+| no way out to the network / can reach the network | изолирован от сети / есть выход в сеть |
+| set up with no way out / able to reach the network / the earlier way | настроить изолированным от сети / с выходом в сеть / при прежней настройке |
+| a reason the program fills in | after «Причина:», as a clause in small letters |
+| embeddings server / embeddings model | сервер эмбеддингов / модель эмбеддингов |
+| Docker network / container / proxy / route / address range / start script / log | сеть Docker / контейнер / прокси / маршрут / диапазон адресов / скрипт запуска / журнал |
+| the library's own service (systemd, launchd) | служба (сервис is the account service) |
+| open / closed (values of model_network) | stay as written: «настройка {0} имеет значение open» |
+| an MCP server's answers give addresses | «Исследование может открывать адреса, которые он называет в своих ответах.» Buttons: Разрешить исследованию открывать найденные адреса / Не открывать адреса из ответов |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | Китай, Гонконг, Макао, Куба, Иран, Северная Корея, Россия, Венесуэла; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

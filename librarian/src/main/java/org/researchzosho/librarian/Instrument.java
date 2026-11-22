@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.tools.Tool;
 
 import java.util.List;
+import java.util.Set;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -26,6 +27,12 @@ public interface Instrument {
     default String example() { return ""; }
 
     Result run(ObjectNode args, Researcher.Budget budget, BooleanSupplier stop) throws Exception;
+
+    /** Whether what this step returns came from outside the library ({@link Tool#fromOutside}): false unless the instrument says so. */
+    default boolean fromOutside(ObjectNode args) { return false; }
+
+    /** The arguments of this call that are an address the step will ask for ({@link Tool#addressArguments}): none unless the instrument says so. */
+    default Set<String> addressArguments(ObjectNode args) { return Set.of(); }
 
     /** What a step produced: its evidence, and the question it stopped on, or null. */
     record Result(List<Brain.Evidence> evidence, Brain.Needed needed) {
@@ -51,6 +58,8 @@ public interface Instrument {
             @Override public String name() { return self.name(); }
             @Override public String description() { return self.words(); }
             @Override public ObjectNode parametersSchema(ObjectMapper j) { return self.schema(j); }
+            @Override public boolean fromOutside(JsonNode args) { return self.fromOutside(args instanceof ObjectNode o ? o : new ObjectMapper().createObjectNode()); }
+            @Override public Set<String> addressArguments(JsonNode args) { return self.addressArguments(args instanceof ObjectNode o ? o : new ObjectMapper().createObjectNode()); }
             @Override public String execute(JsonNode args) throws Exception {
                 ObjectNode a = args instanceof ObjectNode o ? o : new ObjectMapper().createObjectNode();
                 Result r = self.run(a, Instruments.budget(), Instruments.stop());

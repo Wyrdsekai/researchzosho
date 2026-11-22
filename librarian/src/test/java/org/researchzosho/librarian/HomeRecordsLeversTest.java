@@ -95,7 +95,7 @@ class HomeRecordsLeversTest {
     @Test void aMapFileIsSaidOnTheLineNotSwallowed(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         files.put("https://gis.bernco.example/Downloads/BERNCO.zip", zip(Map.of("parcels.shp", "x", "parcels.shx", "y", "parcels.prj", "z")));   // a shapefile without its table: nothing to read
-        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> "The county's parcels are downloaded as a zip at https://gis.bernco.example/Downloads/BERNCO.zip.";
+        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> HomeRecordsResearchTest.fromItsPages("The county's parcels are downloaded as a zip at https://gis.bernco.example/Downloads/BERNCO.zip.");
         HomeRecords.Found f = HomeRecords.find(store, "Rio Rancho", "NM", "Sandoval County", 35.23, -106.66, "CIVIC CENTER CIR NE", 3200, true);
         assertNull(f.sales());
         assertEquals("https://gis.bernco.example/Downloads/BERNCO.zip", f.mapFile());

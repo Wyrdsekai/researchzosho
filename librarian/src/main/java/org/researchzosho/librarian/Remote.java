@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -41,7 +42,7 @@ public final class Remote {
 
     static final ObjectMapper M = new ObjectMapper();
     public static final String TOKEN = "RESEARCHZOSHO_TOKEN";
-    static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).followRedirects(HttpClient.Redirect.NORMAL).build());
     public static final String VERBS = "ask, search, get, read, established, submit, help, research, jobs, status, changes, subjects, questions, map, perspectives, inbox and mcp";
 
     public static boolean connected() { String l = Config.get("RESEARCHZOSHO_LIBRARY"); return l != null && (l.strip().startsWith("http://") || l.strip().startsWith("https://")); }

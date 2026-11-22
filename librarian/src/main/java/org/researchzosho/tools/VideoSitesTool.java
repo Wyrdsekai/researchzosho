@@ -34,6 +34,8 @@ public final class VideoSitesTool implements Tool {
 
     @Override public String name() { return "video_sites_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the video sites' answers
+
     @Override public String description() {
         return "Search the video sites other than YouTube: Niconico (Japanese), Nebula (independent creators; its catalogue is open, watching needs a "
                 + "subscription; its search matches loosely, so read the titles), PeerTube (all instances), Odysee, Dailymotion, and the Internet Archive's films. site=all asks them all. Rows show "

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,11 +51,22 @@ class ChatFitsTest {
         LibraryStore store = library();
         List<Sent> sent = new ArrayList<>();
         Librarian.Session s = Librarian.Session.open(store);
-        String reply = new Librarian(store, server(16384, sent), Librarian.person(), s).say("When did the ferry stop running?");
+        // a server with room for less than any form of the table and the instructions (0.8.1: at 16,384 a turn now fits, below)
+        String reply = new Librarian(store, server(6000, sent), Librarian.person(), s).say("When did the ferry stop running?");
         assertEquals(2, sent.size(), "the turn as it was, then the least it can send: " + sent);
-        assertTrue(reply.contains("16,384") && reply.contains("does not fit"), reply);
+        assertTrue(reply.contains("6,000") && reply.contains("does not fit"), reply);
         assertTrue(reply.contains(String.format(Locale.ROOT, "%,d", sent.get(1).all())), "the server's own count of the least a turn sends: " + reply);
         assertEquals("library", s.messages().get(s.messages().size() - 1).path("by").asText(), "the library's sentence, not the model's words");
+        // the server of 2026-11-18, 16,384 a conversation: the whole table and the instructions were about 16,000 of it and no turn
+        // fitted; the table's form is now chosen from the window (ChatTable.formFor), and the turn is answered in one request
+        List<Sent> small = new ArrayList<>();
+        Librarian.Session s2 = Librarian.Session.open(store);
+        String answered = new Librarian(store, server(16384, small), Librarian.person(), s2).say("When did the ferry stop running?");
+        assertEquals("The ferry ran from 1911 to 1968.", answered, small.toString());
+        assertEquals(1, small.size(), small.toString());
+        // the whole table does not fit 16,384 with room for the conversation beside it: the fallback, eight in full with the list
+        assertTrue(Files.readString(Librarian.turnsFile(store)).contains("\"table\":\"" + ChatTable.fallback().said + "\""), Files.readString(Librarian.turnsFile(store)));
+        assertTrue(small.get(0).all() < 16384 / 2, "the whole request, well inside the window: " + small);
     }
 
     @Test
@@ -66,6 +78,10 @@ class ChatFitsTest {
             ObjectNode u = M.createObjectNode(); u.put("role", "user"); u.put("content", "Question " + i + " about the ferry"); u.put("at", 1L); s.append(u);
             ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", long800); a.put("at", 1L); s.append(a);
         }
+        // the whole table, whatever the window: this is the retry that cuts the history beside the table sent, which a window this
+        // size would otherwise answer with a smaller form of the table and no retry (0.8.1)
+        ChatTable.forced = ChatTable.Form.WHOLE;
+        try {
         // what the tools and the instructions take, read off one turn on a server with room for all of it
         List<Sent> probe = new ArrayList<>();
         new Librarian(store, server(1_000_000, probe), Librarian.person(), s).say("And before that?");
@@ -78,5 +94,6 @@ class ChatFitsTest {
         assertEquals("The ferry ran from 1911 to 1968.", reply, "answered on the second try: " + sent + " in " + window);
         assertEquals(2, sent.size());
         assertTrue(sent.get(1).all() <= window - Librarian.REPLY_TOKENS, "the second try left the reply its room: " + sent + " in " + window);
+        } finally { ChatTable.forced = null; }
     }
 }

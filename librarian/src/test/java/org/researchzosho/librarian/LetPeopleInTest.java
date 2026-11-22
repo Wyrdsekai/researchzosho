@@ -89,7 +89,7 @@ class LetPeopleInTest {
             assertNotNull(cookie, "the password chosen, the browser is signed in");
             assertTrue(cookie.contains("SameSite=Lax") && !cookie.contains("Secure"), "Lax, so the redirect after a click from a message carries it; not Secure on the main port: " + cookie);
             var home = get(c, base + "/", Pages.COOKIE + "=" + value(cookie));
-            assertTrue(home.body().contains("Ann Example · <a href=\"/account\">account</a> · <a href=\"/logout\">sign out</a>"), "signed in by name: " + home.body().substring(0, Math.min(1500, home.body().length())));
+            assertTrue(home.body().contains("Ann Example · <a href=\"/account\">account</a> · <form class=\"inline as-link\" method=\"post\" action=\"/logout\"><button>sign out</button></form>"), "signed in by name: " + home.body().substring(0, Math.min(1500, home.body().length())));
             // and from any other browser, the name and password sign her in
             var elsewhere = post(c, base + "/login", "name=ann+example&password=ann-secret-1", null);
             assertEquals(303, elsewhere.statusCode(), elsewhere.body());
@@ -121,20 +121,21 @@ class LetPeopleInTest {
             assertTrue(d.doorPort() > 0 && d.doorPort() != d.port(), "a second listener of its own");
             var viaDoor = get(c, door + "/", null, "Tailscale-User-Login", "ann@example.com", "Tailscale-User-Name", "Ann E.");
             assertEquals(200, viaDoor.statusCode());
-            assertTrue(viaDoor.body().contains("Ann · <a href=\"/account\">account</a> · <a href=\"/logout\">sign out</a>"), "the tailnet login is the listed reader: " + viaDoor.body().substring(0, 1200));
+            assertTrue(viaDoor.body().contains("Ann · <a href=\"/account\">account</a> · <form class=\"inline as-link\" method=\"post\" action=\"/logout\"><button>sign out</button></form>"), "the tailnet login is the listed reader: " + viaDoor.body().substring(0, 1200));
             var viaMain = get(c, main + "/", null, "Tailscale-User-Login", "ann@example.com");
             assertTrue(viaMain.body().contains("<a href=\"/login\">sign in</a>") && !viaMain.body().contains("sign out"), "on the main port the header means nothing: " + viaMain.body().substring(0, 1200));
             var stranger = get(c, door + "/login", null, "Tailscale-User-Login", "bob@example.com", "Tailscale-User-Name", "Bob");
             assertTrue(stranger.body().contains("Ask to be let in") && stranger.body().contains("value=\"Bob\"") && stranger.body().contains("You are bob@example.com to the relay"), "a login the list does not hold: the ask form, with the name filled: " + stranger.body());
             var mail = get(c, door + "/", null, "Cf-Access-Authenticated-User-Email", "ANN@example.com");
-            assertTrue(mail.body().contains("Ann · <a href=\"/account\">account</a> · <a href=\"/logout\">sign out</a>"), "a quick tunnel's mail check names the same reader");
+            assertTrue(mail.body().contains("Ann · <a href=\"/account\">account</a> · <form class=\"inline as-link\" method=\"post\" action=\"/logout\"><button>sign out</button></form>"), "a quick tunnel's mail check names the same reader");
             // the cookie set on the door is Secure, the relay in front being HTTPS; the same sign-in on the main port is not
             Patrons.set(store, "did:key:t", "Tee", Patrons.Level.read);
             String token = Patrons.issueToken(store, "did:key:t");
             String onDoor = setCookie(post(c, door + "/login", "token=" + token, null), Pages.COOKIE), onMain = setCookie(post(c, main + "/login", "token=" + token, null), Pages.COOKIE);
             assertTrue(onDoor.contains("; Secure") && onDoor.contains("SameSite=Lax"), onDoor);
             assertTrue(!onMain.contains("Secure") && onMain.contains("SameSite=Lax"), onMain);
-            assertTrue(setCookie(get(c, door + "/logout", null), Pages.COOKIE).contains("; Secure"));
+            assertTrue(setCookie(get(c, door + "/logout", null), Pages.COOKIE) == null, "an address alone signs nobody out (0.8.1): the page asks, with a button");
+            assertTrue(setCookie(post(c, door + "/logout", "", null), Pages.COOKIE).contains("; Secure"));
         } finally { d.stop(); }
     }
 

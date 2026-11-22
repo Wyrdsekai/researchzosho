@@ -20,6 +20,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -87,8 +88,150 @@ public final class Export {
         if (e == null) throw ProtocolError.notFound("entry " + id);
         String md = document(store, e, reading);
         String stem = id + (reading == null || reading.rung() == Explain.Rung.written ? "" : "-" + reading.rung().name());
-        return new File(stem + ".md", "text/markdown; charset=utf-8", md.getBytes(StandardCharsets.UTF_8));
+        return new File(stem + ".md", "text/markdown; charset=utf-8", forAViewer(md).getBytes(StandardCharsets.UTF_8));
     }
+
+    /**
+     * A picture of this library's own, written whole with its address: its words (no picture of their own in them, and nothing that
+     * begins a tag), a path of the library's with no backslash and no second slash before the host's place, and after the path the
+     * title an ordinary writer of Markdown may give a picture, in quotes. Whether it is kept is decided on what was matched
+     * ({@link #own}). Only this form is kept: a picture of the library's own written by a reference ({@code ![words][ref]}, the
+     * address on a line of its own elsewhere) comes out as a link to the same file.
+     *
+     * <p>The words are read by hand ({@link #wordsEnd}) and the rest by this pattern. One pattern read both until the second reading
+     * of 0.8.1, and it read the words one level deeper for each character: a picture's words of some 1,800 characters, or as many
+     * after a mark on a line with no closing bracket, used the thread's stack up and no file was written.
+     */
+    private static final Pattern OWN_PICTURE_ADDRESS = Pattern.compile("\\]\\([ \\t]*(/(?![/\\\\])[^)\\s\\\\]*)(?:[ \\t]+(?:\"[^\"<\\[\\]\\n]*\"|'[^'<\\[\\]\\n]*'))?[ \\t]*\\)");
+
+    /**
+     * Where the words of a picture end whose mark stands at {@code mark} ("![" there): the place of the bracket that closes them, or
+     * -1 when what follows is no picture's words of the kind an own picture has. The words hold no line's end and nothing that
+     * begins a tag; no picture of their own (a mark before a bracket); a pair of brackets with no bracket inside it is part of them.
+     */
+    private static int wordsEnd(String text, int mark) {
+        for (int i = mark + 2; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == ']') return i;
+            if (c == '\n' || c == '<') return -1;
+            if (c == '!' && i + 1 < text.length() && text.charAt(i + 1) == '[') return -1;
+            if (c == '[') {
+                int j = i + 1;
+                while (j < text.length() && "[]<\n".indexOf(text.charAt(j)) < 0) j++;
+                if (j >= text.length() || text.charAt(j) != ']') return -1;
+                i = j;
+            }
+        }
+        return -1;
+    }
+    /** A run of the marks that make what follows a picture. */
+    private static final Pattern PICTURE_MARK = Pattern.compile("!+(?=\\[)");
+    /** A bracket's end after which a picture's address or its reference may stand (blanks or one line's end between, as the older readers allow). */
+    private static final Pattern COULD_CLOSE_A_PICTURE = Pattern.compile("\\][ \\t]*\\n?[ \\t]*[(\\[]");
+    /**
+     * A bracket that could begin a tag, a comment or an instruction; and the one kind of tag that is left as it stands: one that
+     * holds no attribute's value, read as a browser reads a tag (from the bracket to the first closing one, the name up to a space
+     * or a slash). A tag asks an address only through a value, and one without a value has none: the {@code <String>} of
+     * {@code List<String>}, {@code <br>}, {@code </p>}, {@code <String, List<String>}. A name whose own content is read as code or
+     * as a style sheet, or that sets where a page's addresses lead, is never left; nor is a bracket that no closing one follows.
+     */
+    private static final Pattern TAG_START = Pattern.compile("<(?=[A-Za-z/!?])"), BARE_TAG = Pattern.compile("</?([A-Za-z][^\\s/>=]*)[^>=]*>");
+    private static final Set<String> NEVER_BARE = Set.of("script", "style", "base", "link", "meta", "iframe", "frame", "frameset", "object", "embed", "applet", "svg", "math", "template",
+            "plaintext", "xmp", "textarea", "title", "noscript", "noembed", "noframes", "html", "head", "body");
+
+    /**
+     * Whether a picture written as the library's own ({@link #OWN_PICTURE_ADDRESS}) is one the file keeps: its path is a kept picture's by its form
+     * ({@code Pages.keptPicturePath}: under {@code /images/}, no query, nothing that climbs out), the one kind of path of this
+     * library that is a picture on its own pages too; and the path holds nothing a reader of markup could take for the beginning of
+     * a tag or the end of a value. Anything else that is dressed as the library's own picture is written as every other picture and
+     * tag is (the second reading of 0.8.1: the match was copied as it stood, so a tag written into the path came out whole).
+     */
+    private static boolean own(Matcher m) {
+        String path = m.group(1);
+        return Pages.keptPicturePath(path) && path.indexOf('<') < 0 && path.indexOf('>') < 0 && path.indexOf('"') < 0 && path.indexOf('\'') < 0 && path.indexOf('`') < 0;
+    }
+
+    /**
+     * Markdown as it is written into a file another program will open (an export, the vault an editor reads). Such a program draws a
+     * picture, and reads a tag, the moment the file is shown, so the address of either goes out with nobody choosing to follow it; the
+     * words are a model's or a page's. A picture that is not one of this library's by its own path is written as the link it holds
+     * (the mark before its bracket is left out, whichever way the rest is written: an address, a reference, a title beside it), and the
+     * bracket that would begin a tag with an attribute is written as the character it is ({@code &lt;}).
+     *
+     * <p>This is done wherever the mark or the bracket stands, in code as outside it. Until 0.8.1 code was left as it stood, and what
+     * is code was read here by a rule of this method's own (a line of three backticks opens or closes a fence, one backtick to the
+     * next is a span): a program that reads Markdown by the CommonMark rules reads it otherwise (a fence of four backticks holds a
+     * line of three, a backtick fence holds a line of tildes, a span closes on a run of the same length), and a picture or a tag after
+     * such "code" was drawn. No reader of Markdown is on this program's class path, so nothing here decides what is code. The cost
+     * is in a sample of code that holds a picture's mark or a tag with attributes: it reads {@code [s](…)} for {@code ![s](…)} and
+     * {@code &lt;a href=…>} for {@code <a href=…>}.
+     *
+     * <p>A mark that can begin no picture stays, for it is the writer's own exclamation mark ("What a crossing![1]"). It can
+     * begin none when two things hold, whoever reads the file: the file holds no reference's definition ({@code ]:} nowhere in it),
+     * and from the mark to the end of its paragraph no bracket closes before a round or a square one. A picture needs one of the
+     * two after its mark: its address in round brackets, or a reference that is defined. In every other case the mark is left out.
+     */
+    static String forAViewer(String markdown) {
+        if (markdown == null) return "";
+        if (markdown.indexOf("![") < 0 && markdown.indexOf('<') < 0) return markdown;
+        boolean references = markdown.contains("]:");
+        StringBuilder out = new StringBuilder(markdown.length() + 64);
+        int at = 0;
+        for (int[] own : ownPictures(markdown)) { out.append(plain(markdown, at, own[0], references)).append(markdown, own[0], own[1]); at = own[1]; }
+        return out.append(plain(markdown, at, markdown.length(), references)).toString();
+    }
+
+    /** Where the pictures a file keeps stand in a text, each from its mark to the bracket that closes its address, in order. */
+    static List<int[]> ownPictures(String markdown) {
+        List<int[]> out = new ArrayList<>();
+        Matcher address = OWN_PICTURE_ADDRESS.matcher(markdown);
+        for (int mark = markdown.indexOf("!["); mark >= 0; ) {
+            int words = wordsEnd(markdown, mark);
+            if (words < 0 || !address.region(words, markdown.length()).lookingAt()) { mark = markdown.indexOf("![", mark + 1); continue; }   // no picture of that form
+            if (own(address)) out.add(new int[]{mark, address.end()});   // one dressed as the library's own stays in the words around it, and is written as they are
+            mark = markdown.indexOf("![", address.end());
+        }
+        return out;
+    }
+
+    /** The words of {@code text} from {@code from} to {@code to}, with no picture's mark and no tag that holds a value; {@code references}: the whole text defines a reference somewhere. */
+    private static String plain(String text, int from, int to, boolean references) {
+        String words = text.substring(from, to);
+        Matcher mark = PICTURE_MARK.matcher(words);
+        StringBuilder kept = new StringBuilder(words.length());
+        int done = 0;
+        while (mark.find()) {
+            kept.append(words, done, mark.start());
+            if (!references && beginsNoPicture(text, from + mark.end())) kept.append(mark.group());
+            done = mark.end();
+        }
+        String s = kept.append(words, done, words.length()).toString();
+        if (s.indexOf('<') < 0) return s;
+        StringBuilder out = new StringBuilder(s.length() + 16);
+        Matcher tag = TAG_START.matcher(s), bare = BARE_TAG.matcher(s);
+        int at = 0;
+        while (tag.find()) {
+            boolean harmless = bare.region(tag.start(), s.length()).lookingAt() && !NEVER_BARE.contains(bare.group(1).toLowerCase(Locale.ROOT));
+            out.append(s, at, tag.start()).append(harmless ? "<" : "&lt;");
+            at = tag.end();
+        }
+        return out.append(s, at, s.length()).toString();
+    }
+
+    /**
+     * Whether the bracket that opens at {@code bracket} (a mark stands before it) can begin no picture: it is not doubled (the
+     * embedding some editors read, {@code ![[…]]}), and from it to the end of its paragraph (an empty line, or the text's end) no
+     * bracket closes before a round or a square one. Read on the whole text, not on a piece of it: the words of a kept picture
+     * that stands between are words too.
+     */
+    private static boolean beginsNoPicture(String text, int bracket) {
+        if (bracket + 1 < text.length() && text.charAt(bracket + 1) == '[') return false;
+        Matcher end = PARAGRAPH_END.matcher(text);
+        int until = end.find(bracket) ? end.start() : text.length();
+        return !COULD_CLOSE_A_PICTURE.matcher(text).region(bracket, until).find();
+    }
+
+    private static final Pattern PARAGRAPH_END = Pattern.compile("\\n[ \\t]*\\n");
 
     public static File pdf(LibraryStore store, String id, Explain.Reading reading) throws IOException { return laidOut(store, id, reading, PDF); }
 
@@ -189,7 +332,7 @@ public final class Export {
         String title = t.apply(inv.title());
         if (MARKDOWN.equals(fmt)) {   // the same document as text: the title, the line of facts, the note, then the sections as the page shows them
             String md = "# " + title.replace('\n', ' ') + "\n\n*" + facts(store, inv, written, tr == null ? "" : lang) + "*\n\n" + (note.isEmpty() ? "" : note + "\n\n") + reportMarkdown(store, inv, t);
-            return new Made(new File(inv.id() + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), md.getBytes(StandardCharsets.UTF_8)), "report", written, tr == null ? "" : lang, note, 0);
+            return new Made(new File(inv.id() + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), forAViewer(md).getBytes(StandardCharsets.UTF_8)), "report", written, tr == null ? "" : lang, note, 0);
         }
         List<Block> blocks = new ArrayList<>();
         blocks.add(new Heading(1, List.of(Span.plain(title.replace('\n', ' ')))));
@@ -352,7 +495,7 @@ public final class Export {
         String head = (cut < 0 ? rest : rest.substring(0, cut)).strip(), sections = cut < 0 ? "" : rest.substring(cut + 1);
         if (MARKDOWN.equals(fmt)) {   // the dossier as text, the Reading first as its page opens
             String text = "# " + title + "\n\n" + (head.isEmpty() ? "" : head + "\n\n") + (note.isEmpty() ? "" : note + "\n\n") + reading(store, label, w) + sections;
-            return new Made(new File("dossier-" + fileSlug(label) + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), text.getBytes(StandardCharsets.UTF_8)), "dossier", Translate.languageOf(plain.path("markdown").asText()), tr == null ? "" : lang, note, 0);
+            return new Made(new File("dossier-" + fileSlug(label) + (tr == null ? "" : "." + lang) + "." + MARKDOWN, contentType(MARKDOWN), forAViewer(text).getBytes(StandardCharsets.UTF_8)), "dossier", Translate.languageOf(plain.path("markdown").asText()), tr == null ? "" : lang, note, 0);
         }
         List<Block> blocks = new ArrayList<>();
         blocks.add(new Heading(1, List.of(Span.plain(title))));

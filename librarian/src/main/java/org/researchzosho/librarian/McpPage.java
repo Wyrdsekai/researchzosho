@@ -50,9 +50,11 @@ final class McpPage {
             int used = McpSources.used(s), cap = McpSources.cap(s);
             b.append("<p class=\"k\">").append(s.lastError.isBlank() ? (s.listedAt.isBlank() ? t("Not asked yet.") : t("It answered at {0}.", esc(s.listedAt.replace("T", " ").replace("Z", " UTC")) + (s.protocol.isBlank() ? "" : " (MCP " + esc(s.protocol) + ")"))) : t("The last time it was asked, it did not answer: {0}", esc(s.lastError)))
              .append(" ").append(McpSources.callsSaid(s, used, cap, Chrome.now()))
-             .append(!s.stdio() && !s.keySetting.isBlank() ? " " + esc(McpSetup.keyLine(s)) : "").append(s.readers ? " " + t("Readers use it too.") : "").append("</p>");
+             .append(!s.stdio() && !s.keySetting.isBlank() ? " " + esc(McpSetup.keyLine(s)) : "").append(s.readers ? " " + t("Readers use it too.") : "")
+             .append(" ").append(s.links ? t("Research may open the addresses it names in its answers.") : t("Research reads its answers and opens no address from them.")).append("</p>");
             b.append(button("mcp-test", s.name, "", t("Test it"), "btn")).append(' ')
              .append(button("mcp-readers", s.name, s.readers ? "off" : "on", s.readers ? t("Keep it to you and the writers") : t("Let readers use it too"), "btn")).append(' ')
+             .append(button("mcp-links", s.name, s.links ? "off" : "on", s.links ? t("Open no address from its answers") : t("Let research open the addresses it finds"), "btn")).append(' ')
              .append(button("mcp-remove", s.name, "", t("Remove"), "quiet"));
             // its tools, each let on or kept off here; and the monthly cap (until 2026-11-07 the terminal's alone)
             if (!s.tools.isEmpty()) {
@@ -106,7 +108,7 @@ final class McpPage {
         switch (op) {
             case "test" -> a.put("op", "test");
             case "remove" -> a.put("op", "remove");
-            case "readers" -> a.put("op", "readers").put("value", form.getOrDefault("value", "off"));
+            case "readers", "links" -> a.put("op", op).put("value", form.getOrDefault("value", "off"));
             case "allow", "forbid", "cap" -> { a.put("op", op).put("tool", form.getOrDefault("tool", "")).put("value", form.getOrDefault("value", "").strip().isEmpty() ? "off" : form.getOrDefault("value", "").strip()); }
             case "preset" -> a.put("op", "add");
             case "add" -> {

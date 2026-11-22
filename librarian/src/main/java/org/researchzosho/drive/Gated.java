@@ -182,8 +182,8 @@ public final class Gated {
     /** A request to {@code url}, marked with this thread's use and lane when it is a call that costs, at a node's gate. */
     public static HttpRequest.Builder request(String url) { return mark(url, HttpRequest.newBuilder(URI.create(url))); }
 
-    /** A gate's refusal: the sentence the person is told (a cap reached, a call that is no use's), never tried again. */
-    public static final class Refused extends IllegalStateException {
+    /** A gate's refusal: the sentence the person is told (a cap reached, a call that is no use's), never tried again. A router that has nobody left to send a request to refuses the same way ({@code DriveClient.NotServed}). */
+    public static class Refused extends IllegalStateException {
         public final String use;
         public Refused(String said) { this(said, null); }
         public Refused(String said, String use) { super(said); this.use = use; }

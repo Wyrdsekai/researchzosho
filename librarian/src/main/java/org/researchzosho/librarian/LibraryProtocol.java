@@ -254,6 +254,7 @@ public final class LibraryProtocol {
         if (offset < 0 || max < 0) throw ProtocolError.invalidArgs("offset and max_chars must be zero or a positive number.");
         ObjectNode r = envelope();
         ObjectNode e = entry(id, kindOf(id), true);
+        if (e == null) { String full = byCode(id); if (full != null) { id = full; e = entry(id, kindOf(id), true); } }   // the short code the program prints, F-0012 (0.8.1)
         if (e == null) throw ProtocolError.notFound("No entry has the id " + id + ".");
         // format=claims: a report's claims as records — each with its source, confidence, state and what the checks made of it — for a
         // caller that folds a run into a table without parsing prose (0.5.4)
@@ -1827,7 +1828,8 @@ public final class LibraryProtocol {
                     if (!ModelEntries.capCounts(e)) r.put("cap_counts", false);
                     if (e.sees() != null) r.put("sees", e.sees());
                     r.put("sees_text", e.seesText());
-                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : "") + (pictures.isEmpty() ? "" : " " + pictures) + (prices.isEmpty() ? "" : " " + prices));
+                    if (!ModelPlaces.said(e).isEmpty()) r.put("where", ModelPlaces.said(e));   // who serves it and who is left out, or where its host is run from
+                    r.put("note", e.line() + (DriveClient.hostKey(e.host()) == null && e.hosted() && !e.name().equals(ModelEntries.DEFAULT) ? ". No key is kept for " + e.host() + " yet: researchzosho models key " + e.host() + " <key>" : "") + (pictures.isEmpty() ? "" : " " + pictures) + (prices.isEmpty() ? "" : " " + prices) + (ModelPlaces.said(e).isEmpty() ? "" : "\n" + ModelPlaces.said(e)));
                 }
                 case "remove" -> { String name = args.path("name").asText("").strip(); ModelEntries.remove(name); r.put("name", name.toLowerCase(Locale.ROOT)); r.put("note", "The entry " + name + " is gone."); }
                 case "test" -> {   // the entry's server asked for a completion now: answers, is starting, or does not answer
@@ -3288,6 +3290,12 @@ public final class LibraryProtocol {
     public ObjectNode research(JsonNode args) throws IOException { return research(args, Way.PROGRAM); }
 
     /**
+     * On a research ask: the question is text the library stored (an open question a run left, run again from the questions page), not
+     * words the asker wrote for this run. Such a question gives the run no address to open ({@code Researcher.seedAddresses}, 0.8.1).
+     */
+    public static final String STORED_QUESTION = "stored_question";
+
+    /**
      * The field a goal's name resolves to, through the goals registry: a goal backed by one field names it; a goal backed by several (a
      * dossier on a person or an organisation) names none, and the run's fields choose by the question as they do; a name that is no goal
      * is refused with the goals' names.
@@ -3395,6 +3403,8 @@ public final class LibraryProtocol {
         if (!args.path("paid").asBoolean(true)) a.put("paid", false);   // no paid search place for this run: the tally's gate leaves them off (SearchTally)
         // filed by the chat's model: the person's words of that turn, not the model's question, give the run its addresses (round F)
         if (args.path("from_chat").asBoolean(false)) { a.put("from_chat", true); a.put("person_words", Acquisitions.compress(args.path("person_words").asText(""), 4000)); }
+        // an open question run again from the questions page, or any ask that says its question is stored text: nobody's words of now
+        if (args.path(STORED_QUESTION).asBoolean(false) || "explorer-line".equals(way.how())) a.put(STORED_QUESTION, true);
         if (args.hasNonNull("seek") && !args.get("seek").asText().isBlank()) a.put("seek", Seeks.checkedName(args.get("seek").asText()));   // a seek: its own copy of the shelves
         if (args.path("collections").isArray() && args.path("collections").size() > 0) {
             ArrayNode cs = a.putArray("collections");
@@ -3948,6 +3958,7 @@ public final class LibraryProtocol {
                 ArrayNode srcs = e.putArray("sources");
                 ObjectNode s = srcs.addObject(); s.put("locator", raw[0]); s.putNull("edition"); s.put("why", "the document itself");
                 e.put("body", full ? Acquisitions.compress(raw[2], 2000) : Acquisitions.compress(raw[2], 500));
+                if (RawCapture.verbatim(p)) GivenAddresses.received(e.path("body").asText());   // a page from outside, or the person's own file, read back: its links as when it was first read
                 e.put("chars", raw[2].length());
                 return e;
             }
@@ -4162,6 +4173,25 @@ public final class LibraryProtocol {
         if (!args.hasNonNull("cursor") || args.get("cursor").asText().isBlank()) return 0;
         try { return Math.max(0, Integer.parseInt(args.get("cursor").asText())); }
         catch (NumberFormatException e) { throw ProtocolError.invalidArgs("This cursor is not valid for this library."); }
+    }
+
+    /**
+     * The entry a short code names: a claim's, a report's or an article's code as the program prints it and a person types it ("F-0001",
+     * "I-0004"), when exactly one entry's id begins with it; its full id is the code with the title's words after it. When it names none
+     * or several, the refusal says which exist, so the asker can name one (0.8.1: a chat that had "F-0001" from a person searched three
+     * times and never opened the claim it named). Null when the id is no such code.
+     */
+    String byCode(String id) throws IOException {
+        if (id == null || !id.matches("[FIA]-\\d+")) return null;
+        Path dir = switch (id.charAt(0)) { case 'F' -> store.findingsDir(); case 'I' -> store.investigationsDir(); default -> store.articlesDir(); };
+        String what = switch (id.charAt(0)) { case 'F' -> "claims"; case 'I' -> "reports"; default -> "articles"; };
+        List<String> all = new ArrayList<>();
+        if (Files.isDirectory(dir)) try (var files = Files.list(dir)) { files.map(f -> f.getFileName().toString()).filter(n -> n.endsWith(".md")).map(n -> n.substring(0, n.length() - 3)).sorted().forEach(all::add); }
+        List<String> hits = all.stream().filter(n -> n.startsWith(id + "-")).toList();
+        if (hits.size() == 1) return hits.get(0);
+        if (hits.size() > 1) throw ProtocolError.notFound(id + " is the code of " + hits.size() + " entries: " + String.join(", ", hits.subList(0, Math.min(10, hits.size()))) + (hits.size() > 10 ? " and " + (hits.size() - 10) + " more" : "") + ". Ask for one by its full id.");
+        if (all.isEmpty()) throw ProtocolError.notFound("No entry has the id " + id + ": the shelves hold no " + what + ".");
+        throw ProtocolError.notFound("No entry has the id " + id + ". The " + what + " on the shelves: " + String.join(", ", all.subList(0, Math.min(10, all.size()))) + (all.size() > 10 ? " and " + (all.size() - 10) + " more" : "") + ".");
     }
 
     String kindOf(String id) throws IOException {

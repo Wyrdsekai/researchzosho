@@ -1,5 +1,6 @@
 package org.researchzosho.drive.aws;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -56,7 +57,7 @@ public final class Bedrock {
     }
 
     private static final ObjectMapper J = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
     private static final Transport REAL = (method, uri, headers, body, timeout) -> {
         HttpRequest.Builder b = HttpRequest.newBuilder(uri).timeout(timeout);
         headers.forEach(b::header);
@@ -204,6 +205,7 @@ public final class Bedrock {
 
     /** One signed call. Throttling waits and asks again; credentials AWS refuses as run out are fetched anew once; anything else is said plainly. */
     Answer call(String method, URI uri, String body, Duration timeout) {
+        Outbound.owners(uri.getScheme() + "://" + uri.getAuthority());   // the owner's own AWS region: its host is made from their setting, and no list names every region
         byte[] bytes = body == null ? null : body.getBytes(StandardCharsets.UTF_8);
         boolean refetched = false;
         for (int attempt = 1; ; attempt++) {

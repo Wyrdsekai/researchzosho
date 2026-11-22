@@ -27,6 +27,8 @@ public final class ChannelUploadsTool implements Tool {
 
     @Override public String name() { return "channel_uploads"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the channel's own list
+
     @Override public String description() {
         return "A YouTube channel's uploads with their days, so that you can see whether it still posts and what it makes. "
                 + "Takes the channel's address, its id (UC…) or its handle (@name). The newest 15 from the channel's feed; limit for more; all=true for every upload; "

@@ -155,6 +155,45 @@ public final class Brain {
         return b.toString();
     }
 
+    /**
+     * The same words for the chat's instructions (0.8.1): the instruments in one line each, as a run has them, and the rules that are a
+     * run's alone left to a run: pursue
+     * and file (a run's sub-goals), done and "words alone are not a step" (a run ends with a call; a chat answers in words), and the
+     * candidates and the sift of a remembered video (a research run carries them out; the chat files the run). The small tier keeps the
+     * shapes to copy.
+     */
+    public String chatPreamble(List<Instrument> table) {
+        StringBuilder b = new StringBuilder();
+        if (lightTier == Tier.SMALL) {
+            b.append("Copy the shape of these calls exactly:\n");
+            for (Instrument i : table) {
+                String ex = i.example();
+                if (!ex.isBlank()) b.append("  ").append(i.name()).append(' ').append(ex).append('\n');
+            }
+            b.append(CHAT_RULES_SMALL);
+        } else {
+            // each instrument's "when it pays" stays here too, as a run's words have it: without these lines the chat's model saved an address
+            // the person asked to open ("Open http://…": library_add in place of open, in both runs of the battery on 2026-11-21; with them
+            // back, open). Said in the tool's own words and again here, as before 0.8.1
+            b.append("The instruments on the table, each with when it pays over the others; each tool's own description says what it answers and what it costs:\n");
+            for (Instrument i : table) b.append("  ").append(i.name()).append(": ").append(whenItPays(i.words())).append('\n');
+            b.append("Choose by what the question needs at this step, and weigh a costly instrument against what a cheaper one has already shown.\n");
+            b.append(CHAT_RULES_LARGE);
+        }
+        return b.toString();
+    }
+
+    /** The chat's part of {@link #RULES_LARGE}, in its words. */
+    static final String CHAT_RULES_LARGE =
+            "What the evidence and the earlier results already hold was run: use it, and run an instrument again only with different arguments. "
+            + "What the library holds, the videos it has read, the pages on its shelves, is search with where=shelves, or look on a video it has read; a YouTube address or \"on YouTube\" is where=videos, and video-sites is for other video sites (Vimeo, Bilibili, niconico).";
+
+    /** The chat's part of {@link #RULES_SMALL}, in its words. */
+    static final String CHAT_RULES_SMALL =
+            "What a result above already shows is done: use it; call the same tool again only with other arguments. "
+            + "What the library has read is search {\"where\": \"shelves\", \"query\": \"tote bag\"}; a YouTube video is search {\"where\": \"videos\", \"query\": \"tote bag tutorial\"}. "
+            + "When a question is about what a video shows, call look with the video's address.";
+
     /** The middle clause of an instrument's words, when it pays over the others, for the table's one line each; the whole words when they have no clauses. */
     static String whenItPays(String words) {
         String[] parts = words.split(" · ");

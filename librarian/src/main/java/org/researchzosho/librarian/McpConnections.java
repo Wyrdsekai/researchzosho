@@ -2,6 +2,7 @@ package org.researchzosho.librarian;
 
 import org.researchzosho.Config;
 import org.researchzosho.mcp.McpClient;
+import org.researchzosho.tools.Outbound;
 
 import java.io.IOException;
 import java.time.Duration;
@@ -53,7 +54,11 @@ final class McpConnections {
         String key = key(store, s.name);
         synchronized (LOCKS.computeIfAbsent(key, k -> new Object())) {
             Live l = LIVE.get(key);
-            if (l != null && l.client.alive() && l.config.equals(s.config())) { l.used = System.currentTimeMillis(); return l.client; }
+            if (l != null && l.client.alive() && l.config.equals(s.config())) {
+                l.used = System.currentTimeMillis();
+                if (!s.stdio()) Outbound.owners(ADDRESS.apply(s.url));   // said again each time the connection is handed out: the keeper's while it is used
+                return l.client;
+            }
             if (l != null) { LIVE.remove(key); l.client.close(); }
             McpClient c = start(store, s);
             try { c.initialize(HANDSHAKE); }
@@ -69,7 +74,9 @@ final class McpConnections {
     /** A new client for the server, not yet greeted: its program started with its environment and log, or its address with its key's header when a key is set. */
     static McpClient start(LibraryStore store, McpServers.Server s) throws IOException {
         if (s.stdio()) return McpClient.stdio(s.command, s.env, McpServers.log(store, s.name));
-        return McpClient.http(ADDRESS.apply(s.url), headers(s));
+        String at = ADDRESS.apply(s.url);
+        Outbound.owners(at);   // a server the keeper added: its address is theirs, as an address in their settings is
+        return McpClient.http(at, headers(s));
     }
 
     /** The headers an address is sent: the key in its header, when the setting it lives in holds one; nothing otherwise. */

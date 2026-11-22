@@ -37,6 +37,28 @@ the runtime's binaries carry Adoptium's Developer ID signature and notarization,
 them unchanged, so no signing of ours is involved. Run the pass on every platform the release
 claims; the tests are `./gradlew :librarian:test :client:test`, the same command CI runs.
 
+### The pinned models' chat templates
+
+```
+python3 scripts/chat-templates.py --sums    # one line per model file `model install` fetches
+python3 scripts/chat-templates.py           # each template in full
+```
+
+A model file is numbers, except for its chat template: a small text the model server follows to lay a conversation out for
+the model. `model install` pins each file by its checksum, so a template cannot change without the pin failing. When a row
+of `ModelServer.ROWS` is added, or a row's checksum changes, read that file's template before the release. It should hold
+nothing but the laying out of a conversation (`if`, `for`, `set`, `macro`, the string helpers) and no address.
+
+As read for 0.8.1 on 2026-11-20 (six files, five templates; the two Gemma files share one):
+
+| row | characters | SHA-256 of the template |
+|---|---|---|
+| qwen3.8-27b | 9,993 | `12827f24b742ea4e80cdc12dbcf9622227056b9f797252a3149263d4f9aaadce` |
+| qwen3.6-35b-a3b | 8,057 | `55d4931433fe502b794226ee7f4d206a6bdd436ac9f80eb7d8ebb4c639f9ea0c` |
+| gpt-oss-20b | 17,221 | `70da0d2348e40aaf8dad05f04a316835fd10547bd7e3392ce337e4c79ba91c01` |
+| qwen3.5-9b | 7,816 | `7f0e529032c25183bcd66c7f238da2d377f43be754a94e2725a58c4e16d2ed67` |
+| gemma-4-e4b, gemma-4-e2b | 18,808 | `241c50d86bdfe5e43307da87f559cd2416aacd67a8de46c15acc0105ef2200b7` |
+
 ## Publish
 
 Create the GitHub release with every file in `dist/` attached. That fires

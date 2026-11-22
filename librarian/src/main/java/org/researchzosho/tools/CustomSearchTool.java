@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
+import org.researchzosho.librarian.Searx;
 
 import java.net.URI;
 import java.net.URLEncoder;
@@ -54,7 +55,8 @@ public final class CustomSearchTool implements Tool {
 
     /** The address a query is asked at: {q} replaced by the words, {n} by the count; else q= and the words added. */
     static String address(String base, String query, int limit) {
-        String q = URLEncoder.encode(query, StandardCharsets.UTF_8).replace("+", "%20");
+        // a search service of the person's own may be a SearXNG: the words go as words there too (Searx.plain)
+        String q = URLEncoder.encode(Searx.plain(query), StandardCharsets.UTF_8).replace("+", "%20");
         String b = base.strip();
         if (b.contains("{q}")) return b.replace("{q}", q).replace("{n}", String.valueOf(limit)).replace("{limit}", String.valueOf(limit));
         return b + (b.contains("?") ? (b.endsWith("?") || b.endsWith("&") ? "" : "&") : "?") + "q=" + q;
@@ -130,6 +132,8 @@ public final class CustomSearchTool implements Tool {
     }
 
     @Override public String name() { return "custom_search"; }
+
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the search place's answer
 
     @Override public String description() {
         return "Search " + place + ", the search service the keeper set up for this library: each hit with its address, its title and the text the service gives with it.";

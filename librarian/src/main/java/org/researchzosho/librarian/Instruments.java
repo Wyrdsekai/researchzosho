@@ -12,12 +12,14 @@ import org.researchzosho.tools.Tool;
 import org.researchzosho.tools.VideoText;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BooleanSupplier;
+import java.util.regex.Pattern;
 
 import java.io.IOException;
 /**
@@ -147,9 +149,12 @@ public final class Instruments {
         Map<String, Tool> opens = new LinkedHashMap<>(byName);
         if (store != null) opens.put("read_pages", new Researcher.PagesTool(store));   // a file the shelf search listed is opened from the library (round G)
         List<Instrument> out = new ArrayList<>();
-        out.add(search(byName)); out.add(open(opens)); out.add(look(store)); out.add(candidates(store)); out.add(sift(store));
+        // not candidates and sift: the chat files a remembered video as a research run, which calls them; not dossier and shelf: the chat
+        // has library_dossier, library_ask and library_search, which its model chose every time (0.8.1, measured on 0.8.0: no call to dossier
+        // in 954 turns, and shelf never the first call); a run's table keeps all four (forRun)
+        out.add(search(byName)); out.add(open(opens)); out.add(look(store));
         out.add(patents(store)); out.add(patentAbstracts(store)); out.add(patentClaims(store));
-        if (store != null) { out.add(records(store)); out.add(homes(store)); out.add(dossier(store)); if (familyOn(store)) out.add(who(store)); out.add(shelf(store)); }
+        if (store != null) { out.add(records(store)); out.add(homes(store)); if (familyOn(store)) out.add(who(store)); }
         out.add(board());
         return out;
     }
@@ -215,6 +220,22 @@ public final class Instruments {
             }
             @Override public ObjectNode schema(ObjectMapper m) { return Instruments.schema("where!", "string", "query!", "string", "limit", "integer", "language", "string", "full_text", "boolean"); }
             @Override public String example() { return "{\"where\": \"web\", \"query\": \"canvas tote bag sewing tutorial no voice\"}"; }
+            /** A search answers from outside when its place does: the web, a register, a catalogue; the shelves are the library's own. */
+            @Override public boolean fromOutside(ObjectNode args) {
+                Tool t = place(args);
+                return t != null && t.fromOutside(args);
+            }
+            /** The place's own tool says which of the arguments are addresses: the archives' search, for a page's saved copy and its history. */
+            @Override public Set<String> addressArguments(ObjectNode args) {
+                Tool t = place(args);
+                return t == null ? Set.of() : t.addressArguments(args);
+            }
+            private Tool place(ObjectNode args) {
+                String where = args.path("where").asText("web").toLowerCase(Locale.ROOT).strip();
+                where = ALIASES.getOrDefault(where, where);
+                String toolName = where.equals(Places.customName()) || where.equals("custom") ? CUSTOM_TOOL : PLACES.getOrDefault(where, "");
+                return toolName.isEmpty() ? null : byName.get(toolName);
+            }
             @Override public Result run(ObjectNode args, Researcher.Budget budget, BooleanSupplier stop) throws Exception {
                 String where = args.path("where").asText("web").toLowerCase(Locale.ROOT).strip();
                 where = ALIASES.getOrDefault(where, where);   // the old spellings and the other names of a place
@@ -245,9 +266,15 @@ public final class Instruments {
 
     // ---- open
 
+    /** An address that names something the library holds, not a place on the web: a locator of its own kind (file:, cite:, db://…) or an entry's id. */
+    static boolean held(String address) { return GivenAddresses.internal(address) || GivenAddresses.entryId(address); }
+
     static Instrument open(Map<String, Tool> byName) {
         return new Instrument() {
             @Override public String name() { return "open"; }
+            /** A page, a video or a channel opened is from outside; what the library holds, read back from its shelves, is its own. */
+            @Override public boolean fromOutside(ObjectNode args) { return !held(args.path("address").asText(args.path("url").asText("")).strip()); }
+            @Override public Set<String> addressArguments(ObjectNode args) { return Set.of("address", "url"); }
             @Override public String words() {
                 return "Reads one address as what it is: a page, a PDF, an image's words, a YouTube video's page and transcript, a channel's uploads, a data file"
                         + " · after a search named it, or when the person gave the address · seconds; a wall or a refusal is said rather than worked around.";
@@ -259,7 +286,7 @@ public final class Instruments {
                 String as = args.path("as").asText("auto").toLowerCase(Locale.ROOT);
                 if (address.isEmpty()) return Result.of("open", "", "Give the address to open.");
                 boolean video = VideoText.videoId(address) != null, channel = VideoText.channelUrl(address) != null && !video;
-                boolean held = address.matches("(?i)^(?:file:|cite:)\\S.*");   // a file the library holds, by the locator its shelf search listed: read from the library
+                boolean held = held(address);   // what the library holds, by the locator its shelf search listed or by an entry's id: read from the library
                 String toolName = held ? "read_pages" : as.equals("channel") || (as.equals("auto") && channel) ? "channel_uploads"
                         : as.equals("transcript") || (as.equals("auto") && video) ? "video_details" : "web_fetch";
                 Tool t = byName.get(toolName);
@@ -309,6 +336,7 @@ public final class Instruments {
     static Instrument candidates(LibraryStore store) {
         return new Instrument() {
             @Override public String name() { return "candidates"; }
+            @Override public boolean fromOutside(ObjectNode args) { return true; }   // the video site's own titles and ids
             @Override public String words() {
                 return "The candidate pool for a video the person remembers but cannot name: give the name of the thing made or shown, two to four words, in each language the video may be in (things), and what the person remembers of the video itself as short phrases in their own words, one thing each, eight at most, the ones that tell this video from any other first: what happens, what is seen or heard, who or what appears, words said or shown (remembered); and the program enumerates for itself: it has the model name the thing plainly in the other languages YouTube is large in (Japanese, Korean, Chinese, Spanish, Portuguese, German, French, Russian), since the person seldom knows the language of a silent video; then deep YouTube searches of its own plain phrasings of every name, a hundred results each; the pages where other people describe a video in the words remembered, found by web searches the program makes from the thing's name and each phrase, and read for the videos they link or embed; the YouTube Data API in date order when a key is set; the other search indexes' view of youtube.com; every upload of the channels the channel search names and of the channels of hits naming the thing, listed whole in the order they came, as many as the time allows; and the person's own watch history before all of these; with the key, every hit's upload day, length and own title come from the Data API too, a unit per fifty videos. Then it drops what a machine can check (the ids already rejected in exclude, uploads outside after and before, lengths outside minutes_min and minutes_max, titles in another language than language when the person said the language of the video's title or on-screen text, as ja or ko) and hands back the pool best fit first, a video whose own title or description, or the page that links it, holds more of the remembered phrases before one that holds fewer, with no popularity in it: no views, no subscribers, no likes, no count of sources, no engine's rank"
                         + " · the first move for a remembered video, before any search and before any look: you give the things and what is remembered as the person said it, never a search; a remembered feature (a colour, a material, that nobody speaks, a pocket, how it closes) goes in remembered and never in things, since a title seldom names it and it is checked by looking; then the pool goes to sift by its key"
@@ -382,6 +410,7 @@ public final class Instruments {
     static Instrument patents(LibraryStore store) {
         return new Instrument() {
             @Override public String name() { return "patents"; }
+            @Override public boolean fromOutside(ObjectNode args) { return true; }   // the patent offices' own records
             @Override public String words() {
                 return "The pool for a question of prior art, whether something like an invention was already filed or granted: give the classification symbols the invention sits in (classes, each a CPC group with its slash, like A47G19/22), the years (from_year, to_year) and the invention's features (features), each a short phrase with the words and synonyms that would name it in a title or an abstract, in every language you can give, and the program enumerates for itself: every publication of each class in those years from the European Patent Office's own records, page by page to the end, the years split where the office counts more than the two thousand it gives of one query; it says the office's own count, keeps one line a patent family with the other members on it, counts which features each family's titles and abstracts name, drops the numbers already rejected (exclude), and hands back the pool ordered by more features named, then the rarer feature, then the older, with no popularity in it: no citation count, no family size, no engine's rank"
                         + " · the first move for prior art, once the class is known and before any patent is read: you give only the classes, the years and the features, never a query. " + Patents.HOW_TO_FIND_A_CLASS + " Then the pool goes to patent_abstracts by its key"
@@ -450,6 +479,7 @@ public final class Instruments {
     static Instrument records(LibraryStore store) {
         return new Instrument() {
             @Override public String name() { return "records"; }
+            @Override public boolean fromOutside(ObjectNode args) { return true; }   // the counties' own records
             @Override public String words() {
                 return "A home's public records by its street address in the United States: the assessor's values, the sales, the permits, from the city's and the county's own data, the state's layer or the library's readers, and where none answers, where the county keeps them"
                         + " · after a home is named and its figures matter · seconds to a minute; a county looked up for the first time may take longer.";
@@ -464,11 +494,53 @@ public final class Instruments {
         };
     }
 
+    /**
+     * A city's name as the lookup takes one: letters, with spaces, hyphens and apostrophes in it, and a full stop at a word's end
+     * (St. Louis) or after a short form of at most three letters with the next word right behind it (St.Louis, Ft.Worth, Washington
+     * D.C.). A longer word with a full stop inside it is how a host is written, not a city (collector.example.net).
+     */
+    private static final Pattern CITY = Pattern.compile("\\p{L}(?:[\\p{L}' -]|\\.(?= |$)|(?<=(?<!\\p{L})\\p{L}{1,3})\\.(?=\\p{L}))*");
+
+    /**
+     * A street address as the lookup takes it: {street, city, state}, or null when it is not one. The state is the two letters of one of the states ({@code GivenWords.stateCode}: the letters, or the name written out) and the
+     * city a name of letters ({@link #CITY}): the portals that are tried are partly named after them (data.<state>.gov), so nothing a
+     * host could be made of goes on (0.8.1). The city and the state stand with a comma between them, or with none, as the post
+     * office writes an address ("901 Bagby St, Houston TX 77002", "1600 Pennsylvania Avenue NW, Washington D.C."): then the state is
+     * the last words that name one ({@link #cityAndState}). Until the last reading of 0.8.1 a full stop was taken only before a
+     * space, so "St.Louis" and "Washington D.C., DC" were answered as no address, and an address without the second comma always was.
+     */
+    static String[] streetParts(String address) {
+        String[] parts = address == null ? new String[0] : address.split("\\s*,\\s*");
+        if (parts.length < 2) return null;
+        String street = parts[0].strip(), city, state;
+        if (parts.length >= 3) { city = parts[1].strip(); state = GivenWords.stateCode(parts[2]); }   // one of the states, by its letters or its name (0.8.1: any two letters went on)
+        else {
+            String[] place = cityAndState(parts[1]);
+            if (place == null) return null;
+            city = place[0]; state = place[1];
+        }
+        if (state == null || city.length() > 60 || !CITY.matcher(city).matches()) return null;
+        return new String[]{street, city, state};
+    }
+
+    /**
+     * A city and its state written with no comma between them, a ZIP code after them or none: {city, state}, the state being the
+     * most words at the end that name one (New York in "New York New York", the District's letters in "Washington D.C."); null
+     * when the end names no state, or when nothing stands before it (a state alone is no city).
+     */
+    static String[] cityAndState(String written) {
+        String[] words = written.strip().replaceFirst("[\\s,]*\\d{5}(?:-\\d{4})?$", "").strip().split("\\s+");
+        for (int k = Math.min(3, words.length); k >= 1; k--) {
+            String state = GivenWords.stateCode(String.join(" ", Arrays.copyOfRange(words, words.length - k, words.length)));
+            if (state != null) return k == words.length ? null : new String[]{String.join(" ", Arrays.copyOfRange(words, 0, words.length - k)), state};
+        }
+        return null;
+    }
+
     static String recordsLive(LibraryStore store, String address) {
-        String[] parts = address.split("\\s*,\\s*");
-        if (parts.length < 3) return "Give the address as street, city, state: \"901 Bagby St, Houston, TX\".";
-        String street = parts[0], city = parts[1], stateZip = parts[2].strip();
-        String state = stateZip.split("\\s+")[0].toUpperCase(Locale.ROOT);
+        String[] parts = streetParts(address);
+        if (parts == null) return "Give the address as street, city, state: \"901 Bagby St, Houston, TX\".";
+        String street = parts[0], city = parts[1], state = parts[2];
         HomeSensors.Placed p = HomeSensors.place(street, city, state);
         String st = HomeSensors.street(street); int number = HomeSensors.houseNumber(street);
         HomeRecords.Found f = HomeRecords.find(store, city, state, p == null ? "" : p.county(), p == null ? 0 : p.lat(), p == null ? 0 : p.lon(), st, number, p == null ? "" : p.zip(), false);
@@ -514,6 +586,7 @@ public final class Instruments {
     static Instrument board() {
         return new Instrument() {
             @Override public String name() { return "board"; }
+            @Override public boolean fromOutside(ObjectNode args) { return true; }   // the employer's own board
             @Override public String words() {
                 return "An employer's or an institution's own careers board, read whole, and the openings on it, found from its site or its hiring system; words, the title words wanted (any of them), keeps the openings whose title holds one and counts the rest, so a board of hundreds is cut by the program, never by its first page"
                         + " · when a company, a hospital, a university or a public body is named and its openings matter · seconds to a minute each.";

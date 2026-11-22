@@ -42,11 +42,16 @@ final class MapPage {
                 + "#side{width:22em;flex:none;max-height:calc(100vh - 12em);overflow:auto;padding:.6em .9em;border-left:1px solid var(--line);font-size:.9em}#side b{color:var(--accent)}"
                 + "@media(max-width:800px){.mapwrap{flex-direction:column}#side{width:auto;border-left:0;border-top:1px solid var(--line)}}</style>"
                 + "<div class=\"mapbar\"><input id=\"q\" value=\"" + f + "\" placeholder=\"" + Pages.esc(t("a person, a place, a work, a subject…")) + "\"> "
-                + "<button id=\"go\">" + t("Map") + "</button> <span class=\"k\">" + t("depth") + " <select id=\"d\" onchange=\"load(document.getElementById('q').value)\"><option>1</option><option selected>2</option><option>3</option></select></span></div>"
+                + "<button id=\"go\">" + t("Map") + "</button> <span class=\"k\">" + t("depth") + " <select id=\"d\"><option>1</option><option selected>2</option><option>3</option></select></span></div>"
                 + "<div class=\"mapwrap\"><canvas id=\"c\"></canvas><div id=\"side\"></div></div>"
                 + "<p class=\"k\">" + t("Every line is a claim; a dashed line is a disputed one. Subjects are the shelf labels: a name is joined to every subject its claims are filed under. Click a dot to move to it.") + "</p>"
-                + "<script>\n" + words()
-                + "window.onerror=(msg,src,line,col)=>{const s=document.getElementById('side');if(s)s.innerHTML='<b>'+esc(T.err)+'</b> '+String(msg).replace(/</g,'&lt;')+' '+esc(T.line.replace('{0}',line))+'<br>'+s.innerHTML;};\n"
+                + Pages.script("map");
+    }
+
+    /** The map's script: its words in the person's language, then the drawing; served as a file of the library's own ({@code Pages.SCRIPTS}). */
+    static String script() {
+        return words()
+                + "window.onerror=(msg,src,line,col)=>{const s=document.getElementById('side');if(s)s.innerHTML='<b>'+esc(T.err)+'</b> '+esc(msg)+' '+esc(T.line.replace('{0}',line))+'<br>'+s.innerHTML;};\n"
                 + "const KIND={person:'#e8b04a',place:'#5aa7d6',event:'#9b6bd1',document:'#8fbf8f',organisation:'#d67c5a',work:'#c3402f',concept:'#9a948a',subject:'#e0654f'};\n"
                 + "const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();\n"
                 + "const c=document.getElementById('c'),ctx=c.getContext('2d');let W,H;function size(){const wrap=c.parentElement;W=c.width=Math.max(300,wrap.clientWidth-(innerWidth>800?document.getElementById('side').offsetWidth:0));H=c.height=Math.max(360,Math.min(innerHeight-190,720))}size();addEventListener('resize',()=>{size();draw()});\n"
@@ -57,10 +62,10 @@ final class MapPage {
                 + " const byId={};nodes=j.nodes.map((n,i)=>{const a=i/j.nodes.length*6.28;const o={...n,x:W/2+Math.cos(a)*Math.min(W,H)/3,y:H/2+Math.sin(a)*Math.min(W,H)/3,vx:0,vy:0};byId[n.id]=o;return o});focus=byId[j.node.id];if(focus){focus.x=W/2;focus.y=H/2}\n"
                 + " edges=j.edges.map(e=>({...e,a:byId[e.from],b:byId[e.to]})).filter(e=>e.a&&e.b);\n"
                 + " const link=n=>n.kind==='subject'?'<a href=\"/search?subject='+encodeURIComponent(n.also&&n.also[0]||n.label)+'\">'+esc(n.label)+'</a>':esc(n.label);\n"
-                + " side.innerHTML=(j.resolved_from?'<span class=k>'+esc(T.nearest.replace('{0}',j.resolved_from))+'</span><br>':'')+'<b>'+link(j.node)+'</b> <span class=k>['+esc(KL[j.node.kind]||j.node.kind)+']</span>'+(j.node.wikidata?' <span class=k>'+j.node.wikidata+'</span>':'')+'<br><br>'+edges.map(e=>esc(e.a.label)+' <span class=k>— '+esc(e.predicate)+' →</span> '+esc(e.b.label)+' <a class=k href=\"/entry/'+encodeURIComponent(e.finding)+'\">['+esc(e.finding.slice(0,6))+' '+esc(SL[e.state]||e.state)+']</a>').join('<br>')+(j.open&&j.open.length?'<br><br><b>'+esc(T.open)+'</b><br>'+j.open.map(esc).join('<br>'):'')+(tries?'<br><br><span class=k>'+esc(T.best)+'</span><br>'+tries:'');bindTries();\n"
+                + " side.innerHTML=(j.resolved_from?'<span class=k>'+esc(T.nearest.replace('{0}',j.resolved_from))+'</span><br>':'')+'<b>'+link(j.node)+'</b> <span class=k>['+esc(KL[j.node.kind]||j.node.kind)+']</span>'+(j.node.wikidata?' <span class=k>'+esc(j.node.wikidata)+'</span>':'')+'<br><br>'+edges.map(e=>esc(e.a.label)+' <span class=k>— '+esc(e.predicate)+' →</span> '+esc(e.b.label)+' <a class=k href=\"/entry/'+encodeURIComponent(e.finding)+'\">['+esc(e.finding.slice(0,6))+' '+esc(SL[e.state]||e.state)+']</a>').join('<br>')+(j.open&&j.open.length?'<br><br><b>'+esc(T.open)+'</b><br>'+j.open.map(esc).join('<br>'):'')+(tries?'<br><br><span class=k>'+esc(T.best)+'</span><br>'+tries:'');bindTries();\n"
                 + " for(let i=0;i<300;i++)step();draw()}\n"
                 + "function bindTries(){document.querySelectorAll('#side a[data-n]').forEach(a=>a.onclick=ev=>{ev.preventDefault();document.getElementById('q').value=a.dataset.n;load(a.dataset.n)})}\n"
-                + "function esc(s){return String(s).replace(/[&<>]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[m]))}\n"
+                + "function esc(s){return String(s).replace(/[&<>\"'`]/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;','`':'&#96;'}[m]))}\n"   // a name on the map is a claim's words, a model's: the quotes too, since it is written inside an attribute (0.8.1)
                 + "function step(){for(const n of nodes){n.vx*=.85;n.vy*=.85}for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i],b=nodes[j];let dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,f=2000/(d*d);a.vx-=dx/d*f;a.vy-=dy/d*f;b.vx+=dx/d*f;b.vy+=dy/d*f}\n"
                 + " for(const e of edges){let dx=e.b.x-e.a.x,dy=e.b.y-e.a.y,d=Math.hypot(dx,dy)||1,f=(d-140)*.02;e.a.vx+=dx/d*f;e.a.vy+=dy/d*f;e.b.vx-=dx/d*f;e.b.vy-=dy/d*f}\n"
                 + " for(const n of nodes){if(n===focus){n.x=W/2;n.y=H/2;continue}n.vx+=(W/2-n.x)*.002;n.vy+=(H/2-n.y)*.002;n.x=Math.max(20,Math.min(W-20,n.x+n.vx));n.y=Math.max(20,Math.min(H-20,n.y+n.vy))}}\n"
@@ -69,7 +74,7 @@ final class MapPage {
                 + " let x=12;ctx.font='12px Georgia';for(const kk in KIND){ctx.fillStyle=KIND[kk];if(kk==='subject')ctx.fillRect(x,H-18,10,10);else{ctx.beginPath();ctx.arc(x+5,H-13,5,0,6.28);ctx.fill()}ctx.fillStyle=k;ctx.fillText(KL[kk]||kk,x+14,H-9);x+=ctx.measureText(KL[kk]||kk).width+30}}\n"
                 + "c.addEventListener('click',ev=>{const x=ev.offsetX*(c.width/c.clientWidth),y=ev.offsetY*(c.height/c.clientHeight);for(const n of nodes)if(Math.hypot(n.x-x,n.y-y)<14){document.getElementById('q').value=n.label;load(n.label);return}});\n"
                 + "document.getElementById('go').onclick=()=>load(document.getElementById('q').value);document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')load(e.target.value)});\n"
-                + "load(document.getElementById('q').value);\n"
-                + "</script>";
+                + "document.getElementById('d').addEventListener('change',()=>load(document.getElementById('q').value));\n"
+                + "load(document.getElementById('q').value);\n";
     }
 }

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.drive.Gated;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -71,7 +72,7 @@ public final class Images {
     private Images() { }
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build());
 
     /** The head field that marks a kept picture's entry, and who fetched it. */
     public static final String KIND = "image", BY = "researchzosho-images";
@@ -169,6 +170,16 @@ public final class Images {
     @FunctionalInterface public interface Fetcher { Fetched fetch(String url) throws Exception; }
     /** How a picture's bytes are fetched; a test stands in one that serves bytes of its own. */
     static volatile Fetcher FETCHER = Images::fetchNow;
+    /**
+     * How a picture a page showed is fetched for a browser ({@code Pages.foundPicture}): the fetcher's own refusals at every hop (this
+     * machine, link-local addresses, the library's own services, the private network when that is denied), the lists of refused sites,
+     * and no more than {@link #MAX_BYTES} read. A test stands in one that serves bytes of its own.
+     */
+    static volatile Fetcher FOUND_FETCHER = url -> {
+        Fetch.Result r = Fetch.get(url, FETCH_TIMEOUT, Map.of("Accept", "image/*,*/*;q=0.5"), Fetch.Policy.DEFAULT, 0, null, (int) MAX_BYTES);
+        if (r.status() != 200) throw new IOException("the server answered HTTP " + r.status());
+        return new Fetched(r.body(), r.contentType());
+    };
 
     /** The drive for the seeing model; the same seam the probe uses, so one stand-in serves both. */
     static BiFunction<String, String, Researcher.Drive> drives() { return Vision.DRIVES; }
@@ -247,6 +258,9 @@ public final class Images {
                 List<Found> r = e.searcher().search(words, n);
                 if (r == null) { silent.add(e.name() + " (not set up)"); continue; }
                 if (r.isEmpty()) { silent.add(e.name() + " (nothing found)"); continue; }
+                // what an engine found is from outside, and may be opened: each picture, its small copy, its page. Given here, where it is
+                // found, since every answer that lists it lists the kept pictures' stored words beside it (0.8.1)
+                for (Found f : r) for (String a : new String[]{f.image(), f.thumbnail(), f.page()}) if (a != null && !a.isBlank()) GivenAddresses.received(a);
                 ranked.add(r); answered.add(e.name());
             } catch (Stopping.Requested stop) { throw stop; }
             catch (Exception x) { silent.add(e.name() + " (did not answer" + (x.getMessage() == null || x.getMessage().isBlank() ? "" : ": " + cut(x.getMessage(), 80)) + ")"); }
@@ -345,7 +359,7 @@ public final class Images {
 
     static String searxUrl(String words) {
         String lang = WebSearchTool.languageOf(words);
-        return WebSearchTool.endpoint() + "/search?format=json&categories=images&q=" + URLEncoder.encode(words, StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang) + "&safesearch=1";
+        return WebSearchTool.endpoint() + "/search?format=json&categories=images&q=" + URLEncoder.encode(Searx.plain(words), StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang) + "&safesearch=1";
     }
 
     /** SearXNG's image results: {@code results[] {url (the page), title, img_src, thumbnail_src | thumbnail, engine, resolution}}. */

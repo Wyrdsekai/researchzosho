@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -38,7 +39,7 @@ public final class Archives {
     private Archives() { }
 
     private static final ObjectMapper M = new ObjectMapper();
-    static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build();
+    static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build());
     static final String UA = ScholarSearch.UA;
     static final Duration QUICK = Duration.ofSeconds(15), SLOW = Duration.ofSeconds(40);
 
@@ -215,9 +216,19 @@ public final class Archives {
         return out;
     }
 
+    /**
+     * A Wikipedia edition's code as it stands before {@code .wikipedia.org}: one label of letters, digits and hyphens (en, ja, zh-min-nan,
+     * simple); anything else is English. The code is part of the host, so nothing but a label goes there (0.8.1: a "language" holding a
+     * host, a path and a # made the request go to that host).
+     */
+    static String edition(String lang) {
+        String l = lang == null ? "" : lang.strip().toLowerCase(Locale.ROOT);
+        return l.matches("[a-z][a-z0-9-]{0,24}") && !l.endsWith("-") ? l : "en";
+    }
+
     /** A Wikipedia article's revisions, newest first from {@code at} (a date, or blank for now). */
     public static List<Revision> revisions(String lang, String title, String at, int limit) {
-        String base = String.format(WIKIPEDIA, lang == null || lang.isBlank() ? "en" : lang);
+        String base = String.format(WIKIPEDIA, edition(lang));
         String url = base + "/w/api.php?action=query&prop=revisions&titles=" + enc(title) + "&rvlimit=" + Math.max(1, limit) + "&rvprop=" + enc("ids|timestamp|size|comment|user") + "&rvdir=older&format=json"
                 + (at == null || at.isBlank() ? "" : "&rvstart=" + enc(at.length() == 4 ? at + "-12-31T23:59:59Z" : at.length() == 10 ? at + "T23:59:59Z" : at));
         String body = text(url, QUICK, "Wikipedia");
@@ -232,7 +243,7 @@ public final class Archives {
 
     /** The address of an article as it was at a revision. */
     public static String revisionUrl(String lang, String title, long revid) {
-        return String.format(WIKIPEDIA, lang == null || lang.isBlank() ? "en" : lang) + "/w/index.php?title=" + enc(title) + "&oldid=" + revid;
+        return String.format(WIKIPEDIA, edition(lang)) + "/w/index.php?title=" + enc(title) + "&oldid=" + revid;
     }
 
     /** Europeana and DPLA, each only when its key is set (RESEARCHZOSHO_EUROPEANA_KEY, RESEARCHZOSHO_DPLA_KEY); the names of the ones without a key are returned in {@code noKey}. */

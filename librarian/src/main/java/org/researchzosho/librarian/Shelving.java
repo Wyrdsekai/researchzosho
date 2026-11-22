@@ -51,7 +51,7 @@ public final class Shelving {
             if (wall != null) return request(store, u, "a wall: " + wall, context);
             String published = "";
             try { published = WebFetchTool.publishedDate(new String(resp.body(), 0, Math.min(resp.body().length, 200_000), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
-            Path raw = RawCapture.capture(store, resp.url(), doc.text(), title, "researchzosho-" + (collection == null || collection.isBlank() ? "add" : collection), collection, published);
+            Path raw = RawCapture.capture(store, resp.url(), doc.text(), title, "researchzosho-" + (collection == null || collection.isBlank() ? "add" : collection), collection, published, RawCapture.eyeHead(doc));
             if (raw == null) return new Got(u, null, title, doc.kind(), "not shelved (no library, or the capture was refused)", false);
             // saved even when no model could check it, and checked when one answers; a checked page means a model answers now
             UncheckedPages.after(store, page, resp.url(), raw, null);

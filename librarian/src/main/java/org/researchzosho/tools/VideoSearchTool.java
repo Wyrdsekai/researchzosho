@@ -24,6 +24,8 @@ public final class VideoSearchTool implements Tool {
 
     @Override public String name() { return "video_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the video site's answer
+
     @Override public String description() {
         return "Search YouTube for videos, or for channels (kind=channels), without an API key, through the library's own tunnel. "
                 + "Results show the channel and its subscribers, the length, views and upload day where YouTube gives them — shown, not ranked on. "

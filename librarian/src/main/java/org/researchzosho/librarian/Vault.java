@@ -89,6 +89,48 @@ public final class Vault {
         Files.createDirectories(vault);
         Map<String, String> ours = new LinkedHashMap<>();   // relative path → sha256 of what we wrote
         Map<String, String> before = readManifest(vault);
+        Map<String, String> notes = notes(store);
+        // write what changed, remove what is stale, remember what is ours
+        int written = 0, unchanged = 0, removed = 0;
+        for (Map.Entry<String, String> e : notes.entrySet()) {
+            // an editor draws what a note holds the moment it is opened: no picture of the web, no tag (Export.forAViewer). The note is
+            // compared as it is written, so a vault made before 0.8.1 has such a note written again
+            String note = Export.forAViewer(e.getValue());
+            String h = sha256(note), was = before.get(e.getKey());
+            Path p = vault.resolve(e.getKey());
+            if (h.equals(was) && Files.exists(p)) { ours.put(e.getKey(), h); unchanged++; continue; }
+            // about to write over what is there. A note the library wrote and a person then changed in their editor is theirs: it is
+            // left as they left it, and the manifest keeps the sum of what the library last wrote there, so that it is known as theirs
+            // at every later refresh too (and as the library's again, should they put its text back). The manifest's first line and
+            // the documentation have always said so; until the last reading of 0.8.1 only the removal below looked at the file, and
+            // the first refresh after an upgrade to 0.8.1, which writes most notes again in their new form, wrote over every edit
+            if (was != null && Files.exists(p) && changedSince(p, was)) { ours.put(e.getKey(), was); unchanged++; continue; }
+            Files.createDirectories(p.getParent());
+            Files.writeString(p, note, StandardCharsets.UTF_8);
+            ours.put(e.getKey(), h);
+            written++;
+        }
+        for (String old : before.keySet()) {
+            if (ours.containsKey(old)) continue;
+            Path p = vault.resolve(old);
+            if (Files.exists(p) && !changedSince(p, before.get(old))) { Files.delete(p); removed++; }   // ours and untouched: gone
+        }
+        StringBuilder m = new StringBuilder("# what researchzosho wrote here: path \\t sha256 — a note a person changed is left alone\n");
+        for (Map.Entry<String, String> e : ours.entrySet()) m.append(e.getKey()).append('\t').append(e.getValue()).append('\n');
+        Files.writeString(manifest(vault), m.toString(), StandardCharsets.UTF_8);
+        return new Outcome(vault, written, unchanged, removed);
+    }
+
+    /** Whether the note at {@code p} is no longer what the library wrote there, {@code was} being the sum the manifest keeps of that: a person changed it. A note that cannot be read is left alone as one of theirs. */
+    private static boolean changedSince(Path p, String was) {
+        try { return !sha256(Files.readAllBytes(p)).equals(was); } catch (IOException e) { return true; }
+    }
+
+    /**
+     * Every note of the vault as the library's records give it now: its path under the vault → its Markdown, before it is written
+     * for a viewer ({@code Export.forAViewer}). Until 0.8.1 this text was what a vault held, and what its manifest kept the sums of.
+     */
+    static Map<String, String> notes(LibraryStore store) throws IOException {
         Map<String, String> notes = new TreeMap<>();      // relative path → content
 
         List<Finding> findings = store.scanFindings().findings();
@@ -249,26 +291,7 @@ public final class Vault {
             notes.put("Dossiers/" + e.subject().replaceAll("[^\\p{L}\\p{N} ._-]", "_") + ".md", md);
         }
 
-        // write what changed, remove what is stale, remember what is ours
-        int written = 0, unchanged = 0, removed = 0;
-        for (Map.Entry<String, String> e : notes.entrySet()) {
-            String h = sha256(e.getValue());
-            ours.put(e.getKey(), h);
-            Path p = vault.resolve(e.getKey());
-            if (h.equals(before.get(e.getKey())) && Files.exists(p)) { unchanged++; continue; }
-            Files.createDirectories(p.getParent());
-            Files.writeString(p, e.getValue(), StandardCharsets.UTF_8);
-            written++;
-        }
-        for (String old : before.keySet()) {
-            if (ours.containsKey(old)) continue;
-            Path p = vault.resolve(old);
-            if (Files.exists(p) && sha256(Files.readString(p, StandardCharsets.UTF_8)).equals(before.get(old))) { Files.delete(p); removed++; }   // ours and untouched: gone
-        }
-        StringBuilder m = new StringBuilder("# what researchzosho wrote here: path \\t sha256 — a note a person changed is left alone\n");
-        for (Map.Entry<String, String> e : ours.entrySet()) m.append(e.getKey()).append('\t').append(e.getValue()).append('\n');
-        Files.writeString(manifest(vault), m.toString(), StandardCharsets.UTF_8);
-        return new Outcome(vault, written, unchanged, removed);
+        return notes;
     }
 
     static Map<String, String> readManifest(Path vault) throws IOException {
@@ -321,11 +344,13 @@ public final class Vault {
         return "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", "") + "\"";
     }
 
-    static String sha256(String s) {
+    static String sha256(String s) { return sha256(s.getBytes(StandardCharsets.UTF_8)); }
+
+    static String sha256(byte[] bytes) {
         try {
             MessageDigest d = MessageDigest.getInstance("SHA-256");
             StringBuilder sb = new StringBuilder();
-            for (byte b : d.digest(s.getBytes(StandardCharsets.UTF_8))) sb.append(String.format("%02x", b));
+            for (byte b : d.digest(bytes)) sb.append(String.format("%02x", b));
             return sb.toString();
         } catch (Exception e) { throw new IllegalStateException(e); }
     }

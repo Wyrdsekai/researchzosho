@@ -32,7 +32,7 @@ final class McpSetup {
     private McpSetup() { }
     private static final ObjectMapper M = new ObjectMapper();
 
-    static final String OPS = "op is list, tools, test, add, remove, allow, forbid, readers, cap or call.";
+    static final String OPS = "op is list, tools, test, add, remove, allow, forbid, readers, links, cap or call.";
 
     /** Throws {@code forbidden} for anyone but the keeper; a read key of the keeper's may look, not change. */
     static void keeper(Patrons.Patron patron, boolean change) {
@@ -75,6 +75,16 @@ final class McpSetup {
                 McpServers.update(store, s.name, x -> x.readers = on);
                 r.put("name", s.name).put("readers", on);
                 say(r, on ? "Readers' research and chats may now use " + s.name + " too." : "Only you and the people who may write use " + s.name + " now.");
+            }
+            case "links" -> {
+                McpServers.Server s = server(store, args);
+                String v = args.path("value").asText(args.path("links").asText("")).strip().toLowerCase(Locale.ROOT);
+                if (!Set.of("on", "off", "true", "false", "yes", "no").contains(v)) throw ProtocolError.invalidArgs("links takes on or off.");
+                boolean on = Set.of("on", "true", "yes").contains(v);
+                McpServers.update(store, s.name, x -> x.links = on);
+                r.put("name", s.name).put("links", on);
+                say(r, on ? "Research may now open the addresses " + s.name + " names in its answers. Say this only of a server that finds things outside, such as a search engine or a reader of pages: a server that computes on what it is sent could hand a model any address."
+                        : "Research reads what " + s.name + " answers and opens no address from it.");
             }
             case "cap" -> {
                 McpServers.Server s = server(store, args);
@@ -161,7 +171,7 @@ final class McpSetup {
         if (s.stdio()) { ArrayNode c = o.putArray("command"); s.command.forEach(c::add); if (!s.env.isEmpty()) { ObjectNode e = o.putObject("env"); s.env.forEach(e::put); } }
         else { o.put("url", s.url); if (!s.keySetting.isBlank()) { o.put("header", s.headerName()).put("key_setting", shortName(s.keySetting)).put("key_set", s.keySet()); } }
         if (!s.preset.isBlank()) o.put("preset", s.preset);
-        o.put("readers", s.readers).put("cap", s.cap).put("used_this_month", McpSources.used(s)).put("timeout_seconds", s.timeoutSeconds);
+        o.put("readers", s.readers).put("links", s.links).put("cap", s.cap).put("used_this_month", McpSources.used(s)).put("timeout_seconds", s.timeoutSeconds);
         o.put("listed_at", s.listedAt).put("protocol", s.protocol).put("server", s.serverInfo);
         if (!s.lastError.isBlank()) o.put("last_error", s.lastError);
         McpServers.Preset p = McpServers.presetOf(s);
@@ -193,6 +203,7 @@ final class McpSetup {
             if (!off.isEmpty()) b.append("  Kept off research: ").append(String.join(", ", off)).append(". researchzosho mcp tools ").append(s.name).append(" says why.\n");
         }
         b.append("  ").append(s.readers ? "You, the people who may write, and readers use it." : "Only you and the people who may write use it; researchzosho mcp readers " + s.name + " on lets readers use it too.").append('\n');
+        b.append("  ").append(linksLine(s)).append('\n');
         int used = McpSources.used(s);
         b.append("  This month research has called it ").append(used).append(used == 1 ? " time" : " times").append(McpSources.sharedWith(s)).append(McpSources.cap(s) > 0 ? ", of the " + McpSources.cap(s) + " it may." : "; there is no monthly cap.").append('\n');
         return b.toString();
@@ -273,6 +284,8 @@ final class McpSetup {
             if (byHost != null && old == null) s.cap = byHost.cap();   // a preset's monthly cap, until the keeper sets another
         }
         if (args.has("readers")) s.readers = args.path("readers").asBoolean(false);
+        if (args.has("links")) s.links = args.path("links").asBoolean(false);
+        else if (old == null) s.links = !s.preset.isBlank();   // a search engine's server the library knows by name finds things outside; a keeper's own server is not taken to
         if (args.has("cap")) s.cap = Math.max(0, args.path("cap").asInt(0));
         if (args.has("timeout")) s.timeoutSeconds = Math.max(1, Math.min(3600, args.path("timeout").asInt(60)));
         String value = args.path("header_value").asText("").strip();
@@ -304,6 +317,7 @@ final class McpSetup {
         if (!s.stdio() && !s.keySetting.isBlank()) b.append(keyLine(s)).append('\n');
         if (s.cap > 0) b.append("Research may call it ").append(s.cap).append(" times a month; researchzosho mcp cap ").append(s.name).append(" <calls> changes that.\n");
         b.append(s.readers ? "Readers use it too." : "Only you and the people who may write use it. To let readers use it too: researchzosho mcp readers " + s.name + " on");
+        b.append('\n').append(linksLine(s));
         return b.toString().strip();
     }
 
@@ -375,11 +389,17 @@ final class McpSetup {
     static final String USAGE = "usage: researchzosho mcp add <name> -- <command and its arguments…>   a server this computer starts\n"
             + "       researchzosho mcp add <name> <https address> [--header-key <setting>] [--header <name>]   a server at an address\n"
             + "       researchzosho mcp add exa | tavily   a search engine's server, by its name alone\n"
-            + "       (add also takes --env NAME=VALUE, --readers, --cap <calls a month>, --timeout <seconds>)\n"
+            + "       (add also takes --env NAME=VALUE, --readers, --links, --cap <calls a month>, --timeout <seconds>)\n"
             + "       researchzosho mcp list · tools <name> · call <name> <tool> [<arguments as JSON>] · remove <name>\n"
-            + "       researchzosho mcp allow <name> <tool> · forbid <name> <tool> · readers <name> on|off · cap <name> <calls>|off";
+            + "       researchzosho mcp allow <name> <tool> · forbid <name> <tool> · readers <name> on|off · links <name> on|off · cap <name> <calls>|off";
 
-    static final Set<String> VERBS = Set.of("add", "list", "tools", "test", "call", "remove", "allow", "forbid", "readers", "cap");
+    /** Whether the addresses in a server's answers may be opened, and the command that changes it. */
+    static String linksLine(McpServers.Server s) {
+        return s.links ? "Research may open the addresses it names in its answers (researchzosho mcp links " + s.name + " off stops that)."
+                : "Research reads its answers and opens no address from them. If it is a search engine or a reader of pages, researchzosho mcp links " + s.name + " on lets research open what it finds.";
+    }
+
+    static final Set<String> VERBS = Set.of("add", "list", "tools", "test", "call", "remove", "allow", "forbid", "readers", "links", "cap");
 
     /** {@code researchzosho mcp <verb> …}: the op asked of {@code caller}, its sentences printed. */
     static int cli(String[] args, Caller caller, PrintStream out, PrintStream err) {
@@ -391,7 +411,7 @@ final class McpSetup {
                 case "list" -> { }
                 case "tools", "test", "remove" -> { if (args.length < 4) { err.println(USAGE); return 2; } a.put("name", args[3]); }
                 case "allow", "forbid" -> { if (args.length < 5) { err.println(USAGE); return 2; } a.put("name", args[3]).put("tool", args[4]); }
-                case "readers", "cap" -> { if (args.length < 5) { err.println(USAGE); return 2; } a.put("name", args[3]).put("value", args[4]); }
+                case "readers", "links", "cap" -> { if (args.length < 5) { err.println(USAGE); return 2; } a.put("name", args[3]).put("value", args[4]); }
                 case "call" -> {
                     if (args.length < 5) { err.println(USAGE); return 2; }
                     a.put("name", args[3]).put("tool", args[4]);
@@ -424,6 +444,7 @@ final class McpSetup {
                     env.put(args[i].substring(0, args[i].indexOf('=')), args[i].substring(args[i].indexOf('=') + 1));
                 }
                 case "--readers" -> a.put("readers", true);
+                case "--links" -> a.put("links", true);
                 case "--cap" -> { if (++i >= args.length) { err.println(USAGE); return 2; } try { a.put("cap", Integer.parseInt(args[i])); } catch (NumberFormatException e) { err.println("--cap takes a number of calls a month."); return 2; } }
                 case "--timeout" -> { if (++i >= args.length) { err.println(USAGE); return 2; } try { a.put("timeout", Integer.parseInt(args[i])); } catch (NumberFormatException e) { err.println("--timeout takes a number of seconds."); return 2; } }
                 default -> {

@@ -59,8 +59,29 @@ final class ImagesTurn {
     /** When no engine answered a search. */
     static final String NO_ENGINE = "No picture search answered. The library searches pictures through Brave when its key is kept (the Settings page, under Sources and keys) and through its own SearXNG (researchzosho setup starts one).";
 
+    /**
+     * What the search behind this turn's reply found, as the engines gave it: each picture's address, its small copy's and its page's.
+     * The reply's words hold a model's too (the reason of a verdict, a description), so what the library shows from the web and what it
+     * lets a model open afterwards is this list, written by the library, and never an address read back out of the words (0.8.1: a
+     * seeing model put a picture of its own into its description, and the chat page loaded it).
+     */
+    private static final ThreadLocal<List<String>> FOUND = ThreadLocal.withInitial(ArrayList::new);
+
+    /** The list for the reply just written on this thread, taken once. */
+    static List<String> foundNow() { List<String> f = new ArrayList<>(FOUND.get()); FOUND.remove(); return f; }
+
+    /** A found picture's two lines under its sentence: where it stands, and the picture small; its addresses go on the list. */
+    private static String listed(Images.Found f) {
+        String stands = f.page() == null || f.page().isBlank() ? f.image() : f.page();
+        // a picture the library already keeps is shown by its own path, and its page is words the library stored: neither goes on the list
+        List<String> found = FOUND.get();
+        if (!Images.SHELVES.equals(f.source())) for (String a : new String[]{stands, f.image(), f.thumbnail()}) if (a != null && !a.isBlank() && !found.contains(a)) found.add(a);
+        return "\n   " + stands + "\n   " + f.show() + '\n';
+    }
+
     /** The reply, or null when the words are none of this turn's. */
     static String reply(LibraryStore store, Librarian.Session session, Patrons.Patron patron, String words) throws IOException {
+        FOUND.remove();
         if (words == null) return null;
         String w = TranslateTurn.withoutAttachment(words).strip();
         Map<String, String> m = find(w);
@@ -105,7 +126,7 @@ final class ImagesTurn {
         int i = 0;
         for (Images.Found f : r.found()) {
             i++;
-            b.append('\n').append(i).append(". ").append(f.said(c)).append("\n   ").append(f.page() == null || f.page().isBlank() ? f.image() : f.page()).append("\n   ").append(f.show()).append('\n');
+            b.append('\n').append(i).append(". ").append(f.said(c)).append(listed(f));
         }
         return b.append('\n').append(c.t(OFFER)).toString();
     }
@@ -217,7 +238,7 @@ final class ImagesTurn {
         int i = 0;
         for (Images.Judged j : liked.judged()) {
             i++;
-            b.append('\n').append(i).append(". ").append(j.said(c)).append("\n   ").append(j.found().page() == null || j.found().page().isBlank() ? j.found().image() : j.found().page()).append("\n   ").append(j.found().show()).append('\n');
+            b.append('\n').append(i).append(". ").append(j.said(c)).append(listed(j.found()));
         }
         b.append('\n').append(liked.tally("", c)).append(liked.appearsAlso(c).isEmpty() ? "" : " " + liked.appearsAlso(c)).append(' ').append(c.t(OFFER));
         return b.toString();

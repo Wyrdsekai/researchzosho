@@ -25,6 +25,8 @@ public final class NdlFulltextTool implements Tool {
 
     @Override public String name() { return "ndl_fulltext"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the national library's records
+
     @Override public String description() {
         return "Full-text search of digitised Japanese books in the National Diet Library (copyright-expired works, to about 1970): local histories, "
                 + "name directories, martial-arts manuals, school and company histories. keyword finds the books, with the pages where the words occur; "
@@ -46,6 +48,9 @@ public final class NdlFulltextTool implements Tool {
         if (calls.incrementAndGet() > MOST_CALLS) return "ERROR: this run has made its " + MOST_CALLS + " NDL searches; write with what was found.";
         int limit = Math.max(1, Math.min(MOST, args.path("limit").asInt(10)));
         String bookId = args.path("book_id").asText("").strip(), find = args.path("find").asText("").strip(), keyword = args.path("keyword").asText("").strip();
+        // the search tool hands a place its words as query: until 0.8.1 this place read keyword alone, and every search of it through the
+        // search tool answered "keyword is empty" (found on 2026-11-20, when each place was asked once against the real service)
+        if (keyword.isEmpty()) keyword = args.path("query").asText("").strip();
         if (!bookId.isEmpty()) {
             if (find.isEmpty()) find = keyword;
             if (find.isEmpty()) return "ERROR: find is empty: the words to look for in book " + bookId;

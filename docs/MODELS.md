@@ -18,6 +18,15 @@ the next in 0.4 seconds. The embeddings model (Qwen3-Embedding-0.6B, 0.6 GB) run
 address, for search by meaning, and goes away after five. Work that runs keeps both loaded, however long it
 waits between calls.
 
+On Linux, where both run in Docker, `model install` sets them up with no way out to the network: their
+containers are on a Docker network that has no route to anything but your machine, and the library reaches them
+at their addresses there. The install tries it (the model answers through it, an outside address does not answer
+from inside) and sets the server up the earlier way, saying so, when it does not hold on a machine.
+`researchzosho model status` says which it is. An install from an earlier version changes over when you run
+`researchzosho model install` again; `researchzosho settings set model_network open` keeps the earlier way. On
+macOS and Windows the model server is an ordinary program, and nothing changes. More in
+[SECURITY.md](../SECURITY.md), "What leaves your machine".
+
 ## How the list was made
 
 Eleven models were run through the same research questions on the same library, on one machine with
@@ -31,8 +40,9 @@ measured. That is different from not recommended.
 ## By VRAM, best first in each row
 
 `researchzosho model install` serves each model for one conversation at a time of 32k tokens (the 27B four at a time, the
-35B-A3B two), because the chat's tools and instructions take about 16k of a conversation. Gemma 4 E2B keeps 16k, all its card
-holds. An install from before is moved to these when it updates, unless you chose your own model.
+35B-A3B two), because the chat's tools and instructions take about 19k of a conversation's first round. Gemma 4 E2B keeps
+16k, all its card holds, and the chat works there with fewer tools in full (see the chat, below). An install from before is
+moved to these when it updates, unless you chose your own model.
 
 **24 GB of VRAM or more**
 
@@ -73,7 +83,7 @@ holds. An install from before is moved to these when it updates, unless you chos
 
 | model | file | what we saw |
 |---|---|---|
-| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use, with one 16k conversation, which is all a 2 GB card holds. The chat's tools and instructions fill that, so the chat says it does not fit. A hosted API is the better answer this small. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
+| Gemma 4 E2B at 4-bit | `gemma-4-E2B-it-Q4_K_M.gguf` | the claims came out right, but its write-ups were headings with no text; 2 GB in use, with one 16k conversation, which is all a 2 GB card holds. The chat works in that with eight tools in full and the others by name, but it picks the right tool in about one ask in five. A hosted API is the better answer this small. Sees images with its picture file, which `researchzosho model install` fetches with it (its card) |
 
 Whether a model sees images is measured on the entry, not read off this table: `researchzosho models test <name>` sends a
 small coloured square and keeps the answer, and `researchzosho models` shows it. A model that reads pictures needs its
@@ -233,5 +243,10 @@ The second asked which entry is the most recent and who wrote it.
 | Qwen 3.5 4B | Right on one run; on another it cited four entry ids that do not exist. The chat now admits such a reference under the reply. |
 
 The 9B and gpt-oss-20b hold the conversation. The 27B sees more. The 12B answers but does not dig.
-The 4B cannot be trusted to cite. The chat's tools and instructions are about 16,000 tokens, so a model served
-with 16k for a conversation has no room left for what it opens, and the chat says so. 32k is what it needs.
+The 4B cannot be trusted to cite.
+
+The chat's tools and instructions take about 19,000 tokens of a conversation's first round: 18,681 on the 27B, 57 % of a
+32k window (about 22,000, 67 %, in 0.8.0). A model whose window holds them with room to spare gets every tool. A model served
+with less, such as 16k, gets eight everyday tools in full (ask, search, get, research, job, help, and the web's search and
+open) and the others by name, each opened when it is needed. It can chat, but it picks the right
+tool less often: Gemma 4 E2B at 16k picked it in about one ask in five.

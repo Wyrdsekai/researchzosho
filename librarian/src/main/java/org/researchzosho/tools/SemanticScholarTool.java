@@ -56,6 +56,8 @@ public final class SemanticScholarTool implements Tool {
 
     @Override public String name() { return "semantic_scholar_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the index's records
+
     @Override public String description() {
         return "Search Semantic Scholar's index of papers in every field: each paper with its venue, year, authors, how often it is cited, the "
                 + "start of its abstract and, when there is one, a free PDF that reading the address opens. Use it beside scholar_search when the "

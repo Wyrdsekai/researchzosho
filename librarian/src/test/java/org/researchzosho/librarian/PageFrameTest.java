@@ -54,7 +54,7 @@ class PageFrameTest {
             assertTrue(keep.contains("<h1>Keep</h1>") && keep.contains("href=\"/settings\"") && keep.contains("href=\"/sources\""), keep);
             HttpResponse<String> home = get(c, base + "/");
             String csp = home.headers().firstValue("Content-Security-Policy").orElse("");
-            assertTrue(csp.contains("script-src 'unsafe-inline'") && csp.contains("connect-src 'self'") && !csp.contains("http"), "the look switch's script is inline and nothing comes from elsewhere: " + csp);
+            assertEquals(Pages.POLICY, csp, "the look switch's script is a file of the library's own and nothing comes from elsewhere");
             assertEquals("no-store", home.headers().firstValue("Cache-Control").orElse(""), "a page is never cached by the browser");
             HttpResponse<String> stale = c.send(HttpRequest.newBuilder(URI.create(base + "/")).header("Cookie", Pages.COOKIE + "=no-such-token").build(), HttpResponse.BodyHandlers.ofString());
             assertEquals(200, stale.statusCode(), "a token the library no longer knows: forgotten, and the page is served as to any visitor: " + stale.body());
@@ -75,7 +75,7 @@ class PageFrameTest {
             assertEquals(200, chat.statusCode(), chat.body());
             assertTrue(chat.body().contains("<body class=\"fill\">"), "the Chat page fills the window: " + chat.body());
             assertTrue(!chat.body().contains("class=\"chat\"") || chat.body().contains("id=\"chat-scroll\""), "the conversation scrolls in its own box, the box to say the next thing stays put: " + chat.body());
-            if (chat.body().contains("id=\"chat-scroll\"")) assertTrue(chat.body().contains("window.addEventListener('load',end)"), "the box opens at the latest reply once the whole page is laid out: " + chat.body());
+            if (chat.body().contains("id=\"chat-scroll\"")) assertTrue(chat.body().contains("<script src=\"/static/rz-chat.en.js\"></script>") && Pages.scriptText("rz-chat.en.js").contains("window.addEventListener('load',end)"), "the box opens at the latest reply once the whole page is laid out: " + chat.body());
             assertEquals(404, get(c, base + "/chat/panel").statusCode(), "the panel beside every page is gone");
         } finally { d.stop(); }
     }

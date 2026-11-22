@@ -54,6 +54,8 @@ public final class BookSearchTool implements Tool {
 
     @Override public String name() { return "book_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the catalogues' records
+
     @Override public String description() {
         return "Books, from the catalogues: only a book this tool returned in this run may be recommended or described, cited by its record link. kind=search: "
                 + "books by words (Open Library; NDL Search for Japanese words), each with authors, year, subjects, editions, ratings when the catalogue has them, "

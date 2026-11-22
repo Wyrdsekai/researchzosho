@@ -827,7 +827,7 @@ public final class GenealogyProfile implements Profile {
                 t = FamilyTranscript.keep(store, locator, name, doc.text());
                 if (!doc.title().isBlank()) title = doc.title();
             }
-            RawCapture.capture(store, locator, t.text(), title, "corpus:family", "family");
+            RawCapture.capture(store, locator, t.text(), title, "corpus:family", "family", "", Map.of(RawCapture.BY_EYE, "the picture"));   // a page's picture, as the model that sees read it
             read.add(t);
         }
         if (read.isEmpty()) return 1;

@@ -40,7 +40,8 @@ public final class Items {
 
     private Items() { }
 
-    static final Pattern BULLET = Pattern.compile("^\\s*(?:[-*•▪◦]|\\d+[.)]|\\[[ xX]\\])\\s*");
+    /** A list's mark before an item: a bullet, a tick box, or a number with a stop or a bracket and a space after it ("10. Title"; "10.1038/nature12373" is a DOI, and until 0.8.1 lost its "10." here and was read as a title). */
+    static final Pattern BULLET = Pattern.compile("^\\s*(?:[-*•▪◦]|\\d+[.)](?=\\s|$)|\\[[ xX]\\])\\s*");
     static final Pattern SPLIT_NOTE = Pattern.compile("\\s+(?:—|–|-|\\||\\t)\\s+|\\t");
 
     /** The items in a file's text, all of them. {@code column} names a CSV column (null = one called title, name, item or book, else the first). */

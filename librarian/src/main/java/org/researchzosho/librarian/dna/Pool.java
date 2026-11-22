@@ -1,5 +1,6 @@
 package org.researchzosho.librarian.dna;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
@@ -117,7 +118,7 @@ public final class Pool {
         return n + " document(s) packed to " + to + " for you to send";
     }
 
-    static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL).build());
 
     /** The published pack for the kind, read into the store when the site announces one; a sentence either way. */
     public static String refresh(String kind) {

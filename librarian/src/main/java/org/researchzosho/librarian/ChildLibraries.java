@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.researchzosho.Main;
 import org.researchzosho.Config;
@@ -71,7 +72,7 @@ public final class ChildLibraries implements LibraryRunner.Local {
     /** Each library's web gate, a port of this machine's loopback its process reaches the web through (0.8.0, stage 3). */
     private final Map<String, Relays> webGates = new ConcurrentHashMap<>();
     private static final Logger LOG = LoggerFactory.getLogger(ChildLibraries.class);
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build());
 
     /** {@code service}: the address libraries reach the account service at, which is also the name its statements are made in. */
     public ChildLibraries(AccountStore store, String service) { this.store = store; this.service = service; }

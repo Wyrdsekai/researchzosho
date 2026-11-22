@@ -149,7 +149,7 @@ class HomeFilesTest {
     @Test void aFileTheResearchNamesIsReadForTheCountyAndKeptWithTheCitysLook(@TempDir Path tmp) throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         files.put("https://gis.sangamon.example/download/parcels.csv", CSV.getBytes(StandardCharsets.UTF_8));
-        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> "The county's assessor publishes the parcel roll with sales as a download at https://gis.sangamon.example/download/parcels.csv, refreshed weekly; permits are searched at https://permits.sangamon.example/lookup.";
+        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> HomeRecordsResearchTest.fromItsPages("The county's assessor publishes the parcel roll with sales as a download at https://gis.sangamon.example/download/parcels.csv, refreshed weekly; permits are searched at https://permits.sangamon.example/lookup.");
         HomeRecordsResearch.PROBE = u -> u.contains("lookup") ? new String[]{"text/html", "<html>"} : null;
         HomeRecords.Found f = HomeRecords.find(store, "Springfield", "IL", "Sangamon County", 39.80, -89.65, "ELM ST", 122, true);
         assertNotNull(f.sales(), f.looked().toString());

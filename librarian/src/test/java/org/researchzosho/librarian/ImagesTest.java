@@ -20,6 +20,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.Objects;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -322,8 +324,13 @@ class ImagesTest {
         assertTrue(reply.startsWith("6 pictures found for \"red fox\" through Brave and SearXNG. 1 candidate was skipped as not a picture the model can look at (an SVG, a PDF and the like).\n\n1. \"Wild Dog Breeds: Red Fox\" from a-z-animals.com, 768×401, found through Brave.\n   https://a-z-animals.com/animals/red-fox/pictures/\n   ![Wild Dog Breeds: Red Fox](https://imgs.search.brave.com/"), reply);
         assertTrue(reply.endsWith(ImagesTurn.OFFER), reply);
         assertEquals(6, session.imagesFound().size(), "the fixtures hold seven pictures between them, and the SVG is not one the model can look at");
-        String html = Pages.prose(reply);   // as the chat page shows the library's own line: the pictures it found, small, with its mark (round F)
-        assertTrue(html.contains("<img class=\"thumb\" src=\"https://imgs.search.brave.com/"), html); assertTrue(html.contains("alt=\"Wild Dog Breeds: Red Fox\" loading=\"lazy\" referrerpolicy=\"no-referrer\" " + Pages.SHOWN + ">"), html);
+        // as the chat page shows the library's own line: the pictures it found, small, with its mark (round F), by the line's own list of them (0.8.1)
+        Set<String> listed = new HashSet<>();
+        for (JsonNode a : session.messages().get(session.messages().size() - 1).path(Librarian.FOUND)) listed.add(a.asText());
+        assertEquals(6, session.imagesFound().stream().filter(f -> listed.contains(f.image())).count(), "the line lists what its search found: " + listed);
+        String html = Pages.prose(reply, listed);
+        assertTrue(html.contains("<img class=\"thumb\" src=\"/found?u=https%3A%2F%2Fimgs.search.brave.com%2F"), html); assertTrue(html.contains("alt=\"Wild Dog Breeds: Red Fox\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"), html);
+        assertFalse(html.contains("src=\"https://"), "the page takes no picture from the web itself: the library fetches a found one and passes it on: " + html);
         // a count in the words, and the Japanese words
         assertTrue(lib.say("show me 2 photos of a red fox").startsWith("2 pictures found for \"a red fox\""));
         assertTrue(lib.say("赤いキツネの写真を3枚探して").startsWith("3 pictures found for \"赤いキツネ\""));

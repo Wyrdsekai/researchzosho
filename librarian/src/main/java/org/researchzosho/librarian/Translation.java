@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -255,7 +256,7 @@ public final class Translation {
         String base = drive.replaceAll("/+$", "");
         String url = base.endsWith("/v1") ? base + "/models" : base + "/v1/models";
         try {
-            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()
+            HttpResponse<String> r = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build())
                     .send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(8)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() != 200) return false;
             JsonNode data = new ObjectMapper().readTree(r.body()).path("data");

@@ -138,6 +138,7 @@ class ArchivesToolsTest {
         String books = t.execute(args("{\"keyword\":\"居合\"}"));
         assertTrue(books.contains("剣道手ほどき") && books.contains("id 958348") && books.contains("/book/958348") && books.contains("居合術独習法"), books);
         assertFalse(books.contains("<em>"), "the highlight tags are stripped");
+        assertEquals(books, new NdlFulltextTool().execute(args("{\"query\":\"居合\"}")), "the words as the search tool hands them to a place");
         String inside = t.execute(args("{\"book_id\":\"958348\",\"find\":\"居合\"}"));
         assertTrue(inside.contains("page 11") && inside.contains("/book/958348?page=11") && inside.contains("…") && inside.contains("居合"), inside);
         assertTrue(inside.contains("Public Domain Mark"), inside);

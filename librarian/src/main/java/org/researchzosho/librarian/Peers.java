@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -38,7 +39,7 @@ public final class Peers {
 
     private static final ObjectMapper M = new ObjectMapper();
     static final int TIMEOUT_S = Config.getInt("RESEARCHZOSHO_PEER_TIMEOUT", 12);
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
     private static final ExecutorService POOL = Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "peers"); t.setDaemon(true); return t; });
 
     public record Peer(String name, String url, String token, List<String> groups) {

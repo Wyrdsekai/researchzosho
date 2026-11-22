@@ -26,6 +26,8 @@ public final class ProductSearchTool implements Tool {
 
     @Override public String name() { return "product_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the shops' listings
+
     @Override public String description() {
         return "Products, for a shopping question: only what this tool returns may be recommended, since it is for sale now. kind=shops: what the market's shops "
                 + "list for the words, each with its price, currency, shop, seller, link, barcode when known, and the time the price was seen (Japan: Yahoo! JAPAN "

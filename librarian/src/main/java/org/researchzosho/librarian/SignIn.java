@@ -57,7 +57,7 @@ final class SignIn {
         b.append("<details><summary>").append(t("A program's token")).append("</summary><p class=\"k\">").append(t("A program (an MCP host, a script) signs in with a token the person who keeps the library makes for it. A person pastes one here only when they were given one.")).append("</p>")
          .append("<form method=\"post\" action=\"/login\" class=\"stack\"><label>").append(t("Token")).append("<br><input name=\"token\" size=\"60\"></label><button class=\"quiet\">").append(t("Sign in with the token")).append("</button></form>")
          .append("<p class=\"k\">").append(t("On the computer where the library lives:")).append("</p><pre>").append(esc(Patrons.TOKEN_HOWTO)).append("\n").append(esc(Patrons.INVITE_HOWTO)).append("</pre></details>");
-        b.append("<script>").append(script(LOGIN_JS)).append("</script>");
+        b.append(Pages.script("signin"));
         return Pages.page(store, Patrons.Patron.ANONYMOUS, t("Sign in"), b.toString());
     }
 
@@ -257,7 +257,7 @@ final class SignIn {
             b.append("</table>\n<form method=\"post\" action=\"/account\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"signout-all\"><button class=\"quiet\">").append(t("Sign out everywhere")).append("</button></form>");
         }
         b.append("<h2>").append(t("For a program of yours")).append("</h2>").append(ApiKeysPage.section(store, patron, q, "/account"));
-        b.append("<script>").append(script(ACCOUNT_JS)).append("</script>");
+        b.append(Pages.script("account"));
         return Pages.page(store, patron, t("Your account"), b.toString());
     }
 

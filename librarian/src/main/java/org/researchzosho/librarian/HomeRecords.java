@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Set;
+import org.researchzosho.tools.Outbound;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -327,12 +328,14 @@ public final class HomeRecords {
     static Portals portals(String city, String state, String county, List<String> looked) {
         List<String> socrata = new ArrayList<>(), arcgis = new ArrayList<>(), ckan = new ArrayList<>(), hosts = new ArrayList<>();
         List<String> guesses = socrataGuesses(city, state, county);
+        Set<String> named = new HashSet<>();   // every host the web search named
         for (String q : List.of(city + " " + state + " open data portal", (county.isEmpty() ? city : county) + " " + state + " GIS open data parcels")) {
             List<CareerSources.Hit> hits;
             try { hits = SEARCH.apply(q); } catch (RuntimeException e) { hits = List.of(); }
             if (hits == null) continue;
             for (CareerSources.Hit h : hits) {
                 String host = CareerSources.host(h.url() == null ? "" : h.url());
+                if (!host.isEmpty()) { named.add(host); Outbound.found(h.url()); }   // what the lookup's own search named: such a host may be asked (Outbound.FINDS)
                 if (host.isEmpty() || hosts.contains(host) || guesses.contains(host) || any(host, "wikipedia", "data.gov", "github", "facebook", "linkedin", "youtube", "socrata.com", "zillow", "redfin", "realtor")) continue;
                 if (!any(host, "data", "open", "gis", "hub.arcgis", ".gov", ".us")) continue;
                 hosts.add(host);
@@ -340,7 +343,10 @@ public final class HomeRecords {
             }
         }
         int ckanTried = 0;
-        for (String d : guesses) { if (socrataPortal(d)) socrata.add(d); else if (ckanTried++ < 4 && ckanSite(d)) ckan.add(d); }   // the same addresses may run CKAN (data.boston.gov, data.milwaukee.gov)
+        // a guessed address is a name made from the city's and the county's letters, so a word in place of a city would choose who is
+        // asked. Whether Socrata runs a portal there is asked of Socrata's own catalogue, never of the address; the address itself is
+        // asked (it may run CKAN: data.boston.gov, data.milwaukee.gov) only when the lookup's own web search named that host (0.8.1)
+        for (String d : guesses) { if (socrataPortal(d)) socrata.add(d); else if (named.contains(d) && ckanTried++ < 4 && ckanSite(d)) ckan.add(d); }
         for (String h : hosts) {
             if (h.endsWith("hub.arcgis.com") || h.endsWith("opendata.arcgis.com")) { if (arcgisSite(h)) arcgis.add(h); continue; }
             if (socrataPortal(h)) { socrata.add(h); continue; }

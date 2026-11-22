@@ -30,6 +30,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.researchzosho.librarian.Fence;
 import org.researchzosho.librarian.SearchLog;
+import org.researchzosho.librarian.Searx;
 import org.researchzosho.librarian.SourceRules;
 import org.researchzosho.librarian.SourceTier;
 import org.researchzosho.librarian.Untrusted;
@@ -51,9 +52,9 @@ public final class WebSearchTool implements Tool {
             new AtomicInteger();
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder()
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
-            .followRedirects(HttpClient.Redirect.NORMAL).build();
+            .followRedirects(HttpClient.Redirect.NORMAL).build());
 
     // Repetition guard (see WebFetchTool): don't let a fixating model re-run the identical query.
     private final Set<String> queried = new HashSet<>();
@@ -530,13 +531,16 @@ public final class WebSearchTool implements Tool {
         String lang = languageOf(query);
         // a query in a non-Latin script tells the engine its language, or it answers with whatever matches the bytes
         // (measured: a Japanese query with no language came back as Brazilian news and a Microsoft forum)
-        return endpoint() + "/search?format=json&q=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang) + "&safesearch=" + (safe ? "1" : "0");
+        // the words as words: nothing in them picks an engine, a language or a time limit (Searx.plain, 0.8.1)
+        return endpoint() + "/search?format=json&q=" + URLEncoder.encode(Searx.plain(query), StandardCharsets.UTF_8) + (lang == null ? "" : "&language=" + lang) + "&safesearch=" + (safe ? "1" : "0");
     }
 
     /** Safe search is moderate unless this run's person let in what the site list leaves out, for this question: then it is off. */
     private boolean safeSearch() { return policy.siteList(); }
 
     @Override public String name() { return "web_search"; }
+
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the search engines' answer
 
     @Override public String description() {
         return "Search the web (returns ranked title/url/snippet results). Use to FIND sources; then use "

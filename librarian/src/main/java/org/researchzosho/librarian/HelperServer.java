@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
@@ -60,7 +61,7 @@ final class HelperServer implements AutoCloseable {
     private volatile long healthAt = System.currentTimeMillis();
     private final List<Process> processes;
     private final byte[] secret;
-    private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private final HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
 
     private HelperServer(HttpServer server, Map<String, String> backends, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic, Map<String, String> health, List<Process> processes, String secret) {
         this.server = server; this.backends = backends; this.managed = managed; this.absent = absent; this.comic = comic; this.health = health; this.processes = processes;
@@ -163,7 +164,7 @@ final class HelperServer implements AutoCloseable {
      * the model its /info names; "answering" for a server that says neither.
      */
     static String healthOf(String backend) {
-        HttpClient c = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpClient c = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
         try {
             HttpResponse<String> r = c.send(HttpRequest.newBuilder(URI.create(backend + "/health")).timeout(Duration.ofSeconds(10)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() == 200 && !r.body().isBlank()) {
@@ -393,7 +394,7 @@ final class HelperServer implements AutoCloseable {
     }
 
     static boolean answers(String a) {
-        try { return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(a + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding()).statusCode() == 200; }
+        try { return Outbound.client(HttpClient.newHttpClient()).send(HttpRequest.newBuilder(URI.create(a + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding()).statusCode() == 200; }
         catch (Exception e) { return false; }
     }
 

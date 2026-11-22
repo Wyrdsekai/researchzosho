@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.drive.Gated;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -58,6 +59,38 @@ public class Librarian {
             "library_check", "library_reading", "library_questions", "library_bookmarks", "library_meeting", "library_bridges", "library_holdings", "library_db", "library_settings", "library_sources", "library_models", "library_owned", "library_my_shelf", "library_share", "library_seeks",
             "library_explain", "library_perspectives", "library_established", "library_serials", "library_export");
 
+    /**
+     * On a line of the library's own in a conversation: the addresses a search outside found for it (pictures, their small copies, their
+     * pages), written by the library from the search's results ({@link ImagesTurn#foundNow}). They are what the page shows from the web
+     * in that line and what a model may open from it, now and when the conversation is opened again; the line's words give neither.
+     */
+    static final String FOUND = "found";
+
+    /**
+     * Whether a call's answer came from outside the library ({@link GivenAddresses#gave}). An instrument says so itself (a search of the
+     * web, a page opened, an MCP server's answer). Of the library's own operations two bring something from outside: the video site's
+     * list of candidates and the patent offices' records. Every other one answers from the shelves, where a model's words are kept
+     * beside everything else. A search for pictures gives what its engines found where it finds it ({@code Images.find}), since its
+     * answer holds the kept pictures' stored words too. A query of the person's database gives nothing: the rows are the person's, but
+     * the query is the model's, and an answer can be any text the query computes ({@code SELECT 'htt' || 'ps://…'}).
+     */
+    boolean outside(String name, JsonNode args) {
+        ObjectNode a = args instanceof ObjectNode o ? o : M.createObjectNode();
+        for (Instrument i : table) if (i.name().equals(name)) return i.fromOutside(a);
+        for (Instrument i : mcp) if (i.name().equals(name)) return i.fromOutside(a);
+        return switch (name) {
+            case "library_candidates", "library_patents" -> true;   // the video site's and the patent offices' records
+            default -> false;
+        };
+    }
+
+    /** The arguments of a call that the tool on this turn's table says are addresses ({@code Tool.addressArguments}); none for a tool that says nothing. */
+    Set<String> addressArguments(String name, JsonNode args) {
+        ObjectNode a = args instanceof ObjectNode o ? o : M.createObjectNode();
+        for (Instrument i : table) if (i.name().equals(name)) return i.addressArguments(a);
+        return Set.of();
+    }
+
     /** How long a run the chat asked about waits for the person's answer before it starts as ordinary research. */
     static final int OFFER_MINUTES = Config.getInt("RESEARCHZOSHO_OFFER_MINUTES", 10);
 
@@ -103,6 +136,13 @@ public class Librarian {
     /** Turns of history the model sees; what came before them stands in a short summary from the session's own records, and the session file keeps every turn. */
     static final int HISTORY_TURNS = Config.getInt("RESEARCHZOSHO_CHAT_HISTORY_TURNS", 12);
     static final int REPLY_TOKENS = Config.getInt("RESEARCHZOSHO_CHAT_REPLY_TOKENS", 1500);
+
+    /**
+     * A turn fitted harder after the server's overflow: what is left beside the tools and the reply, less this margin, is the history's,
+     * up to this share of the window (the instructions are in it). ChatTable sends the whole table only where that share is left.
+     */
+    static final int FIT_MARGIN = 512;
+    static final double RETRY_HISTORY_SHARE = 0.3;
     /** Items of a list a tool result keeps for the model; the rest is counted and the filters named. */
     static final int LIST_CAP = Config.getInt("RESEARCHZOSHO_CHAT_LIST_ITEMS", 25);
 
@@ -131,13 +171,20 @@ public class Librarian {
         this.brain = Brain.of(drive, null, drive == null ? "" : drive.model(), null, null);   // a page's Librarian may have no drive
         this.protocol.asker = this::research;   // the runs a batch tool starts are asked about the chat's way too
         for (JsonNode m : session.messages) if ("tool".equals(m.path("role").asText())) evidence.append('\n').append(m.path("content").asText(""));
-        // the addresses this conversation was given, for the model to open: the person's words and every result it had (GivenAddresses)
-        GivenAddresses.receivedIn(session.messages);   // each result without its own call's addresses
+        // the addresses this conversation was given, for the model to open: the person's words, what came from outside in the results it
+        // had, and what the library recorded itself (GivenAddresses). What a model wrote gives none: not its own turns, and not what a
+        // result read back from the shelves (0.8.1). The library's own lines carry a model's words too (a declined run's statement, an
+        // error, a verdict's reason, a description), so their words give what the library recorded and no more; what a search outside
+        // found for a line is on the line's own list
+        GivenAddresses.receivedIn(session.messages, store, this::outside);   // each result without its own call's addresses
         for (JsonNode m : session.messages) {
             String role = m.path("role").asText();
             if ("tool".equals(role)) continue;
             else if ("user".equals(role) && !m.has("by")) GivenAddresses.personSaid(m.path("content").asText(""));
-            else if ("assistant".equals(role) && "library".equals(m.path("by").asText())) GivenAddresses.received(m.path("content").asText(""));   // the library's own replies: the pictures it found
+            else if ("assistant".equals(role) && "library".equals(m.path("by").asText())) {
+                for (JsonNode a : m.path(FOUND)) GivenAddresses.received(a.asText(""));
+                GivenAddresses.recorded(store, m.path("content").asText(""), Set.of());
+            }
         }
     }
 
@@ -557,6 +604,13 @@ public class Librarian {
     }
 
     private String sayMarked(String words) throws IOException {
+        // the requests the guard refused are written on the line of the turn they belonged to: a turn that ended in a failure wrote no
+        // line, and what it left is not the next turn's (the second reading of 0.8.1: the next turn's line carried them)
+        refusedThisTurn.clear();
+        try { return sayNow(words); } finally { refusedThisTurn.clear(); }
+    }
+
+    private String sayNow(String words) throws IOException {
         String ended = endedWaits();
         List<String[]> waiting = session.pending();
         if (waiting.isEmpty()) {
@@ -597,15 +651,21 @@ public class Librarian {
     private String ownTurn(String words) throws IOException {
         String own = ReadInTurn.reply(store, session, patron, words);
         if (own == null) own = TranslateTurn.reply(store, session, patron, words);
-        if (own == null) own = ImagesTurn.reply(store, session, patron, words);
+        List<String> found = List.of();   // what a search outside found for the reply (pictures and their pages): those addresses may be opened, as a search's
+        if (own == null) { own = ImagesTurn.reply(store, session, patron, words); found = ImagesTurn.foundNow(); }
         if (own == null) own = ModelsTurn.reply(store, session, patron, words);   // which model is the default, why a run used one, "make deepseek the default": the library's own state
         if (own == null && ReadInTurn.parse(words) != null) own = t(ReadInTurn.UNRESOLVED);   // an ask to read something in a language that named nothing either turn could find
         if (own == null) return null;
-        GivenAddresses.personSaid(words); GivenAddresses.received(own);   // the library's own turn: the person's words, and what it found (a picture's page)
+        // the library's own turn: the person's words, and what its search found outside (a picture, its page); the reply's words hold a
+        // model's too (a verdict's reason, a description, a page read in another language), and give only what the library recorded
+        GivenAddresses.personSaid(words);
+        for (String a : found) GivenAddresses.received(a);
+        GivenAddresses.recorded(store, own, Set.of());
         ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words); user.put("at", System.currentTimeMillis());
         if (session.att != null) { user.set("att", session.att); session.att = null; }
         session.append(user);
         ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", own); reply.put("at", System.currentTimeMillis()); reply.put("by", "library");
+        if (!found.isEmpty()) { ArrayNode f = reply.putArray(FOUND); found.forEach(f::add); }
         session.append(reply);
         record(words == null ? "" : words, List.of(), 0, 0);
         return own;
@@ -642,16 +702,24 @@ public class Librarian {
         }
         ArrayNode tools = tools(store);
         if (!mcp.isEmpty()) { List<Instrument> t = new ArrayList<>(base); t.addAll(McpSources.pick(mcp, personWords, brain.tier())); table = t; }   // the MCP tools that match this turn's words join the table for it
-        for (Instrument i : table) tools.add(Brain.fn(i.name(), i.words(), i.schema(M)));   // the fields' instruments, for the model to pick
+        for (Instrument i : table) tools.add(Brain.fn(i.name(), ChatTable.words(i), i.schema(M)));   // the fields' instruments, for the model to pick, in the chat's words (ChatTable)
         Set<String> offered = new LinkedHashSet<>(); for (JsonNode t : tools) offered.add(t.path("function").path("name").asText(""));   // what this turn may run: its table, and nothing a name alone reaches
+        // the table this turn sends (0.8.1): the whole where it fits the model's window, else eight tools in full and every other one line each
+        // under library_tool (ChatTable.formFor); every name of the full table stays runnable, and no other
+        ArrayNode full = tools;
+        Set<String> inFull = new LinkedHashSet<>(); for (Instrument i : table) if (McpSources.isMcp(table, i.name())) inFull.add(i.name());   // a keeper's MCP tools picked for this turn's words
+        formThisTurn = ChatTable.formFor(drive == null ? 8000 : Math.max(8000, drive.contextWindow()), full);
+        tools = ChatTable.sent(full, formThisTurn, inFull, ChatTable.openedIn(session.messages, full));
+        if (formThisTurn != ChatTable.Form.WHOLE) offered.add(ChatTable.OPENER);
         List<String> toolsCalled = new ArrayList<>();
+        int[] openings = {0};   // calls of library_tool, which only put a tool on the table: no look-ups
         StringBuilder turnEvidence = new StringBuilder();
         String reply = null;
         boolean nudged = false, ownReply = false;   // ownReply: the library's own sentence, no model's words
         declinedThisTurn = null;
         for (int round = 0; round <= MAX_TOOL_ROUNDS + 1; round++) {
             ArrayNode messages = fitted(context(), 0.55);
-            boolean last = round >= MAX_TOOL_ROUNDS || toolsCalled.size() >= MAX_CALLS;
+            boolean last = round >= MAX_TOOL_ROUNDS || toolsCalled.size() - openings[0] >= MAX_CALLS;   // opening a tool is no look-up
             // the turn's look-ups are used: the model is told so, so its words say what was found and what is left rather than promise a
             // next step the turn cannot take ("Let me check the likeliest three by looking", 2026-11-04, after eight searches)
             if (last) messages.addObject().put("role", "user").put("content", LAST_STEP);
@@ -670,8 +738,8 @@ public class Librarian {
                     if (!overflow(e)) throw e;
                     int window = Math.max(8000, drive.contextWindow()), fixed = Researcher.estTokens(tools.toString());
                     ArrayNode all = context();
-                    int room = window - fixed - REPLY_TOKENS - 512;   // what the history may take beside the tools and the reply; none left, it is cut to the least
-                    Brain.Context again = new Brain.Context(null, "", List.of(), table, new Researcher.Budget(0), List.of(), fitted(all, Math.max(0, Math.min(0.3, room / (double) window))));
+                    int room = window - fixed - REPLY_TOKENS - FIT_MARGIN;   // what the history may take beside the tools and the reply; none left, it is cut to the least
+                    Brain.Context again = new Brain.Context(null, "", List.of(), table, new Researcher.Budget(0), List.of(), fitted(all, Math.max(0, Math.min(RETRY_HISTORY_SHARE, room / (double) window))));
                     try { assistant = brain.decide(again, Brain.Weight.LIGHT, seat, last ? M.createArrayNode() : tools, REPLY_TOKENS, Set.of(), false).assistant(); }
                     catch (Declined d) { throw d; }
                     catch (RuntimeException e2) {
@@ -696,13 +764,16 @@ public class Librarian {
             JsonNode calls = assistant.path("tool_calls");
             ObjectNode keep = M.createObjectNode(); keep.put("role", "assistant");
             String content = assistant.path("content").asText("");
-            if (calls.isArray() && calls.size() > 0 && !last && toolsCalled.size() < MAX_CALLS) {
+            if (calls.isArray() && calls.size() > 0 && !last && toolsCalled.size() - openings[0] < MAX_CALLS) {
                 keep.put("content", content); keep.set("tool_calls", calls);
                 session.append(keep);
                 List<String> notRun = new ArrayList<>();
+                int place = -1;   // this call's place among its message's calls: what its answer is paired with when the conversation is opened again
                 for (JsonNode c : calls) {
+                    place++;
                     String name = c.path("function").path("name").asText("");
                     ObjectNode tm = M.createObjectNode(); tm.put("role", "tool"); tm.put("tool_call_id", c.path("id").asText("")); tm.put("name", name);
+                    tm.put(GivenAddresses.CALL, place); tm.put(GivenAddresses.OUTSIDE, false);
                     if (declinedThisTurn != null) {
                         // a tool before it in the same batch had its step declined: the turn stops there, and this one is not run
                         notRun.add(name);
@@ -711,13 +782,35 @@ public class Librarian {
                         continue;
                     }
                     JsonNode args = Researcher.parseArgs(c.path("function").path("arguments"));
+                    if (ChatTable.OPENER.equals(name) && offered.contains(name)) {
+                        // library_tool: the named tool joins the table, for this turn and the conversation; nothing is carried out
+                        String said = ChatTable.open(tools, full, args.path("name").asText(""), offered);
+                        toolsCalled.add(name); openings[0]++;
+                        tm.put("content", said);
+                        session.append(tm);
+                        continue;
+                    }
+                    args = ChatTable.homeIn(args, System.getProperty("user.home"));   // a path the person wrote from their home (~/…) is that path, for every check below and the question a yes answers
                     args = keepingIsCollecting(name, args);   // keeping found pictures is a collection: one path, its form read from the person's words
-                    String unopened = offered.contains(name) ? GivenAddresses.notGiven(args, true) : null;   // an address the model put together is never opened, nor handed to a run (2026-11-18)
-                    String result = !offered.contains(name) ? notOffered(name, offered) : unopened != null ? GivenAddresses.refused(unopened) : waitsForYes(name, args) ? askedFor(name, args) : call(name, args);
-                    GivenAddresses.received(result, GivenAddresses.keysIn(args));   // what came back may be opened next; never the call's own address, which a refusal or an error repeats
+                    // an address the model put together is never opened, nor handed to a run (2026-11-18); in a call that would store what it
+                    // is given or start work from it, a search's words are looked at too: they are kept, and asked for later (0.8.1)
+                    boolean wouldWait = offered.contains(name) && waitsForYes(name, args);
+                    String unopened = offered.contains(name) ? GivenAddresses.notGiven(name, args, true, wouldWait, addressArguments(name, args)) : null;
+                    // a tool of the full table that is not on this turn's table yet, called directly: with its own arguments it is carried out
+                    // as on the whole table, and joins the table; with others nothing runs and its form joins the table (0.8.1). After the
+                    // address rule, so an address nobody gave is refused the same in every form
+                    String unformed = offered.contains(name) && unopened == null ? ChatTable.unopened(tools, full, name, args) : null;
+                    boolean held = wouldWait && unopened == null && unformed == null;
+                    String result = !offered.contains(name) ? notOffered(name, offered) : unopened != null ? GivenAddresses.refused(unopened) : unformed != null ? unformed : held ? askedFor(name, args) : call(name, args);
+                    // what came back from outside may be opened next, and from the shelves only what the library recorded itself; never the call's own address, which a refusal or an error repeats
+                    boolean fromOutside = offered.contains(name) && unopened == null && unformed == null && !held && outside(name, args);
+                    GivenAddresses.gave(fromOutside, store, result, GivenAddresses.Own.of(args));
+                    tm.put(GivenAddresses.OUTSIDE, fromOutside);   // kept with the answer: a conversation opened again reads it here, never from the calls' ids
                     readFrom(name, args, result);   // the page this turn read, for a change the model asks for after it
                     toolsCalled.add(name);
-                    if (STARTS_RUNS.contains(name)) { Matcher jm = JOB_ID.matcher(result); while (jm.find()) session.watch(jm.group(1)); }   // the chat follows the runs it starts
+                    // the chat follows the runs it starts, read from what the tool that started one answered: a call that was refused or is put
+                    // to the person first has started none, and what the library says of it holds the model's own words (a run named there is not one to follow)
+                    if (STARTS_RUNS.contains(name) && offered.contains(name) && unopened == null && unformed == null && !held) { Matcher jm = JOB_ID.matcher(result); while (jm.find()) session.watch(jm.group(1)); }
                     tm.put("content", result);
                     session.append(tm);
                     evidence.append('\n').append(result); turnEvidence.append('\n').append(result);
@@ -790,9 +883,9 @@ public class Librarian {
 
     /** The brain's words on the instruments: what each answers and costs, and which one a kind of ask is. */
     String instrumentsNote() {
-        return "The fields' instruments are tools of yours too. A home to buy or rent is homes, not a research run; what a video shows is look; a home's figures are records; an employer's openings are board; who someone is, as the library knows them, is dossier. "
+        return "The fields' instruments are tools of yours too. A home to buy or rent is homes, not a research run; what a video shows is look; a home's figures are records; an employer's openings are board; who someone is, as the library knows them, is library_dossier. "
                 + "A video the person remembers but cannot name is a research run: file it with library_research, goal choose, the person's own words as the question, and say that it is filed and what it will do; the run calls candidates with the thing's name in each language, never a search, which enumerates deep searches, whole channels, the Data API in date order and the person's watch history, sifts the pool's thumbnails and first sheets, and looks, sparse, at the survivors five at a time, minutes a video, which a run has and a turn does not. A video the person names or links is look, sparse, here in the turn, and the reply names the video with its link, the second each remembered thing was seen at, and how each was checked.\n"
-                + brain.preamble(table);
+                + brain.chatPreamble(table);   // the chat's own: each instrument's words say when it pays, and a run's own rules stay a run's (0.8.1)
     }
 
     /** What the chat's instructions say of the fields whose work this library holds. */
@@ -912,11 +1005,12 @@ public class Librarian {
         ArrayNode msgs = M.createArrayNode();
         int start = historyStart();
         String earlier = earlierSummary(start);
-        msgs.addObject().put("role", "system").put("content", systemPrompt() + "\n\n" + instrumentsNote() + (earlier.isEmpty() ? "" : "\n\n" + earlier) + (toolResultsThisTurn() ? "\n\n" + TOOL_RESULTS_RULE : ""));
+        msgs.addObject().put("role", "system").put("content", systemPrompt() + "\n\n" + instrumentsNote() + (formThisTurn != null && formThisTurn != ChatTable.Form.WHOLE ? "\n" + ChatTable.OPEN_SENTENCE : "")
+                + (earlier.isEmpty() ? "" : "\n\n" + earlier) + (toolResultsThisTurn() ? "\n\n" + TOOL_RESULTS_RULE : ""));
         for (int i = start; i < session.messages.size(); i++) {
             ObjectNode m = session.messages.get(i).deepCopy();
             if ("tool".equals(m.path("role").asText())) m.put("content", Researcher.cut(m.path("content").asText("")));
-            m.remove("name");
+            m.remove("name"); m.remove(GivenAddresses.CALL); m.remove(GivenAddresses.OUTSIDE);   // the library's own record of the answer, not the model's to read
             msgs.add(m);
         }
         return msgs;
@@ -976,7 +1070,7 @@ public class Librarian {
             Map.entry("library_status", "Counts by kind, what is stale, the version running."),
             Map.entry("library_help", "Questions about ResearchZosho itself: what it is, which version runs, what it can and cannot do, how to do something in it, why something does not work. From the program's own documentation and its live state; the question in English words."),
             Map.entry("library_translate", "File the translation of a document into a language as a run: raw = the entry on the shelves the person attached or named, to = the language; a comic (a CBZ, a CBR or a ZIP of page pictures) is translated the same way, its pages read and the translation set into the balloons: comic=on when the person says a PDF is a manga, a manhwa, a manhua, a webtoon, a comic, a graphic novel or a bande dessinée, comic=off when they say a file is a document; from = the language the document is written in or the comic is lettered in, only when the person names it (\"from Korean\"), else the library finds it; reads = right-to-left when the person says the comic reads from the right or calls a comic that is not Japanese a manga, left-to-right when they say it reads from the left, and no reads argument when they say neither; quality quick | checked | reviewed | thorough; model = the entry that translates and judge = the entry that reads (or auto), both only names library_models lists; direction = the person's own words for the voice, the tone or the wording when they give one (\"as if you were Shakespeare\", \"it is a comedy, keep it whimsical\", \"mind the puns\"), copied as they wrote them, never your summary, and left out when they give none: a run with one waits for their yes to the question the library shows; notes=end when the person asks for what the checks doubt (the notes) at the end of the document, notes=off when they ask for no notes, and no notes argument when they say neither. The answer is the plan with the time and any cost; the library says under your reply where the doubts go; the run's result has the file."),
-            Map.entry("library_images", "Pictures. A collection (the person wants a number of pictures, or pictures with rules: a size, a shape, AI or not, each different, a time) is op=collect: fill the form from the person's request, words (what the pictures are of), kind (person for a real person, character for a fictional one, other for anything else), shows (what each must show), count, min_width and min_height (pixels; 4K is 3840 by 2160), orientation, format, ai (ok or no), name, shows and differ_by with differ_quote (each copied exactly from the person's request; the library checks the words are there and drops a field whose words are not; distinct pictures are kept distinct anyway), minutes, keep_full, each only where the request says it; the library shows the form to the person, runs it on their yes, and the pictures appear on the Pictures page, /images?collection=<job>, never a folder on disk. op=find words=… returns a few candidates from the web to look at; criteria=… has the seeing model judge each; keeping what is found is a collection (keep=true files one, as op=collect does). The library shows under your reply the pictures and the gallery your reply names by their addresses; write them as plain addresses. op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
+            Map.entry("library_images", "Pictures. A collection (the person wants a number of pictures, or pictures with rules: a size, a shape, AI or not, each different, a time) is op=collect with the person's request in ask, and count when they gave a number; the library reads the rest of the form from their words, shows the form to the person, runs it on their yes, and the pictures appear on the Pictures page, /images?collection=<job>, never a folder on disk. op=find words=… returns a few candidates from the web to look at; criteria=… has the seeing model judge each; keeping what is found is a collection (keep=true files one, as op=collect does). The library shows under your reply the pictures and the gallery your reply names by their addresses; write them as plain addresses. op=describe images=[…] has it describe a picture; op=judge criteria=… images=[…] judges pictures the person names. When no model sees pictures the answer says how one is added: say that, in the library's words."),
             Map.entry("library_add", "Read a file, a folder or a url into the library. For a folder, mode=survey counts first; mode=keep copies the text, mode=link reads the files in place."),
             Map.entry("library_absorb", "A conversation the person had with another assistant: shelved, their questions filed, the assistant's claims returned to check; verify=true files the checking run."),
             Map.entry("library_survey", "A code repository, a paper, a website or an issue tracker (a path or a url): read, shelved, one draft claim on what it is, and numbered research directions offered; op=pick runs the ones chosen, op=do runs the person's own."),
@@ -1036,6 +1130,7 @@ public class Librarian {
                 }
             }
             fn.set("parameters", params);
+            ChatTable.shape(fn);   // what the chat leaves out and says shortly; the protocol keeps every argument (0.8.1)
         }
         return out;
     }
@@ -1375,6 +1470,8 @@ public class Librarian {
             Settings.Setting setting = Settings.named(a.path("name").asText(""));
             String key = setting == null ? a.path("name").asText("") : setting.key(), value = a.path("value").asText("").strip();
             if (key.matches("RESEARCHZOSHO_(DRIVE|JUDGE_DRIVE|VISION_DRIVE|EMBED|RERANK)") && !value.isEmpty()) return t("send what this library asks a model to {0}", value);
+            String allows = ModelPlaces.changeSaid(key, value);   // the places this library avoids: what a yes lets in, in plain words
+            if (allows != null) return allows;
             if (setting != null) return t("set {0} to {1}", setting.shortName(), Settings.shown(setting, value));
         }
         if ((name.equals("library_items") || name.equals("library_questions")) && a.path("as").asText("").equalsIgnoreCase("runs"))
@@ -1505,7 +1602,9 @@ public class Librarian {
             // only what the person's own words say narrows it: a field the model read in that the words do not hold is dropped, and not asked
             CollectionForm given = CollectionForm.fromArgs(a).withAsk(words);
             // the model passed the request alone: the form is read from it now, by the chat's model, so the question shows the rules the yes runs
-            if (given.words().isEmpty() && drive != null) { CollectionForm read = Collection.fill(drive, given.ask().isEmpty() ? words : given.ask()); if (read != null) given = read.withAsk(words).withKeepFull(given.keepFull()); }
+            // the chat's table holds none of the form's rules (0.8.1): when the call carries none, the form is read from the request too, or a
+            // collection would run without the person's size, shape or "no AI"; a call that carries the rules (an older table's, a program's) keeps its own
+            if ((given.words().isEmpty() || !ChatTable.carriesRules(a)) && drive != null) { CollectionForm read = Collection.fill(drive, given.ask().isEmpty() ? words : given.ask()); if (read != null) given = read.withAsk(words).withKeepFull(given.keepFull() || read.keepFull()); }
             CollectionForm.Grounded grounded = given.grounded(words);
             CollectionForm form = grounded.form();
             ObjectNode filled = form.json(M);
@@ -1596,8 +1695,16 @@ public class Librarian {
 
     /** One tool call, as the person: the patron rides in, the result comes back as text the model reads (cut when long). */
     String call(String name, JsonNode argsIn) {
+        // every request this call makes is checked as it leaves: a host the call's own words name is asked only for an address that was given
+        Outbound.Call out = Outbound.call(name, argsIn);
+        try { return carriedOut(name, argsIn); }
+        finally { out.close(); refusedThisTurn.addAll(out.refusals()); }   // written on this turn's line (chat-turns): the tool, the host, the rule
+    }
+    private final List<Outbound.Refusal> refusedThisTurn = new ArrayList<>();   // one turn runs on one thread
+
+    private String carriedOut(String name, JsonNode argsIn) {
         // an address a fetch takes goes out exactly as it was given, never as the model rewrote it (round F)
-        ObjectNode args = argsIn != null && argsIn.isObject() ? (ObjectNode) GivenAddresses.asGiven(argsIn) : M.createObjectNode();
+        ObjectNode args = argsIn != null && argsIn.isObject() ? (ObjectNode) GivenAddresses.asGiven(argsIn, addressArguments(name, argsIn)) : M.createObjectNode();
         if (McpSources.isMcp(table, name)) {   // a tool of the keeper's MCP server: the model's own arguments go to that server, nothing of the library's (no patron, which is this library's, not that server's)
             try { Instruments.step(new Researcher.Budget(0), () -> false); String out = Instruments.call(table, name, args); Instruments.needed(); return out == null ? "" : out; }
             catch (Exception e) { return "ERROR: " + name + " could not answer — " + e.getMessage(); }
@@ -1715,6 +1822,11 @@ public class Librarian {
     private Declined declinedThisTurn = null;
     /** What the decline judge was not sure of during this turn: written on the turn's line of {@code catalog/chat-turns.jsonl}. */
     private final List<ObjectNode> unsureThisTurn = new ArrayList<>();
+    /** The form of the table this turn sent (0.8.1): written on the turn's line; null for a turn no model was asked in. */
+    private ChatTable.Form formThisTurn = null;
+
+    /** On a turn's line: the requests the guard refused during its tool calls, each {tool, host, rule}. */
+    static final String REFUSED = "requests_refused";
     /** The statements of this turn's tools that did their own part while the model declined the rest (the claims of an absorbed text). */
     private final Set<String> partlyDeclined = new LinkedHashSet<>();
 
@@ -1816,6 +1928,8 @@ public class Librarian {
             o.put("unbacked", unbacked); o.put("ms", ms);
             if (declined) o.put("declined", true);
             if (!unsureThisTurn.isEmpty()) { ArrayNode u = o.putArray("decline_unsure"); unsureThisTurn.forEach(u::add); }   // replies the judge was not sure were declines
+            if (formThisTurn != null) { o.put("table", formThisTurn.said); formThisTurn = null; }   // which form of the table the model was sent (0.8.1)
+            if (!refusedThisTurn.isEmpty()) { ArrayNode u = o.putArray(REFUSED); for (Outbound.Refusal r : refusedThisTurn) u.addObject().put("tool", r.tool()).put("host", r.host()).put("rule", r.rule()); refusedThisTurn.clear(); }   // requests the guard did not send
             if (session.gone()) return;   // the conversation was deleted while it was held: no words of it are kept
             store.locked("chat-turns", () -> { Files.writeString(f, o.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND); return null; });   // under the lock a deletion takes the words out under
         } catch (IOException ignored) { }

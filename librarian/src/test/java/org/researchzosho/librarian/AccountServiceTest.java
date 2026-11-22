@@ -129,7 +129,7 @@ class AccountServiceTest {
         assertEquals(annLib, a.status().path("library_id").asText()); assertEquals("Ann Example", a.status().path("library_name").asText());
         assertEquals(benLib, b.status().path("library_id").asText());
         HttpResponse<String> home = a.get("/");
-        assertEquals(200, home.statusCode()); assertTrue(home.body().contains("Ann Example") && home.body().contains("href=\"/account\"") && home.body().contains("href=\"/logout\""), "the library's own page, naming the person");
+        assertEquals(200, home.statusCode()); assertTrue(home.body().contains("Ann Example") && home.body().contains("href=\"/account\"") && home.body().contains("method=\"post\" action=\"/logout\""), "the library's own page, naming the person");
         HttpResponse<String> open = a.form("/account", "op=open&library=" + benLib);
         assertTrue(note(open).contains("not one you can open"), note(open));
         assertEquals(annLib, a.status().path("library_id").asText(), "still in her own");

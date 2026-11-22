@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -303,7 +304,9 @@ class CandidatesTest {
         assertEquals(Instruments.CANDIDATES_EXAMPLE, c.example());
         assertTrue(c.example().contains("\"things\": [\"apron\", \"エプロン\", \"앞치마\"]") && !c.example().contains("<"), "a complete literal call, no placeholder: " + c.example());
         assertTrue(c.schema(M).path("required").toString().contains("things") && c.schema(M).path("properties").has("exclude") && c.schema(M).path("properties").has("before") && c.schema(M).path("properties").has("minutes_max"), c.schema(M).toString());
-        List<Instrument> table = Instruments.forChat(store);
+        // a run's table carries candidates; the chat's does not (0.8.1): the chat files a remembered video as a research run, which calls it
+        assertFalse(Instruments.isInstrument(Instruments.forChat(store), "candidates"), Instruments.forChat(store).stream().map(Instrument::name).toList().toString());
+        List<Instrument> table = Instruments.forRun(store, new LinkedHashMap<>(), new Researcher.Ask("q", "broad", 0, List.of(), "web", List.of(), 0, List.of(), List.of()));
         assertTrue(Instruments.isInstrument(table, "candidates"), table.stream().map(Instrument::name).toList().toString());
         String small = new Brain(BrainTest.drive("w"), null, "qwen3.5-9b", null, Brain.Tier.SMALL, null).preamble(table);
         assertTrue(small.contains("candidates " + Instruments.CANDIDATES_EXAMPLE), "the small tier's table shows the literal call: " + small);

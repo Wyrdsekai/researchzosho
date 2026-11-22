@@ -324,7 +324,7 @@ final class AccountPages {
     static String shell(AccountService svc, AccountService.Who who, String title, String body) {
         String whoSaid = who == null ? "<a href=\"/login\">" + t("sign in") + "</a>" : esc(who.account().name()) + " · <a href=\"/account\">" + t("account") + "</a> · <form class=\"inline\" method=\"post\" action=\"/logout\"><button class=\"quiet\">" + t("sign out") + "</button></form>";
         return "<!doctype html><html lang=\"" + Chrome.now().code + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                + "<title>" + esc(title + " · ResearchZosho") + "</title><link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><script>" + Pages.LOOK_BOOT + "</script><style>" + Pages.CSS + "</style></head><body>"
+                + "<title>" + esc(title + " · ResearchZosho") + "</title><link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\">" + Pages.script("look-boot") + "<style>" + Pages.CSS + "</style></head><body>"
                 + "<header class=\"top\"><a class=\"brand\" href=\"/\">ResearchZosho</a><span class=\"ver\">" + esc(Version.number() == null ? "dev" : Version.number()) + "</span><span class=\"who\">" + whoSaid + "</span></header>"
                 + "<main><h1>" + esc(title) + "</h1>" + body + "</main><footer>ResearchZosho " + esc(Version.string()) + " · <a href=\"https://researchzosho.org\">researchzosho.org</a></footer></body></html>";
     }

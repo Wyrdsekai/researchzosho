@@ -34,7 +34,7 @@ public final class Books {
 
     static final ObjectMapper M = new ObjectMapper();
     static final String UA = "ResearchZosho/" + (Version.number() == null ? "dev" : Version.number()) + " (https://researchzosho.org; a personal research tool)";
-    static final HttpClient HTTP = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build();
+    static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build());
 
     /** The addresses; a test points them at its own server. */
     public static final Map<String, String> BASE = new LinkedHashMap<>();

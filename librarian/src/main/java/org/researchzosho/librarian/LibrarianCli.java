@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
@@ -10,6 +11,7 @@ import java.util.regex.Pattern;
 import java.util.regex.Matcher;
 import java.time.LocalDate;
 
+import org.researchzosho.drive.OpenRouterProviders;
 import org.researchzosho.drive.DriveClient;
 import org.researchzosho.drive.Judge;
 
@@ -847,7 +849,10 @@ public final class LibrarianCli {
                     System.out.println("library created at " + store.root());
                     System.out.println("Research runs now save their drafts here.");
                 }
-                case "status" -> { status(store); String up = Version.updateNotice(); if (!up.isEmpty()) System.out.println("\n" + up); String sm = ModelServer.suggestionNotice(); if (!sm.isEmpty()) System.out.println("\n" + sm); }
+                case "status" -> { status(store); String up = Version.updateNotice(); if (!up.isEmpty()) System.out.println("\n" + up);
+                    // what an upgrade did to the search settings, said once
+                    String searchAfter = Searx.afterUpgrade(); if (!searchAfter.isEmpty()) System.out.println("\n" + searchAfter);
+                    String sm = ModelServer.suggestionNotice(); if (!sm.isEmpty()) System.out.println("\n" + sm); }
                 case "repair" -> {
                     Repairs.Outcome o = Repairs.run(store);
                     System.out.println(o.summary());
@@ -1015,9 +1020,9 @@ public final class LibrarianCli {
                 case "dna" -> { return dnaCommand(store, args); }
                 case "react" -> { return reactCommand(store, args); }
                 case "search" -> {
-                    // search <words…> searches the shelves, as when connected to a library elsewhere; the backend's own words (status, start, stop, test, papers, in, open) keep their meaning
+                    // search <words…> searches the shelves, as when connected to a library elsewhere; the backend's own words (status, start, stop, update, test, papers, in, open) keep their meaning
                     String op = args.length > 2 ? args[2] : "status";
-                    if (!Set.of("status", "start", "stop", "test", "papers", "in", "open").contains(op)) return Remote.run(args, System.out, System.err, Remote.local(store));
+                    if (!Set.of("status", "start", "stop", "update", "test", "papers", "in", "open").contains(op)) return Remote.run(args, System.out, System.err, Remote.local(store));
                     switch (op) {
                         case "status" -> {
                             String sk = Config.get(WebSearchTool.SERPER_KEY), pk = Config.get(WebSearchTool.SERPAPI_KEY), fk = Config.get(Firecrawl.KEY);
@@ -1029,6 +1034,15 @@ public final class LibrarianCli {
                             String ep = WebSearchTool.endpoint();
                             boolean epAnswers = Searx.answers(ep);
                             System.out.println("  SearXNG: " + ep + " " + (epAnswers ? "answers" : "does not answer") + "; docker container " + Searx.CONTAINER + ": " + Searx.state() + (Searx.haveDocker() ? "" : " (no docker here)"));
+                            // which of three its settings file is, every time: this version's own; this program's, to be written again; the person's, left as it is
+                            String settingsSaid = Searx.settingsSaid();
+                            if (!settingsSaid.isEmpty()) System.out.println("  " + settingsSaid);
+                            // the person's own settings file that still loads the engines of a place the library avoids: said, with the one command; never
+                            // rewritten unasked. This program's own file from before is written again at the next start, as the line above says, and gets no such note
+                            String stillLoads = Searx.settingsAreThePersons() ? Searx.avoidedNote() : "";
+                            if (!stillLoads.isEmpty()) System.out.println("  " + stillLoads);
+                            String oldImage = Searx.haveDocker() ? Searx.imageNote() : "";   // an image fetched long ago: its readers of the engines are as old
+                            if (!oldImage.isEmpty()) System.out.println("  " + oldImage);
                             // the library set to a SearXNG elsewhere that no longer answers, while the one on this machine does: say where the searches went and what to do
                             String local = WebSearchTool.defaultEndpoint();   // the usual address on this machine, as the search tool has it
                             if (!epAnswers && !ep.equals(local) && Searx.answers(local))
@@ -1051,6 +1065,18 @@ public final class LibrarianCli {
                             if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
                             Config.set("RESEARCHZOSHO_SEARXNG", r);
                             System.out.println("it answers at " + r + " (saved as RESEARCHZOSHO_SEARXNG; the container restarts with the machine)");
+                            if (!Searx.settingsNote.isEmpty()) System.out.println("  " + Searx.settingsNote);
+                            return 0;
+                        }
+                        case "update" -> {
+                            int port = Searx.DEFAULT_PORT;
+                            try { URI at = URI.create(WebSearchTool.endpoint()); if (at.getPort() > 0) port = at.getPort(); } catch (RuntimeException e) { /* the usual port */ }
+                            for (int i = 3; i < args.length; i++) if (args[i].matches("\\d+")) port = Integer.parseInt(args[i]);
+                            System.out.print("fetching the current SearXNG image and making the container again… "); System.out.flush();
+                            String r = Searx.update(port);
+                            if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
+                            Config.set("RESEARCHZOSHO_SEARXNG", r);
+                            System.out.println("it answers at " + r + " (the image is from " + Searx.imageMade() + ")");
                             if (!Searx.settingsNote.isEmpty()) System.out.println("  " + Searx.settingsNote);
                             return 0;
                         }
@@ -2447,7 +2473,7 @@ public final class LibrarianCli {
             try { taken = ChatCommands.reply(store, Patrons.Patron.PERSON, "terminal", line, libH[0].waitingForAnswer(), front); }
             catch (IOException e) { taken = Chrome.now().t("That did not work: {0}", e.getMessage()); }
             System.out.print("\r   \r"); System.out.flush();
-            if (taken != null) { for (String l : taken.split("\n")) System.out.println("  " + l); continue; }
+            if (taken != null) { for (String l : ChatIo.plain(taken).split("\n")) System.out.println("  " + l); continue; }   // a report read in, a field's reply: words a model may have written
             System.out.print("  …"); System.out.flush();
             String reply;
             int before = current[0].size();
@@ -2456,7 +2482,7 @@ public final class LibrarianCli {
             reply = ChatShown.forTerminal(reply, ChatShown.address(store));
             for (ObjectNode m : current[0].repliesSince(before)) { String under = ChatShown.text(m.path("shown"), ChatShown.address(store), Chrome.now(), ChatShown.galleryIn(m.path("content").asText(""), m.path("shown"))); if (!under.isEmpty()) reply = reply + "\n\n" + under; }
             System.out.print("\r   \r");
-            synchronized (System.out) { System.out.println(reply); }
+            synchronized (System.out) { System.out.println(ChatIo.plain(reply)); }   // the model's words, with no control character a terminal would obey
             for (String jobId : current[0].watched()) if (announced.add(jobId)) System.out.println("  " + Chrome.now().t("following {0}: this chat shows its stage and says when it is done. /runs shows it now", jobId));
         }
         lib = libH[0]; session = current[0];
@@ -2760,8 +2786,14 @@ public final class LibrarianCli {
                 case "list" -> {
                     JsonNode r = p.models(a.put("op", "list"));
                     System.out.println("The models this library can run on (researchzosho ask … --model <name>; /model <name> in the chat):");
-                    for (JsonNode m : r.path("models")) System.out.println("  " + m.path("line").asText() + pricesNote(m) + "; " + m.path("sees_text").asText("not probed for pictures") + ("missing".equals(m.path("key").asText()) ? "  — no key kept for " + m.path("host").asText() : ""));
+                    boolean router = false;
+                    for (JsonNode m : r.path("models")) {
+                        System.out.println("  " + m.path("line").asText() + pricesNote(m) + "; " + m.path("sees_text").asText("not probed for pictures") + ("missing".equals(m.path("key").asText()) ? "  — no key kept for " + m.path("host").asText() : ""));
+                        if (m.hasNonNull("where")) System.out.println("      " + m.path("where").asText());   // who serves it and who is left out, or where its host is run from
+                        router |= DriveClient.hostIs(m.path("host").asText(""), "openrouter.ai");
+                    }
                     System.out.println(r.path("summary").asText());
+                    if (router) System.out.println(OpenRouterProviders.listSaid());
                     System.out.println("researchzosho models add <name> <address or word> <model id> [--prices in/out/cache] [--cap dollars a month] [--sees yes|no] adds one (on openrouter the prices are read from its public list); models set <name> --prices list reads them again; models key <host> <key> keeps a host's key; models remove <name>; models test <name> asks whether it answers and whether it sees pictures.");
                     return 0;
                 }
@@ -3689,7 +3721,7 @@ public final class LibrarianCli {
             Path f = Path.of(what).toAbsolutePath().normalize();
             var doc = DocText.convert(Files.readAllBytes(f), what);
             if (doc.text().isBlank()) { System.err.println("no text could be extracted (" + doc.kind() + ")"); return 1; }
-            Path raw = Requests.supply(store, forUrl, doc.text(), rest.isEmpty() ? doc.title() : String.join(" ", rest));
+            Path raw = Requests.supply(store, forUrl, doc.text(), rest.isEmpty() ? doc.title() : String.join(" ", rest), RawCapture.eyeHead(doc));
             System.out.println("supplied: " + forUrl + " ← " + f.getFileName() + " (" + doc.text().length() + " chars) → " + raw.getFileName()
                     + "\n  from now on this document is read for that url");
             return 0;

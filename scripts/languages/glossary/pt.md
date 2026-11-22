@@ -211,3 +211,23 @@ Standing alone (lists, the language switch) they stay capitalized: Japonês, Ing
 | the audit log / machine, node / awake, asleep / last word / … ago | registro de auditoria / máquina, nó / ativa, em repouso / último sinal / há {0} segundo(s)… |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays abrir mão) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | liberar / Manter / Para a conta / antes administrada por {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | convite / Aceitar convite ("Entrar" is sign in) / Retirar / link ainda não usado |
+
+## Fifth round (0.8.1: the places a library avoids, the model server isolated from the network)
+
+| English | Portuguese |
+|---|---|
+| place (a country code the setting names: CN, HK…) | país ou região (pl. países e regiões) |
+| keep away from / avoid; the places this library avoids | evitar; os países e regiões que esta biblioteca evita |
+| a list of places the program fills in ({0} = “China, Hong Kong and Macao”) | after a colon (“com sede em um destes países ou regiões: {0}”), because em / no / na would depend on the place |
+| based or runs in (a provider) | ter sede ou operar em |
+| owned by a company based in a place; its owner's place | pertencer a uma empresa com sede em …; o país ou região da empresa dona |
+| states no place / left out / allow / serve (a model) | não informa país nem região / excluído, excluir / permitir / oferecer (atender, when it serves the library) |
+| provider / router / request | provedor / roteador / pedido |
+| no way out to the network / can reach the network | isolado da rede / pode acessar a rede |
+| set up with no way out / able to reach the network / the earlier way | configurar isolado da rede / com acesso à rede / do jeito anterior |
+| a reason the program fills in | after “Motivo:”, as a clause in small letters |
+| embeddings server / embeddings model | servidor de embeddings / modelo de embeddings |
+| Docker network / container / proxy / route / address range / start script / log | rede Docker / contêiner / proxy / rota / faixa de endereços / script de inicialização / registro |
+| open / closed (values of model_network) | stay as written: “está em open” |
+| an MCP server's answers give addresses | “A pesquisa pode abrir os endereços que ele cita nas respostas.” Buttons: Deixar a pesquisa abrir os endereços encontrados / Não abrir endereços das respostas |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | China, Hong Kong, Macau, Cuba, Irã, Coreia do Norte, Rússia, Venezuela; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

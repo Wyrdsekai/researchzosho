@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
 
@@ -57,8 +58,8 @@ public final class Updater {
     private Updater() { }
 
     public static final String REPO = "Wyrdsekai/researchzosho";
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
-            .followRedirects(HttpClient.Redirect.NORMAL).build();   // a GitHub release asset is a 302 to its store; without this `update now` said "HTTP 302" (a test box, 2026-09-10)
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8))
+            .followRedirects(HttpClient.Redirect.NORMAL).build());   // a GitHub release asset is a 302 to its store; without this `update now` said "HTTP 302" (a test box, 2026-09-10)
 
     /** The mark an update leaves before it restarts the service: the version it restarts onto, for the jobs the stop interrupts. */
     static Path restartMark() { return Config.home().resolve("update-restart"); }
@@ -398,7 +399,8 @@ public final class Updater {
             prune(l, new HashSet<>(List.of(target, from)), running, out);
             if (!l.windows()) {
                 String note = "updated to " + target + "; " + from + " stays beside it as the way back (researchzosho update back)";
-                return new Outcome(true, have, target, note + (restart ? "; " + restartOnto(target, out) : "; restart the service to run it"));
+                String oldImage = Searx.oldImageAtUpdate();   // the search container's image, fetched long ago: its line, with the update's own message
+                return new Outcome(true, have, target, note + (restart ? "; " + restartOnto(target, out) : "; restart the service to run it") + (oldImage.isEmpty() ? "" : "\n" + oldImage));
             }
             Windows w = windows(l, flat, from, target, restart, places, out, starter, work);
             handed = w.handed();

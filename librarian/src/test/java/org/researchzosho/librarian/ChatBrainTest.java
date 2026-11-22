@@ -50,15 +50,19 @@ class ChatBrainTest {
         ObjectNode homes = M.createObjectNode(); homes.put("tool", "homes"); homes.set("args", M.readTree("{\"words\":\"a house to buy in Cambridge\"}"));
         ObjectNode say = M.createObjectNode(); say.put("say", "Three homes fit; the Home page lists them with a link on each.");
         List<List<String>> toolsSeen = new ArrayList<>(); List<ArrayNode> messagesSeen = new ArrayList<>();
+        // the whole table, as a large window gets it: which tools a smaller window lists under library_tool is ChatTwoLevelsTest's (0.8.1)
+        ChatTable.forced = ChatTable.Form.WHOLE;
         Librarian lib = new Librarian(store, scripted(List.of(homes, say), toolsSeen, messagesSeen), Librarian.person(), Librarian.Session.open(store));
-        String reply = lib.say("find me a house to buy in Cambridge");
+        String reply;
+        try { reply = lib.say("find me a house to buy in Cambridge"); } finally { ChatTable.forced = null; }
         assertTrue(reply.startsWith("Three homes fit; the Home page lists them with a link on each.") && reply.contains("The model asks to start a home search: \"a house to buy in Cambridge\""), reply);
         assertEquals(List.of(), ran, "the home search waits for the person's yes (round F: it files a run and spends the keeper's allowance)");
         String yes = lib.say("yes");
         assertEquals(List.of("a house to buy in Cambridge | a house to buy in Cambridge"), ran, "the home search ran, named from the words");
         assertTrue(yes.startsWith("Done.") && yes.contains("3 homes fit; the search is kept."), "its answer is the person's to read: " + yes);
         List<String> offered = toolsSeen.get(0);
-        assertTrue(offered.containsAll(List.of("homes", "look", "records", "board", "dossier", "search", "open", "shelf", "library_research")), offered.toString());
+        assertTrue(offered.containsAll(List.of("homes", "look", "records", "board", "search", "open", "library_research", "library_dossier")), offered.toString());
+        assertFalse(offered.contains("dossier") || offered.contains("shelf") || offered.contains("candidates") || offered.contains("sift"), "not on the chat's table (0.8.1): library_dossier, library_ask and library_search do the first two, a research run the others: " + offered);
         assertFalse(offered.contains("who"), "no family work in this library, so no who: " + offered);
         assertFalse(offered.contains("ask") || offered.contains("pursue"), "the chat offers none of the brain's own tools; the reply is the question");
         String system = messagesSeen.get(0).get(0).path("content").asText();
@@ -110,6 +114,7 @@ class ChatBrainTest {
         new Librarian(store, big, Librarian.person(), Librarian.Session.open(store)).say("anything on gears?");
         String system = messagesSeen.get(0).get(0).path("content").asText();
         assertTrue(system.contains("look: when the question is about what a video shows") && !system.contains("look: Reads a video's frames") && system.contains("weigh a costly instrument"), system.substring(Math.max(0, system.length() - 600)));
+        assertFalse(system.contains("pursued with pursue"), "a run's own rule is not the chat's (0.8.1): " + system.substring(Math.max(0, system.length() - 600)));
         assertFalse(system.contains("Copy the shape of these calls"), "the large tier has no literal calls");
     }
 }

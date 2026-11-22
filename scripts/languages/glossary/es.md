@@ -233,3 +233,23 @@ Lo de arriba sigue valiendo. Cambia o se añade esto:
 | the audit log / machine, node / awake, asleep / last word / … ago | registro de auditoría / equipo, nodo / activa, en reposo / última señal / hace {0} segundo(s)… |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays dejar ir) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | liberar / Conservar / Para la cuenta / antes la administraba {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | invitación / Unirse / Retirar / enlace aún sin usar |
+
+## Quinta ronda (0.8.1: los países y regiones que evita una biblioteca, el servidor de modelos aislado de la red)
+
+| inglés | español |
+|---|---|
+| place (a country code the setting names: CN, HK…) | país o región (pl. países y regiones), sin adjetivo que concuerde |
+| keep away from / avoid; the places this library avoids | evitar; los países y regiones que esta biblioteca evita |
+| based or runs in (a provider) | tener su sede o funcionar en |
+| owned by a company based in {0}; its owner's place | pertenecer a una empresa con sede en {0}; el país o región de su empresa propietaria |
+| states no place / left out / allow / serve (a model) | no indica país ni región / excluido, excluir / permitir / ofrecer (servir, cuando se sirve a la biblioteca) |
+| provider (of a router: OpenRouter's) / router / request | proveedor / enrutador / solicitud; a host the person names, in the same sentence as a router's providers: servicio |
+| no way out to the network / can reach the network | aislado de la red / tiene salida a la red |
+| set up with no way out / able to reach the network / the earlier way | configurar aislado de la red / con salida a la red / de la forma anterior |
+| a reason the program fills in | after «Motivo:», as a clause in small letters |
+| embeddings server / embeddings model | servidor de embeddings / modelo de embeddings |
+| Docker network / container / proxy / route / address range / start script / log | red de Docker / contenedor / proxy / ruta / rango de direcciones / script de inicio / registro |
+| open / closed (values of model_network) | stay as written: «está en open» |
+| an MCP server's answers give addresses | «La investigación puede abrir las direcciones que nombra en sus respuestas.» Buttons: Abrir las direcciones que encuentre / No abrir direcciones de sus respuestas |
+| a date filled in a parenthesis | «(lista leída: {3})», so that «fecha desconocida» fits too |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | China, Hong Kong, Macao, Cuba, Irán, Corea del Norte, Rusia, Venezuela; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -8,10 +9,12 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -56,12 +59,20 @@ public final class ModelServer {
 
     private ModelServer() { }
 
-    public static final int PORT = 8211;
+    /**
+     * A second model server on one machine, for a trial of the real install beside the machine's own: its port
+     * ({@code -Dresearchzosho.model.port}) and the first part of every name it makes on Linux, the containers, the service and the
+     * network ({@code -Dresearchzosho.model.name}). Unset, they are what they always were.
+     */
+    static final String NAMED = System.getProperty("researchzosho.model.name", "researchzosho");
+    public static final int PORT = Integer.getInteger("researchzosho.model.port", 8211);
     public static final String URL = "http://127.0.0.1:" + PORT;
-    public static final String UNIT = "researchzosho-model";                  // systemd --user unit (Linux)
+    public static final String UNIT = NAMED + "-model";                         // systemd --user unit (Linux)
     public static final String LABEL = "org.researchzosho.model";             // launchd agent (macOS)
     public static final String TASK = "ResearchZoshoModel";                     // scheduled task (Windows)
-    public static final String CONTAINER = "researchzosho-model";
+    public static final String CONTAINER = NAMED + "-model";
+    /** The Docker network the model's and the embeddings' containers are on when they have no way out ({@link Shut}). */
+    public static final String NETWORK = NAMED + "-model-shut";
     public static final String SWAP_VERSION = "255";
     public static final String LLAMA_BUILD = "b10929";
     /**
@@ -96,7 +107,7 @@ public final class ModelServer {
 
     /** The embeddings server beside the model: the same address, model name "embed" (Embeddings' default), never idles out. */
     public static final String EMBED_NAME = "embed";
-    public static final String EMBED_CONTAINER = "researchzosho-model-embed";
+    public static final String EMBED_CONTAINER = NAMED + "-model-embed";
     public static final String EMBED_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf";
     public static final String EMBED_URL = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/" + EMBED_FILE;
     public static final String EMBED_SHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439";   // 639 MB
@@ -165,7 +176,8 @@ public final class ModelServer {
 
     static Path visionFile(Row row, Path modelFile) { return modelFile.toAbsolutePath().getParent().resolve("mmproj-" + row.name() + "-F16.gguf"); }
 
-    static { for (Row r : ROWS) sums.put(r.file(), r.sha256()); sums.put(EMBED_FILE, EMBED_SHA256); for (var v : VISION.entrySet()) sums.put("mmproj-" + v.getKey() + "-F16.gguf", v.getValue()); }
+    static { for (Row r : ROWS) sums.put(r.file(), r.sha256()); sums.put(EMBED_FILE, EMBED_SHA256); for (var v : VISION.entrySet()) sums.put("mmproj-" + v.getKey() + "-F16.gguf", v.getValue());
+        for (var f : Embed.FILES.entrySet()) sums.put(Embed.FOLDER + "/" + f.getKey(), f.getValue()); }
 
     static String sha256(Path p) throws Exception {
         var md = MessageDigest.getInstance("SHA-256");
@@ -176,7 +188,8 @@ public final class ModelServer {
     /** Fetch {@code url} to {@code dest} and check it against the recorded hash; a mismatch is deleted and refused. */
     static void fetchChecked(String url, Path dest) throws Exception {
         downloader.fetch(url, dest);
-        String want = sums.get(dest.getFileName().toString());
+        String want = sums.get(dest.getParent() == null ? "" : dest.getParent().getFileName() + "/" + dest.getFileName());   // a model that is several files in a folder of its own
+        if (want == null) want = sums.get(dest.getFileName().toString());
         if (want == null) return;   // a file the person named with --file has no recorded hash; the rows and the pinned builds do
         String got = sha256(dest);
         if (!want.equalsIgnoreCase(got)) { Files.deleteIfExists(dest); throw new IOException("checksum mismatch for " + dest.getFileName() + "; refusing to install\n  expected " + want + "\n  got      " + got); }
@@ -296,7 +309,7 @@ public final class ModelServer {
     };
     /** How long one command may take before it is killed: a docker CLI whose daemon is not running can wait forever (macOS, 2026-09-15). */
     static final int COMMAND_SECONDS = 120;
-    public static Runner runner = cmd -> {
+    static final Runner REAL_RUNNER = cmd -> {
         Path out = Files.createTempFile("researchzosho-cmd", ".out");
         try {
             Process p = new ProcessBuilder(cmd).redirectErrorStream(true).redirectOutput(out.toFile()).start();
@@ -304,6 +317,16 @@ public final class ModelServer {
             return new Result(p.exitValue(), Files.readString(out, StandardCharsets.UTF_8));
         } finally { Files.deleteIfExists(out); }
     };
+    public static Runner runner = REAL_RUNNER;
+    /**
+     * A command that takes as long as it takes and shows the person its own progress (fetching an image of several gigabytes). On the
+     * real machine it writes to the terminal; where a test stands in for the machine, the test's runner answers for it.
+     */
+    static Result runShown(List<String> cmd) throws Exception {
+        if (runner != REAL_RUNNER) return runner.run(cmd);
+        Process p = new ProcessBuilder(cmd).inheritIO().start();
+        return new Result(p.waitFor(), "");
+    }
     public static Downloader downloader = (url, dest) -> {
         Path part = dest.resolveSibling(dest.getFileName() + ".part");
         Process p = new ProcessBuilder(os == Os.windows ? "curl.exe" : "curl", "-fL", "--progress-bar", "-o", part.toString(), url).inheritIO().start();
@@ -311,7 +334,7 @@ public final class ModelServer {
         Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING);
     };
     private static final ObjectMapper JSON = new ObjectMapper();
-    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build();
+    private static final HttpClient PROBE_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build());
 
     /** Whether a proxy answers at {@code base}: llama-swap's /health says OK; any other server's model list will do. */
     public static Predicate<String> health = base -> {
@@ -538,7 +561,18 @@ public final class ModelServer {
      * (left unset for "all": a visible-devices list that is empty means no device, and the CPU serves at a tenth of the speed).
      */
     public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag, String build) {
-        String image = switch (build) { case "rocm" -> "server-rocm"; case "vulkan" -> "server-vulkan"; default -> "server-cuda"; };
+        return plan(os, row, modelFile, dir, unit, gpus, idleMinutes, share, embedTag, build, null, null);
+    }
+
+    /**
+     * {@code shut}: on Linux, the network with no way out that the two containers are put on, each at its fixed address there, where
+     * the proxy reaches it ({@link Shut}); null writes the lines every release before 0.8.1 wrote, a port of this machine's own
+     * published for each. {@code embedFolder}: the folder Text Embeddings Inference reads its model from, as the container sees it
+     * ({@link #embedFolder}); null starts it by the model's name, and it asks Hugging Face for the files at every start.
+     */
+    public static Plan plan(Os os, Row row, Path modelFile, Path dir, Path unit, String gpus, int idleMinutes, boolean share, String embedTag, String build, Shut shut, String embedFolder) {
+        if (os != Os.linux) shut = null;
+        String image = imageOf(build);
         String devices = switch (build) {
             case "rocm" -> "--device /dev/kfd --device /dev/dri --group-add video" + (gpus.equals("all") ? "" : " -e HIP_VISIBLE_DEVICES=" + gpus);
             case "vulkan" -> "--device /dev/dri --group-add video" + (gpus.equals("all") ? "" : " -e GGML_VK_VISIBLE_DEVICES=" + gpus);
@@ -552,7 +586,7 @@ public final class ModelServer {
         String cfg = "# ResearchZosho: the model server on demand. llama-swap listens on " + PORT + "; the server starts on the first request\n"
                 + "# and stops after ttl seconds idle. `researchzosho model status` reads it.\n"
                 + "healthCheckTimeout: 600\n"
-                + "startPort: 10001\n"
+                + "startPort: " + (PORT == 8211 ? 10001 : PORT + 1) + "\n"
                 + "logLevel: info\n"
                 + "models:\n"
                 + "  \"" + row.name() + "\":\n"
@@ -591,6 +625,7 @@ public final class ModelServer {
                 + "exec docker run --rm --name " + EMBED_CONTAINER + " --gpus " + (gpus.equals("all") ? "all" : "'\"device=" + gpus + "\"'")
                 + " -p 127.0.0.1:$1:80 -v " + Embed.dir().toAbsolutePath() + ":/data " + Embed.IMAGE + ":" + embedTag + " \\\n"
                 + "  --model-id " + Embed.MODEL + " --pooling last-token --max-client-batch-size 128 --max-batch-tokens 65536 --auto-truncate\n";
+            if (embedScript != null && embedFolder != null) embedScript = byFolder(embedScript, embedFolder);
         }
         String run = os != Os.linux ? null : "#!/bin/sh\n"
                 + "# " + row.name() + " in llama.cpp, started by llama-swap on demand; $1 is the port it assigned. The flags are the measured ones.\n"
@@ -622,7 +657,577 @@ public final class ModelServer {
                     + "  $started = Start-Process -FilePath '" + swap + "' -ArgumentList '--config','\"" + dir.resolve("config.yaml") + "\"','--listen','" + listen + "' -WindowStyle Hidden -RedirectStandardOutput '" + dir.resolve("llama-swap.log") + "' -RedirectStandardError '" + dir.resolve("llama-swap.err") + "' -PassThru\n"
                     + "  Set-Content -Path $kept -Value $started.Id\n}\n";
         };
+        if (shut != null) {   // written the earlier way above, then turned: one text decides what "no way out" changes, for a new install and for one that changes over
+            Map<String, String> turned = toShut(dir, filesOf(new Plan(row, modelFile, dir, unit, cfg, run, unitText, embedScript, embedTag != null)), shut);
+            cfg = turned.get("config.yaml"); run = turned.get("run.sh"); embedScript = turned.get("run-embed.sh");
+        }
         return new Plan(row, modelFile, dir, unit, cfg, run, unitText, embedScript, embedTag != null);
+    }
+
+    // ---- no way out (0.8.1) ----
+
+    /**
+     * The setting that chooses whether the model server `model install` sets up on Linux may reach the network: unset or closed, it is
+     * set up with no way out; open, the way every release before 0.8.1 set it up, for a machine whose model server has to reach one.
+     */
+    public static final String MODEL_NETWORK = "RESEARCHZOSHO_MODEL_NETWORK";
+
+    static boolean openAsked() {
+        String v = Config.get(MODEL_NETWORK);
+        return v != null && List.of("open", "on", "yes", "true").contains(v.strip().toLowerCase(Locale.ROOT));
+    }
+
+    static String imageOf(String build) { return switch (build) { case "rocm" -> "server-rocm"; case "vulkan" -> "server-vulkan"; default -> "server-cuda"; }; }
+
+    /**
+     * The model server with no way out (0.8.1). On Linux the model and the embeddings server are containers, and a container on a Docker
+     * network made with {@code --internal} has no route to anything but the machine it runs on: no gateway, no name service for outside
+     * names, and Docker drops what is sent across that network's edge. The machine itself still reaches the container at the
+     * container's own address, so the proxy (llama-swap, a process of the person's) passes requests to that address in place of a
+     * published port. The address has to be known before the container starts, so the network has a range of its own and each of
+     * the two containers a fixed address in it. The containers also lose the right to write raw packets ({@code --cap-drop NET_RAW}),
+     * which is the one way a program could address a packet past its routes.
+     *
+     * <p>What this gives: nothing a model file, a chat template or a fault in the model server does can send anything off the
+     * machine. What it does not: the container still reaches the machine itself, so a program on the machine that listens on every
+     * address and passes things on (a proxy, a name server) would be a way out.
+     */
+    public record Shut(String subnet, String modelAt, String embedAt) {
+        /** The range's second and third addresses; the first is the machine's own on that network. Null when the range is not one. */
+        static Shut of(String subnet) {
+            long[] r = range(subnet);
+            return r == null || r[1] - r[0] < 7 ? null : new Shut(subnet, dotted(r[0] + 2), dotted(r[0] + 3));
+        }
+
+        /**
+         * What a start script says and does before its {@code docker run}: the arrangement in words, and the network made again when
+         * it is gone. A {@code docker network prune} removes a network no container is on, which is this one whenever the model is
+         * not loaded.
+         */
+        String said(String at) {
+            return "# No way out: it runs on a Docker network that has no route to anything but this machine (" + NETWORK + ", " + subnet + "),\n"
+                 + "# may not write raw packets, and answers this machine at " + at + " ($1 is not used). When the network was removed it is made again here.\n"
+                 + "docker network inspect " + NETWORK + " >/dev/null 2>&1 || docker network create --internal --subnet " + subnet + " " + NETWORK + " >/dev/null 2>&1\n";
+        }
+
+        String flags(String at) { return " --network " + NETWORK + " --ip " + at + " --cap-drop NET_RAW"; }
+    }
+
+    /**
+     * The ranges tried for the network, in this order: sixteen addresses each, private, and away from the ones Docker hands out by
+     * itself (172.17 to 172.31, 192.168), home routers, and the usual virtual machines and tunnels. The first that no route of the
+     * machine overlaps and that Docker accepts is taken.
+     */
+    static final List<String> RANGES = List.of("172.16.211.0/28", "10.213.71.0/28", "172.16.93.0/28", "10.157.29.0/28", "192.168.251.0/28", "172.31.251.0/28");
+
+    private static final Pattern IPV4 = Pattern.compile("(?<![\\d.])(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})(?:/(\\d{1,2}))?(?![\\d.])");
+
+    /** An IPv4 range ("172.16.211.0/28", or one address) as its first and last address; null when it is not one. */
+    static long[] range(String cidr) {
+        Matcher m = IPV4.matcher(cidr == null ? "" : cidr.strip());
+        if (!m.matches()) return null;
+        long a = 0;
+        for (int i = 1; i <= 4; i++) { int part = Integer.parseInt(m.group(i)); if (part > 255) return null; a = a << 8 | part; }
+        int bits = m.group(5) == null ? 32 : Integer.parseInt(m.group(5));
+        if (bits > 32) return null;
+        long size = 1L << (32 - bits), first = a & ~(size - 1);
+        return new long[]{first, first + size - 1};
+    }
+
+    static String dotted(long a) { return (a >> 24 & 255) + "." + (a >> 16 & 255) + "." + (a >> 8 & 255) + "." + (a & 255); }
+
+    /**
+     * Every range and address the machine's routes name ({@code ip -4 route show table all}: the networks it is on, its own
+     * addresses, what a tunnel or a virtual machine routes, every table). The default route names none.
+     */
+    static List<long[]> routed(String routes) {
+        List<long[]> used = new ArrayList<>();
+        Matcher m = IPV4.matcher(routes);
+        while (m.find()) {
+            long[] r = range(m.group());
+            if (r != null && !"0".equals(m.group(5))) used.add(r);
+        }
+        return used;
+    }
+
+    static boolean overlaps(long[] r, List<long[]> used) {
+        for (long[] u : used) if (r[0] <= u[1] && u[0] <= r[1]) return true;
+        return false;
+    }
+
+    /** The network as made, or why it was not: one of the two is null. */
+    record Made(Shut shut, String why) { }
+
+    /**
+     * The network with no way out, made or found. One of this program's own that is already there is used as it is. Else the
+     * machine's routes are read, and the first of {@link #RANGES} that none of them overlaps is given to Docker, which refuses a range
+     * one of its own networks holds; the next is tried then. Nothing is made when no range is free. Once the network is there the
+     * machine has to have a route to it: with rootless Docker, or Docker inside a virtual machine, it has none, a container's address
+     * is out of the machine's reach, and the model would be waited for in vain. The network is taken away again then.
+     */
+    static Made makeNetwork() {
+        Chrome c = Chrome.now();
+        try {
+            Result have = runner.run(List.of("docker", "network", "inspect", NETWORK, "--format", "{{.Internal}} {{range .IPAM.Config}}{{.Subnet}}{{end}}"));
+            if (have.code() == 0) {
+                Matcher m = Pattern.compile("(?m)^(true|false) (\\S+)\\s*$").matcher(have.out().strip());
+                Shut there = m.find() && m.group(1).equals("true") ? Shut.of(m.group(2)) : null;
+                return there != null ? routedTo(there) : new Made(null, c.t("a Docker network named {0} is already there and is not one this program made", NETWORK));
+            }
+            Result routes = runner.run(List.of("ip", "-4", "route", "show", "table", "all"));
+            if (routes.code() != 0 || routes.out().isBlank()) return new Made(null, c.t("the routes of this machine could not be read, so no free address range could be chosen for its network"));
+            List<long[]> used = routed(routes.out());
+            String refused = "";
+            for (String candidate : RANGES) {
+                if (overlaps(range(candidate), used)) continue;
+                Result made = runner.run(List.of("docker", "network", "create", "--internal", "--subnet", candidate, NETWORK));
+                if (made.code() == 0) return routedTo(Shut.of(candidate));
+                refused = firstLine(made.out());
+            }
+            return new Made(null, refused.isEmpty() ? c.t("no address range was free for its network") : c.t("Docker did not make its network ({0})", refused));
+        } catch (Exception e) { return new Made(null, c.t("Docker did not make its network ({0})", String.valueOf(e.getMessage()))); }
+    }
+
+    /** The network, when the machine has a route to its range; else it is removed and the reason given. */
+    private static Made routedTo(Shut shut) throws Exception {
+        Result routes = runner.run(List.of("ip", "-4", "route", "show", "table", "all"));
+        if (routes.code() == 0 && Pattern.compile("(?m)^" + Pattern.quote(shut.subnet()) + "\\s").matcher(routes.out()).find()) return new Made(shut, null);
+        runner.run(List.of("docker", "network", "rm", NETWORK));
+        return new Made(null, Chrome.now().t("this machine has no route to its own Docker networks (rootless Docker, or Docker in a virtual machine), so it could not reach a container there"));
+    }
+
+    static String firstLine(String text) {
+        String t = text == null ? "" : text.strip();
+        int nl = t.indexOf('\n');
+        t = nl < 0 ? t : t.substring(0, nl).strip();
+        return t.length() > 200 ? t.substring(0, 200) + "…" : t;
+    }
+
+    /** The network removed by its name and the two containers stopped by theirs: what a step back, a change to the open way and an uninstall leave behind otherwise. */
+    static void removeNetwork() {
+        try {
+            runner.run(List.of("docker", "stop", CONTAINER));
+            runner.run(List.of("docker", "stop", EMBED_CONTAINER));
+            for (int i = 0; i < 5; i++) {   // a container that is still going away holds the network for a moment
+                Result r = runner.run(List.of("docker", "network", "rm", NETWORK));
+                if (r.code() == 0 || !r.out().contains("active endpoints")) break;
+                Thread.sleep(1000);
+            }
+        } catch (Exception ignored) { }
+    }
+
+    /** What the proof asks of the model server through the proxy. The real one asks over HTTP; a test gives its own. */
+    public interface Asker {
+        /** One short completion from {@code model} at {@code base}, waited for up to {@code seconds}: "" when the model wrote something, else "!" and why. */
+        String complete(String base, String model, int seconds);
+        /** One embedding from the embeddings server at {@code base}: "" when a vector came back, else "!" and why. */
+        String embed(String base, int seconds);
+        /** Everything the proxy at {@code base} holds loaded is let go, so that what is asked next has the card to itself. */
+        void rest(String base);
+    }
+
+    static final Asker REAL_ASKER = new Asker() {
+        @Override public String complete(String base, String model, int seconds) {
+            try {
+                var body = JSON.createObjectNode();
+                body.put("model", model); body.put("max_tokens", 64);
+                body.putArray("messages").addObject().put("role", "user").put("content", "Reply with the single word: ready");
+                HttpResponse<String> r = PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/v1/chat/completions")).timeout(Duration.ofSeconds(seconds))
+                        .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString())).build(), HttpResponse.BodyHandlers.ofString());
+                if (r.statusCode() != 200) return "!" + Chrome.now().t("it returned HTTP {0}: {1}", r.statusCode(), errorSaid(r.body()));
+                JsonNode j = JSON.readTree(r.body()), message = j.path("choices").path(0).path("message");
+                boolean wrote = !message.path("content").asText("").isBlank() || !message.path("reasoning_content").asText("").isBlank() || j.path("usage").path("completion_tokens").asInt(0) > 0;
+                return wrote ? "" : "!" + Chrome.now().t("its reply held no words: {0}", firstLine(r.body()));
+            } catch (Exception e) { return "!" + notAnswered(e, seconds); }
+        }
+        @Override public String embed(String base, int seconds) {
+            try {
+                HttpResponse<String> r = PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/v1/embeddings")).timeout(Duration.ofSeconds(seconds))
+                        .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString("{\"model\":\"" + EMBED_NAME + "\",\"input\":[\"ready\"]}")).build(), HttpResponse.BodyHandlers.ofString());
+                if (r.statusCode() != 200) return "!" + Chrome.now().t("it returned HTTP {0}: {1}", r.statusCode(), errorSaid(r.body()));
+                return JSON.readTree(r.body()).path("data").path(0).path("embedding").size() > 0 ? "" : "!" + Chrome.now().t("its reply held no numbers: {0}", firstLine(r.body()));
+            } catch (Exception e) { return "!" + notAnswered(e, seconds); }
+        }
+        @Override public void rest(String base) {
+            try { PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/unload")).timeout(Duration.ofSeconds(60)).GET().build(), HttpResponse.BodyHandlers.discarding()); }
+            catch (Exception ignored) { }
+        }
+    };
+    public static Asker asker = REAL_ASKER;
+
+    /** A server's error in its own words: the message of an OpenAI-style error body, else the body's first line. */
+    static String errorSaid(String body) {
+        try { String m = JSON.readTree(body).path("error").path("message").asText(""); if (!m.isBlank()) return firstLine(m); } catch (Exception ignored) { }
+        return firstLine(body);
+    }
+
+    private static String notAnswered(Exception e, int seconds) {
+        return e instanceof HttpTimeoutException ? Chrome.now().t("no answer in {0} seconds", seconds) : e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
+    /** How long the first answer is waited for: the proxy itself gives a model ten minutes to load. */
+    static final int PROOF_SECONDS = 660;
+    /** The outside address of the proof: the site the model's files came from. It is asked by its name once, from an ordinary container, and by the number that gave from inside. */
+    static final String OUTSIDE = "https://huggingface.co/";
+
+    /**
+     * What the proof found: {@code failed} null when the arrangement holds, else why it does not, as words that follow "because";
+     * {@code names}: Docker looked an outside name up for the container; {@code silent}: which of the two servers gave no answer
+     * ("model", "embed"), or "" when both answered and the fault was found elsewhere.
+     */
+    record Proof(String failed, boolean names, String silent) {
+        static Proof holds(boolean names) { return new Proof(null, names, ""); }
+        static Proof fails(String why, String silent) { return new Proof(why, false, silent); }
+    }
+
+    /** One request from inside a container to the outside address by its number: null when it could not connect, else why the arrangement does not hold. */
+    private static String reaches(String container, String number) throws Exception {
+        Chrome c = Chrome.now();
+        Result in = runner.run(List.of("docker", "exec", container, "curl", "-sS", "-o", "/dev/null", "-m", "8", "-k", "-A", "researchzosho.org", "https://" + number + "/"));
+        if (in.code() == 7 || in.code() == 28) return null;   // curl's own word: it could not connect, or nothing came back in time
+        if (in.code() < 0 || in.code() >= 125) return c.t("the check could not be run inside the container {0} ({1})", container, firstLine(in.out()));
+        return c.t("an outside address answered from inside the container {0}", container);
+    }
+
+    /**
+     * The arrangement, proven by what it does. First the control: a container on an ordinary network asks the outside address, which
+     * has to answer there, or a silence from inside would mean nothing. Then each server alone, so that neither wants the card's
+     * memory while the other warms up: through the proxy the embeddings server returns a vector, and the same outside request, by the
+     * number the control reached, is made inside its container and has to fail to connect; it is let go; the model writes a
+     * completion, and the request is made inside its container. Last, whether Docker looks an outside name up for the container.
+     */
+    static Proof prove(String model, boolean embeds, String build) throws Exception {
+        Chrome c = Chrome.now();
+        if (runner != REAL_RUNNER && asker == REAL_ASKER) throw new IllegalStateException("a test that stands in for the machine has to stand in for the model's answers too (ModelServer.asker)");
+        String image = "ghcr.io/ggml-org/llama.cpp:" + imageOf(build);
+        Result control = runner.run(List.of("docker", "run", "--rm", "--entrypoint", "curl", image, "-4", "-sS", "-o", "/dev/null", "-m", "15", "-A", "researchzosho.org", "-w", "%{remote_ip}", OUTSIDE));
+        Matcher at = IPV4.matcher(control.out());
+        String number = null;
+        while (at.find()) if (at.group(5) == null) number = at.group();
+        if (control.code() != 0 || number == null)
+            return Proof.fails(c.t("no container on this machine reached an outside address just now, so it could not be tried ({0})", firstLine(control.out())), "");
+        asker.rest(URL);   // whatever the proxy still holds from before is let go: each server is asked with the card to itself
+        if (embeds) {
+            String e = asker.embed(URL, 300);
+            if (e.startsWith("!")) return Proof.fails(c.t("the embeddings server did not answer through it ({0})", e.substring(1)), "embed");
+            String out = reaches(EMBED_CONTAINER, number);
+            if (out != null) return Proof.fails(out, "");
+            asker.rest(URL);
+        }
+        String a = asker.complete(URL, model, PROOF_SECONDS);
+        if (a.startsWith("!")) return Proof.fails(c.t("the model did not answer through it ({0})", a.substring(1)), "model");
+        String out = reaches(CONTAINER, number);
+        if (out != null) return Proof.fails(out, "");
+        Result name = runner.run(List.of("docker", "exec", CONTAINER, "getent", "hosts", "huggingface.co"));
+        return Proof.holds(name.code() == 0 && name.out().contains("huggingface.co"));
+    }
+
+    /** The files that decide which way an install is set up, by their names in the model folder; a script the plan has not is left out. */
+    static Map<String, String> filesOf(Plan p) {
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("config.yaml", p.configYaml());
+        if (p.runScript() != null) files.put("run.sh", p.runScript());
+        if (p.embedScript() != null) files.put("run-embed.sh", p.embedScript());
+        return files;
+    }
+
+    /** The port a start script's server listens on inside its container: Text Embeddings Inference on 80, llama.cpp on 8080. */
+    static int insidePort(String script) { return script.contains(Embed.IMAGE + ":") ? 80 : 8080; }
+
+    private static final String PROXY_OPEN = "    proxy: http://127.0.0.1:${PORT}\n";
+
+    /** Where the block of the model whose command is {@code script} ends in a config: before the next model's name, or the groups, or the end. */
+    private static int blockEnd(String cfg, int from) {
+        Matcher next = Pattern.compile("(?m)^(?:  \"[^\"\\n]+\":|\\S.*)$").matcher(cfg);
+        return next.find(from) ? next.start() : cfg.length();
+    }
+
+    /**
+     * The files of an install set up the earlier way, turned into the ones with no way out. Each start script loses its published port
+     * and gains the network, its fixed address there and the right it gives up, with the lines that say so and make the network again
+     * when it is gone; the config stops handing the scripts a port and passes requests to the addresses. Everything else in them stays
+     * as it was written, by whichever release or by the person. Null when a file is not of the shape this program writes.
+     */
+    static Map<String, String> toShut(Path dir, Map<String, String> files, Shut shut) {
+        String cfg = files.get("config.yaml");
+        if (cfg == null || !files.containsKey("run.sh")) return null;
+        Map<String, String> scripts = new LinkedHashMap<>();
+        for (String name : List.of("run.sh", "run-embed.sh")) {
+            String script = files.get(name), cmd = "    cmd: " + dir.resolve(name);
+            int at = cfg.indexOf(cmd + " ${PORT}\n");
+            if (script == null || (at < 0 && name.equals("run-embed.sh"))) continue;   // no embeddings server in this install
+            if (at < 0) return null;
+            String address = name.equals("run.sh") ? shut.modelAt() : shut.embedAt(), published = " -p 127.0.0.1:$1:" + insidePort(script) + " ";
+            Matcher exec = Pattern.compile("(?m)^exec docker run ").matcher(script);
+            int end = blockEnd(cfg, at + cmd.length());
+            String block = cfg.substring(at, end);
+            if (script.split(Pattern.quote(published), -1).length != 2 || !exec.find() || block.split(Pattern.quote(PROXY_OPEN), -1).length != 2) return null;
+            scripts.put(name, script.substring(0, exec.start()) + shut.said(address + ":" + insidePort(script)) + script.substring(exec.start()).replace(published, shut.flags(address) + " "));
+            cfg = cfg.substring(0, at) + block.replace(cmd + " ${PORT}\n", cmd + "\n").replace(PROXY_OPEN, "    proxy: http://" + address + ":" + insidePort(script) + "\n") + cfg.substring(end);
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("config.yaml", cfg);
+        out.putAll(scripts);
+        return out;
+    }
+
+    /** The other way: the files of an install with no way out, turned into the earlier way's. Null when a file is not of the shape {@link #toShut} leaves. */
+    static Map<String, String> toOpen(Path dir, Map<String, String> files) {
+        String cfg = files.get("config.yaml");
+        if (cfg == null || !files.containsKey("run.sh")) return null;
+        Map<String, String> scripts = new LinkedHashMap<>();
+        for (String name : List.of("run.sh", "run-embed.sh")) {
+            String script = files.get(name), cmd = "    cmd: " + dir.resolve(name);
+            int at = cfg.indexOf(cmd + "\n");
+            if (script == null || (at < 0 && name.equals("run-embed.sh"))) continue;
+            if (at < 0) return null;
+            Matcher flags = Pattern.compile(" --network \\S+ --ip (\\S+) --cap-drop NET_RAW ").matcher(script);
+            if (!flags.find()) return null;
+            String proxy = "    proxy: http://" + flags.group(1) + ":" + insidePort(script) + "\n";
+            int end = blockEnd(cfg, at + cmd.length());
+            String block = cfg.substring(at, end);
+            if (!block.contains(proxy)) return null;
+            scripts.put(name, script.replaceFirst("(?m)^# No way out: .*\\n# may not write raw packets.*\\n", "").replaceFirst("(?m)^docker network inspect \\S+ >/dev/null 2>&1 \\|\\| docker network create .*\\n", "")
+                    .replace(flags.group(), " -p 127.0.0.1:$1:" + insidePort(script) + " "));
+            cfg = cfg.substring(0, at) + block.replace(cmd + "\n", cmd + " ${PORT}\n").replace(proxy, PROXY_OPEN) + cfg.substring(end);
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        out.put("config.yaml", cfg);
+        out.putAll(scripts);
+        return out;
+    }
+
+    /**
+     * The embeddings server's start script with its model's folder in place of the model's name, read-only: it starts from the
+     * files it has and asks nobody. A script that names no model by its name (one already given a folder) comes back as it is.
+     */
+    static String byFolder(String script, String folder) {
+        String byName = "--model-id " + Embed.MODEL + " ";
+        if (!script.contains(byName) || folder == null) return script;
+        return script.replace(byName, "--model-id " + folder + " ").replace(":/data " + Embed.IMAGE + ":", ":/data:ro " + Embed.IMAGE + ":")
+                .replaceFirst("(?m)^# The model downloads into .* on the first start\\.\\n", Matcher.quoteReplacement("# It reads its model from the folder it is given (under " + Embed.dir() + ", which it sees as /data) and asks nobody for it.\n"));
+    }
+
+    static void writeFiles(Path dir, Map<String, String> files) throws IOException {
+        for (var f : files.entrySet()) {
+            Files.writeString(dir.resolve(f.getKey()), f.getValue(), StandardCharsets.UTF_8);
+            if (f.getKey().endsWith(".sh")) dir.resolve(f.getKey()).toFile().setExecutable(true);
+        }
+    }
+
+    static boolean answersWithin(int seconds) throws InterruptedException {
+        for (int i = 0; i < seconds && !health.test(URL); i++) Thread.sleep(1000);
+        return health.test(URL);
+    }
+
+    /**
+     * It proves itself or steps back. The install is set up with no way out and its proxy answers: the proof is run, and when it holds
+     * the person is told. When it does not, the files of the earlier way ({@code earlier}: what this release writes for it, or what
+     * the install had before `model install` was given again) are put back, the proxy is started again to read them, the containers
+     * and the network of the attempt are taken away, and the model is asked again that way, so that the person reads whether it answers.
+     */
+    static Proof proveOrStepBack(String model, boolean embeds, String build, Path dir, Map<String, String> earlier, PrintStream out) throws Exception {
+        Chrome c = Chrome.now();
+        out.println("  " + c.t("Asking the model for a first answer, to see that it works with no way out to the network. The model is loaded for this, which can take a few minutes with a large one."));
+        Proof proof = prove(model, embeds, build);
+        if (proof.failed() == null) {
+            asker.rest(URL);   // the card is free again, as an install has always left it; the first request loads the model
+            out.println("  " + c.t("The model server has no way out to the network: its containers are on a Docker network with no route to anything but this machine. Tried just now: the model answered through it, and an outside address that another container reached could not be reached from inside."));
+            if (proof.names()) out.println("  " + c.t("Docker on this machine still looks names up for the model server, which a program could use to send a little information out. Docker 29 does not."));
+            return proof;
+        }
+        writeFiles(dir, earlier);
+        restartProxy(dir, unitPath(os), out);
+        removeNetwork();
+        out.println("  " + c.t("The model server could not be set up with no way out to the network on this machine, because {0}. It is set up the way earlier versions did, so it can reach the network. To try again: researchzosho model install", proof.failed()));
+        // asked again the earlier way, so the person reads whether it answers: when it does not either, the arrangement was not the cause
+        boolean up = answersWithin(30);
+        if (proof.silent().equals("embed")) {
+            String again = up ? asker.embed(URL, 300) : "!" + c.t("the proxy did not answer at {0}", URL);
+            out.println("  " + (again.startsWith("!") ? c.t("Set up the earlier way, the embeddings server did not answer either ({0}), so the cause lies elsewhere. Its log: {1}", again.substring(1), logHint())
+                                                      : c.t("Set up the earlier way, the embeddings server answered.")));
+            if (up) asker.rest(URL);
+        }
+        String again = up ? asker.complete(URL, model, PROOF_SECONDS) : "!" + c.t("the proxy did not answer at {0}", URL);
+        out.println("  " + (again.startsWith("!") ? c.t("Set up the earlier way, the model did not answer either ({0}), so the cause lies elsewhere. Its log: {1}", again.substring(1), logHint())
+                                                  : c.t("Set up the earlier way, the model answered.")));
+        if (up) asker.rest(URL);
+        return proof;
+    }
+
+    /**
+     * The lines of the plan that say an install is set up with no way out: its network's range, and, once the proof held, the day it
+     * did ({@code proven}) and whether Docker looked a name up for the container. Without the day the files are written and nothing
+     * is claimed yet.
+     */
+    static String shutProperties(Shut shut, boolean proven, boolean names) {
+        return "network=shut\nsubnet=" + shut.subnet() + "\n" + (proven ? "network_tried=" + LocalDate.now() + "\n" : "") + (proven && names ? "network_names=looked-up\n" : "");
+    }
+
+    /** The lines of the plan that say an install can reach the network, and why: "asked" (the setting), or "unproven" with the reason the attempt gave. */
+    static String openProperties(String why, String reason) {
+        return "network=open\nnetwork_why=" + why + "\n" + (reason == null || reason.isBlank() ? "" : "network_reason=" + reason.replace("\n", " ") + "\n") + "network_tried=" + LocalDate.now() + "\n";
+    }
+
+    /** The same lines read back from a plan, to write them again when the rest of the plan is rewritten. */
+    static String netProperties(Map<String, String> m) {
+        StringBuilder b = new StringBuilder();
+        for (String k : List.of("network", "subnet", "network_why", "network_reason", "network_tried", "network_names")) if (m.containsKey(k)) b.append(k).append('=').append(m.get(k)).append('\n');
+        return b.toString();
+    }
+
+    /** The network an install's plan says it is on, when it is set up with no way out; null otherwise. */
+    static Shut shutOf(Map<String, String> m) { return "shut".equals(m.get("network")) ? Shut.of(m.get("subnet")) : null; }
+
+    /** The plan's lines with the ones about the way out replaced. */
+    static void rewriteNet(Path dir, String netLines) throws IOException {
+        Path props = dir.resolve("plan.properties");
+        String kept = Files.exists(props) ? Files.readString(props, StandardCharsets.UTF_8).replaceAll("(?m)^(network|subnet|network_why|network_reason|network_tried|network_names)=.*\\n?", "") : "";
+        Files.writeString(props, kept + (kept.isEmpty() || kept.endsWith("\n") ? "" : "\n") + netLines, StandardCharsets.UTF_8);
+    }
+
+    /** The llama.cpp image and the embeddings server's, fetched before the proof when they are not on the machine: a model that waits for an image of several gigabytes would look like one that does not answer. "" when both are there; else what Docker said. */
+    static String fetchImages(String build, String embedTag, PrintStream out) throws Exception {
+        List<String> images = new ArrayList<>(List.of("ghcr.io/ggml-org/llama.cpp:" + imageOf(build)));
+        if (embedTag != null && !embedTag.equals("llama")) images.add(Embed.IMAGE + ":" + embedTag);
+        for (String image : images) {
+            if (runner.run(List.of("docker", "image", "inspect", "--format", "{{.Id}}", image)).code() == 0) continue;
+            out.println("  " + Chrome.now().t("Fetching {0}, the program in a container that Docker runs here. It is several gigabytes.", image));
+            Result r = runShown(List.of("docker", "pull", image));
+            if (r.code() != 0) return image + (r.out().isBlank() ? "" : ": " + firstLine(r.out()));
+        }
+        return "";
+    }
+
+    /** The embeddings server an install has, read from its files: a Text Embeddings Inference tag, "llama", or null when it has none. */
+    static String embedTagOf(Path dir) throws IOException {
+        Path script = dir.resolve("run-embed.sh"), cfg = dir.resolve("config.yaml");
+        if (!Files.isRegularFile(script) || !Files.isRegularFile(cfg) || !Files.readString(cfg, StandardCharsets.UTF_8).contains("\"" + EMBED_NAME + "\":")) return null;
+        Matcher m = Pattern.compile(Pattern.quote(Embed.IMAGE) + ":(\\S+)").matcher(Files.readString(script, StandardCharsets.UTF_8));
+        return m.find() ? m.group(1) : "llama";
+    }
+
+    /** The build of llama.cpp an install's start script runs, read from the script. */
+    static String buildOf(Path dir) throws IOException {
+        String run = Files.readString(dir.resolve("run.sh"), StandardCharsets.UTF_8);
+        return run.contains(":server-rocm") ? "rocm" : run.contains(":server-vulkan") ? "vulkan" : "cuda";
+    }
+
+    /**
+     * `model install` given again where this program's own model server already answers (Linux): the install is moved to the way that
+     * is wanted now. From the earlier way to no way out, proven, or stepped back to exactly the files it had; from no way out to the
+     * earlier way when the setting asks for it. Only the lines that decide the way out change ({@link #toShut}, {@link #toOpen}): the
+     * model, its flags and anything the person wrote into the files stay. "" when there is nothing to change: not Linux, not an
+     * install of this program's (another program's start script or service is left as it is), or already set up as wanted. Else the
+     * model's name.
+     */
+    static String changeOver(PrintStream out) throws Exception {
+        if (os != Os.linux) return "";
+        Chrome c = Chrome.now();
+        Path dir = dir();
+        if (!Files.exists(dir.resolve("plan.properties")) || !Files.exists(dir.resolve("run.sh")) || !Files.exists(dir.resolve("config.yaml"))) return "";
+        if (!CONTAINER.equals(containerOf(dir.resolve("run.sh"), null)) || !Files.isRegularFile(unitPath(os))) return "";
+        Map<String, String> m = readPlan(dir);
+        if (!m.containsKey("name")) return "";
+        String name = m.get("name");
+        boolean isShut = shutOf(m) != null, wantOpen = openAsked(), proven = m.containsKey("network_tried");
+        if (!isShut && wantOpen || isShut && !wantOpen && proven) return "";   // already set up the way that is wanted
+        String embedTag = embedTagOf(dir), build = buildOf(dir);
+        Map<String, String> earlier = new LinkedHashMap<>();
+        for (String f : List.of("config.yaml", "run.sh", "run-embed.sh")) if (Files.isRegularFile(dir.resolve(f))) earlier.put(f, Files.readString(dir.resolve(f), StandardCharsets.UTF_8));
+        if (isShut && !wantOpen) {   // set up with no way out by an install that did not get to the end of its proof: proven now, or stepped back
+            Map<String, String> back = toOpen(dir, earlier);
+            if (back == null || !answersWithin(5)) return "";
+            Proof proof = proveOrStepBack(name, embedTag != null, build, dir, back, out);
+            rewriteNet(dir, proof.failed() == null ? shutProperties(shutOf(m), true, proof.names()) : openProperties("unproven", proof.failed()));
+            return name;
+        }
+        if (wantOpen) {   // from no way out to the earlier way, on the person's word
+            Map<String, String> open = toOpen(dir, earlier);
+            if (open == null) { out.println("  " + c.t("The setting {0} is open, but the model server's files in {1} are not as this program wrote them, so they are left as they are. researchzosho model uninstall, then researchzosho model install, sets it up afresh.", settingName(), dir)); return name; }
+            writeFiles(dir, open);
+            rewriteNet(dir, openProperties("asked", ""));
+            restartProxy(dir, unitPath(os), out);
+            removeNetwork();
+            out.println("  " + c.t("The setting {0} is open, so the model server is set up able to reach the network, as earlier versions did.", settingName()));
+            return name;
+        }
+        String reason = null, folder = null;
+        boolean tei = embedTag != null && !embedTag.equals("llama");
+        if (tei && (folder = Embed.modelFolder()) == null) {
+            try { out.println("  " + c.t("Downloading the embeddings model ({0}, about 1.2 GB) into {1}. It is checked when it is done.", Embed.MODEL, Embed.dir().resolve(Embed.FOLDER))); folder = Embed.fetchModel(); }
+            catch (Exception e) { reason = c.t("the files of the embeddings model could not be fetched ({0})", String.valueOf(e.getMessage())); }
+        }
+        if (reason == null) { String images = fetchImages(build, embedTag, out); if (!images.isEmpty()) reason = c.t("a program it runs could not be fetched ({0})", images); }
+        Made made = reason == null ? makeNetwork() : new Made(null, reason);
+        Map<String, String> turned = null;
+        if (made.shut() != null) {
+            Map<String, String> from = new LinkedHashMap<>(earlier);
+            String given = folder;
+            if (tei) from.computeIfPresent("run-embed.sh", (k, script) -> byFolder(script, given));
+            turned = toShut(dir, from, made.shut());
+            if (turned == null) { removeNetwork(); made = new Made(null, c.t("its files in {0} are not as this program wrote them", dir)); }
+        }
+        if (made.shut() == null) {
+            rewriteNet(dir, openProperties("unproven", made.why()));
+            out.println("  " + c.t("The model server could not be set up with no way out to the network on this machine, because {0}. It stays as it was, able to reach the network. To try again: researchzosho model install", made.why()));
+            return name;
+        }
+        out.println("  " + c.t("Setting the model server of this machine up again with no way out to the network. A model that is loaded now is unloaded for it."));
+        writeFiles(dir, turned);
+        rewriteNet(dir, shutProperties(made.shut(), false, false));
+        restartProxy(dir, unitPath(os), out);
+        Proof proof = answersWithin(30) ? proveOrStepBack(name, embedTag != null, build, dir, earlier, out) : stepBackUnanswered(dir, earlier, out);
+        rewriteNet(dir, proof.failed() == null ? shutProperties(made.shut(), true, proof.names()) : openProperties("unproven", proof.failed()));
+        return name;
+    }
+
+    /** The proxy itself did not come back with the new files: the earlier ones are put back and it is started again. */
+    static Proof stepBackUnanswered(Path dir, Map<String, String> earlier, PrintStream out) throws Exception {
+        Chrome c = Chrome.now();
+        String why = c.t("the proxy did not answer at {0}", URL);
+        writeFiles(dir, earlier);
+        restartProxy(dir, unitPath(os), out);
+        removeNetwork();
+        out.println("  " + c.t("The model server could not be set up with no way out to the network on this machine, because {0}. It is set up the way earlier versions did, so it can reach the network. To try again: researchzosho model install", why));
+        return Proof.fails(why, "");
+    }
+
+    /** The setting's name as a person types it. */
+    static String settingName() { return MODEL_NETWORK.replaceFirst("^RESEARCHZOSHO_", "").toLowerCase(Locale.ROOT); }
+
+    /**
+     * What `model status` says of the way out, in a sentence or two: none, and since when; or that the model server can reach the
+     * network, and why: the setting, an install from before 0.8.1, an attempt that did not hold, another program's install; with the
+     * command that changes it. Where the server is a plain program (macOS, Windows) it says that.
+     */
+    static String wayOutSaid() {
+        Chrome c = Chrome.now();
+        if (os != Os.linux) return c.t("On this system the model server is an ordinary program, not in a container, so nothing keeps it from the network.");
+        try {
+            Path dir = dir();
+            Map<String, String> m = readPlan(dir);
+            String again = c.t("researchzosho model install sets it up with no way out.");
+            boolean ours = Files.exists(dir.resolve("plan.properties")) && CONTAINER.equals(containerOf(dir.resolve("run.sh"), null)) && Files.isRegularFile(unitPath(os));
+            Shut shut = shutOf(m);
+            if (shut != null) {
+                String run = Files.isRegularFile(dir.resolve("run.sh")) ? Files.readString(dir.resolve("run.sh"), StandardCharsets.UTF_8) : "";
+                Result net = runner.run(List.of("docker", "network", "inspect", NETWORK, "--format", "{{.Internal}}"));
+                if (!run.contains("--network " + NETWORK + " ") || (net.code() == 0 && !net.out().strip().equals("true")))
+                    return c.t("The model server can reach the network: it was set up with no way out, and its start script or its Docker network ({0}) is no longer as this program made it.", NETWORK) + " " + again;
+                if (!m.containsKey("network_tried")) return c.t("The model server is set up with no way out to the network, but setting it up stopped before that was tried. researchzosho model install tries it.");
+                String said = c.t("The model server has no way out to the network: its containers are on a Docker network with no route to anything but this machine ({0}). Tried on {1}: the model answered through it, and an outside address could not be reached from inside.", NETWORK, m.get("network_tried"));
+                if ("looked-up".equals(m.get("network_names"))) said += " " + c.t("Docker on this machine still looks names up for the model server, which a program could use to send a little information out. Docker 29 does not.");
+                if (openAsked()) said += " " + c.t("The setting {0} is open now; researchzosho model install applies it.", settingName());
+                return said;
+            }
+            if (!ours) return c.t("The model server can reach the network: another program set it up, and this one leaves it as it is.");
+            if (openAsked()) return c.t("The model server can reach the network, because the setting {0} is open. With it closed or unset, researchzosho model install sets it up with no way out.", settingName());
+            String why = m.getOrDefault("network_why", "");
+            if (why.equals("unproven")) return c.t("The model server can reach the network: on {0} it could not be set up with no way out, because {1}.", m.getOrDefault("network_tried", "?"), m.getOrDefault("network_reason", "?")) + " " + c.t("researchzosho model install tries again.");
+            if (why.equals("asked")) return c.t("The model server can reach the network: the setting {0} was open when it was set up.", settingName()) + " " + again;
+            return c.t("The model server can reach the network: a version before 0.8.1 set it up.") + " " + again;
+        } catch (Exception e) { return c.t("Whether the model server can reach the network could not be read ({0}).", String.valueOf(e.getMessage())); }
     }
 
     /** The service, started: systemd --user, launchd, or a logon task plus a start now. "!reason" on failure. */
@@ -684,9 +1289,11 @@ public final class ModelServer {
             if (health.test(URL)) {
                 String up = upgrade(out);
                 if (up.startsWith("!")) return up;
-                out.println("  A model server already answers at " + URL + " on this machine, so the library uses that one and does not install another.");
+                // this program's own install on Linux, set up the other way than the one wanted now: it changes over, proven or stepped back (0.8.1)
+                String over = changeOver(out);
+                if (over.isEmpty()) out.println("  A model server already answers at " + URL + " on this machine, so the library uses that one and does not install another.");
                 Config.set("RESEARCHZOSHO_DRIVE", URL);
-                return up.isEmpty() ? "local-model" : up;
+                return !up.isEmpty() ? up : !over.isEmpty() ? over : "local-model";
             }
             Shared there = own || file != null || named != null ? null : shared();
             if (there != null) return useShared(there, out);
@@ -753,25 +1360,68 @@ public final class ModelServer {
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
-            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag, os == Os.linux ? gpu().build() : "");
-            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idleMinutes, share) + "chosen=" + chosen + "\n" + idleChosen(idleMinutes), StandardCharsets.UTF_8);
-            Files.writeString(dir.resolve("config.yaml"), p.configYaml(), StandardCharsets.UTF_8);
-            if (p.runScript() != null) { Files.writeString(dir.resolve("run.sh"), p.runScript(), StandardCharsets.UTF_8); dir.resolve("run.sh").toFile().setExecutable(true); }
-            if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
+            Chrome c = Chrome.now();
+            String build = os == Os.linux ? gpu().build() : "";
+            boolean tei = os == Os.linux && embedTag != null && !embedTag.equals("llama"), embedLater = false;
+            // the way out (0.8.1): on Linux the two containers get none, unless the setting asks for the earlier way or something stands in the way of the proof
+            Shut shut = null;
+            String openWhy = null, reason = null;
+            if (os == Os.linux) {
+                if (openAsked()) openWhy = "asked";
+                else {
+                    String images = fetchImages(build, embedTag, out);
+                    Made made = images.isEmpty() ? makeNetwork() : new Made(null, c.t("a program it runs could not be fetched ({0})", images));
+                    shut = made.shut();
+                    if (shut == null) { openWhy = "unproven"; reason = made.why(); }
+                }
+            }
+            // Text Embeddings Inference reads its model from a folder, fetched here and checked, so it asks nobody for it at its starts
+            String folder = null;
+            if (tei) {
+                Files.createDirectories(Embed.dir());
+                folder = Embed.modelFolder();
+                if (folder == null) {
+                    out.println("  " + c.t("Downloading the embeddings model ({0}, about 1.2 GB) into {1}. It is checked when it is done.", Embed.MODEL, Embed.dir().resolve(Embed.FOLDER)));
+                    try { folder = Embed.fetchModel(); }
+                    catch (Exception e) {
+                        // with no way out the server cannot fetch its model itself: it is left out now and added at a later start of the service; the earlier way lets it fetch
+                        if (shut != null) { embedTag = null; embedLater = true; }
+                        out.println("  " + (shut != null ? c.t("That download failed ({0}). The model is installed and answers; search by meaning is off until the embeddings model is fetched, which the library tries again each time its service starts.", String.valueOf(e.getMessage()))
+                                                         : c.t("That download failed ({0}). The embeddings server fetches its model itself the first time it starts.", String.valueOf(e.getMessage()))));
+                    }
+                }
+            }
+            Plan earlier = plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag, build, null, folder);
+            Plan p = shut == null ? earlier : plan(os, row, modelFile, dir, unitPath(os), gpus, idleMinutes, share, embedTag, build, shut, folder);
+            String planLines = planProperties(row, modelFile, gpus, idleMinutes, share) + "chosen=" + chosen + "\n" + idleChosen(idleMinutes);
+            Files.writeString(dir.resolve("plan.properties"), planLines + (os != Os.linux ? "" : shut != null ? shutProperties(shut, false, false) : openProperties(openWhy, reason)), StandardCharsets.UTF_8);
+            writeFiles(dir, filesOf(p));
             Files.createDirectories(p.unit().getParent());
             Files.writeString(p.unit(), p.unitText(), StandardCharsets.UTF_8);
             String s = startService(os, p);
             if (!s.isEmpty()) return s;
-            for (int i = 0; i < 30 && !health.test(URL); i++) Thread.sleep(1000);
-            if (!health.test(URL)) return "!the proxy did not answer at " + URL + " within 30 s: " + logHint();
+            if (!answersWithin(30)) {
+                if (shut == null) return "!the proxy did not answer at " + URL + " within 30 s: " + logHint();
+                Proof unanswered = stepBackUnanswered(dir, filesOf(earlier), out);   // the earlier way's files; when the proxy stays silent with them too, the fault is not the arrangement's
+                rewriteNet(dir, openProperties("unproven", unanswered.failed()));
+                if (!answersWithin(30)) return "!the proxy did not answer at " + URL + " within 30 s: " + logHint();
+                shut = null;
+            }
+            if (os == Os.linux && openWhy != null)
+                out.println("  " + (openWhy.equals("asked") ? c.t("The setting {0} is open, so the model server is set up able to reach the network, as earlier versions did.", settingName())
+                        : c.t("The model server could not be set up with no way out to the network on this machine, because {0}. It is set up the way earlier versions did, so it can reach the network. To try again: researchzosho model install", reason)));
+            if (shut != null) {
+                Proof proof = proveOrStepBack(row.name(), p.embeds(), build, dir, filesOf(earlier), out);
+                rewriteNet(dir, proof.failed() == null ? shutProperties(shut, true, proof.names()) : openProperties("unproven", proof.failed()));
+            }
             Config.set("RESEARCHZOSHO_DRIVE", URL);
             Config.set("RESEARCHZOSHO_MODEL", row.name());
             out.println("  Done. The model starts by itself at " + URL + " when the library needs it (it runs on " + backend() + "), and stops again after " + idleMinutes + " minutes with nothing to do, so it only uses the machine while it works. The library is set to use it.");
             if (p.embeds()) {
                 Config.set("RESEARCHZOSHO_EMBED", URL);
                 out.println("  the embeddings server (" + Embed.MODEL + ") comes up at the same address beside it and stays; search by meaning is on"
-                        + (os == Os.linux && !"llama".equals(embedTag) ? " (the model downloads once, about 1.2 GB, on the first search)" : "") + ". `researchzosho rebuild` indexes what is already on the shelves with it.");
-            } else {
+                        + (tei && folder == null ? " (the model downloads once, about 1.2 GB, on the first search)" : "") + ". `researchzosho rebuild` indexes what is already on the shelves with it.");
+            } else if (!embedLater) {
                 out.println("  This machine has no graphics card that Docker can use, so the embeddings server (which lets the library search by meaning) is not installed. The library searches by words instead. If another machine runs one, point the setting RESEARCHZOSHO_EMBED at it.");
             }
             return row.name();
@@ -809,6 +1459,7 @@ public final class ModelServer {
         for (Row r : ROWS) urls.add(r.url());
         for (String a : new String[]{"linux_amd64.tar.gz", "linux_arm64.tar.gz", "darwin_arm64.tar.gz", "darwin_amd64.tar.gz", "windows_amd64.zip"}) urls.add("https://github.com/mostlygeek/llama-swap/releases/download/v" + SWAP_VERSION + "/llama-swap_" + SWAP_VERSION + "_" + a);
         for (String a : new String[]{"macos-arm64.tar.gz", "macos-x64.tar.gz", "win-vulkan-x64.zip"}) urls.add("https://github.com/ggml-org/llama.cpp/releases/download/" + LLAMA_BUILD + "/llama-" + LLAMA_BUILD + "-bin-" + a);
+        for (String f : Embed.FILES.keySet()) urls.add(Embed.fileUrl(f));   // the embeddings model's files, by their pinned revision
         int limited = 0;
         for (String u : urls) {
             String status = "";
@@ -1058,8 +1709,19 @@ public final class ModelServer {
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
             }
-            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "");
-            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n" + idleChosen(idle), StandardCharsets.UTF_8);
+            // the install stays set up the way it is (0.8.1): with no way out the embeddings server needs its model's folder, since it cannot fetch
+            Shut shut = os == Os.linux ? shutOf(m) : null;
+            String folder = null;
+            if (os == Os.linux && !"llama".equals(embedTag)) {
+                Files.createDirectories(Embed.dir());
+                folder = Embed.modelFolder();
+                if (folder == null && shut != null) {
+                    try { folder = Embed.fetchModel(); }
+                    catch (Exception e) { return "!" + Chrome.now().t("the embeddings model could not be fetched ({0}); search by meaning stays off, and the next start of the service tries again", String.valueOf(e.getMessage())); }
+                }
+            }
+            Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "", shut, folder);
+            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n" + idleChosen(idle) + netProperties(m), StandardCharsets.UTF_8);
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
             // the model's start script stays as it is, whoever wrote it, so the config's stop command names the container that script starts
             Files.writeString(cfg, stopsWhatStarts(p.configYaml()), StandardCharsets.UTF_8);
@@ -1183,6 +1845,7 @@ public final class ModelServer {
             int embedTtl = et.find() ? Integer.parseInt(et.group(1)) : 0;
             b.append("  embeddings: ").append(y.contains("\"" + EMBED_NAME + "\":") ? Embed.MODEL + " beside it at the same address, model name \"" + EMBED_NAME + "\", " + (embedTtl == 0 ? "never idles out" : "stops after " + embedTtl / 60 + " idle minutes") : "none beside it (no card docker can use; RESEARCHZOSHO_EMBED can point elsewhere)").append('\n');
         } catch (IOException e) { b.append("  config unreadable: ").append(e.getMessage()).append('\n'); }
+        b.append("  network: ").append(wayOutSaid()).append('\n');
         boolean up = health.test(URL);
         b.append("  proxy at ").append(URL).append(": ").append(up ? "answers" : "does not answer (service " + serviceState() + "; log: " + logHint() + ")").append('\n');
         if (up) {
@@ -1214,7 +1877,12 @@ public final class ModelServer {
             String sib = siblingDrive();
             if (!force && URL.equals(sib)) return "!CodeZaiku's settings also point at this proxy (" + Path.of(home(), ".codezaiku", "config") + "); point it elsewhere first, or pass --force";
             switch (os) {
-                case linux -> { runner.run(List.of("systemctl", "--user", "disable", "--now", UNIT)); Files.deleteIfExists(unitPath(os)); runner.run(List.of("systemctl", "--user", "daemon-reload")); }
+                case linux -> {
+                    boolean shut = false;
+                    try { shut = Files.exists(dir().resolve("plan.properties")) && shutOf(readPlan(dir())) != null; } catch (IOException | RuntimeException ignored) { }
+                    runner.run(List.of("systemctl", "--user", "disable", "--now", UNIT)); Files.deleteIfExists(unitPath(os)); runner.run(List.of("systemctl", "--user", "daemon-reload"));
+                    if (shut) removeNetwork();   // the network with no way out goes with the install that made it
+                }
                 case macos -> { runner.run(List.of("launchctl", "bootout", "gui/" + uid() + "/" + LABEL)); Files.deleteIfExists(unitPath(os)); }
                 case windows -> { runner.run(List.of("schtasks", "/delete", "/tn", TASK, "/f")); String left = stopOurProxy(dir()); if (!left.isEmpty()) said.append(left).append(' '); }
             }

@@ -35,6 +35,7 @@ class ModelServerTest {
     final ModelServer.Detacher realDetach = ModelServer.detach;
     final Map<String, String> realSums = new HashMap<>(ModelServer.sums);
     final Function<String, ModelServer.Served> realServedAt = ModelServer.servedAt;
+    final ModelServer.Asker realAsker = ModelServer.asker;
     Path realDrm = Gpu.SYS_DRM, realKfd = Gpu.SYS_KFD, realDev = Gpu.DEV;
     /** The GPU readers look at a stand-in tree, empty unless a case fills it, so the box that runs the suite does not leak in. */
     @BeforeEach void standInKernel() throws Exception {
@@ -43,7 +44,7 @@ class ModelServerTest {
         Gpu.SYS_DRM = sys.resolve("drm"); Gpu.SYS_KFD = sys.resolve("kfd"); Gpu.DEV = sys.resolve("dev");
     }
     @AfterEach void restoreGpu() { Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev; }
-    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; }
+    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; ModelServer.asker = realAsker; }
 
     @Test
     void anInstallUsesAServerAnotherProgramAlreadyRunsWithAMeasuredModelAndDownloadsNothing(@TempDir Path home) throws Exception {
@@ -145,10 +146,27 @@ class ModelServerTest {
     /** The machine as the fakes describe it: which commands answer, what the archives unpack to. */
     private List<List<String>> fakeMachine(ModelServer.Os os, boolean[] started, List<String> fetched) {
         List<List<String>> ran = new ArrayList<>();
+        List<String> networks = new ArrayList<>();   // Docker's networks on this machine: none until the install makes its own (0.8.1)
         ModelServer.os = os;
+        // the model and the embeddings server answer the install's first questions, as a working machine's do
+        ModelServer.asker = new ModelServer.Asker() {
+            @Override public String complete(String base, String model, int seconds) { return ""; }
+            @Override public String embed(String base, int seconds) { return ""; }
+            @Override public void rest(String base) { }
+        };
         ModelServer.runner = cmd -> {
             ran.add(cmd);
             String c = cmd.get(0);
+            if (c.equals("ip")) return new ModelServer.Result(0, "default via 192.168.1.1 dev eth0 proto dhcp src 192.168.1.20\n192.168.1.0/24 dev eth0 proto kernel scope link src 192.168.1.20\n"
+                    + (networks.isEmpty() ? "" : "172.16.211.0/28 dev br-6bd65cf20e25 proto kernel scope link src 172.16.211.1 linkdown\n"));   // a Docker network's bridge is an interface of the machine
+            if (c.equals("docker") && os == ModelServer.Os.linux && cmd.size() > 3 && cmd.get(1).equals("network")) {
+                String name = cmd.get(2).equals("create") ? cmd.get(cmd.size() - 1) : cmd.get(3);
+                if (cmd.get(2).equals("inspect")) return networks.contains(name) ? new ModelServer.Result(0, cmd.contains("{{.Internal}}") ? "true\n" : "true 172.16.211.0/28\n") : new ModelServer.Result(1, "Error response from daemon: network " + name + " not found\n");
+                if (cmd.get(2).equals("create")) { networks.add(name); return new ModelServer.Result(0, "6bd65cf20e25\n"); }
+                return new ModelServer.Result(networks.remove(name) ? 0 : 1, "");
+            }
+            if (c.equals("docker") && cmd.contains("--entrypoint")) return new ModelServer.Result(0, "13.33.109.46");   // an ordinary container reaches the outside address
+            if (c.equals("docker") && cmd.get(1).equals("exec")) return new ModelServer.Result(cmd.contains("getent") ? 2 : 7, "");   // from inside the install's containers nothing does
             if (c.equals("docker")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, "map[nvidia:{...} runc:{...}]");
             if (c.equals("nvidia-smi")) return new ModelServer.Result(os == ModelServer.Os.linux ? 0 : 1, cmd.stream().anyMatch(x -> x.contains("compute_cap")) ? "8.9\n" : cmd.stream().anyMatch(x -> x.contains("name,")) ? "NVIDIA RTX A4000, 16380\n" : "16380\n");
             if (c.equals("sysctl")) return new ModelServer.Result(0, String.valueOf(16L * 1073741824L) + "\n");
@@ -169,7 +187,7 @@ class ModelServerTest {
             return new ModelServer.Result(0, "");
         };
         ModelServer.detach = cmd -> { ran.add(cmd); if (cmd.get(0).equals("powershell") && cmd.contains("-File")) started[0] = true; };
-        ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "x"); ModelServer.sums.put(dest.getFileName().toString(), SHA_X); };
+        ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "x"); ModelServer.sums.put(dest.getFileName().toString(), SHA_X); ModelServer.sums.put(dest.getParent().getFileName() + "/" + dest.getFileName(), SHA_X); };
         ModelServer.health = base -> started[0];
         return ran;
     }
@@ -188,11 +206,16 @@ class ModelServerTest {
             String r = ModelServer.install(null, "all", 20, false, new PrintStream(out, true));
             assertEquals("gpt-oss-20b", r, out.toString());
             assertTrue(fetched.get(0).endsWith("/gpt-oss-20b-F16.gguf") && fetched.get(1).contains("llama-swap_255_linux_"), fetched.toString());
-            assertEquals(2, fetched.size(), "no llama.cpp download on Linux: the container is the server");
+            assertEquals(2 + Embed.FILES.size(), fetched.size(), "the model, the proxy and the files of the embeddings model: " + fetched);
+            assertTrue(fetched.stream().noneMatch(u -> u.contains("llama.cpp/releases")), "no llama.cpp download on Linux: the container is the server: " + fetched);
             Path dir = ModelServer.dir();
             assertTrue(Files.readString(dir.resolve("config.yaml")).contains("\"gpt-oss-20b\":"));
             assertTrue(Files.isExecutable(dir.resolve("run.sh")));
             assertTrue(Files.readString(home.resolve(".config/systemd/user/researchzosho-model.service")).contains("--listen 127.0.0.1:8211"));
+            // 0.8.1: the containers are set up with no way out, and the install said so after trying it
+            assertTrue(Files.readString(dir.resolve("run.sh")).contains("--network researchzosho-model-shut --ip 172.16.211.2 --cap-drop NET_RAW") && Files.readString(dir.resolve("config.yaml")).contains("proxy: http://172.16.211.2:8080"), Files.readString(dir.resolve("run.sh")));
+            assertTrue(out.toString().contains("The model server has no way out to the network") && Files.readString(dir.resolve("plan.properties")).contains("network=shut\n"), out.toString());
+            assertTrue(ran.contains(List.of("docker", "network", "create", "--internal", "--subnet", "172.16.211.0/28", "researchzosho-model-shut")), ran.toString());
             assertTrue(ran.stream().anyMatch(c -> c.equals(List.of("systemctl", "--user", "enable", "--now", "researchzosho-model"))), ran.toString());
             assertEquals("http://127.0.0.1:8211", Config.get("RESEARCHZOSHO_DRIVE"));
             assertEquals("gpt-oss-20b", Config.get("RESEARCHZOSHO_MODEL"));

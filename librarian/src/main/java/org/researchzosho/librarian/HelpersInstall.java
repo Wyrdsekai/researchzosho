@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
 import org.researchzosho.Version;
@@ -95,7 +96,7 @@ final class HelpersInstall {
             };
             if (a == null) return false;
             if (h == Helper.EMBED || h == Helper.LABSE) return Embed.answers(a);
-            try { return HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create(a + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding()).statusCode() == 200; }
+            try { return Outbound.client(HttpClient.newHttpClient()).send(HttpRequest.newBuilder(URI.create(a + "/health")).timeout(Duration.ofSeconds(5)).GET().build(), HttpResponse.BodyHandlers.discarding()).statusCode() == 200; }
             catch (Exception e) { return false; }
         }
         @Override public long freeBytes() { return TranslationScores.freeBytes(); }
@@ -110,7 +111,7 @@ final class HelpersInstall {
         try {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(base + "/health")).timeout(Duration.ofSeconds(5)).GET();
             if (secret != null && !secret.isEmpty()) b.header("Authorization", "Bearer " + secret);
-            HttpResponse<String> r = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build().send(b.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> r = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()).send(b.build(), HttpResponse.BodyHandlers.ofString());
             if (r.statusCode() != 200) return null;
             Map<String, String> m = Helpers.helpersIn(r.body());
             if (m == null) return null;
@@ -123,7 +124,7 @@ final class HelpersInstall {
 
     /** A helpers server's health, asked with {@code secret} until it answers or {@code wait} passes: what it serves, or null. */
     static Map<String, String> health(String base, String secret, Duration wait) {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
         long until = System.currentTimeMillis() + wait.toMillis();
         do {
             try {

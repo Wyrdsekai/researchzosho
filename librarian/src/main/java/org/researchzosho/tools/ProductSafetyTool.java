@@ -24,6 +24,8 @@ public final class ProductSafetyTool implements Tool {
 
     @Override public String name() { return "product_safety"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the regulators' records
+
     @Override public String description() {
         return "Recall notices about a product, from the open safety feeds the library keeps (US CPSC and FDA, EU Safety Gate, UK OPSS, the OECD portal), "
                 + "by barcode, by brand and model number, or by the maker and the words of the name; and whether the person already owns something that reads like "

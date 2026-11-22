@@ -190,7 +190,7 @@ public final class Corpus {
                 Path p;
                 if (link) {
                     boolean wasChanged = have != null && RawCapture.linkedFile(have) != null;
-                    p = RawCapture.link(store, f, doc.text(), title, "corpus:" + collection, collection);
+                    p = RawCapture.link(store, f, doc.text(), title, "corpus:" + collection, collection, RawCapture.eyeHead(doc));
                     if (p != null && wasChanged) { markChanged(store, locator, RawCapture.linkedHash(p)); continue; }
                 } else {
                     // the document's pictures, kept once (a picture already on the shelves is not described again); the text with their lines is what is compared and kept
@@ -254,7 +254,7 @@ public final class Corpus {
         DocPictures.Outcome pictures = DocPictures.withPictures(store, bytes, f.getFileName().toString(), "file://" + f, title, doc.text(), collection);
         LAST_PICTURES.set(pictures.said());
         LAST_READING.set(doc.reading() == null ? "" : PdfReading.said(doc.reading().preflight(), Chrome.now()));
-        return link ? RawCapture.link(store, f, doc.text(), title, by, collection)
+        return link ? RawCapture.link(store, f, doc.text(), title, by, collection, RawCapture.eyeHead(doc))
                 : RawCapture.capture(store, "file://" + f, pictures.text(), title, by, collection, "", readingHead(doc));
     }
 
@@ -263,7 +263,7 @@ public final class Corpus {
      * later reader of the document (research, a translation, its page) says the same without reading it again; empty for any other format.
      */
     static Map<String, String> readingHead(DocText.Doc doc) {
-        Map<String, String> more = new LinkedHashMap<>();
+        Map<String, String> more = new LinkedHashMap<>(RawCapture.eyeHead(doc));   // a picture, or a PDF with pages read by eye: its words are the seeing model's
         if (doc.reading() == null) return more;
         PdfReading.Read r = doc.reading();
         String line = r.preflight().line();
@@ -305,7 +305,7 @@ public final class Corpus {
         String published = "";
         try { published = WebFetchTool.publishedDate(new String(resp.body(), StandardCharsets.UTF_8)); } catch (Exception ignored) { }
         String by = collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection;
-        Path p = RawCapture.capture(store, resp.url(), doc.text(), title, by, collection, published);
+        Path p = RawCapture.capture(store, resp.url(), doc.text(), title, by, collection, published, RawCapture.eyeHead(doc));
         // the person's own address: saved even when no model could check it, and checked when one answers; a checked one means a model
         // answers now, so the pages still waiting are checked
         if (policy.person() && p != null) UncheckedPages.after(store, page, resp.url(), p, policy.judge());
@@ -402,7 +402,7 @@ public final class Corpus {
                     DocText.Doc doc = page.doc();
                     if (doc.text().isBlank() || Fetch.wall(doc.title(), doc.text()) != null) { failed++; continue; }
                     if (was != null && was.strip().equals(doc.text().strip())) { same++; continue; }
-                    Path p = RawCapture.capture(store, resp.url(), doc.text(), doc.title(), "researchzosho-" + name, name);
+                    Path p = RawCapture.capture(store, resp.url(), doc.text(), doc.title(), "researchzosho-" + name, name, "", RawCapture.eyeHead(doc));
                     if (p != null && page.unchecked()) UncheckedPages.note(store, resp.url(), p);   // saved, and checked when a model answers
                     if (p != null && !p.equals(before)) { changed++; store.circulate("reread", name + ": " + u + " changed → " + p.getFileName()); } else same++;
                 } catch (Exception e) { failed++; }

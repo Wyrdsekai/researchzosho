@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.Fetch;
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
@@ -87,7 +88,7 @@ final class HomeFiles {
     static boolean download(String url, Path to) {
         try {
             if (Hosted.any() && Fetch.refusal(URI.create(url)) != null) return false;   // in a library under an account service: the fetcher's rule, and no address it is sent on to
-            HttpClient http = HttpClient.newBuilder().followRedirects(Hosted.any() ? HttpClient.Redirect.NEVER : HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build();
+            HttpClient http = Outbound.client(HttpClient.newBuilder().followRedirects(Hosted.any() ? HttpClient.Redirect.NEVER : HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build());
             HttpRequest req = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(10)).header("User-Agent", "researchzosho.org (research library)").GET().build();
             HttpResponse<InputStream> r = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
             if (r.statusCode() != 200) return false;

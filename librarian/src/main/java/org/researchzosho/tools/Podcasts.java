@@ -267,6 +267,9 @@ public final class Podcasts {
             } catch (Exception ignored) { }
         }
         for (String[] t : preferred(ep.transcripts())) {
+            // where the transcript is, as the show's own feed names it: an address from outside, on whatever host the show keeps it
+            // (until 0.8.1 one on another host than the feed's was refused as a host nobody listed, and the model was told there was none)
+            Outbound.fromAnswer(t[0]);
             String body = Archives.text(t[0], Duration.ofSeconds(30), "the episode's transcript");
             if (body == null) continue;
             List<VideoText.Line> lines = parseTranscript(body, t[1]);
@@ -280,6 +283,7 @@ public final class Podcasts {
         try {
             Files.createDirectories(audio.getParent());
             long most = Config.getInt("RESEARCHZOSHO_FETCH_MAX_BYTES", 0) > 0 ? Config.getInt("RESEARCHZOSHO_FETCH_MAX_BYTES", 0) : 250_000_000L;
+            Outbound.fromAnswer(ep.audioUrl());   // the audio's address, as the feed names it
             HttpResponse<Path> r = fetchAudio(ep.audioUrl(), audio);
             if (r.statusCode() != 200) { why.append("the audio answered HTTP " + r.statusCode() + " at " + r.uri().getHost()); return null; }
             if (Files.size(audio) > most) { why.append("the audio is larger than the library downloads (" + Files.size(audio) / 1_000_000 + " MB)"); return null; }
@@ -301,7 +305,7 @@ public final class Podcasts {
         HttpResponse<Path> r = follow(url, audio);
         if (r.statusCode() == 404 || r.statusCode() == 410) {
             String inner = innerAddress(url);
-            if (inner != null) { Files.deleteIfExists(audio); HttpResponse<Path> again = follow(inner, audio); if (again.statusCode() == 200) return again; }
+            if (inner != null) { Files.deleteIfExists(audio); Outbound.fromAnswer(inner); HttpResponse<Path> again = follow(inner, audio); if (again.statusCode() == 200) return again; }   // the address the feed's own address carries
         }
         return r;
     }
@@ -316,7 +320,9 @@ public final class Podcasts {
             if (r.statusCode() / 100 != 3) return r;
             String loc = r.headers().firstValue("location").orElse("");
             if (loc.isEmpty()) return r;
+            URI was = at;
             at = at.resolve(loc);
+            Outbound.sentOnTo(was, at.toString());   // where the audio's host sent the request on
             Files.deleteIfExists(audio);
         }
         return r;

@@ -46,6 +46,10 @@ class EmbedTest {
         assertFalse(cpu.contains("--gpus"), "the CPU image asks for no GPU: " + cpu);
         assertTrue(cpu.contains("2048"), "a small warm-up batch on the CPU: " + cpu);
         assertTrue(cpu.contains("--auto-truncate") && gpu.contains("--auto-truncate"), "without it the server refuses a batch limit below the model's 32k input limit");
+        // 0.8.1: given its model's folder, it reads the files it has, read-only, and is not started by the name it would ask huggingface.co about
+        String byFolder = String.join(" ", Embed.runCommand(8215, "89-" + Embed.VERSION, "/data/" + Embed.FOLDER));
+        assertTrue(byFolder.contains(":/data:ro ") && byFolder.contains("--model-id /data/" + Embed.FOLDER + " --pooling last-token") && !byFolder.contains(Embed.MODEL + " "), byFolder);
+        assertEquals(gpu, Embed.runCommand(8215, "89-" + Embed.VERSION, null), "without a folder the line is what it was");
     }
 
     @Test

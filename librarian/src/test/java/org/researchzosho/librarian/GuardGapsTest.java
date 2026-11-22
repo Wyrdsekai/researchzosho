@@ -108,7 +108,7 @@ class GuardGapsTest {
         ArrayNode history = M.createArrayNode();
         history.addObject().put("role", "assistant").putArray("tool_calls").addObject().put("id", "c1").putObject("function").put("name", "web_search").put("arguments", M.createObjectNode().put("query", made).toString());
         history.addObject().put("role", "tool").put("tool_call_id", "c1").put("content", "No results for " + made);
-        GivenAddresses.receivedIn(history);
+        GivenAddresses.receivedIn(history, null, (name, args) -> true);   // a search of the web: its answer is from outside
         assertFalse(GivenAddresses.given(made), "the search's own words are not an address it returned");
         // the chat: the shelves' search repeats its query, and the open that follows is refused, and nothing is asked of the site
         String realHome = System.getProperty("user.home");

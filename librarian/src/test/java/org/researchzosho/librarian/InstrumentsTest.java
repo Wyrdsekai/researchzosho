@@ -94,7 +94,7 @@ class InstrumentsTest {
         assertEquals("board Massachusetts General Hospital [Boston, MA]", ran.get(1));
         assertEquals("Records: a roll of 2024.", Instruments.call(table, "records", M.readTree("{\"address\":\"1 City Hall Square, Boston, MA\"}")));
         assertNull(Instruments.call(table, "no_such_instrument", M.readTree("{}")));
-        assertTrue(Instruments.isInstrument(table, "shelf") && !Instruments.isInstrument(table, "who"), "the chat's table has the shelf, and no who without the family module");
+        assertTrue(!Instruments.isInstrument(table, "shelf") && !Instruments.isInstrument(table, "who"), "the chat's table has no shelf (library_ask and library_search read the shelves, 0.8.1), and no who without the family module");
         assertEquals("Say what home is wanted: where, buy or rent, the budget, the rooms.", named(table, "homes").asTool().execute(M.readTree("{}")));
     }
 

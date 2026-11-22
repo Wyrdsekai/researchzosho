@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.drive.Gated;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -315,7 +316,7 @@ public final class Helpers {
         return b;
     }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
 
     // ---- a machine that is away ----
 

@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -137,7 +139,7 @@ public final class OutsideServices {
 
     /** The HTTP the checks use; a test puts its own here. */
     static volatile Function<Req, Res> HTTP = OutsideServices::send;
-    static final HttpClient CLIENT = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    static final HttpClient CLIENT = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).followRedirects(HttpClient.Redirect.NORMAL).build());
 
     static Res send(Req r) {
         try {
@@ -194,7 +196,7 @@ public final class OutsideServices {
             switch (s.name()) {
                 case "The model server" -> {
                     String drive = Config.get("RESEARCHZOSHO_DRIVE", ""), host = drive == null ? "" : drive.toLowerCase(Locale.ROOT);
-                    if (host.contains("openrouter.ai")) {
+                    if (DriveClient.openRouter(drive)) {
                         Res r = call(s, new Req("GET", "https://openrouter.ai/api/v1/auth/key", Map.of("Authorization", "Bearer " + k), null));
                         if (ok(r)) {
                             JsonNode d = M.readTree(r.body()).path("data");

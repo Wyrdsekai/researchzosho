@@ -20,6 +20,8 @@ public final class ScholarSearchTool implements Tool {
 
     @Override public String name() { return "scholar_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the scholarly indexes' records
+
     @Override public String description() {
         return "Search the scholarly literature (Crossref and OpenAlex): papers, books and chapters, each with its DOI, "
                 + "venue, year and authors. Use it whenever the question touches a literature: medicine, science, history, "

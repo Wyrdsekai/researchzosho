@@ -22,6 +22,8 @@ public final class PubMedSearchTool implements Tool {
 
     @Override public String name() { return "pubmed_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // PubMed's records
+
     @Override public String description() {
         return "Search PubMed, the index of the medical and life-science literature, best match first: each article with its journal, year, "
                 + "authors, kind (a trial, a review, a meta-analysis) and the start of its abstract. An article whose full text PubMed Central gives "

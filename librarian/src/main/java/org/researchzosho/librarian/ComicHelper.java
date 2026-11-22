@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -361,7 +362,7 @@ final class ComicHelper {
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return new There(There.SILENT, a, host, ""); }
     }
 
-    private static final HttpClient THERE_HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient THERE_HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
 
     /**
      * Whether a comic's pages can be read now with nothing set up first: by the comic helper of the machine that serves this library's
@@ -1438,7 +1439,7 @@ final class ComicHelper {
      */
     static final class Remote implements Reader {
         private final String address, host;
-        private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        private final HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
         private String session;
         private volatile String open;
         private volatile boolean aborted;

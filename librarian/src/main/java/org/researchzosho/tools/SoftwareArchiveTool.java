@@ -24,6 +24,8 @@ public final class SoftwareArchiveTool implements Tool {
 
     @Override public String name() { return "software_archive"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the archive's records
+
     @Override public String description() {
         return "The archives of source code: Software Heritage (kind=origins: repositories by name or address, with when they were last archived and "
                 + "the archived copy to browse, also for repositories that no longer exist) and Debian's snapshot archive (kind=debian: every version "

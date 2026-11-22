@@ -120,6 +120,8 @@ public final class RecordSearchTool implements Tool {
 
     @Override public String name() { return "record_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the registers' records
+
     @Override public String description() {
         StringBuilder b = new StringBuilder("Search ONE collection by its id: a web engine cannot see inside these, or buries what is in them. "
                 + "A hit gives its date, its link and how to cite it; web_fetch the link to read it. Start with the fewest words, a name alone; add "

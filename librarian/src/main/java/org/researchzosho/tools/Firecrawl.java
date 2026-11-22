@@ -36,7 +36,7 @@ public final class Firecrawl {
     static { BASE.put("scrape", "https://api.firecrawl.dev/v2/scrape"); }
     /** Pages read through Firecrawl, session-wide: the report says so. */
     public static final AtomicInteger USED = new AtomicInteger();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
 
     public static boolean on() { String k = Config.get(KEY); return k != null && !k.isBlank(); }
 

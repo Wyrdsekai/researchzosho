@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -55,7 +56,7 @@ public final class Help {
             DOCS = List.of("LIBRARIAN_HOWTOUSE.md", "FAMILY_HISTORY.md", "MODELS.md", "BEDROCK.md", "YOUTUBE.md", "LIBRARY_PROTOCOL.md");
     private static volatile List<Section> sections;
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).followRedirects(HttpClient.Redirect.NORMAL).build());
     /** A source tree's documents, name to file, when the program runs from one; null for an installed release. A test sets it. */
     static volatile Map<String, Path> tree = treeDocs();
     /** What the documentation is fetched with: an address to its body, or null; a test puts a stand-in here. */
@@ -333,17 +334,27 @@ public final class Help {
     public static String lookup(LibraryStore store, String question) { return lookup(store, question, Chrome.ENGLISH); }
 
     /** What /help and some words answer, and the Help page, in {@code c}'s language: the documentation's sections first (as the documents are written), then what is running here, in short. */
-    public static String lookup(LibraryStore store, String question, Chrome c) {
+    public static String lookup(LibraryStore store, String question, Chrome c) { return lookup(store, question, c, null); }
+
+    /**
+     * The same; {@code shownAs}: what stands in the answer where it says the question back, or null for the question itself. The
+     * Help page gives a mark of its own and puts the question there afterwards as plain words: the answer is otherwise the program's
+     * own text, whose links stand as written, and a question is whatever stood in the page's address.
+     */
+    public static String lookup(LibraryStore store, String question, Chrome c, String shownAs) {
         String q = question == null ? "" : question.strip();
         if (q.isEmpty()) return answer(store, "", c);
-        return sections(q, c) + "\n\n" + c.t("What is running here: {0}", shortState(c));
+        return sections(q, c, shownAs == null ? q : shownAs) + "\n\n" + c.t("What is running here: {0}", shortState(c));
     }
 
     /** The sections that answer the question, with where to ask; or that the documentation says nothing on it. */
-    static String sections(String q, Chrome c) {
+    static String sections(String q, Chrome c) { return sections(q, c, q); }
+
+    /** The same, the question said back as {@code shown}. */
+    static String sections(String q, Chrome c, String shown) {
         if (docs().isEmpty()) return missing(c);
         List<Section> found = find(q, 3);
-        if (found.isEmpty()) return c.t("Its own documentation says nothing on \"{0}\". Questions it does not answer can be asked at {1}.", q, ISSUES);
+        if (found.isEmpty()) return c.t("Its own documentation says nothing on \"{0}\". Questions it does not answer can be asked at {1}.", shown, ISSUES);
         StringBuilder b = new StringBuilder(c.t("From its own documentation:"));
         for (Section s : found) {
             String t = s.text().length() > 1800 ? s.text().substring(0, 1800) + " …" : s.text();

@@ -374,7 +374,7 @@ public final class SiteList {
     private static final int MAX_DOWNLOAD = 64 * 1024 * 1024;
 
     static byte[] download(String url) throws Exception {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).followRedirects(HttpClient.Redirect.NORMAL).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).followRedirects(HttpClient.Redirect.NORMAL).build());
         HttpResponse<InputStream> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(120))
                 .header("User-Agent", Fetch.USER_AGENT).GET().build(), HttpResponse.BodyHandlers.ofInputStream());
         try (InputStream in = r.body()) {

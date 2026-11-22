@@ -64,11 +64,49 @@ public final class Addresses {
         try { return Inet4Address.getByAddress(four); } catch (UnknownHostException e) { return null; }
     }
 
-    /** Whether a host is written as an address (IPv4 dotted, or IPv6 with or without brackets), so it is checked without asking DNS. */
+    /**
+     * The address a host stands for when it is written as numbers, read off its letters with no name looked up; null for anything
+     * else (a name, numbers that are no address). The forms: four numbers with dots, each at most 255; one number of up to 32 bits,
+     * as a browser reads one; an IPv6 address, in brackets or not, a zone after {@code %} left off. A caller that must never ask a
+     * resolver (a page being written) reads a host with this and with nothing that takes a name.
+     */
+    public static InetAddress numeric(String host) {
+        if (host == null) return null;
+        String h = host.strip();
+        if (h.startsWith("[") && h.endsWith("]")) h = h.substring(1, h.length() - 1);
+        try {
+            if (h.matches("\\d{1,3}(\\.\\d{1,3}){3}")) {
+                String[] parts = h.split("\\.");
+                byte[] b = new byte[4];
+                for (int i = 0; i < 4; i++) { int v = Integer.parseInt(parts[i]); if (v > 255) return null; b[i] = (byte) v; }
+                return InetAddress.getByAddress(b);
+            }
+            if (h.matches("\\d{1,10}")) {
+                long v = Long.parseLong(h);
+                return v > 0xffffffffL ? null : InetAddress.getByAddress(new byte[]{(byte) (v >>> 24), (byte) (v >>> 16), (byte) (v >>> 8), (byte) v});
+            }
+            int zone = h.indexOf('%');
+            String six = zone >= 0 ? h.substring(0, zone) : h;
+            // hexadecimal digits, colons and the dots of an IPv4 address at its end, beginning with a digit or a colon: such a text
+            // the JDK reads as an address or refuses, and never looks up
+            if (six.indexOf(':') < 0 || !six.matches("[0-9A-Fa-f:][0-9A-Fa-f:.]*")) return null;
+            return InetAddress.getByName(six);
+        } catch (UnknownHostException | RuntimeException notAnAddress) { return null; }
+    }
+
+    /**
+     * Whether a host is written as an address: four numbers with dots, each at most 255, or an IPv6 address, in brackets or not, a
+     * zone after it or none; read off its letters as {@link #numeric} reads it. Such a host is checked without asking DNS, and a
+     * caller hands it to the JDK to be read, which looks none of these up. Anything else is a name: also a text that holds a colon
+     * and is no address, and numbers that are none (until the last reading of 0.8.1 every text of letters with a colon in it
+     * counted, as did four numbers over 255, and the JDK looks such a text up when it is handed one; no caller had one to hand
+     * over, a request's host being a name without a colon or an address its own reader checked).
+     */
     public static boolean literal(String host) {
         if (host == null) return false;
         String h = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
-        return h.matches("\\d{1,3}(\\.\\d{1,3}){3}") || (h.contains(":") && h.matches("[0-9A-Fa-f:.%a-zA-Z]+"));
+        if (h.isEmpty() || h.indexOf('[') >= 0 || h.indexOf(']') >= 0 || !h.equals(h.strip())) return false;
+        return (h.matches("\\d{1,3}(\\.\\d{1,3}){3}") || h.indexOf(':') >= 0) && numeric(h) != null;
     }
 
     /** The setting a library in a container is given: its web goes through its node's gate, which checks every address itself. */

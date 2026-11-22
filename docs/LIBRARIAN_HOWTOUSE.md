@@ -140,7 +140,8 @@ local list. A hosted model needs an address and a key, which setup asks for, or 
 - **Gemini.** Address `https://generativelanguage.googleapis.com/v1beta/openai/`, a key from AI Studio,
   a model such as `gemini-3.8-flash`. Google calls this endpoint a beta.
 - **Groq.** Fast, but its plans allow 8,000 tokens a minute and 200,000 a day at the start, and one
-  research call averages 16,000 tokens, so it suits the chat and short asks, not research runs.
+  research call averages 16,000 tokens and a chat round about 19,000, so on that plan it suits short asks, not the
+  chat or research runs.
 
 - **Nebius Token Factory.** Address `https://api.tokenfactory.nebius.com/v1` (setup takes the word `nebius`), a key
   from tokenfactory.nebius.com, open models such as `deepseek-ai/DeepSeek-V4.1-Flash` or `zai-org/GLM-5.3-Flash`, hosted
@@ -2836,6 +2837,12 @@ to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 | Windows x64 | llama.cpp's own Vulkan build, any card | a logon task | the NVIDIA card's memory, else half the RAM |
 
 - `--idle-minutes` changes the wait, and so does `model_idle_minutes` (0 keeps it loaded).
+- On Linux the model server and the embeddings server are set up with no way out to the network: their
+  containers are on a Docker network with no route to anything but your machine. The install tries it
+  with a first answer from the model, which loads the model once, and sets the server up the earlier way
+  when it does not hold. `model status` says which way it is and why. `model_network` set to `open`
+  chooses the earlier way; it takes effect when `model install` is given again, and so does the change
+  of an install from before 0.8.1.
 - `--gpu <index>` picks a card on a Linux machine with several.
 - `--file <gguf>` serves a model file you already have.
 - `--share` makes the proxy answer on every interface, so other machines can use this one.

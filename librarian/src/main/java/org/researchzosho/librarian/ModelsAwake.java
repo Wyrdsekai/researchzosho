@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 import org.researchzosho.drive.DriveClient;
 import org.researchzosho.drive.anthropic.Anthropic;
@@ -64,7 +65,7 @@ final class ModelsAwake {
         String key() { return container != null ? "container " + container : base + " " + model; }
     }
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build());
 
     static boolean blank(String s) { return s == null || s.isBlank(); }
     static String base(String url) { return url.strip().replaceAll("/+$", "").replaceAll("/v1$", ""); }

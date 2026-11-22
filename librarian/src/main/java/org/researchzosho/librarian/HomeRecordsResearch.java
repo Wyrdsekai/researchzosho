@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.Fetch;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,7 +85,9 @@ public final class HomeRecordsResearch {
                 JsonNode j = M.readTree(f.toFile());
                 LocalDate at = LocalDate.parse(j.path("at").asText("2000-01-01"));
                 List<Source> kept = read(j.path("sources"));
-                if (at.plusDays(kept.isEmpty() ? 7 : DAYS).isAfter(LocalDate.now())) {
+                // an answer kept by a version before 0.8.1 may hold addresses a model wrote of its own: it is asked again, not used
+                if (j.path(GIVEN_ONLY).asBoolean(false) && at.plusDays(kept.isEmpty() ? 7 : DAYS).isAfter(LocalDate.now())) {
+                    for (Source s : kept) GivenAddresses.received(s.url());   // each came from outside when it was kept
                     if (!j.path("expanded").asBoolean(false)) {   // an answer kept before the shapes resolved: its pages asked again, its roots, catalogues and download pages opened, once
                         List<Source> again = new ArrayList<>();
                         for (Source s : kept) again.add(s.page() || s.kind().equals("unknown") ? classify(s.url()) : s);
@@ -103,7 +106,11 @@ public final class HomeRecordsResearch {
         catch (RuntimeException e) { answer = ""; note = "the research could not run: " + e.getMessage(); }
         long took = (System.currentTimeMillis() - t0) / 1000;
         List<Source> sources = new ArrayList<>();
-        for (String u : urls(answer == null ? "" : answer)) sources.add(classify(u));
+        // an address the answer names is tried only when it came from outside in that run (a page it opened, a search's result): an
+        // address the model wrote of its own is asked by nobody (0.8.1)
+        int own = 0;
+        for (String u : urls(answer == null ? "" : answer)) { if (GivenAddresses.given(u)) sources.add(classify(u)); else own++; }
+        if (own > 0) note = (note.isEmpty() ? "" : note + "; ") + own + " address" + (own == 1 ? "" : "es") + " in the answer came from no page or search of the run and " + (own == 1 ? "was" : "were") + " left out";
         if (answer == null || answer.isBlank()) { if (note.isEmpty()) note = "the research gave no answer"; }
         sources = expand(sources, looked);
         Researched out = new Researched(county, state, city, sources, LocalDate.now().toString(), took, note);
@@ -112,10 +119,13 @@ public final class HomeRecordsResearch {
         return out;
     }
 
+    /** In a kept answer: every address in it came from outside in its run (written since 0.8.1). */
+    static final String GIVEN_ONLY = "given_only";
+
     static void write(Path f, String county, String state, String city, String at, List<Source> sources, long took, String note, int answerChars) {
         try {
             Files.createDirectories(f.getParent());
-            ObjectNode o = M.createObjectNode().put("county", county).put("state", state).put("city", city).put("at", at).put("took_seconds", took).put("note", note).put("answer_chars", answerChars).put("expanded", true);
+            ObjectNode o = M.createObjectNode().put("county", county).put("state", state).put("city", city).put("at", at).put("took_seconds", took).put("note", note).put("answer_chars", answerChars).put("expanded", true).put(GIVEN_ONLY, true);
             ArrayNode a = o.putArray("sources");
             for (Source s : sources) a.addObject().put("url", s.url()).put("kind", s.kind()).put("site", s.site()).put("id", s.id());
             M.writerWithDefaultPrettyPrinter().writeValue(f.toFile(), o);
@@ -393,7 +403,7 @@ public final class HomeRecordsResearch {
     static String[] probe(String url) {
         try {
             if (Hosted.any() && Fetch.refusal(URI.create(url)) != null) return null;   // in a library under an account service: the fetcher's rule, and no address it is sent on to
-            HttpClient http = HttpClient.newBuilder().followRedirects(Hosted.any() ? HttpClient.Redirect.NEVER : HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build();
+            HttpClient http = Outbound.client(HttpClient.newBuilder().followRedirects(Hosted.any() ? HttpClient.Redirect.NEVER : HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(15)).build());
             HttpRequest head = HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofSeconds(20)).header("User-Agent", "researchzosho.org (research library)").method("HEAD", HttpRequest.BodyPublishers.noBody()).build();
             HttpResponse<Void> h = http.send(head, HttpResponse.BodyHandlers.discarding());
             String type = h.headers().firstValue("content-type").orElse("");

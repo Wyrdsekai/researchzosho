@@ -176,21 +176,26 @@ class ChromeTest {
         try {
             var plain = get(c, base + "/past", null, null);
             assertTrue(plain.body().contains("<html lang=\"en\">") && plain.body().contains(">Past<"), plain.body());
-            assertTrue(plain.body().contains("hreflang=\"ja\"") && plain.body().contains("日本語") && plain.body().contains("href=\"/past?lang=ja\""), "the switch offers Japanese: " + plain.body());
+            // the switch is the page's own form (0.8.1): it posts the language and where to come back to, and that keeps the choice;
+            // an address with ?lang= shows that one page in the language and keeps nothing
+            assertTrue(plain.body().contains("日本語") && plain.body().contains("<form class=\"langs\" method=\"post\" action=\"/lang\"><input type=\"hidden\" name=\"back\" value=\"/past\">") && plain.body().contains("<button name=\"lang\" value=\"ja\" lang=\"ja\">"), "the switch offers Japanese: " + plain.body());
             // a small menu, not a row: the language in use, and each language with a file by its own name, English last
             String menu = plain.body().substring(plain.body().indexOf("<details class=\"lang-switch\">"), plain.body().indexOf("</details>", plain.body().indexOf("<details class=\"lang-switch\">")));
-            for (String code : Chrome.available()) assertTrue(menu.contains("hreflang=\"" + code + "\" lang=\"" + code + "\"") && menu.contains(">" + Chrome.nativeName(code) + "</a>"), code + " in " + menu);
-            assertTrue(menu.lastIndexOf("hreflang=\"en\"") > menu.lastIndexOf("hreflang=\"ja\""), menu);
-            var switched = get(c, base + "/past?lang=ja", null, null);
-            assertTrue(switched.body().contains("<html lang=\"ja\">"), switched.body());
+            for (String code : Chrome.available()) assertTrue(menu.contains("value=\"" + code + "\" lang=\"" + code + "\"") && menu.contains(">" + Chrome.nativeName(code) + "</button>"), code + " in " + menu);
+            assertTrue(menu.lastIndexOf("value=\"en\"") > menu.lastIndexOf("value=\"ja\""), menu);
+            var shownOnce = get(c, base + "/past?lang=ja", null, null);
+            assertTrue(shownOnce.body().contains("<html lang=\"ja\">") && shownOnce.headers().allValues("set-cookie").isEmpty(), "an address with ?lang= shows the page in the language and keeps nothing: " + shownOnce.headers().map());
+            var switched = c.send(HttpRequest.newBuilder(URI.create(base + "/lang")).header("Content-Type", "application/x-www-form-urlencoded").POST(HttpRequest.BodyPublishers.ofString("lang=ja&back=%2Fpast")).build(), HttpResponse.BodyHandlers.ofString());
+            assertEquals(303, switched.statusCode());
+            assertEquals("/past", switched.headers().firstValue("Location").orElse(""), "the form comes back to its page");
             assertTrue(switched.headers().allValues("set-cookie").stream().anyMatch(v -> v.startsWith("rz_lang=ja;")), "the switch is kept in a cookie: " + switched.headers().map());
-            assertTrue(switched.body().contains("href=\"/past?lang=en\"") && switched.body().contains("hreflang=\"ja\" lang=\"ja\" aria-current=\"true\""), switched.body());
+            assertTrue(get(c, base + "/past", "rz_lang=ja", null).body().contains("value=\"ja\" lang=\"ja\" aria-current=\"true\""), "the language in use is marked");
             var kept = get(c, base + "/past", "rz_lang=ja", "en");
             assertTrue(kept.body().contains("<html lang=\"ja\">"), "the cookie outranks the browser's language: " + kept.body());
             var browser = get(c, base + "/past", null, "ja,en;q=0.5");
             assertTrue(browser.body().contains("<html lang=\"ja\">"), browser.body());
             var switchedBack = get(c, base + "/past?lang=en&q=x", "rz_lang=ja", "ja");
-            assertTrue(switchedBack.body().contains("<html lang=\"en\">") && switchedBack.body().contains("href=\"/past?q=x&amp;lang=ja\""), "the switch keeps the page's own query: " + switchedBack.body());
+            assertTrue(switchedBack.body().contains("<html lang=\"en\">") && switchedBack.body().contains("name=\"back\" value=\"/past?q=x\""), "the switch keeps the page's own query: " + switchedBack.body());
         } finally { d.stop(); }
     }
 
@@ -213,7 +218,7 @@ class ChromeTest {
             assertTrue(login.contains("<h1>サインイン</h1>") && login.contains(">入室を申請する<") && login.contains("あなたの名前") && login.contains("パスキーでサインイン"), login);
             String chat = get(c, base + "/", "rz_token=" + token, "ja").body();
             assertTrue(chat.contains("司書に聞く…") && chat.contains(">会話<") && chat.contains("Enterで送信"), chat);
-            assertTrue(chat.contains("textContent='司書が考えています…") , "the page's own script speaks Japanese too: " + chat);
+            assertTrue(chat.contains("<script src=\"/static/rz-chat.ja.js\"></script>") && get(c, base + "/static/rz-chat.ja.js", "rz_token=" + token, "ja").body().contains("textContent='司書が考えています…"), "the page's own script speaks Japanese too: " + chat);
             String english = get(c, base + "/past", "rz_token=" + token, null).body();
             assertTrue(english.contains("<h2 id=\"reports\">Reports</h2>") && english.contains("Home search: Ada Example"), "the same page in English, unchanged: " + english);
         } finally { d.stop(); }

@@ -139,16 +139,18 @@ class PagesTest {
             assertTrue(get(c, base + "/subjects", null).body().contains("how the gears were made"));
             var qp = get(c, base + "/questions", null);
             assertTrue(qp.body().contains("tooth profiles first"));
-            assertTrue(qp.headers().firstValue("Content-Security-Policy").orElse("").contains("script-src 'unsafe-inline'"), "a pick form's \"all\" box needs its inline handler allowed");
+            assertEquals(Pages.POLICY, qp.headers().firstValue("Content-Security-Policy").orElse(""), "a pick form's \"all\" box is ticked by a script of the library's own");
+            assertTrue(qp.body().contains("data-tick=\"form:q\"") && qp.body().contains("<script src=\"/static/rz-pick.en.js\"></script>") && !qp.body().contains("onclick"), qp.body());
             String changesCsp = get(c, base + "/changes", null).headers().firstValue("Content-Security-Policy").orElse("");
-            assertTrue(changesCsp.startsWith("default-src 'none'") && changesCsp.contains("script-src 'unsafe-inline'") && changesCsp.contains("connect-src 'self'") && !changesCsp.contains("http"),
+            assertTrue(changesCsp.equals(Pages.POLICY) && !changesCsp.contains("http"),
                     "every page carries the look switch and may carry the runs strip: its own inline script and fetches of its own origin are allowed, nothing from elsewhere: " + changesCsp);
             assertTrue(get(c, base + "/changes", null).body().contains("F-0002-teeth"));
             assertTrue(get(c, base + "/jobs", null).body().contains("Nothing is running"));
             var map = get(c, base + "/map?focus=gears", null);
             assertEquals(200, map.statusCode());
             assertTrue(map.body().contains("<header class=\"top\">") && map.body().contains("id=\"c\"></canvas>") && map.body().contains("main class=\"wide\""), "the map sits in the site frame, the whole window wide");
-            assertTrue(map.headers().firstValue("content-security-policy").orElse("").contains("script-src 'unsafe-inline'"));
+            assertEquals(Pages.POLICY, map.headers().firstValue("content-security-policy").orElse(""));
+            assertTrue(map.body().contains("<script src=\"/static/rz-map.en.js\"></script>") && !map.body().contains("onchange"), "the map's script is a file of the library's own: " + map.body());
             assertEquals(404, get(c, base + "/entry/F-9999-nope", null).statusCode());
             assertEquals(404, get(c, base + "/nothing-here", null).statusCode(), "a stray path is still the API's 404, not a page");
 
@@ -224,7 +226,7 @@ class PagesTest {
 
     @Test
     void theLittleMarkdownRenderer() {
-        assertEquals("<h2>Title</h2><p>One <b>two</b> <code>three</code>.</p><ul><li>a</li><li>b</li></ul><p><a href=\"https://x.org/p\" rel=\"noreferrer\">https://x.org/p</a> and <a href=\"https://y.org\" rel=\"noreferrer\">y</a></p>",
+        assertEquals("<h2>Title</h2><p>One <b>two</b> <code>three</code>.</p><ul><li>a</li><li>b</li></ul><p><a href=\"https://x.org/p\" rel=\"noreferrer\">https://x.org/p</a> and <a href=\"https://y.org\" rel=\"noreferrer\">y</a> <span class=\"k leads\">(y.org)</span></p>",
                 Pages.md("# Title\n\nOne **two** `three`.\n\n- a\n- b\n\nhttps://x.org/p and [y](https://y.org)\n"));
         assertEquals("<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>", Pages.md("<script>alert(1)</script>"), "page text is escaped");
         // a run's result links the file it made by the library's own path: the Runs page showed the brackets as text (the translation job of 2026-11-07)

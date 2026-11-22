@@ -24,6 +24,7 @@ import java.util.Arrays;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.nio.file.Files;
 import java.net.URLDecoder;
@@ -46,7 +47,9 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiPredicate;
 import java.util.function.LongSupplier;
+import org.researchzosho.tools.Addresses;
 import org.researchzosho.tools.ContentPolicy;
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.Recalls;
 import org.researchzosho.Config;
 import org.researchzosho.drive.DriveClient;
@@ -78,9 +81,9 @@ final class Pages {
     private Pages() { }
 
     static boolean isPage(String path) {
-        return path.equals("/") || path.equals("/keep") || path.equals("/past") || path.equals("/updates") || path.equals("/connect") || path.equals("/add") || path.equals("/translate") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
+        return path.equals("/") || path.equals(LANG_PATH) || path.equals("/keep") || path.equals("/past") || path.equals("/updates") || path.equals("/connect") || path.equals("/add") || path.equals("/translate") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
                 || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/dossier") || path.equals("/suggest") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/help") || path.equals("/sources") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/oidc") || path.equals("/login/oidc/callback") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.startsWith("/exports/") || path.startsWith("/images/") || path.equals(ImagesPage.PATH) || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/live") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
+                || path.equals("/research") || path.equals("/help") || path.equals("/sources") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/oidc") || path.equals("/login/oidc/callback") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.startsWith("/exports/") || path.startsWith("/images/") || path.equals(FOUND_PATH) || path.equals(ImagesPage.PATH) || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/live") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
                 || path.equals(SeeksPage.PATH) || path.equals(PerspectivesPage.PATH) || path.equals(SubmitPage.PATH) || path.equals(ForecastsPage.PATH) || path.equals(BridgesPage.PATH) || path.equals(LaunchPage.PATH) || path.equals(DbPage.PATH)
                 || Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
     }
@@ -95,17 +98,28 @@ final class Pages {
     static void handle(HttpExchange x, LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> q, Map<String, String> form) throws IOException {
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
+        // a request a page's own tag makes by itself (a picture, a script, a style, a frame's content) is answered only where the library
+        // keeps such things: a page is not a picture, and a tag that names one as its source is asked nothing (0.8.1)
+        if (asAPartOfAPage(x) && !(path.startsWith("/images/") || path.equals(FOUND_PATH))) { sendPlain(x, 404, "This address is a page of the library, not a file a page loads."); return; }
+        // the language switch keeps its choice only from the page's own form (POST /lang); ?lang= in an address shows that one page in the language and keeps nothing
+        if (path.equals(LANG_PATH)) {
+            String picked = "POST".equals(method) ? Chrome.pick(form.get(Chrome.QUERY)) : null;
+            if (picked != null) x.getResponseHeaders().add("Set-Cookie", Chrome.COOKIE + "=" + picked + "; Path=/; SameSite=Lax" + (secure(x) ? "; Secure" : "") + "; Max-Age=31536000");
+            redirect(x, ownPath(form.get("back")));
+            return;
+        }
         PATH.set(path);
+        HERE.set(OwnPage.here(x)[0]);
         String rest = withoutLang(x.getRequestURI().getRawQuery());
         HREF.set(path + (rest.isEmpty() ? "" : "?" + rest));
         // the language of this request: the switch, the cookie it set, the person's own, the browser's, the library's, English
         String lang = Chrome.choose(store, patron, q.get(Chrome.QUERY), cookie(x, Chrome.COOKIE), x.getRequestHeaders().getFirst("Accept-Language"));
         Chrome.here(lang);
-        if (Chrome.pick(q.get(Chrome.QUERY)) != null) x.getResponseHeaders().add("Set-Cookie", Chrome.COOKIE + "=" + lang + "; Path=/; SameSite=Lax" + (secure(x) ? "; Secure" : "") + "; Max-Age=31536000");
         LibraryProtocol p = new LibraryProtocol(store);
         TYPICAL = () -> RunProgress.typicalSeconds(p, LibrarianDaemon.patronNode(Patrons.Patron.PERSON));   // looked up at most every five minutes
         DRIVE_NOW = d::driveNow;
         try {
+            READER.set(patron == null ? "" : patron.did());   // whose page this is, for the found pictures it shows; inside the try, so the finally takes it off whatever happens
             switch (path) {
                 case "/" -> { ModelsAwake.intent("chat"); send(x, 200, chat(store, p, patron, q)); }   // its models warm while the person reads (round C2)
                 case "/past" -> send(x, 200, past(d, store, p, patron, q));
@@ -181,6 +195,14 @@ final class Pages {
                         String subject = form.getOrDefault("subject", "").strip();
                         if (!subject.isEmpty()) Serials.add(store, DossierPage.watchSlug(subject), subject, 7);
                         send(x, 200, dossierPage(store, patron, Map.of("subject", subject)));
+                    } else if ("POST".equals(method) && form.containsKey("translate")) {   // the page's own button: the dossier read in a language, filed as a run
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        String subject = form.getOrDefault("subject", "").strip(), into = Translate.code(form.getOrDefault("in", ""));
+                        if (d != null && !subject.isEmpty() && !into.isBlank() && Translate.current(store, subject, into) == null && Translate.pending(d.jobs(), subject, into) == null) {
+                            ObjectNode a = M.createObjectNode(); a.put("subject", subject); a.put("lang", into);
+                            d.jobs().submit("translate", patron.did(), a);
+                        }
+                        redirect(x, "/dossier?subject=" + URLEncoder.encode(subject, StandardCharsets.UTF_8) + "&in=" + URLEncoder.encode(into, StandardCharsets.UTF_8));
                     } else if (!q.getOrDefault("in", "").isBlank()) send(x, 200, dossierIn(d, store, patron, q));
                     else send(x, 200, dossierPage(store, patron, q));
                 }
@@ -288,7 +310,11 @@ final class Pages {
                 }
                 case "/login/passkey/options" -> SignIn.passkeyOptions(x, store, patron, false);
                 case "/login/passkey" -> SignIn.passkeyAssert(x, store);
-                case "/logout" -> { String c = cookie(x, COOKIE); if (c != null && !c.isBlank()) Accounts.signOut(store, c); clearCookie(x); redirect(x, "/"); }
+                case "/logout" -> {
+                    // signing out is the page's own form's to ask: an address alone (a link, a picture's source) signs nobody out (0.8.1)
+                    if (!"POST".equals(method)) { send(x, 200, page(store, patron, t("Sign out"), "<form method=\"post\" action=\"/logout\"><button class=\"btn primary\">" + t("Sign out") + "</button></form>")); break; }
+                    String c = cookie(x, COOKIE); if (c != null && !c.isBlank()) Accounts.signOut(store, c); clearCookie(x); redirect(x, "/");
+                }
                 case "/join" -> SignIn.join(x, store, method, q, form);   // a link the person who keeps the library sent: the invited person chooses a password and is signed in
                 case "/account" -> {
                     if ("POST".equals(method) && form.getOrDefault("op", "").startsWith("key-")) {
@@ -304,10 +330,21 @@ final class Pages {
                 case "/account/passkey" -> SignIn.passkeyRegister(x, store, patron);
                 default -> {
                     Profile.Page own;
-                    if (path.startsWith("/entry/")) send(x, 200, entry(d, store, p, patron, path.substring("/entry/".length()), q));
+                    if (path.startsWith("/entry/") && "POST".equals(method) && form.containsKey("translate")) {   // the report's own button: read in a language, filed as a run
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        String id = path.substring("/entry/".length()), into = Translate.code(form.getOrDefault("in", ""));
+                        Investigation inv = id.startsWith("I-") ? store.investigation(id) : null;
+                        if (d != null && inv != null && !into.isBlank() && !into.equals(Translate.writtenIn(inv)) && Translate.currentReport(store, inv, into) == null && Translate.pendingReport(d.jobs(), id, into) == null) {
+                            ObjectNode a = M.createObjectNode(); a.put("report", id); a.put("lang", into);
+                            d.jobs().submit("translate", patron.did(), a);
+                        }
+                        redirect(x, "/entry/" + enc(id) + "?in=" + enc(into));
+                    }
+                    else if (path.startsWith("/entry/")) send(x, 200, entry(d, store, p, patron, path.substring("/entry/".length()), q));
                     else if (path.startsWith("/jobs/")) send(x, 200, job(store, p, patron, path.substring("/jobs/".length()), q));
                     else if (path.startsWith("/exports/")) exportFile(x, store, patron, path.substring("/exports/".length()));
                     else if (path.startsWith("/images/")) imageFile(x, store, patron, path.substring("/images/".length()));
+                    else if (path.equals(FOUND_PATH)) foundPicture(x, store, patron, q.get("u"));
                     else if ((own = fieldPage(store, patron, path, method, q, form)) != null) {
                         if (own.redirect() != null) redirect(x, own.redirect()); else send(x, 200, page(store, patron, own.title(), own.body(), 0, null, own.wide()));
                     }
@@ -332,7 +369,33 @@ final class Pages {
             }
             send(x, status, page(store, patron, "forbidden".equals(e.code) ? t("Not allowed") : "not_found".equals(e.code) ? t("Not found") : t("Something went wrong"), "<p class=\"err\">" + esc(e.getMessage()) + hint + "</p>"));
         }
-        finally { PATH.remove(); HREF.remove(); Chrome.clear(); }
+        finally { PATH.remove(); HREF.remove(); HERE.remove(); READER.remove(); Chrome.clear(); }
+    }
+
+    /** Where the language switch's form posts: the one address that keeps a language for the browser. */
+    static final String LANG_PATH = "/lang";
+
+    /** The kinds of thing a page's own tags ask for by themselves, as the browser names them (Sec-Fetch-Dest); a page opened, a link followed and a script's own call are none of them. */
+    private static final Set<String> PARTS_OF_A_PAGE = Set.of("image", "script", "style", "font", "audio", "video", "track", "object", "embed", "manifest", "worker", "sharedworker", "serviceworker", "audioworklet", "paintworklet", "xslt", "report");
+
+    /** Whether the browser says this request is one a tag of a page made by itself: for a picture, a script, a style sheet and the like. A program's call says nothing of the kind. */
+    static boolean asAPartOfAPage(HttpExchange x) {
+        String dest = x.getRequestHeaders().getFirst("Sec-Fetch-Dest");
+        return dest != null && PARTS_OF_A_PAGE.contains(dest.strip().toLowerCase(Locale.ROOT));
+    }
+
+    /** A path of this library to go back to, as a form named it: one slash and no second, no backslash; "/" for anything else. */
+    static String ownPath(String back) {
+        String b = back == null ? "" : back.strip();
+        return b.startsWith("/") && !b.startsWith("//") && b.indexOf('\\') < 0 && b.indexOf('\n') < 0 && b.indexOf('\r') < 0 ? b : "/";
+    }
+
+    static void sendPlain(HttpExchange x, int status, String said) throws IOException {
+        byte[] b = (said + "\n").getBytes(StandardCharsets.UTF_8);
+        x.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
+        x.getResponseHeaders().set("Cache-Control", "no-store");
+        x.sendResponseHeaders(status, b.length);
+        try (OutputStream os = x.getResponseBody()) { os.write(b); }
     }
 
     /** The page's own address without the language switch's query, for the switch's links. */
@@ -616,7 +679,7 @@ final class Pages {
         StringBuilder b = new StringBuilder("<div class=\"cols\">");
         if (s != null) b.append("<section class=\"conv\">").append(conv(store, lp, patron, s, true)).append("</section>");
         b.append("<section class=\"reading\"><a class=\"back small\" href=\"/past\">← ").append(t("Past")).append("</a><div class=\"rhead\"><p class=\"kicker\">").append(kicker).append("</p><a class=\"close\" href=\"").append(esc(closeHref)).append("\" title=\"").append(esc(t("Close"))).append("\">×</a></div><h1>").append(esc(title)).append("</h1>").append(body).append("</section></div>");
-        if (s != null) b.append("<div id=\"scrim\" class=\"scrim\"></div>").append(sessionsDrawer(store, patron, s)).append("<script>").append(chatPageJs()).append("</script>");
+        if (s != null) b.append("<div id=\"scrim\" class=\"scrim\"></div>").append(sessionsDrawer(store, patron, s)).append(script("chat"));
         return page(store, patron, title, b.toString(), 0, null, "split", true);
     }
 
@@ -1258,8 +1321,11 @@ final class Pages {
         ReportRun run = report ? reportRun(store, id) : null;
         // the language: what the report was written in, and what this person reads it in
         String written = inv == null ? "" : Translate.writtenIn(inv), askedIn = q.getOrDefault("in", "").strip(), mine = inv == null ? "" : ReadIn.of(store, patron);
-        String readIn = inv == null ? "" : askedIn.isEmpty() ? mine : askedIn.equals("written") ? "" : Translate.code(askedIn);
-        Translate.Translated tr = inv != null && !readIn.isEmpty() && !readIn.equals(written) ? Translate.currentReport(store, inv, readIn) : null;
+        String wanted = inv == null ? "" : askedIn.isEmpty() ? mine : askedIn.equals("written") ? "" : Translate.code(askedIn);
+        // a report wanted in the language it is written in is the report as written: nothing is missing, and nothing is offered to be
+        // made (0.8.1's button stood there too, "Translate into English" on an English report, and pressing it filed nothing)
+        String readIn = wanted.equals(written) ? "" : wanted;
+        Translate.Translated tr = inv != null && !readIn.isEmpty() ? Translate.currentReport(store, inv, readIn) : null;
         String title = tr == null ? e.path("title").asText(id) : tr.words().getOrDefault(inv.title(), inv.title());
         String body = tr == null ? e.path("body").asText() : tr.markdown();
         if (report && inv != null) {   // a report: its line of state at its head, the legend of the two marks, and the dossier it belongs to
@@ -1408,10 +1474,11 @@ final class Pages {
             String name = languageName(readIn), running = d == null ? null : Translate.pendingReport(d.jobs(), id, readIn);
             if (running != null) b.append("<br>").append(t("Being translated into {0} ({1}): a few minutes on the model. Come back to this page.", esc(name), esc(running)));
             else if (d != null && mayWrite(store, patron)) {
-                ObjectNode a = M.createObjectNode(); a.put("report", id); a.put("lang", readIn);
-                String job = d.jobs().submit("translate", patron.did(), a);
-                b.append("<br>").append(t("Translating into {0} now ({1}): a few minutes on the model, section by section. Come back to this page; it is shown as written meanwhile.", esc(name), esc(job)));
-            } else b.append("<br>").append(t("No translation into {0} yet; the report is shown as written. A writer's visit to this page starts one.", esc(name)));
+                // asked for by the page's own button: a visit alone files nothing (0.8.1)
+                b.append("<br>").append(t("No translation into {0} yet; the report is shown as written. It takes a few minutes on the model, section by section.", esc(name)))
+                 .append(" <form class=\"inline\" method=\"post\" action=\"/entry/").append(enc(id)).append("\"><input type=\"hidden\" name=\"in\" value=\"").append(esc(readIn))
+                 .append("\"><button class=\"btn\" name=\"translate\" value=\"1\">").append(t("Translate into {0}", esc(name))).append("</button></form>");
+            } else b.append("<br>").append(t("No translation into {0} yet; the report is shown as written. Someone who may write starts one from this page.", esc(name)));
         }
         String back = "/entry/" + enc(id);
         if (!readIn.isEmpty() && !readIn.equals(mine)) b.append(" <form class=\"inline\" method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"op\" value=\"read_in\"><input type=\"hidden\" name=\"value\" value=\"").append(esc(readIn)).append("\"><input type=\"hidden\" name=\"back\" value=\"").append(esc(back)).append("\"><button class=\"btn quiet\">").append(t("Always read in {0}", esc(languageName(readIn)))).append("</button></form>");
@@ -1509,10 +1576,11 @@ final class Pages {
         String running = d == null ? null : Translate.pending(d.jobs(), subject, lang);
         if (running != null) b.append("<p>").append(t("Being translated into {0} ({1}): a few minutes on the model. Come back to this page.", esc(name), esc(running))).append("</p>");
         else if (d != null && mayWrite(store, patron)) {
-            ObjectNode a = new ObjectMapper().createObjectNode(); a.put("subject", subject); a.put("lang", lang);
-            String id = d.jobs().submit("translate", patron.did(), a);
-            b.append("<p>").append(t("Translating into {0} now ({1}): a few minutes on the model, section by section. Come back to this page.", esc(name), esc(id))).append("</p>");
-        } else b.append("<p>").append(t("No translation into {0} yet. A writer's visit to this page starts one; the command is {1}.", esc(name), "researchzosho dossier \"" + esc(subject) + "\" --in " + esc(lang))).append("</p>");
+            // asked for by the page's own button: a visit alone files nothing (0.8.1: any address with in= filed a run for whoever opened it)
+            b.append("<p>").append(t("No translation into {0} yet. It takes a few minutes on the model, section by section.", esc(name)))
+             .append(" <form class=\"inline\" method=\"post\" action=\"/dossier\"><input type=\"hidden\" name=\"subject\" value=\"").append(esc(subject)).append("\"><input type=\"hidden\" name=\"in\" value=\"").append(esc(lang))
+             .append("\"><button class=\"btn\" name=\"translate\" value=\"1\">").append(t("Translate into {0}", esc(name))).append("</button></form></p>");
+        } else b.append("<p>").append(t("No translation into {0} yet. Someone who may write starts one from this page; the command is {1}.", esc(name), "researchzosho dossier \"" + esc(subject) + "\" --in " + esc(lang))).append("</p>");
         return page(store, patron, t("Dossier: {0}", subject) + " (" + name + ")", b.toString());
     }
 
@@ -1591,7 +1659,7 @@ final class Pages {
         if (rows.isEmpty()) b.append("<p>").append(t("No questions match these filters.")).append("</p>");
         else {
             b.append("<form method=\"post\" action=\"/questions\" class=\"pick\"><input type=\"hidden\" name=\"op\" value=\"selected\">")
-             .append("<div class=\"bar\"><label><input type=\"checkbox\" onclick=\"for(const c of this.form.querySelectorAll('input[name^=q]'))c.checked=this.checked\"> ").append(t("all")).append("</label> ")
+             .append("<div class=\"bar\"><label><input type=\"checkbox\" data-tick=\"form:q\"> ").append(t("all")).append("</label> ")
              .append("<button name=\"do\" value=\"run\">").append(t("Research now")).append("</button> <button name=\"do\" value=\"next\">").append(t("Run next")).append("</button> <button name=\"do\" value=\"later\">").append(t("Run later")).append("</button> ");
             if (!show.equals("queued")) b.append("<button name=\"do\" value=\"unpark\">").append(t("Put back in the queue")).append("</button> ");
             if (!show.equals("parked")) b.append("<button name=\"do\" value=\"park\">").append(t("Park")).append("</button> ");
@@ -1604,7 +1672,7 @@ final class Pages {
                 String id = e.getKey();
                 if (view.equals("report")) {
                     ObjectNode first = e.getValue().get(0);
-                    b.append("<h3 class=\"group\"><label><input type=\"checkbox\" onclick=\"for(const c of this.closest('h3').nextElementSibling.querySelectorAll('input[name^=q]'))c.checked=this.checked\"> ");
+                    b.append("<h3 class=\"group\"><label><input type=\"checkbox\" data-tick=\"group:q\"> ");
                     if (id.isEmpty()) b.append(t("Not from a report"));
                     else b.append(t("Left by {0}", idLink(id, shortReport(id, first.path("report_title").asText(""))))).append(" ").append(fateBadge(first.path("report_fate").asText("")));
                     b.append(" <span class=\"k\">").append(e.getValue().size()).append("</span></label>");
@@ -1912,7 +1980,7 @@ final class Pages {
         for (ObjectNode o : all) if (m.test(o, f)) rows.add(o);
         if (rows.isEmpty()) { b.append("<p>").append(t("No claims match these filters.")).append("</p>"); return page(store, patron, t("Inbox"), b.toString()); }
         b.append("<form method=\"post\" action=\"/inbox\" class=\"pick\">")
-         .append("<div class=\"bar\"><label><input type=\"checkbox\" onclick=\"for(const c of this.form.querySelectorAll('input[name^=f]'))c.checked=this.checked\"> ").append(t("all")).append("</label> ")
+         .append("<div class=\"bar\"><label><input type=\"checkbox\" data-tick=\"form:f\"> ").append(t("all")).append("</label> ")
          .append("<button name=\"do\" value=\"accept\">").append(t("Accept the ticked ones")).append("</button> <button name=\"do\" value=\"retire\">").append(t("Retire the ticked ones")).append("</button> ")
          .append("<span>").append(t("Dispute the ticked ones:")).append(" <input name=\"why\" size=\"36\" placeholder=\"").append(esc(t("why"))).append("\"> <button name=\"do\" value=\"dispute\">").append(t("Dispute")).append("</button></span></div>");
         Map<String, List<ObjectNode>> groups = new LinkedHashMap<>();
@@ -1921,7 +1989,7 @@ final class Pages {
         for (var e : groups.entrySet()) {
             String id = e.getKey();
             if (view.equals("report")) {
-                b.append("<h3 class=\"group\"><label><input type=\"checkbox\" onclick=\"for(const c of this.closest('h3').nextElementSibling.querySelectorAll('input[name^=f]'))c.checked=this.checked\"> ");
+                b.append("<h3 class=\"group\"><label><input type=\"checkbox\" data-tick=\"group:f\"> ");
                 if (id.isEmpty()) b.append(t("Not from a report"));
                 else b.append(t("From {0}", idLink(id, shortReport(id, e.getValue().get(0).path("report_title").asText("")))));
                 b.append(" <span class=\"k\">").append(e.getValue().size()).append("</span></label>");
@@ -2957,7 +3025,7 @@ final class Pages {
         while (m.find()) {
             String c = m.group(1), rep;
             if (c.endsWith(".md")) rep = "<a class=\"cite\" href=\"/entry/" + enc(c) + "\">[" + t("source") + "]</a>";
-            else if (c.startsWith("http")) rep = "<a class=\"cite\" href=\"" + c + "\" rel=\"noreferrer\">[" + t("source") + "]</a>";
+            else if (c.startsWith("http")) rep = !linkable(c) ? m.group() : "<a class=\"cite\" href=\"" + c + "\" rel=\"noreferrer\">[" + t("source") + "]</a>";
             else rep = "<a class=\"cite\" href=\"/entry/" + enc(c) + "\">[" + c.substring(0, Math.min(6, c.length())) + "]</a>";
             m.appendReplacement(b, Matcher.quoteReplacement(rep));
         }
@@ -3074,7 +3142,7 @@ final class Pages {
     static String idLink(String id, String text) { return "<a href=\"/entry/" + enc(id) + "\">" + esc(text.isEmpty() ? id : text) + "</a>"; }
 
     static String locatorLink(String locator) {
-        if (locator.startsWith("http://") || locator.startsWith("https://")) return "<a href=\"" + esc(locator) + "\" rel=\"noreferrer\">" + esc(locator) + "</a>";
+        if (locator.startsWith("http://") || locator.startsWith("https://")) return !linkable(locator) ? esc(locator) : "<a href=\"" + esc(locator) + "\" rel=\"noreferrer\">" + esc(locator) + "</a>";
         if (locator.startsWith("F-") || locator.startsWith("I-") || locator.startsWith("A-")) return idLink(locator);
         return "<a href=\"/read?locator=" + enc(locator) + "\">" + esc(locator) + "</a>";
     }
@@ -3110,21 +3178,137 @@ final class Pages {
      */
     static final Pattern REMOTE_PICTURE = Pattern.compile("!\\[([^\\]]*)\\]\\((https?://[^)\\s]+)\\)");
 
+    /** The page's picture sources: the library's own alone (0.8.1). A picture of the web the library chose to show comes from the library too ({@link #found}). */
+    static String imgPolicy(String html) { return "img-src 'self'"; }
+
+    /**
+     * The one policy of every page this library serves (0.8.1). Nothing is loaded from anywhere but the library itself: a script only
+     * as one of its own files (no script written into a page runs, and no handler written into a tag: a page holds none of either), a
+     * picture only from its own addresses (one found on the web is fetched by the library and passed on, {@link #found}), a form posted
+     * and a request made only to itself, and no base address a tag could move. Styles are the page's own, written into it. Until 0.8.1
+     * a page with a script allowed every inline script and handler, and a page that showed a found picture allowed a picture from any
+     * https address: a tag that got into a page could have run, or asked any host for a picture with the page's text in its address.
+     */
+    static final String POLICY = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'";
+
+    /** In a pick form: the box that ticks every box of its form or of its group ({@code form:q}, {@code group:q}; the script is {@link #PICK_JS}). */
+    static final String TICK = "data-tick=\"";
+    static final String PICK_JS = "(function(){document.addEventListener('click',function(ev){var t=ev.target;if(!t||!t.getAttribute)return;var k=t.getAttribute('data-tick');if(!k)return;"
+            + "var p=k.split(':'),h=t.closest('h3'),root=p[0]==='form'?t.form:(h?h.nextElementSibling:null);if(!root)return;var cs=root.querySelectorAll('input[name^='+p[1]+']');for(var i=0;i<cs.length;i++)cs[i].checked=t.checked})})();";
+
+    /**
+     * The scripts of the pages, by name: each is served as a file of the library's own, {@code /static/rz-<name>.<language>.js}, with
+     * its sentences in that language. A script's text is the program's own and its words the language files': nothing of a request,
+     * a library or a model is ever part of one.
+     */
+    static final Map<String, Supplier<String>> SCRIPTS = Map.of(
+            "look-boot", () -> Pages.LOOK_BOOT, "look", () -> Pages.LOOK_JS, "chat", Pages::chatPageJs, "diagram", Pages::diagramJs, "pick", () -> PICK_JS,
+            "map", MapPage::script, "signin", () -> SignIn.script(SignIn.LOGIN_JS), "account", () -> SignIn.script(SignIn.ACCOUNT_JS), "career", () -> CareerPage.OPEN_JS);
+    private static final Pattern SCRIPT_FILE = Pattern.compile("rz-([a-z-]+)\\.([A-Za-z-]{2,12})\\.js");
+
+    /** The tag that loads one of the pages' scripts, in the language of the page being written. */
+    static String script(String name) { return "<script src=\"/static/rz-" + name + "." + Chrome.now().code + ".js\"></script>"; }
+
+    /** A script's text for a file name of {@link #script}'s making, in its language; null when the name is no such file. */
+    static String scriptText(String file) {
+        Matcher m = SCRIPT_FILE.matcher(file);
+        if (!m.matches() || !SCRIPTS.containsKey(m.group(1))) return null;
+        String before = Chrome.now().code;
+        Chrome.here(m.group(2));
+        try { return SCRIPTS.get(m.group(1)).get(); } finally { Chrome.here(before); }
+    }
+
+    /**
+     * The pictures of the web that a page of this library showed, each with the reader whose page it was ({@link #shownTo}): the
+     * newest {@link #FOUND_KEPT}. Only these are fetched for a browser, and each for the reader it was shown to.
+     */
+    private static final Set<String> FOUND_SHOWN = Collections.synchronizedSet(new LinkedHashSet<>());
+    static final int FOUND_KEPT = 20_000;
+    static final String FOUND_PATH = "/found";
+
+    /**
+     * The reader the page being written on this thread is for, by their id: set for every request and taken off again when the
+     * request is answered ({@link #handle}). A found picture is fetched for the reader whose own page showed it and for no other
+     * reader of the same library: one reader cannot learn from {@code /found} what another's search brought up, or have the library
+     * fetch it again (the second reading of 0.8.1; until then the pictures shown were one set for everybody who may read the
+     * library). Outside a request there is no reader: a page written there (none is, in the program) shows its pictures to nobody,
+     * and {@link #found} remembers none of them (until the last reading of 0.8.1 the id stayed on the thread after the request, so
+     * such a page's pictures would have been the reader's whom the thread served last; and with no id at all they were passed on to
+     * every reader).
+     */
+    static final ThreadLocal<String> READER = new ThreadLocal<>();
+
+    /** A shown picture as it is remembered: the reader's id and the address. */
+    private static String shownTo(String reader, String address) { return reader + "\n" + address; }
+
+    /**
+     * Where a page takes a found picture from: the library itself, which fetches it by its address on the web and passes it on. The
+     * browser asks nobody else for anything, so the page's policy can let pictures in from the library alone, the same for a reply the
+     * chat adds after the page loaded, and the picture's host learns nothing of the person's browser. The address is remembered as one a
+     * page showed to its reader; {@link #foundPicture} serves no other, so a tag that names this path with another address fetches nothing.
+     * The callers hand this an address their own search found, never one read out of a model's or a page's words.
+     */
+    static String found(String address) {
+        String reader = READER.get();
+        if (reader != null) {   // with no request there is no reader, and the picture is remembered for nobody
+            String shown = shownTo(reader, address);
+            synchronized (FOUND_SHOWN) {
+                FOUND_SHOWN.remove(shown); FOUND_SHOWN.add(shown);
+                if (FOUND_SHOWN.size() > FOUND_KEPT) { var it = FOUND_SHOWN.iterator(); it.next(); it.remove(); }
+            }
+        }
+        return FOUND_PATH + "?u=" + URLEncoder.encode(address, StandardCharsets.UTF_8);
+    }
+
+    /**
+     * The found pictures kept in memory, by address, the least recently asked for dropped first: at most {@link #FOUND_CACHE} bytes
+     * and {@link #FOUND_PICTURES} pictures (a count as well as a weight, so that many small ones do not grow without end). Every
+     * reading and every change of it holds the map's own lock: the map is a synchronized one, whose every call locks the map itself,
+     * and the block below locks the same.
+     */
+    private static final Map<String, Object[]> FOUND_BYTES = Collections.synchronizedMap(new LinkedHashMap<>(64, 0.75f, true));   // address → {type, bytes}
+    static final long FOUND_CACHE = 48L * 1024 * 1024;
+    static final int FOUND_PICTURES = 2_000;
+
+    /** How many found pictures are kept in memory now. */
+    static int foundKept() { return FOUND_BYTES.size(); }
+
+    /**
+     * GET /found?u=<address>: a picture of the web that a page of this library showed to this reader, fetched by the library and
+     * passed on. The picture itself is the web's and the same for everybody, so its bytes are kept once; who is passed them is
+     * decided before, by what the reader's own page showed.
+     */
+    private static void foundPicture(HttpExchange x, LibraryStore store, Patrons.Patron patron, String address) throws IOException {
+        Patrons.check(store, patron, Patrons.Level.read);
+        if (address == null || !FOUND_SHOWN.contains(shownTo(patron == null ? "" : patron.did(), address))) throw ProtocolError.notFound(t("This is not a picture a page of this library showed."));
+        Object[] kept = FOUND_BYTES.get(address);
+        if (kept == null) {
+            Images.Fetched got;
+            try { got = Images.FOUND_FETCHER.fetch(address); } catch (Exception e) { throw ProtocolError.notFound(t("The picture could not be fetched: {0}", String.valueOf(e.getMessage()))); }
+            String ext = got == null || got.bytes() == null || got.bytes().length > Images.MAX_BYTES ? null : Images.extension("", got.bytes());   // by what it begins with, never by what its server calls it
+            if (ext == null) throw ProtocolError.notFound(t("What that address holds is not a picture."));
+            kept = new Object[]{Images.contentType("x." + ext), got.bytes()};
+            synchronized (FOUND_BYTES) {
+                FOUND_BYTES.put(address, kept);
+                long held = 0; for (Object[] v : FOUND_BYTES.values()) held += ((byte[]) v[1]).length;
+                var it = FOUND_BYTES.entrySet().iterator();
+                while ((held > FOUND_CACHE || FOUND_BYTES.size() > FOUND_PICTURES) && it.hasNext()) { held -= ((byte[]) it.next().getValue()[1]).length; it.remove(); }
+            }
+        }
+        byte[] bytes = (byte[]) kept[1];
+        x.getResponseHeaders().set("Content-Type", (String) kept[0]);
+        x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        x.getResponseHeaders().set("Content-Security-Policy", "default-src 'none'; sandbox");
+        x.getResponseHeaders().set("Cache-Control", "private, max-age=86400");
+        x.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
+    }
+
     /**
      * The text with every picture at an address on the web made a link to that address: shown, never loaded. Pictures of this library
      * (/images/…) stay pictures. Made a link once, a picture can leave another behind ("!![…](…)", or a picture inside another's words),
      * so it is done again until none is left; each pass takes one "!" away, so it ends.
      */
-    /**
-     * The mark the library puts on a picture it shows from an address on the web (a found picture, small, in the chat or on the pictures
-     * page): the page's policy lets the web's pictures in only when it is there. It is made at random when the program starts, so no text a
-     * model or a page wrote can carry it (round F: the policy opened for any "class=thumb src=https" a report's text could make).
-     */
-    static final String SHOWN = "data-shown=\"" + Long.toHexString(new SecureRandom().nextLong()) + Long.toHexString(new SecureRandom().nextLong()) + "\"";
-
-    /** The page's picture sources: the library's own, and the web's only when the library itself chose to show a picture from there ({@link #SHOWN}). */
-    static String imgPolicy(String html) { return html.contains(SHOWN) ? "img-src 'self' https:" : "img-src 'self'"; }
-
     static String picturesAsLinks(String text) {
         if (text == null || text.indexOf("![") < 0) return text == null ? "" : text;
         String s = text, was;
@@ -3168,7 +3352,7 @@ final class Pages {
                 continue;
             } else if (inTable) { out.append("</table></div>"); inTable = false; }
             Matcher fig = FIGURE_LINE.matcher(raw);
-            if (fig.matches() && fig.group(2).startsWith("/")) {   // a picture on a line of its own at the margin, as a writer places one under the paragraph that cites it: reading size; indented under a list item, or among words, it stays small
+            if (fig.matches() && keptPicturePath(fig.group(2))) {   // a picture on a line of its own at the margin, as a writer places one under the paragraph that cites it: reading size; indented under a list item, or among words, it stays small
                 flush(out, para); if (inList) { out.append("</ul>"); inList = false; }
                 out.append(figure(fig.group(1), fig.group(2)));
                 continue;
@@ -3223,13 +3407,19 @@ final class Pages {
         return "<figure class=\"diagram\">" + DIAGRAM_MARK + e + "</pre><details class=\"diagram-text\"><summary>" + t("Show as text") + "</summary><pre>" + e + "</pre></details></figure>";
     }
 
+    /**
+     * An address a written picture or link may have: one of the web, or a path of this library. A path begins with one slash and holds no
+     * backslash: a browser reads a backslash in an address as a slash, so {@code /\host/x} is another host to it (0.8.1).
+     */
+    static final String ADDRESS = "(?:https?://|/(?![/\\\\]))[^)\\s\\\\]+";
+
     /** A picture on a line of its own, at the margin: {@code ![title](address)} with the address of this library or of the web. */
-    static final Pattern FIGURE_LINE = Pattern.compile("^!\\[([^\\]]*)\\]\\(((?:https?://|/(?!/))[^)\\s]+)\\)\\s*$");
+    static final Pattern FIGURE_LINE = Pattern.compile("^!\\[([^\\]]*)\\]\\((" + ADDRESS + ")\\)\\s*$");
 
     /** A picture at reading size: the whole column wide at most, the picture itself a link that opens the whole file in a new tab, its title under it. */
     static String figure(String alt, String src) {
         String a = esc(alt == null ? "" : alt.strip()), s = esc(src);
-        return "<figure class=\"fig\"><a href=\"" + s + "\" target=\"_blank\" rel=\"noopener noreferrer\"><img class=\"figure\" src=\"" + s + "\" alt=\"" + a + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"" + (src.startsWith("/") ? "" : " " + SHOWN) + "></a>"
+        return "<figure class=\"fig\"><a href=\"" + s + "\" target=\"_blank\" rel=\"noopener noreferrer\"><img class=\"figure\" src=\"" + (src.startsWith("/") ? s : esc(found(src))) + "\" alt=\"" + a + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"></a>"
                 + (a.isEmpty() ? "" : "<figcaption>" + a + "</figcaption>") + "</figure>";
     }
 
@@ -3261,6 +3451,16 @@ final class Pages {
      */
     static void staticFile(HttpExchange x, String name) throws IOException {
         byte[] bytes = null;
+        String script = scriptText(name);   // one of the pages' own scripts, in the language its name carries
+        if (script != null) {
+            bytes = script.getBytes(StandardCharsets.UTF_8);
+            x.getResponseHeaders().set("Content-Type", "text/javascript; charset=utf-8");
+            x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+            x.getResponseHeaders().set("Cache-Control", "no-cache");   // its text belongs to the program's version, which its name does not carry
+            x.sendResponseHeaders(200, bytes.length);
+            try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
+            return;
+        }
         if (STATIC_NAME.matcher(name).matches()) {
             bytes = STATIC.get(name);
             if (bytes == null) try (InputStream in = Pages.class.getResourceAsStream("static/" + name)) { if (in != null) { bytes = in.readAllBytes(); STATIC.put(name, bytes); } }
@@ -3285,7 +3485,119 @@ final class Pages {
      * A Markdown picture, {@code ![words](address)}, is shown small ({@code .thumb}, 160 px at most): a kept picture by its /images/ path, a
      * found one by its address on the web, which sends no referrer.
      */
-    private static final Pattern LINK = Pattern.compile("!\\[([^\\]]*)\\]\\(((?:https?://|/(?!/))[^)\\s]+)\\)|\\[([^\\]]+)\\]\\(((?:https?://|/(?!/))[^)\\s]+)\\)|\\[\\[([A-Z]-[^\\]|]+)(?:\\|([^\\]]+))?\\]\\]|(?<![\"(>=])(https?://[^\\s<>\"')\\]]+)|\\*\\*([^*]+)\\*\\*|`([^`]+)`");
+    private static final Pattern LINK = Pattern.compile("!\\[([^\\]]*)\\]\\((" + ADDRESS + ")\\)|\\[([^\\]]+)\\]\\((" + ADDRESS + ")\\)|\\[\\[([A-Z]-[^\\]|]+)(?:\\|([^\\]]+))?\\]\\]|(?<![\"(>=])(https?://[^\\s<>\"')\\]]+)|\\*\\*([^*]+)\\*\\*|`([^`]+)`");
+    /**
+     * Whether a path written as a picture's is one of this library's kept pictures, by its form: {@code /images/<file>} or
+     * {@code /images/collections/<run>/<file>}, with no query and no dots that climb out of the folder (written as they are or as
+     * escapes, which a browser reads the same). Only such a path is drawn as a picture: a browser asks a picture's address by
+     * itself, in the name of whoever has the page open, and any other path of the library is a page (0.8.1: a picture a model wrote
+     * at /logout signed the reader out, and one at a dossier's address filed a translation).
+     */
+    static boolean keptPicturePath(String path) {
+        if (path == null || !path.startsWith("/images/") || path.indexOf('?') >= 0 || path.indexOf('#') >= 0 || path.indexOf('\\') >= 0 || path.indexOf('&') >= 0) return false;
+        String[] parts = path.substring("/images/".length()).split("/", -1);
+        if (!(parts.length == 1 || (parts.length == 3 && parts[0].equals("collections")))) return false;
+        for (String part : parts) if (part.isEmpty() || part.replaceAll("(?i)%2e", ".").matches("\\.{1,2}")) return false;
+        return true;
+    }
+
+    private static final Pattern AUTHORITY = Pattern.compile("(?i)^https?://([^/?#]*)");
+
+    /** The library's own address as the browser of this request sees it (host and port), for telling a link that leads back into it; null outside a request. */
+    static final ThreadLocal<String> HERE = new ThreadLocal<>();
+    /** Set while the program's own words are made a page (its documentation): their links are the program's, and stand as written. */
+    private static final ThreadLocal<Boolean> OWN_WORDS = new ThreadLocal<>();
+
+    /** The program's own documentation as a page: its links stand as they are written ({@link #linkable} is for words a model or a page wrote). */
+    static String mdOfTheProgram(String text) {
+        OWN_WORDS.set(Boolean.TRUE);
+        try { return md(text); } finally { OWN_WORDS.remove(); }
+    }
+
+    /**
+     * Whether a path of this library, written in a text, leads to something the library holds for reading and to nothing else: an
+     * entry's page (a claim, a report, a summary, a saved page: {@code /entry/<id>}), a run's page ({@code /jobs/<id>}), a kept
+     * picture ({@link #keptPicturePath}), a file the library exported ({@code /exports/<file>}). No query, which is the writer's own
+     * words handed to a page, and no dots that climb out of the path; a place on the page ({@code #…}) may follow.
+     */
+    static boolean heldForReading(String path) {
+        if (path == null) return false;
+        String p = path;
+        int hash = p.indexOf('#');
+        if (hash >= 0) p = p.substring(0, hash);
+        if (!p.startsWith("/") || p.startsWith("//") || p.indexOf('?') >= 0 || p.indexOf('\\') >= 0 || p.indexOf('&') >= 0) return false;
+        if (keptPicturePath(p)) return true;
+        String[] parts = p.substring(1).split("/", -1);
+        if (parts.length != 2 || parts[1].isEmpty() || parts[1].replaceAll("(?i)%2e", ".").matches("\\.{1,2}")) return false;
+        return switch (parts[0]) { case "entry", "exports" -> true; case "jobs" -> parts[1].matches("J-\\d{1,9}"); default -> false; };
+    }
+
+    /**
+     * Whether an address written in a model's or a page's words is made a link on a page of this library. It is the one place that
+     * decides, for a report, an entry, a note, a reading and the chat. A link of the web is one. A link that leads into this
+     * library is one only when it leads to something held for reading ({@link #heldForReading}): the library's pages act for
+     * whoever has them open, and a page that starts work or sends words out (a question to other libraries, a search for pictures,
+     * a reading by the model) would do so at one click on a link whose words say something else, with the address carrying text a
+     * model chose (0.8.1). An address with a host written out that is this library itself (by the name the request's browser
+     * used, or the name the settings keep for it from outside), this machine, or a machine of the house that the owner's settings
+     * name is never a link: the address can be read and copied. What is no link stays the words it was written as.
+     */
+    static boolean linkable(String address) {
+        if (address == null) return false;
+        if (Boolean.TRUE.equals(OWN_WORDS.get())) return true;
+        if (address.startsWith("/")) return heldForReading(address);
+        Matcher m = AUTHORITY.matcher(address);
+        if (!m.find()) return false;
+        String authority = m.group(1).toLowerCase(Locale.ROOT);
+        int at = authority.lastIndexOf('@');
+        if (at >= 0) authority = authority.substring(at + 1);
+        String host = authority.replaceFirst(":\\d{1,5}$", "");
+        if (host.isEmpty() || (host.startsWith("[") != host.endsWith("]"))) return false;   // no host, or an address in brackets that was cut where it was read: no address a link can lead to
+        if (!host.startsWith("[") && host.indexOf(':') >= 0) return false;   // a colon in a host that is no address in brackets (what follows it is no port): no address a browser can open
+        String here = HERE.get();
+        if (here != null && (authority.equals(here) || host.equals(here.replaceFirst(":\\d{1,5}$", "")))) return false;   // the library's name as this request's browser has it
+        Matcher shared = AUTHORITY.matcher(String.valueOf(Config.get(Share.ADDRESS, "")).strip());
+        if (shared.find() && host.equals(shared.group(1).toLowerCase(Locale.ROOT).replaceFirst("^[^@]*@", "").replaceFirst(":\\d{1,5}$", ""))) return false;   // its name from outside, as the settings keep it
+        // this machine, and a machine of the house that the owner's settings name (the model server, the search service): never a host of the public web, though a setting names it (a hosted model's service)
+        return !thisMachine(host) && !(Outbound.local(host) && Outbound.ownMachine(host));
+    }
+
+    /**
+     * A host that is this machine however it is written: its names, an address of the loopback in any spelling (an IPv6 address
+     * that carries an IPv4 one among them), the address that means every address. Read off the host's letters and nothing else
+     * ({@link Addresses#numeric}): no name is ever handed to a resolver here. A page is written the moment somebody opens it, and
+     * a name that is looked up is read by the name server of its domain, with whatever a model wrote into it (the second reading of
+     * 0.8.1: a host with a colon in it was taken for an address written as numbers and looked up). What is written as numbers and
+     * is no address (a part over 255, a number too long), or holds a colon and is no address, is taken for this machine: never a link.
+     */
+    static boolean thisMachine(String host) {
+        String h = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+        while (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        if (h.equals("localhost") || h.endsWith(".localhost") || h.equals("ip6-localhost") || h.equals("ip6-loopback")) return true;
+        if (h.matches("0x[0-9a-f]+(?:\\.[0-9a-fx.]+)?")) return true;   // numbers written another way than a person would: taken for this machine, so never a link
+        InetAddress a = Addresses.numeric(h);
+        if (a == null) return h.matches("[0-9.]+") || h.indexOf(':') >= 0;
+        return Addresses.kind(a) == Addresses.Kind.LOOPBACK || a.isAnyLocalAddress();
+    }
+
+    /**
+     * Where a link of the web leads, said after it when its own words do not say so: the host, in brackets. A link's words are a
+     * model's, and they may name one address and lead to another; on a report's page the reader sees where each one goes, as in the
+     * chat, where a link is shown as it was written. Both arguments as they stand in the page (escaped).
+     */
+    static String leadsTo(String words, String address) {
+        Matcher m = AUTHORITY.matcher(address);
+        if (!m.find()) return "";
+        String host = m.group(1);
+        int at = host.lastIndexOf('@');
+        if (at >= 0) host = host.substring(at + 1);
+        host = host.replaceFirst(":\\d{1,5}$", "").toLowerCase(Locale.ROOT);
+        if (host.isEmpty()) return "";
+        // the words show it already when they are the address itself, or hold the host as a name of its own (not as the end or the beginning of another)
+        Matcher shown = Pattern.compile("(?<![a-z0-9.@-])" + Pattern.quote(host) + "(?![a-z0-9-]|\\.[a-z0-9])").matcher(words.toLowerCase(Locale.ROOT));
+        return shown.find() ? "" : " <span class=\"k leads\">(" + host + ")</span>";
+    }
+
     static String inline(String s) {
         String e = esc(s);
         Matcher m = LINK.matcher(e);
@@ -3294,11 +3606,20 @@ final class Pages {
             String rep;
             // a picture of this library is drawn; one at an address on the web is a link to it, shown and never loaded: a report's, a claim's or a
             // job's text is written by a model a page could steer, and a picture's address can carry what it read (round F, the second review)
-            if (m.group(2) != null) rep = m.group(2).startsWith("/") ? "<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"
-                    : "<a href=\"" + m.group(2) + "\" rel=\"noreferrer\">" + (m.group(1).isBlank() ? m.group(2) : m.group(1)) + "</a>";
-            else if (m.group(4) != null) rep = m.group(4).startsWith("/") ? "<a href=\"" + m.group(4) + "\">" + m.group(3) + "</a>" : "<a href=\"" + m.group(4) + "\" rel=\"noreferrer\">" + m.group(3) + "</a>";
+            if (m.group(2) != null) rep = keptPicturePath(m.group(2)) ? "<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"
+                    : m.group(2).startsWith("/") || !linkable(m.group(2)) ? m.group()   // a path of the library that is no kept picture's, or an address that leads into this library: the words as written (0.8.1)
+                    : "<a href=\"" + m.group(2) + "\" rel=\"noreferrer\">" + (m.group(1).isBlank() ? m.group(2) : m.group(1)) + "</a>" + leadsTo(m.group(1).isBlank() ? m.group(2) : m.group(1), m.group(2));
+            else if (m.group(4) != null) rep = !linkable(m.group(4)) ? m.group()   // leads into this library, and not to something held for reading: the words as written
+                    : m.group(4).startsWith("/") ? "<a href=\"" + m.group(4) + "\">" + m.group(3) + "</a>" : "<a href=\"" + m.group(4) + "\" rel=\"noreferrer\">" + m.group(3) + "</a>" + leadsTo(m.group(3), m.group(4));
             else if (m.group(5) != null) rep = "<a href=\"/entry/" + enc(m.group(5)) + "\">" + (m.group(6) != null ? m.group(6) : m.group(5)) + "</a>";
-            else if (m.group(7) != null) rep = "<a href=\"" + m.group(7) + "\" rel=\"noreferrer\">" + m.group(7) + "</a>";
+            else if (m.group(7) != null) {
+                // an address alone in a sentence ends before the sentence's mark after it ("… not supported by https://…/240471: The …", "see
+                // https://example.org/page."): the mark stays text after the link, as GivenAddresses.trimmed reads an address in the person's
+                // words. Until 0.8.1's last round the colon or the full stop was the link's last character. A Markdown link is as written
+                String raw = m.group(7).replace("&quot;", "\"").replace("&gt;", ">").replace("&lt;", "<").replace("&amp;", "&"), address = GivenAddresses.trimmed(raw);
+                String at = esc(address), after = esc(raw.substring(address.length()));
+                rep = (!linkable(at) ? at : "<a href=\"" + at + "\" rel=\"noreferrer\">" + at + "</a>") + after;
+            }
             else if (m.group(8) != null) rep = "<b>" + m.group(8) + "</b>";
             else rep = "<code>" + m.group(9) + "</code>";
             m.appendReplacement(b, Matcher.quoteReplacement(rep));
@@ -3332,7 +3653,7 @@ final class Pages {
         StringBuilder b = new StringBuilder("<div class=\"shell beside\"><section class=\"conv\">").append(conv(store, lp, patron, s, false, q.getOrDefault("note", "")));
         b.append("</section><aside id=\"runs-strip\" class=\"strip side\" data-session=\"").append(esc(s.id)).append("\">").append(runsStrip(store, lp, patron, s)).append("</aside></div>");
         b.append("<div id=\"scrim\" class=\"scrim\"></div>").append(sessionsDrawer(store, patron, s));
-        b.append("<script>").append(chatPageJs()).append("</script>");
+        b.append(script("chat"));
         return page(store, patron, t("Chat"), b.toString(), 0, null, "chat", true);
     }
 
@@ -3648,14 +3969,17 @@ final class Pages {
             } else if (role.equals("tool")) tools.add(m.path("name").asText(""));
             else if (role.equals("assistant") && !m.has("tool_calls") && !m.path("content").asText("").isBlank()) {
                 String content = m.path("content").asText("");
-                // a picture from the web is shown only in the library's own reply (the pictures it found); in the model's words it is a link
+                // a picture from the web is shown only when the library itself found it for this line (the line's own list of what its search
+                // found); in the model's words, and in a model's words inside the library's own line, it is a link
                 boolean own = m.path("by").asText("").equals("library");
+                Set<String> found = new LinkedHashSet<>();
+                if (own) for (JsonNode a : m.path(Librarian.FOUND)) found.add(a.asText(""));
                 String shown = own ? content : picturesAsLinks(content);
                 // under it, what the library itself shows (ChatShown): the kept pictures and the gallery the reply names; in the library's own
                 // line, the gallery's address it wrote is a link where it stands
                 JsonNode under = m.path("shown");
                 boolean inWords = own && ChatShown.galleryIn(content, under);
-                String said = inWords ? ChatShown.linked(prose(shown), under) : prose(shown);
+                String said = inWords ? ChatShown.linked(prose(shown, found), under) : prose(shown, found);
                 b.append("<div class=\"turn lib\">").append(mark(m, tools, askedAt)).append("<div class=\"say\">").append(said).append(ChatShown.html(under, inWords)).append("</div>").append(cites(store, content)).append("</div>");
                 tools.clear(); askedAt = 0;
             }
@@ -3962,8 +4286,16 @@ final class Pages {
      * any other fence is code; a picture in a paragraph of its own is shown at reading size, and one among other lines (the list of
      * candidates "find pictures of …" answers with) small.
      */
-    static String prose(String text) {
-        if (text.indexOf("```") < 0) return paragraphs(text, false);
+    static String prose(String text) { return prose(text, Set.of()); }
+
+    /**
+     * The same, with the addresses on the web whose pictures the library itself found for these words ({@code Librarian.FOUND}, written
+     * by the library from a search's results). A picture at one of them is shown; a picture at any other address of the web is a link,
+     * shown and never loaded, however it is written: the words may be a model's, and a picture's address can carry what the model read
+     * (0.8.1: a line's end before the closing bracket, a model's words inside the library's own line, a path with a backslash in it).
+     */
+    static String prose(String text, Set<String> found) {
+        if (text.indexOf("```") < 0) return paragraphs(text, false, found);
         StringBuilder b = new StringBuilder(), plain = new StringBuilder();
         String[] lines = text.split("\n", -1);
         for (int i = 0; i < lines.length; i++) {
@@ -3972,13 +4304,13 @@ final class Pages {
                 boolean drawn = isDiagramFence(line);
                 StringBuilder code = new StringBuilder();
                 for (i++; i < lines.length && !lines[i].stripTrailing().startsWith("```"); i++) code.append(lines[i]).append('\n');
-                b.append(paragraphs(plain.toString(), true)); plain.setLength(0);
+                b.append(paragraphs(plain.toString(), true, found)); plain.setLength(0);
                 b.append(drawn ? diagram(code.toString()) : "<pre>" + esc(code.toString().stripTrailing()) + "</pre>");
                 continue;
             }
             plain.append(lines[i]).append('\n');
         }
-        return b.append(paragraphs(plain.toString(), true)).toString();
+        return b.append(paragraphs(plain.toString(), true, found)).toString();
     }
 
     /** Bold and code in the chat's words, as the reports' pages show them ({@link #inline}): **words** and `words`; the words are escaped already. */
@@ -3991,25 +4323,41 @@ final class Pages {
         return b.toString();
     }
 
-    private static final Pattern PICTURE = Pattern.compile("!\\[([^\\]]*)\\]\\(((?:https?://|/(?!/))[^)\\s]+)\\)");
+    private static final Pattern PICTURE = Pattern.compile("!\\[([^\\]]*)\\]\\((" + ADDRESS + ")\\)");
 
-    /** The paragraphs of some chat words; {@code skipBlank}: a stretch between two fences that holds nothing makes no paragraph. */
-    private static String paragraphs(String text, boolean skipBlank) {
+    /**
+     * The paragraphs of some chat words; {@code skipBlank}: a stretch between two fences that holds nothing makes no paragraph;
+     * {@code found}: the web addresses whose pictures are shown ({@link #prose(String, Set)}). This is the one place a picture of the web
+     * is written into the chat's page, and it writes one only for an address on that list.
+     */
+    private static String paragraphs(String text, boolean skipBlank, Set<String> found) {
         StringBuilder b = new StringBuilder();
         for (String para : text.split("\\n\\s*\\n")) {
             String p = para.strip();
             if (skipBlank && p.isEmpty()) continue;
             Matcher fig = FIGURE_LINE.matcher(p);
-            if (fig.matches()) { b.append(figure(fig.group(1), fig.group(2))); continue; }   // a picture the Librarian placed, in a paragraph of its own
-            String e = emphasis(esc(p).replaceAll("\\[((?:F|I|D)-\\d{4}-[a-z0-9-]+)\\]", "[<a href=\"/entry/$1\">$1</a>]")).replace("\n", "<br>");
-            if (p.indexOf("![") >= 0) {   // pictures among other lines: small
+            // a picture in a paragraph of its own, at reading size: the library's own by its path, or one the library found
+            if (fig.matches() && (keptPicturePath(fig.group(2)) || found.contains(fig.group(2)))) { b.append(figure(fig.group(1), fig.group(2))); continue; }
+            String e = emphasis(esc(p).replaceAll("\\[((?:F|I|D)-\\d{4}-[a-z0-9-]+)\\]", "[<a href=\"/entry/$1\">$1</a>]"));
+            if (p.indexOf("![") >= 0) {   // pictures among other lines: small; read before the lines' ends become tags, so that a picture is what was written on one line
                 Matcher m = PICTURE.matcher(e);
                 StringBuilder small = new StringBuilder();
-                while (m.find()) m.appendReplacement(small, Matcher.quoteReplacement("<img class=\"thumb\" src=\"" + m.group(2) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\"" + (m.group(2).startsWith("/") ? "" : " " + SHOWN) + ">"));
+                while (m.find()) {
+                    String src = m.group(2);   // escaped already, as the words are
+                    boolean own = keptPicturePath(src);
+                    String web = own || src.startsWith("/") ? null : found.stream().filter(a -> esc(a).equals(src)).findFirst().orElse(null);   // one the library found, by its address as it was found
+                    boolean shown = web != null;
+                    // a path of the library that is no kept picture's is left as the words it is: a browser asks for a picture's address by
+                    // itself, in the name of whoever has the page open, and a page of the library is no picture (0.8.1)
+                    m.appendReplacement(small, Matcher.quoteReplacement(own || shown
+                            ? "<img class=\"thumb\" src=\"" + (own ? src : esc(found(web))) + "\" alt=\"" + m.group(1) + "\" loading=\"lazy\" referrerpolicy=\"no-referrer\">"
+                            : src.startsWith("/") || !linkable(src) ? m.group()
+                            : "<a href=\"" + src + "\" rel=\"noreferrer\">" + (m.group(1).isBlank() ? src : m.group(1)) + "</a>"));
+                }
                 m.appendTail(small);
                 e = small.toString();
             }
-            b.append("<p>").append(e).append("</p>");
+            b.append("<p>").append(e.replace("\n", "<br>")).append("</p>");
         }
         return b.toString();
     }
@@ -4053,12 +4401,12 @@ final class Pages {
         String meta = refresh > 0 ? "<meta http-equiv=\"refresh\" content=\"" + refresh + (to == null ? "" : ";url=" + esc(to)) + "\">" : "";
         String who = patron.web() && !WebAccess.signInRequired() ? t("open to everyone") + " · <a href=\"/login\">" + t("sign in") + "</a>"
                 : patron.web() || patron.anonymous() ? "<a href=\"/login\">" + t("sign in") + "</a>"
-                : esc(patron.person() && "the person".equals(patron.name()) ? t("you") : patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/account\">" + t("account") + "</a> · <a href=\"/logout\">" + t("sign out") + "</a>";
+                : esc(patron.person() && "the person".equals(patron.name()) ? t("you") : patron.name().isEmpty() ? patron.did() : patron.name()) + " · <a href=\"/account\">" + t("account") + "</a> · <form class=\"inline as-link\" method=\"post\" action=\"/logout\"><button>" + t("sign out") + "</button></form>";
         String path = PATH.get() == null ? "" : PATH.get();
         Chrome lang = Chrome.now();
         boolean keeper = Hosted.on(store) ? Hosted.keeper(store, patron) : mayWrite(store, patron), fill = mainClass.equals("chat") || mainClass.equals("split");   // the chat, and a report beside it: the window's height, the whole width
         return "<!doctype html><html lang=\"" + lang.code + "\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\"><script>" + LOOK_BOOT + "</script><style>" + CSS + "</style></head><body" + (fill ? " class=\"fill\"" : "") + ">"
+                + "<title>" + esc((title == null ? name : title + " — " + name) + " · ResearchZosho") + "</title>" + meta + "<link rel=\"icon\" href=\"/favicon.ico\" type=\"image/png\">" + script("look-boot") + "<style>" + CSS + "</style></head><body" + (fill ? " class=\"fill\"" : "") + ">"
                 + "<header class=\"top\"><a class=\"brand\" href=\"/\">ResearchZosho <i>· " + esc(name) + "</i></a><span class=\"ver\">" + esc(Version.number() == null ? "dev" : Version.number()) + "</span>"
                 + "<nav class=\"verbs\">" + rail(store, patron, path) + "</nav>"
                 + (keeper ? "<a class=\"keep\" href=\"/keep\"" + (keepPath(path) && !path.equals("/settings") ? " aria-current=\"page\"" : "") + ">" + t("Keep") + "</a>"
@@ -4070,8 +4418,9 @@ final class Pages {
                 + "<main" + (mainClass.isEmpty() ? "" : " class=\"" + mainClass + "\"") + ">" + (title == null || ownHead ? "" : "<h1>" + esc(title) + "</h1>") + body + "</main>"
                 + "<footer>ResearchZosho " + esc(Version.string()) + " · <a href=\"https://researchzosho.org\">researchzosho.org</a>"
                 + (Version.updateNotice().isEmpty() ? "" : " · <b>" + t("{0} is available", esc(Version.latestCached())) + "</b>: " + t("update with the install command on {0}; your library and settings stay", "<a href=\"https://researchzosho.org/#install\">researchzosho.org</a>"))
-                + "</footer><script>" + LOOK_JS + "</script>"
-                + (body.contains(DIAGRAM_MARK) ? "<script src=\"" + MERMAID_PATH + "\"></script><script>" + diagramJs() + "</script>" : "")   // a diagram to draw: Mermaid from this library's own /static/, and its drawing
+                + "</footer>" + script("look")
+                + (body.contains(DIAGRAM_MARK) ? "<script src=\"" + MERMAID_PATH + "\"></script>" + script("diagram") : "")
+                + (body.contains(TICK) ? script("pick") : "")   // a pick form's "all" boxes   // a diagram to draw: Mermaid from this library's own /static/, and its drawing
                 + "</body></html>";
     }
 
@@ -4085,10 +4434,11 @@ final class Pages {
         if (all.size() < 2) return "";
         List<String> order = new ArrayList<>(all.subList(1, all.size())); order.add(Chrome.EN);   // the languages with a file, English last
         String href = HREF.get() == null ? "/" : HREF.get();
-        StringBuilder b = new StringBuilder("<details class=\"lang-switch\"><summary>").append(t("language:")).append(" <span lang=\"").append(lang.code).append("\">").append(esc(Chrome.nativeName(lang.code))).append("</span></summary><div class=\"langs\">");
+        // a form of the page's own, which keeps the choice (POST /lang) and comes back to this page: an address with ?lang= keeps nothing (0.8.1)
+        StringBuilder b = new StringBuilder("<details class=\"lang-switch\"><summary>").append(t("language:")).append(" <span lang=\"").append(lang.code).append("\">").append(esc(Chrome.nativeName(lang.code))).append("</span></summary><form class=\"langs\" method=\"post\" action=\"").append(LANG_PATH).append("\"><input type=\"hidden\" name=\"back\" value=\"").append(esc(href)).append("\">");
         for (String c : order)
-            b.append("<a href=\"").append(esc(Chrome.switchHref(href, c))).append("\" hreflang=\"").append(c).append("\" lang=\"").append(c).append("\"").append(c.equals(lang.code) ? " aria-current=\"true\"" : "").append(">").append(esc(Chrome.nativeName(c))).append("</a>");
-        return b.append("</div></details>").toString();
+            b.append("<button name=\"").append(Chrome.QUERY).append("\" value=\"").append(c).append("\" lang=\"").append(c).append("\"").append(c.equals(lang.code) ? " aria-current=\"true\"" : "").append(">").append(esc(Chrome.nativeName(c))).append("</button>");
+        return b.append("</form></details>").toString();
     }
 
     /** The rail: the chat, the past and the updates with the count of what is new, the page it is on marked. Keep, for the keeper, stands beside it. */
@@ -4138,11 +4488,11 @@ final class Pages {
             details.contents>summary::after{content:" ▾";font-size:.8em}details.contents[open]>summary::after{content:" ▴"}
             details.contents:not([open]) .groups{display:none}details.contents .groups{position:absolute;left:0;right:0;top:100%;z-index:5;background:var(--paper-2);border-bottom:1px solid var(--rule);padding:1.2em 1.6em 1.6em;display:grid;grid-template-columns:repeat(auto-fit,minmax(12em,1fr));gap:1.2em 2em;box-shadow:0 12px 24px -16px rgba(0,0,0,.4)}
             .nav-group b{display:block;font-weight:500;font-variant-caps:all-small-caps;letter-spacing:.1em;color:var(--ink-3);margin-bottom:.3em}.nav-group a{display:block;color:var(--ink);padding:.12em 0}.nav-group .ico{display:inline-block;width:1.5em;color:var(--ink-3)}
-            .look-switch,.lang-switch{font-size:.86em;color:var(--ink-3);white-space:nowrap}.lang-switch a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}.lang-switch a[aria-current]{color:var(--ink);text-decoration-color:var(--accent)}.look-switch button{border:0;background:none;color:var(--ink-2);cursor:pointer;padding:0 .2em;text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}.look-switch button[aria-pressed=true]{color:var(--ink);text-decoration-color:var(--accent)}
+            .look-switch,.lang-switch{font-size:.86em;color:var(--ink-3);white-space:nowrap}.lang-switch .langs button{border:0;background:none;font:inherit;text-align:left;cursor:pointer;color:var(--ink-2)}.lang-switch .langs button[aria-current]{color:var(--ink)}form.as-link{display:inline}form.as-link button{border:0;background:none;font:inherit;padding:0;cursor:pointer;color:inherit;text-decoration:underline;text-underline-offset:.2em}.leads{font-size:.86em;white-space:nowrap}.look-switch button{border:0;background:none;color:var(--ink-2);cursor:pointer;padding:0 .2em;text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}.look-switch button[aria-pressed=true]{color:var(--ink);text-decoration-color:var(--accent)}
             details.lang-switch{position:relative;display:inline-block}details.lang-switch>summary{list-style:none;cursor:pointer;color:var(--ink-3)}details.lang-switch>summary::-webkit-details-marker{display:none}details.lang-switch>summary span{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule-2);text-underline-offset:.2em}
             details.lang-switch>summary::after{content:" ▾";font-size:.8em}details.lang-switch[open]>summary::after{content:" ▴"}details.lang-switch:not([open]) .langs{display:none}
             details.lang-switch .langs{position:absolute;right:0;top:100%;z-index:6;display:flex;flex-direction:column;min-width:9em;max-width:calc(100vw - 2em);margin-top:.3em;padding:.35em 0;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;box-shadow:0 12px 24px -16px rgba(0,0,0,.4)}
-            details.lang-switch .langs a{padding:.3em .9em;text-decoration:none}details.lang-switch .langs a:hover{background:var(--paper-3)}details.lang-switch .langs a[aria-current]{font-weight:600}
+            details.lang-switch .langs button{padding:.3em .9em}details.lang-switch .langs button:hover{background:var(--paper-3)}details.lang-switch .langs button[aria-current]{font-weight:600}
             main{max-width:var(--col);margin:0 auto;padding:2em 1.4em 4em;overflow-wrap:anywhere}main.wide{max-width:none}
             footer{text-align:center;color:var(--ink-3);font-size:.86em;padding:2em 1em 3em;border-top:1px solid var(--rule);margin-top:2em}
             .kicker{font-variant-caps:all-small-caps;letter-spacing:.12em;color:var(--ink-3);margin:0 0 .3em}
@@ -4303,17 +4653,7 @@ final class Pages {
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
         x.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         x.getResponseHeaders().set("Cache-Control", "no-store");   // every page is the library as it is now; a browser must never show an old one (a denial kept showing after access opened, 2026-10-09)
-        // no scripts, except: the map (its own script, its own data), the runs strip, the look switch in every page's header, a pick form (the "all" and group boxes tick the others
-        // with an inline handler; with scripts blocked they ticked nothing, 2026-09-09), and the Mermaid this library serves itself on a page that draws a diagram
-        // pictures come from this library alone, except a found picture shown small from its address on the web (the chat's "find pictures of …"), which that page then allows over https
-        String img = imgPolicy(html);
-        // a page that draws a diagram loads Mermaid from this library's own /static/ ('self' joins its script sources); every other page's policy is as it was
-        String script = html.contains("<script src=\"" + MERMAID_PATH + "\"") ? "script-src 'self' 'unsafe-inline'" : "script-src 'unsafe-inline'";
-        x.getResponseHeaders().set("Content-Security-Policy", html.contains("id=\"c\"></canvas>") || html.contains("id=\"runs-strip\"") || html.contains("id=\"chat-scroll\"") || html.contains("class=\"look-switch\"") || html.contains("id=\"signin\"") || html.contains("id=\"passkey-add\"")
-                ? "default-src 'none'; " + img + "; style-src 'unsafe-inline'; " + script + "; connect-src 'self'; form-action 'self'"
-                : html.contains("class=\"pick\"")
-                ? "default-src 'none'; " + img + "; style-src 'unsafe-inline'; " + script + "; form-action 'self'"
-                : "default-src 'none'; " + img + "; style-src 'unsafe-inline'; form-action 'self'");
+        x.getResponseHeaders().set("Content-Security-Policy", POLICY);
         x.sendResponseHeaders(status, bytes.length);
         try (OutputStream os = x.getResponseBody()) { os.write(bytes); }
     }

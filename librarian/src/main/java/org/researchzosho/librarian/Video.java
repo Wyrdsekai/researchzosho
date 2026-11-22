@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 import org.researchzosho.tools.VideoText;
 
@@ -119,22 +120,22 @@ public final class Video {
         return new Result(p.exitValue(), out);
     }
     static volatile Downloader downloader = (url, to) -> {
-        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).connectTimeout(Duration.ofSeconds(20)).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().followRedirects(HttpClient.Redirect.ALWAYS).connectTimeout(Duration.ofSeconds(20)).build());
         HttpResponse<InputStream> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(Duration.ofMinutes(5))
                 .header("User-Agent", "ResearchZosho (https://researchzosho.org)").GET().build(), HttpResponse.BodyHandlers.ofInputStream());
         if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode() + " for " + url);
         Files.createDirectories(to.getParent());
         try (InputStream in = r.body()) { Files.copy(in, to, StandardCopyOption.REPLACE_EXISTING); }
     };
-    private static final HttpClient PROBE = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient PROBE = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build());
     private static final ObjectMapper J = new ObjectMapper();
     /** Whether the token provider answers; tests replace it. */
     public static volatile BooleanSupplier providerProbe = Video::providerAnswersNow;
     /** A GET through the tunnel's proxy, the body as bytes (a picture); tests replace it. */
     public interface ByteFetcher { byte[] get(String url, Duration timeout) throws Exception; }
     public static volatile ByteFetcher byteFetcher = (url, timeout) -> {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
-                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
+                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build());
         HttpResponse<byte[]> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(timeout)
                 .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36").GET().build(), HttpResponse.BodyHandlers.ofByteArray());
         if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode());
@@ -143,8 +144,8 @@ public final class Video {
     /** A GET through the tunnel's proxy, the body as text; tests replace it. */
     public interface Fetcher { String get(String url, Duration timeout) throws Exception; }
     public static volatile Fetcher fetcher = (url, timeout) -> {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
-                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NORMAL)
+                .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build());
         HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create(url)).timeout(timeout)
                 .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36").GET().build(), HttpResponse.BodyHandlers.ofString());
         if (r.statusCode() != 200) throw new IOException("HTTP " + r.statusCode());
@@ -368,7 +369,7 @@ public final class Video {
     static boolean whisperModelReady() {
         if (modelKnownReady) return true;
         try {
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+            HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
             String base = whisperBase();
             if (base == null) return false;
             HttpResponse<String> list = http.send(Helpers.request(base + "/v1/models").timeout(Duration.ofSeconds(20)).GET().build(), HttpResponse.BodyHandlers.ofString());
@@ -394,7 +395,7 @@ public final class Video {
         System.arraycopy(h, 0, body, 0, h.length); System.arraycopy(file, 0, body, h.length, file.length); System.arraycopy(tail, 0, body, h.length + file.length, tail.length);
         String base = whisperBase();
         if (base == null) throw new IOException("no transcription server: this machine runs none (local_helpers off) and no address names one");
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
         HttpResponse<String> r = http.send(Helpers.request(base + "/v1/audio/transcriptions").timeout(Duration.ofMinutes(30))
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(), HttpResponse.BodyHandlers.ofString());
         if (r.statusCode() != 200) throw new IOException("the transcription server answered HTTP " + r.statusCode() + ": " + last(r.body()));
@@ -413,8 +414,8 @@ public final class Video {
     /** Whether YouTube answers through the tunnel's proxy. */
     public static boolean tunnelAnswers() {
         try {
-            HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
-                    .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build();
+            HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
+                    .proxy(ProxySelector.of(new InetSocketAddress("127.0.0.1", PROXY_PORT))).build());
             HttpResponse<String> r = http.send(HttpRequest.newBuilder(URI.create("https://www.youtube.com/robots.txt")).timeout(Duration.ofSeconds(15)).GET().build(), HttpResponse.BodyHandlers.ofString());
             return r.statusCode() == 200;
         } catch (Exception e) { return false; }

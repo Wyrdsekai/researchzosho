@@ -34,8 +34,7 @@ class DiagramTest {
     static final String FLOW_ESCAPED = FLOW.replace(">", "&gt;");
     static final String FLOW_HTML = "<figure class=\"diagram\"><pre class=\"mermaid\">" + FLOW_ESCAPED + "</pre><details class=\"diagram-text\"><summary>Show as text</summary><pre>" + FLOW_ESCAPED + "</pre></details></figure>";
 
-    static final String PLAIN_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; form-action 'self'";
-    static final String DIAGRAM_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; form-action 'self'";
+    static final String PLAIN_CSP = Pages.POLICY, DIAGRAM_CSP = Pages.POLICY;   // one policy for every page since 0.8.1: Mermaid and its drawing are files of the library's own, as every script is
     static final String SCRIPT_TAG = "<script src=\"/static/mermaid-11.17.2.min.js\"></script>";
 
     static HttpResponse<String> get(HttpClient c, String url) throws Exception { return c.send(HttpRequest.newBuilder(URI.create(url)).build(), HttpResponse.BodyHandlers.ofString()); }
@@ -77,18 +76,20 @@ class DiagramTest {
             assertEquals(200, drawn.statusCode(), drawn.body());
             String h = drawn.body();
             assertTrue(h.contains(FLOW_HTML), h);
-            assertTrue(h.contains(SCRIPT_TAG + "<script>(function(){if(!window.mermaid)return;"), "Mermaid from this library, then its drawing: " + h);
-            assertTrue(h.contains("mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:look()==='dark'?'dark':'neutral',suppressErrorRendering:true})"), "strict, no HTML labels or clicks; the theme after the page's look; a parse error leaves the text: " + h);
-            assertTrue(h.contains("mermaid.render(id,src).then(function(r){p.innerHTML=r.svg;p.classList.add('drawn')") && h.contains(".catch(function(err){p.textContent=src;") && h.contains("e.className='diagram-error'"), "drawn in place; on an error the text stays and the error goes under it: " + h);
-            assertTrue(h.contains("'This diagram could not be drawn; its text is shown instead.'"), h);
-            assertTrue(h.contains("attributeName==='data-theme'") && h.contains("prefers-color-scheme: dark"), "drawn again when the look switch or the computer's setting changes: " + h);
+            assertTrue(h.contains(SCRIPT_TAG + "<script src=\"/static/rz-diagram.en.js\"></script>"), "Mermaid from this library, then its drawing: " + h);
+            assertTrue(Pages.scriptText("rz-diagram.en.js").startsWith("(function(){if(!window.mermaid)return;"), "the drawing, a file of the library's own");
+            assertTrue(Pages.scriptText("rz-diagram.en.js").contains("mermaid.initialize({startOnLoad:false,securityLevel:'strict',theme:look()==='dark'?'dark':'neutral',suppressErrorRendering:true})"), "strict, no HTML labels or clicks; the theme after the page's look; a parse error leaves the text: " + h);
+            String js = Pages.scriptText("rz-diagram.en.js");   // the drawing: a file of the library's own since 0.8.1
+            assertTrue(js.contains("mermaid.render(id,src).then(function(r){p.innerHTML=r.svg;p.classList.add('drawn')") && js.contains(".catch(function(err){p.textContent=src;") && js.contains("e.className='diagram-error'"), "drawn in place; on an error the text stays and the error goes under it: " + h);
+            assertTrue(js.contains("'This diagram could not be drawn; its text is shown instead.'"), js);
+            assertTrue(js.contains("attributeName==='data-theme'") && js.contains("prefers-color-scheme: dark"), "drawn again when the look switch or the computer's setting changes: " + js);
             assertTrue(h.indexOf(SCRIPT_TAG) > h.indexOf("</footer>"), "the script comes after the page, so the text is on the page before the drawing: " + h);
             assertEquals(DIAGRAM_CSP, drawn.headers().firstValue("Content-Security-Policy").orElse(""));
             // every other page: no script of Mermaid's, and the policy byte for byte as before
             for (String path : new String[]{"/entry/I-0278-plain", "/", "/past", "/search", "/chat"}) {
                 HttpResponse<String> plain = get(c, base + path);
                 assertEquals(200, plain.statusCode(), path);
-                assertFalse(plain.body().contains("<script src=\"/static/") || plain.body().contains("mermaid.initialize") || plain.body().contains(Pages.DIAGRAM_MARK), path + " carries Mermaid: " + plain.body());
+                assertFalse(plain.body().contains(Pages.MERMAID_PATH) || plain.body().contains("rz-diagram.") || plain.body().contains("mermaid.initialize") || plain.body().contains(Pages.DIAGRAM_MARK), path + " carries Mermaid: " + plain.body());
                 assertEquals(PLAIN_CSP, plain.headers().firstValue("Content-Security-Policy").orElse(""), path);
             }
         } finally { d.stop(); }
@@ -113,7 +114,7 @@ class DiagramTest {
             assertTrue(chat.body().contains("<div class=\"say\"><p>Here it is:</p>" + FLOW_HTML + "</div>"), chat.body());
             assertTrue(chat.body().contains(SCRIPT_TAG), chat.body());
             assertEquals(DIAGRAM_CSP, chat.headers().firstValue("Content-Security-Policy").orElse(""));
-            assertTrue(chat.body().contains("if(view.querySelector('pre.mermaid')){if(window.rzDraw)window.rzDraw();else{location.reload();return}}"), "a reply that arrives with a diagram is drawn, or the page loads again with Mermaid: " + chat.body());
+            assertTrue(chat.body().contains("<script src=\"/static/rz-chat.en.js\"></script>") && Pages.scriptText("rz-chat.en.js").contains("if(view.querySelector('pre.mermaid')){if(window.rzDraw)window.rzDraw();else{location.reload();return}}"), "a reply that arrives with a diagram is drawn, or the page loads again with Mermaid: " + chat.body());
         } finally { d.stop(); }
     }
 

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -69,7 +70,7 @@ public final class Webhooks {
         p.setKeepAliveTime(2, TimeUnit.SECONDS);
         return p;
     }
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
     /** Tests point deliveries at a local server; production never does. */
     static volatile boolean allowLoopback = true;
 

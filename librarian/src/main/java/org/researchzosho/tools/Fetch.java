@@ -94,10 +94,10 @@ public final class Fetch {
     static volatile long MIN_BYTES_PER_SECOND = Config.getInt("RESEARCHZOSHO_FETCH_MIN_BYTES_PER_SECOND", 4096);
     static final int MAX_HOPS = 5;
 
-    private static final HttpClient HTTP = HttpClient.newBuilder()
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+            .build());
 
     /** A fetched document: the final URL after redirects, the status, and the decompressed body (capped). */
     public record Result(String url, int status, byte[] body, String contentType) { }
@@ -262,6 +262,7 @@ public final class Fetch {
                 }
                 if (loc == null) return new Result(current, status, new byte[0], "");
                 current = uri.resolve(loc).toString();
+                Outbound.sentOnTo(uri, current);   // where the server sent this request on: the guard decides the next request by what this one carried
                 if (hop == MAX_HOPS) throw new IllegalStateException("too many redirects from " + url);
                 continue;
             }

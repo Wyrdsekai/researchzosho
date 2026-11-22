@@ -100,6 +100,8 @@ public final class Models {
             b.append(expertsInRam ? "With the model wholly on the card, the measured choice" : "Measured choice").append(t.choices().size() > 1 ? "s" : "").append(" for this size (").append(t.card()).append("), best first:\n");
             for (Choice c : t.choices()) b.append("  ").append(c.model()).append(": ").append(c.note()).append("\n    ").append(forGpu(c.serve(), g)).append("\n");
             b.append("Then give setup the address http://127.0.0.1:8080. The pages, the index and the library stay on this machine whatever drives them.\n");
+            // on Linux `model install` sets the model server up with no way out to the network (0.8.1); a line by hand does not, and says so
+            if (ModelServer.os == ModelServer.Os.linux) { Chrome ch = Chrome.now(); b.append(ch.sentences(List.of(ch.t("Each docker run line above starts the model server with the network open to it."), ch.t("researchzosho model install sets it up with no way out.")))).append('\n'); }
         }
         b.append("All rows: researchzosho models --all. Measured on the same two questions from empty libraries; one run each, so this is the shape of the field, not a ranking.\n");
         return b.toString();

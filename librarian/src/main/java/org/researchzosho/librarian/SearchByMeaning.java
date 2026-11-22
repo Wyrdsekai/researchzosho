@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 import org.researchzosho.drive.Gated;
 
@@ -39,7 +40,7 @@ public final class SearchByMeaning {
         } catch (IOException e) { return false; }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); return false; }
     }
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build());
 
     private static final long PROBE_EVERY_MS = 60_000;
     private static volatile long probedAt = 0;

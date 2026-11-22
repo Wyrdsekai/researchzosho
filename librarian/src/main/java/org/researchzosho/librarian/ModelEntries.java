@@ -473,7 +473,9 @@ public final class ModelEntries {
         ArrayNode out = m.createArrayNode();
         for (Entry e : all().values()) {
             ObjectNode o = out.addObject();
-            o.put("name", e.name()); o.put("drive", e.drive()); o.put("model", e.model()); o.put("host", e.host()); o.put("hosted", e.hosted());
+            o.put("name", e.name()); o.put("drive", Settings.withoutPasswords(e.drive())); o.put("model", e.model()); o.put("host", e.host()); o.put("hosted", e.hosted());   // an address's password is never listed
+            String where = ModelPlaces.said(e);   // who serves it and who is left out, or where its host is run from, when that bears on the places avoided
+            if (!where.isEmpty()) o.put("where", where);
             if (e.prices() != null) o.put("prices", e.pricesText());
             if (!pricedFrom(e.name()).isEmpty()) o.put("prices_read", pricedFrom(e.name()));   // where and when the prices were read: "openrouter.ai 2026-11-13"
             if (!capCounts(e)) o.put("cap_counts", false);   // a cap with no prices to count with

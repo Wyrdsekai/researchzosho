@@ -10,6 +10,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -64,6 +65,7 @@ class ChatAttachmentTest {
             files.put("one.txt", "The Saros cycle is 223 synodic months.\n".repeat(4).getBytes(StandardCharsets.UTF_8));
             files.put("two.txt", "The Metonic cycle is 235 synodic months.\n".repeat(4).getBytes(StandardCharsets.UTF_8));
             files.put("things.zip", ArchivesTest.trickyZip());
+            List<Path> unpacked = ArchivesTest.unpackWatch();
             HttpResponse<String> r = post(c, base + "/chat", "----rzboundary", multipart("----rzboundary", s.id, "What do my notes say?", files), null);
             assertEquals(200, r.statusCode(), r.body());
             String frag = r.body();
@@ -80,7 +82,7 @@ class ChatAttachmentTest {
             String page = c.send(HttpRequest.newBuilder(URI.create(base + "/")).build(), HttpResponse.BodyHandlers.ofString()).body();
             assertTrue(page.contains("<input type=\"file\" name=\"file\" id=\"chat-file\" multiple hidden>"), page);
             assertTrue(Pages.CHAT_PAGE_JS.contains("for(var i=0;i<picked.length;i++)att.appendChild(chipOf(i))"), Pages.CHAT_PAGE_JS);
-            assertEquals(ArchivesTest.unpackFolders(), ArchivesTest.unpackFolders(), "no unpack folder lingers");
+            ArchivesTest.gone(unpacked, 1, "no unpack folder lingers");
         } finally { d.stop(); }
     }
 

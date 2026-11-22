@@ -38,6 +38,8 @@ public final class VideoDetailsTool implements Tool {
 
     @Override public String name() { return "video_details"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the video's own page and transcript
+
     @Override public String description() {
         return "Read one YouTube video: title, channel, upload day, length, views, chapters with their moments, description, caption languages; "
                 + "with transcript=true, what is said as timed lines [m:ss]. Cite a moment as https://www.youtube.com/watch?v=<id>&t=<seconds>s — "
@@ -147,6 +149,7 @@ public final class VideoDetailsTool implements Tool {
         }
         String url = VideoText.captionUrl(d, language);
         if (url != null) {
+            Outbound.fromAnswer(url);   // the caption track's address, out of the video's own record: given before it is asked
             String json3 = Video.fetchThroughTunnel(url, Duration.ofSeconds(90));
             if (json3 != null) {
                 List<VideoText.Line> lines = VideoText.linesFromJson3(json3);

@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
@@ -130,7 +131,7 @@ public final class Node implements LibraryRunner, Scheduler.Libraries {
     private volatile ToLongFunction<String> nextNight;
     private volatile Thread ticker;
     private volatile boolean stopping;
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build());
 
     /** {@code service}: the account service's address, in whose name statements are made; {@code id}: this node's own name in the registry ({@link #idAt}). */
     public Node(AccountStore store, String service, LibraryRunner.Local local, String id, Path root) {

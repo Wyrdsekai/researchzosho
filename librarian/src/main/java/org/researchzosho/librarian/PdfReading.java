@@ -187,7 +187,7 @@ public final class PdfReading {
     }
 
     /** Sentences one after another as the language sets them: a space between in English, none in Japanese or Chinese. */
-    static String sentences(Chrome c, List<String> out) { return String.join(c.code.equals("ja") || c.code.equals("zh") ? "" : " ", out); }
+    static String sentences(Chrome c, List<String> out) { return c.sentences(out); }
 
     /**
      * A preflight kept on a document's record or a job's arguments ({@link Preflight#json()}), read back: enough to say the same sentences

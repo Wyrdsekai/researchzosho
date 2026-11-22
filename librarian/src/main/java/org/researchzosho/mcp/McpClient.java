@@ -1,5 +1,6 @@
 package org.researchzosho.mcp;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -380,8 +381,8 @@ public final class McpClient implements AutoCloseable {
 
     /** A server at an address: each message POSTed, the answer a JSON body or a stream of events; the session id the server gives carried after. */
     static final class Http implements Transport {
-        private static final HttpClient CLIENT = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15))
-                .followRedirects(HttpClient.Redirect.NEVER).build();   // a key in a header never follows a redirect to another host
+        private static final HttpClient CLIENT = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(15))
+                .followRedirects(HttpClient.Redirect.NEVER).build());   // a key in a header never follows a redirect to another host
         private static final ExecutorService READERS = Executors.newCachedThreadPool(r -> { Thread t = new Thread(r, "mcp-http"); t.setDaemon(true); return t; });
         static final String UA = "ResearchZosho/" + (Version.number() == null ? "dev" : Version.number()) + " (+https://researchzosho.org)";
         private final URI url;

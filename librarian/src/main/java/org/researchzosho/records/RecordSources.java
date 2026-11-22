@@ -1,5 +1,6 @@
 package org.researchzosho.records;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -66,7 +67,7 @@ public final class RecordSources {
         default String post(String url, Map<String, String> headers, String body) throws Exception { throw new UnsupportedOperationException("this reader does not send forms"); }
     }
 
-    private static final HttpClient POSTER = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient POSTER = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
 
     public static final Reader LIVE = new Reader() {
         @Override public String read(String url) throws Exception { return read(url, Map.of()); }

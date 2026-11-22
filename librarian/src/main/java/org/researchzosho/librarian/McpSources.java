@@ -48,6 +48,17 @@ public final class McpSources {
     /** The most of a result the model is shown; the library keeps the rest. */
     static final int SHOWN = 12_000;
 
+    /**
+     * The keeper's word on a server: whether its answers name sources of their own ({@code McpServers.Server.links}). Read here and
+     * nowhere else, for the two things that depend on it: what an answer gives the model to open, and what the model is told of the
+     * addresses in it. With no library, no such server, or a list of servers that cannot be read, the answer is no, and nothing is
+     * opened from such an answer.
+     */
+    static boolean links(LibraryStore store, String server) {
+        if (store == null) return false;
+        try { McpServers.Server s = McpServers.named(store, server); return s != null && s.links; } catch (IOException | RuntimeException e) { return false; }
+    }
+
     /** One tool of another MCP server on the brain's table. */
     static final class McpInstrument implements Instrument {
         final LibraryStore store; final String server; final McpClient.Tool tool; final boolean agent; final String question; final ObjectNode schema;
@@ -56,6 +67,8 @@ public final class McpSources {
         }
         McpInstrument forQuestion(String q) { return new McpInstrument(store, server, tool, agent, q); }
         @Override public String name() { return server + "." + tool.name(); }
+        /** Whether its answer gives addresses is the keeper's word of the server ({@code McpServers.Server.links}): on for one that finds things outside, off for one that may compute on what it is sent. */
+        @Override public boolean fromOutside(ObjectNode args) { return links(store, server); }
         @Override public String words() { return McpSources.words(server, tool, agent); }
         @Override public ObjectNode schema(ObjectMapper m) { return schema.deepCopy(); }
         @Override public String example() { return question.isBlank() ? "" : McpSources.example(schema, question); }
@@ -503,8 +516,12 @@ public final class McpSources {
                 .append(r.error() ? "the tool " + tool + " of the MCP server " + server + " answered that it could not do this" : "what the tool " + tool + " of the MCP server " + server + " answered")
                 .append("; the keeper set that server up\n");
         b.append(Fence.wrap(label, shown.isBlank() ? "(it answered with no text)" : shown)).append('\n').append(Fence.rule(label)).append('\n');
-        if (!r.error()) b.append("Cite what it shows as ").append(locator).append('.');
-        if (!links.isEmpty()) b.append(" The addresses it names are sources of their own, to open and cite: ").append(String.join(" ", links.subList(0, Math.min(links.size(), 12)))).append('.');
+        if (!r.error()) { b.append("Cite what it shows as ").append(locator).append('.'); GivenAddresses.fromTheLibrary(locator); }   // kept under that locator: read back by it
+        // whether those addresses may be opened is the keeper's word of the server (McpServers.Server.links): a server that finds things
+        // outside names sources; one that computes on what it is sent could name any address, and then none is opened from its answer
+        boolean opens = links(store, server);
+        if (!links.isEmpty()) b.append(opens ? " The addresses it names are sources of their own, to open and cite: " + String.join(" ", links.subList(0, Math.min(links.size(), 12))) + "."
+                : " The addresses it names are not opened from this answer: the keeper has not said that " + server + " finds things outside (researchzosho mcp links " + server + " on). Cite the answer itself.");
         return b.toString().strip();
     }
 

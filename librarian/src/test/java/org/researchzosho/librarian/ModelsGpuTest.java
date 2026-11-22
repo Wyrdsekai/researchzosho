@@ -48,6 +48,27 @@ class ModelsGpuTest {
         assertTrue(s.contains("--device /dev/dri --group-add video -p") && s.contains("llama.cpp:server-vulkan") && !s.contains("/dev/kfd"), s);
     }
 
+    /**
+     * On Linux, where `researchzosho model install` sets the model server up with no way out to the network, the lines that serve a
+     * model by hand say that they leave the network open, and name the command that does not; on another system, where model install
+     * runs a plain program, they say nothing of it. The machine's RAM is read through a stand-in that reads none.
+     */
+    @Test
+    void onLinuxTheLinesByHandSayTheyLeaveTheNetworkOpen() {
+        ModelServer.Os was = ModelServer.os;
+        ModelServer.Runner runner = ModelServer.runner;
+        try {
+            ModelServer.runner = cmd -> new ModelServer.Result(1, "");
+            ModelServer.os = ModelServer.Os.linux;
+            String linux = Models.describe(16);
+            ModelServer.os = ModelServer.Os.windows;
+            String windows = Models.describe(16);
+            String said = "Each docker run line above starts the model server with the network open to it. researchzosho model install sets it up with no way out.";
+            assertTrue(linux.contains("docker run -d --name researchzosho-model") && linux.contains("\n" + said + "\n") && linux.indexOf(said) > linux.lastIndexOf("docker run -d"), linux);
+            assertTrue(windows.contains("docker run -d --name researchzosho-model") && !windows.contains(said), windows);
+        } finally { ModelServer.os = was; ModelServer.runner = runner; }
+    }
+
     @Test
     void withoutAGpuTheCommandsKeepTheCudaFormAndTheFirstLineSaysSo() {
         String s = Models.describeThisMachine();

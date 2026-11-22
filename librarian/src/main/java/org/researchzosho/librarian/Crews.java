@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.drive.Gated;
 
 import static org.researchzosho.librarian.Researcher.forExplorer;
@@ -386,7 +387,7 @@ public final class Crews {
     }
 
     /** The probe's client, one for the process: a client per probe leaked a selector thread every 30 s. */
-    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient PROBE_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build());
 
     /** What a probe of a drive found: it answered a completion; it is reachable but still loading; or nothing is there. */
     public enum DriveState { ANSWERS, STARTING, DOWN }

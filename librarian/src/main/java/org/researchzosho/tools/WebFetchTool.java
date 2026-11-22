@@ -37,6 +37,7 @@ import java.util.Collections;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.researchzosho.librarian.Acquisitions;
 import org.researchzosho.librarian.Fence;
+import org.researchzosho.librarian.GivenAddresses;
 import org.researchzosho.librarian.Untrusted;
 import org.researchzosho.librarian.LibraryStore;
 import org.researchzosho.librarian.RawCapture;
@@ -63,6 +64,10 @@ public final class WebFetchTool implements Tool {
     private final Set<String> fetched = new HashSet<>();
 
     @Override public String name() { return "web_fetch"; }
+
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the page it fetched
+
+    @Override public Set<String> addressArguments(JsonNode args) { return Set.of("url"); }
 
     @Override public String description() {
         return "Fetch a URL and return its readable text content. Use after web_search to actually READ a "
@@ -105,7 +110,8 @@ public final class WebFetchTool implements Tool {
     @Override public String execute(JsonNode args) throws Exception {
         String url = args.path("url").asText("");
         if (url.isBlank()) return "ERROR: empty url";
-        if (url.strip().matches("(?is)^(?:file:|cite:)\\S.*")) return "ERROR: " + url.strip() + " is a file the library holds, not a web address: read it with read_pages.";   // never sent to the web as https://file:…
+        // what the library holds (a file, a saved result by its own locator, a claim or a report by its id) is never sent to the web as https://file:… or as a host of one word
+        if (GivenAddresses.internal(url) || GivenAddresses.entryId(url)) return "ERROR: " + url.strip() + " is something the library holds, not a web address: read it with read_pages.";
         if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
         // The guard keys on url+find: re-reading the SAME page for a DIFFERENT thing is legitimate (the
         // excerpt shown is question-relevant, so a new question genuinely shows new text) — what we refuse
@@ -265,8 +271,9 @@ public final class WebFetchTool implements Tool {
         // the excerpt below; the library keeps the source). No library → no-op.
         String published = publishedDate(new String(bytes, 0, Math.min(bytes.length, 200_000), StandardCharsets.UTF_8));
         LibraryStore into = policy.store();
-        if (into != null) RawCapture.capture(into, url, text, doc.title(), "researchzosho-web-fetch", "", published);
-        else if (Acquisitions.libraryExists()) RawCapture.capture(LibraryStore.open(), url, text, doc.title(), "researchzosho-web-fetch", "", published);
+        // a picture's writing, or a PDF's pages read by eye, are the seeing model's words: the copy says so (RawCapture.eyeHead)
+        if (into != null) RawCapture.capture(into, url, text, doc.title(), "researchzosho-web-fetch", "", published, RawCapture.eyeHead(doc));
+        else if (Acquisitions.libraryExists()) RawCapture.capture(LibraryStore.open(), url, text, doc.title(), "researchzosho-web-fetch", "", published, RawCapture.eyeHead(doc));
         // The document's own title rides on the source line: the person watching the turn sees
         // WHAT was read, not just that a read happened, and the model cites by name, not URL.
         String title = Untrusted.line(doc.title(), 120);   // a document's own title stands outside the fence: one short line, its markers and instructions set aside (round F, S18)

@@ -219,3 +219,22 @@ Datei auf {0}“. The typed forms „ins Japanische“ and „auf Japanisch“ a
 | the audit log / machine, node / awake, asleep / last word / … ago | Prüfprotokoll / Rechner, Knoten / aktiv, ruht / letzte Meldung / vor {0} Sekunde(n), Minute(n), Stunde(n), Tag(en) as two keys each |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays aufgeben) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | abgeben / Behalten / Für das Konto / bisher verwaltet von {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | Einladung / Beitreten / Zurückziehen / noch nicht angenommener Link |
+
+## Fifth round (0.8.1: the places a library avoids, the model server with no way out)
+
+| English | German |
+|---|---|
+| place (a country code the setting names: CN, HK…) | Gebiet (pl. Gebiete): it covers a country and Hong Kong or Macau alike |
+| keep away from / avoid; the places this library avoids | meiden; die Gebiete, die diese Bibliothek meidet; gemiedenes Gebiet |
+| based or runs in (a provider) | Sitz oder Betrieb in; „hat seinen Sitz oder Betrieb in einem Gebiet, das …“ |
+| owned by a company based in {0}; its owner's place | gehört einem Unternehmen mit Sitz in {0}; wegen des Sitzes seines Eigentümers |
+| states no place / left out / allow / serve (a model) | gibt kein Gebiet an / ausgeschlossen / zulassen / bereitstellen |
+| provider (of a hosted model) / router / request | Anbieter / Router / Anfrage |
+| no way out to the network / can reach the network | vom Netz abgeschottet / kann das Netz erreichen |
+| set up with no way out / able to reach the network / the earlier way | vom Netz abgeschottet einrichten / mit Netzzugang einrichten / auf die frühere Weise |
+| a reason the program fills in | after „Grund:“, as a clause in small letters |
+| embeddings server / embeddings model | Embedding-Server / Embedding-Modell |
+| Docker network / container / proxy / route / address range / start script / log | Docker-Netzwerk / Container / Proxy / Route / Adressbereich / Startskript / Protokoll |
+| open / closed (values of model_network) | stay as written: „steht auf open“ |
+| an MCP server's answers give addresses | „Die Recherche darf die Adressen öffnen, die er in seinen Antworten nennt.“ Buttons: Gefundene Adressen öffnen lassen / Keine Adressen aus Antworten öffnen |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | China, Hongkong, Macau, Kuba, Iran, Nordkorea, Russland, Venezuela; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

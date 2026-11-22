@@ -1,5 +1,7 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.drive.DriveClient;
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -132,7 +134,7 @@ public final class Setup {
 
     /** The default probe: HTTP, ten seconds, the key only to the server asked. */
     public static Probe liveProbe() {
-        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build();
+        HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(4)).build());
         return new Probe() {
             @Override public ModelSlots.Plan slots(String base, String model) { return ModelSlots.probe(base, model); }
             @Override public List<String> models(String base, String key) {
@@ -158,11 +160,18 @@ public final class Setup {
                     body.put("model", model); body.put("max_tokens", 400);   // a reasoning model spends its first tokens thinking; 12 left nothing for the word
                     ArrayNode msgs = body.putArray("messages");
                     msgs.addObject().put("role", "user").put("content", "Reply with the single word: ready");
+                    DriveClient.routed(body, base);   // a router is told which providers to leave out, on this hello as on every completion (0.8.1: it went without)
+                    // and when nobody is left to serve the model, the hello is not sent: the person reads which setting allows them, as the chat says it
+                    String nobody = DriveClient.nobodyServes(base, model);
+                    if (nobody != null) return "!" + nobody.replaceFirst("\\.$", "");
                     var b = HttpRequest.newBuilder(URI.create(Config.v1(Config.driveBase(base)) + "/chat/completions")).timeout(Duration.ofSeconds(60))
                             .header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body.toString()));
                     if (key != null && !key.isBlank()) b.header("Authorization", "Bearer " + key);
                     HttpResponse<String> r = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-                    if (r.statusCode() / 100 != 2) return "!the server answered " + r.statusCode() + (r.statusCode() == 401 ? " (it wants a key)" : "");
+                    if (r.statusCode() / 100 != 2) {
+                        String refused = DriveClient.nobodyServes(base, model, r.statusCode(), r.body());   // the router's own word that nobody is left, said as this library says it
+                        return refused != null ? "!" + refused.replaceFirst("\\.$", "") : "!the server answered " + r.statusCode() + (r.statusCode() == 401 ? " (it wants a key)" : "");
+                    }
                     return helloReply(r.body());
                 } catch (Exception e) { return "!" + plain(e); }
             }

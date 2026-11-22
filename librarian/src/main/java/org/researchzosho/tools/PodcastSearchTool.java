@@ -10,6 +10,7 @@ import org.researchzosho.librarian.LibraryStore;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,6 +31,11 @@ public final class PodcastSearchTool implements Tool {
     public PodcastSearchTool policy(ContentPolicy p) { this.policy = p == null ? ContentPolicy.defaults() : p; return this; }
 
     @Override public String name() { return "podcast_search"; }
+
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the podcast index's records
+
+    /** A show's feed is an address the tool asks for: one that was given (a directory's answer, the person's words). */
+    @Override public Set<String> addressArguments(JsonNode args) { return Set.of("feed"); }
 
     @Override public String description() {
         return "Podcasts: what a person said in their own words on a show they host or visited, with the time they said it — the source to read for a host's "

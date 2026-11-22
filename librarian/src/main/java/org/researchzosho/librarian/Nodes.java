@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
@@ -62,7 +63,7 @@ public final class Nodes implements LibraryRunner, Scheduler.Libraries {
     private final Map<String, Long> epochs = new ConcurrentHashMap<>();
     private final Map<String, Node.State> remoteStates = new ConcurrentHashMap<>();
     private volatile long statesRead;
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build());
 
     public Nodes(AccountStore store, String issuer, Node local) { this.store = store; this.issuer = issuer; this.local = local; }
 

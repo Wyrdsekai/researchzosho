@@ -28,6 +28,9 @@ class HomeRecordsResearchTest {
     final Map<String, String> answers = new HashMap<>();
     final List<String> fetched = new ArrayList<>(), asked = new ArrayList<>();
 
+    /** A research answer as a run gives it: the addresses in it came from the pages it opened and the searches it made. */
+    static String fromItsPages(String answer) { GivenAddresses.received(answer); return answer; }
+
     @BeforeEach void standIns() {
         HomeSensors.FETCH = u -> { fetched.add(u); for (Map.Entry<String, String> e : answers.entrySet()) if (u.contains(e.getKey())) return e.getValue(); return null; };
         HomeSensors.BYTES = u -> null;
@@ -69,7 +72,9 @@ class HomeRecordsResearchTest {
         // the platforms: nothing (no portal answers, the catalogue is silent); the research names a Socrata dataset and a lookup page
         HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> {
             asked.add(ask.question() + " || " + title + " || " + ask.maxMinutes() + " min, " + ask.subQuestions().size() + " sub-questions, " + ask.sources());
-            return "Sangamon County publishes its parcel values on the county portal: https://data.sangamon.example/d/abcd-1234 (Socrata). Building permits are searched one address at a time at https://permits.sangamon.example/lookup.";
+            // the third address is one the run opened no page for and no search returned: the model's own, and nobody asks it
+            return fromItsPages("Sangamon County publishes its parcel values on the county portal: https://data.sangamon.example/d/abcd-1234 (Socrata). Building permits are searched one address at a time at https://permits.sangamon.example/lookup.")
+                    + " The deeds are at https://deeds-collector.example.net/sangamon?d=QX7731MOOR.";
         };
         HomeRecordsResearch.PROBE = u -> u.contains("lookup") ? new String[]{"text/html", "<html>"} : null;
         answers.put("data.sangamon.example/api/views/abcd-1234.json", "{\"name\": \"Parcel Assessments\", \"columns\": [{\"fieldName\": \"site_address\"}, {\"fieldName\": \"total_assessed_value\"}, {\"fieldName\": \"year_built\"}, {\"fieldName\": \"pin\"}]}");
@@ -82,6 +87,8 @@ class HomeRecordsResearchTest {
         assertEquals("Parcel Assessments", f.sales().name()); assertEquals("Socrata", f.sales().platform()); assertEquals("total_assessed_value", f.sales().field("value"));
         assertNull(f.permits());
         assertEquals("https://permits.sangamon.example/lookup", f.lookup(), "the lookup page the research named is kept for the card");
+        assertTrue(fetched.stream().noneMatch(u -> u.contains("deeds-collector.example.net")), "an address the answer names that came from no page or search of the run is asked by nobody: " + fetched);
+        assertTrue(f.looked().stream().anyMatch(x -> x.contains("1 address in the answer came from no page or search of the run and was left out")), f.looked().toString());
         assertTrue(f.looked().stream().anyMatch(x -> x.startsWith("the library's research on where Sangamon County publishes its records") && x.contains("2 addresses named, 1 datasets, 0 files, 1 pages")), f.looked().toString());
         List<String> prices = HomeRecords.prices(f.sales(), "ELM ST", 122, "Springfield");
         assertEquals("120 ELM ST: assessed at $255,000, built 1961", prices.get(0), prices.toString());
@@ -126,7 +133,7 @@ class HomeRecordsResearchTest {
         HomeRecordsResearch.Source csv = HomeRecordsResearch.classify("https://data.example.org/dataset/sales-2026");
         assertEquals("csv|https://files.example.org/sales_2026.csv", csv.kind() + "|" + csv.url());
         // the county's research kept from the day it named only pages: read back, the Hub page is the dataset now, and the look keeps it
-        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> "The parcels are at https://data.example.gov/datasets/parcels-1/about on the county's open data site.";
+        HomeRecordsResearch.RESEARCH = (st, ask, title, stop) -> fromItsPages("The parcels are at https://data.example.gov/datasets/parcels-1/about on the county's open data site.");
         HomeRecords.Found f = HomeRecords.find(store, "Springfield", "IL", "Sangamon County", 39.80, -89.65, "ELM ST", 122, true);
         assertNotNull(f.sales(), f.looked().toString());
         assertEquals("ArcGIS", f.sales().platform()); assertEquals("Parcels", f.sales().name()); assertEquals("TOTAL_APPR", f.sales().field("value"));

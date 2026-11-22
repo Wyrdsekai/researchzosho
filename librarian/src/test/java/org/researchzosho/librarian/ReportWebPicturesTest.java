@@ -2,6 +2,8 @@ package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,7 +28,12 @@ class ReportWebPicturesTest {
         // words that look like the library's mark do not open the policy: the mark is made at random when the program starts
         assertEquals("img-src 'self'", Pages.imgPolicy(Pages.md("<img class=\"thumb\" src=\"https://x.example/a.png\"> data-shown=\"0\"")));
         assertEquals("img-src 'self'", Pages.imgPolicy("<p><img class=\"thumb\" src=\"https://x.example/a.png\"></p>"), "a picture of the web without the library's mark opens nothing, however it came onto the page");
-        // a picture the library found and shows from the web, in its own chat line, carries the mark
-        assertEquals("img-src 'self' https:", Pages.imgPolicy(Pages.prose("Pictures found:\n![A red fox](https://img.example.org/fox.png)\n![A grey fox](https://img.example.org/grey.png)")));
+        // a picture the library found and shows from the web, in its own chat line, carries the mark: the one on the line's list of what
+        // its search found, and no other the words hold (0.8.1: the words hold a model's too)
+        String line = "Pictures found:\n![A red fox](https://img.example.org/fox.png)\n![A grey fox](https://img.example.org/grey.png)";
+        String shown = Pages.prose(line, Set.of("https://img.example.org/fox.png"));
+        assertEquals("img-src 'self'", Pages.imgPolicy(shown), "also then: the library fetches the found picture and passes it on, so the page takes it from the library");
+        assertTrue(shown.contains("src=\"/found?u=https%3A%2F%2Fimg.example.org%2Ffox.png\"") && !shown.contains("grey.png\" alt") && !shown.contains("src=\"https://") && shown.contains("<a href=\"https://img.example.org/grey.png\" rel=\"noreferrer\">A grey fox</a>"), shown);
+        assertEquals("img-src 'self'", Pages.imgPolicy(Pages.prose(line)), "words alone show no picture of the web");
     }
 }

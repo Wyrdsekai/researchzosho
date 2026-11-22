@@ -1,0 +1,716 @@
+# The names and modules of the engines in the settings of the searxng/searxng image 2026.11.20 (its own /usr/local/searxng/searx/settings.yml, read with no network).
+engines:
+  - name: 360search
+    engine: 360search
+  - name: 360search videos
+    engine: 360search_videos
+  - name: 500px
+    engine: 500px
+  - name: 9gag
+    engine: 9gag
+  - name: abcnyheter
+    engine: xpath
+  - name: acfun
+    engine: acfun
+  - name: astrophysics data system
+    engine: astrophysics_data_system
+  - name: alpine linux packages
+    engine: alpinelinux
+  - name: annas archive
+    engine: annas_archive
+  - name: ansa
+    engine: ansa
+  - name: apk mirror
+    engine: apkmirror
+  - name: apple app store
+    engine: apple_app_store
+  - name: ahmia
+    engine: ahmia
+  - name: anaconda
+    engine: xpath
+  - name: arch linux wiki
+    engine: archlinux
+  - name: nixos wiki
+    engine: mediawiki
+  - name: artic
+    engine: artic
+  - name: artstation
+    engine: artstation
+  - name: arxiv
+    engine: arxiv
+  - name: avalw
+    engine: json_engine
+  - name: ayo
+    engine: ayo
+  - name: azure
+    engine: azure
+  - name: bandcamp
+    engine: bandcamp
+  - name: baidu
+    engine: baidu
+  - name: baidu images
+    engine: baidu
+  - name: baidu kaifa
+    engine: baidu
+  - name: wikipedia
+    engine: wikipedia
+  - name: bilibili
+    engine: bilibili
+  - name: bing
+    engine: bing
+  - name: bing images
+    engine: bing_images
+  - name: bing news
+    engine: bing_news
+  - name: bing videos
+    engine: bing_videos
+  - name: bitchute
+    engine: bitchute
+  - name: bitbucket
+    engine: xpath
+  - name: boardreader
+    engine: boardreader
+  - name: bpb
+    engine: bpb
+  - name: btdigg
+    engine: btdigg
+  - name: openverse
+    engine: openverse
+  - name: media.ccc.de
+    engine: ccc_media
+  - name: cachy os packages
+    engine: cachy_os
+  - name: chefkoch
+    engine: chefkoch
+  - name: chinaso news
+    engine: chinaso
+  - name: cl0q
+    engine: json_engine
+  - name: cloudflareai
+    engine: cloudflareai
+  - name: core.ac.uk
+    engine: core
+  - name: crossref
+    engine: crossref
+  - name: crowdview
+    engine: json_engine
+  - name: yep
+    engine: yep
+  - name: currency
+    engine: currency_convert
+  - name: deezer
+    engine: deezer
+  - name: destatis
+    engine: destatis
+  - name: deviantart
+    engine: deviantart
+  - name: devicons
+    engine: devicons
+  - name: ddg definitions
+    engine: duckduckgo_definitions
+  - name: docker hub
+    engine: docker_hub
+  - name: encyclosearch
+    engine: json_engine
+  - name: europepmc
+    engine: europepmc
+  - name: erowid
+    engine: xpath
+  - name: elasticsearch
+    engine: elasticsearch
+  - name: wikidata
+    engine: wikidata
+  - name: dogpile
+    engine: dogpile
+  - name: dogpile images
+    engine: dogpile
+  - name: dogpile videos
+    engine: dogpile
+  - name: dogpile news
+    engine: dogpile
+  - name: duckduckgo
+    engine: duckduckgo
+  - name: duckduckgo web
+    engine: duckduckgo_web
+  - name: duckduckgo images
+    engine: duckduckgo_extra
+  - name: duckduckgo videos
+    engine: duckduckgo_extra
+  - name: duckduckgo news
+    engine: duckduckgo_extra
+  - name: duckduckgo weather
+    engine: duckduckgo_weather
+  - name: apple maps
+    engine: apple_maps
+  - name: emojipedia
+    engine: emojipedia
+  - name: tineye
+    engine: tineye
+  - name: etymonline
+    engine: xpath
+  - name: ebay
+    engine: ebay
+  - name: 1x
+    engine: www1x
+  - name: fastbot
+    engine: xpath
+  - name: fdroid
+    engine: fdroid
+  - name: findborg
+    engine: findborg
+  - name: findborg images
+    engine: findborg
+  - name: findborg videos
+    engine: findborg
+  - name: findborg news
+    engine: findborg
+  - name: findfiles
+    engine: findfiles
+  - name: findfiles images
+    engine: findfiles
+  - name: findfiles videos
+    engine: findfiles
+  - name: findfiles music
+    engine: findfiles
+  - name: findthatmeme
+    engine: findthatmeme
+  - name: fireball
+    engine: fireball
+  - name: fireball news
+    engine: fireball
+  - name: fireball videos
+    engine: fireball
+  - name: flaticon
+    engine: flaticon
+  - name: flickr
+    engine: flickr_noapi
+  - name: flickr_api
+    engine: flickr
+  - name: free software directory
+    engine: mediawiki
+  - name: freesound
+    engine: freesound
+  - name: frinkiac
+    engine: frinkiac
+  - name: fynd
+    engine: xpath
+  - name: fyyd
+    engine: fyyd
+  - name: gabanza
+    engine: xpath
+  - name: geizhals
+    engine: geizhals
+  - name: genius
+    engine: genius
+  - name: gentoo
+    engine: mediawiki
+  - name: giphy
+    engine: giphy
+  - name: gitlab
+    engine: gitlab
+  - name: github
+    engine: github
+  - name: github code
+    engine: github_code
+  - name: codeberg
+    engine: gitea
+  - name: gitea.com
+    engine: gitea
+  - name: gmx
+    engine: gmx
+  - name: goodreads
+    engine: goodreads
+  - name: google
+    engine: google
+  - name: google images
+    engine: google_images
+  - name: google news
+    engine: google_news
+  - name: google videos
+    engine: google_videos
+  - name: google cse
+    engine: google_cse
+  - name: google cse images
+    engine: google_cse
+  - name: google scholar
+    engine: google_scholar
+  - name: google play apps
+    engine: google_play
+  - name: google play movies
+    engine: google_play
+  - name: grokipedia
+    engine: grokipedia
+  - name: material icons
+    engine: material_icons
+  - name: habrahabr
+    engine: xpath
+  - name: hackernews
+    engine: hackernews
+  - name: hex
+    engine: hex
+  - name: crates.io
+    engine: crates
+  - name: hoogle
+    engine: xpath
+  - name: iconify
+    engine: iconify
+  - name: iseek
+    engine: iseek
+  - name: il post
+    engine: il_post
+  - name: huggingface
+    engine: huggingface
+  - name: huggingface datasets
+    engine: huggingface
+  - name: huggingface spaces
+    engine: huggingface
+  - name: imdb
+    engine: imdb
+  - name: imgur
+    engine: imgur
+  - name: ina
+    engine: ina
+  - name: ipernity
+    engine: ipernity
+  - name: iqiyi
+    engine: iqiyi
+  - name: jina
+    engine: jina
+  - name: kavunka demo
+    engine: xpath
+  - name: keenable
+    engine: keenable
+  - name: kozmonavt
+    engine: xpath
+  - name: jisho
+    engine: jisho
+  - name: kickass
+    engine: kickass
+  - name: kukei
+    engine: xpath
+  - name: lemmy communities
+    engine: lemmy
+  - name: lemmy users
+    engine: lemmy
+  - name: lemmy posts
+    engine: lemmy
+  - name: lemmy comments
+    engine: lemmy
+  - name: library genesis
+    engine: xpath
+  - name: z-library
+    engine: zlibrary
+  - name: libretranslate
+    engine: libretranslate
+  - name: littlelayer
+    engine: json_engine
+  - name: lingva
+    engine: lingva
+  - name: lobste.rs
+    engine: xpath
+  - name: lucide
+    engine: lucide
+  - name: luxxle
+    engine: luxxle
+  - name: luxxle images
+    engine: luxxle
+  - name: luxxle videos
+    engine: luxxle
+  - name: luxxle news
+    engine: luxxle
+  - name: magnific
+    engine: magnific
+  - name: marginalia
+    engine: marginalia
+  - name: mastodon users
+    engine: mastodon
+  - name: mastodon hashtags
+    engine: mastodon
+  - name: mdn
+    engine: json_engine
+  - name: metacpan
+    engine: metacpan
+  - name: microsoft learn
+    engine: microsoft_learn
+  - name: mixcloud
+    engine: mixcloud
+  - name: mozhi
+    engine: mozhi
+  - name: mwmbl
+    engine: mwmbl
+  - name: neocities
+    engine: neocities
+  - name: niconico
+    engine: niconico
+  - name: npm
+    engine: npm
+  - name: nuget
+    engine: nuget
+  - name: nyaa
+    engine: nyaa
+  - name: mankier
+    engine: json_engine
+  - name: odysee
+    engine: odysee
+  - name: ollama
+    engine: ollama
+  - name: openairedatasets
+    engine: json_engine
+  - name: openairepublications
+    engine: json_engine
+  - name: openalex
+    engine: openalex
+  - name: openclipart
+    engine: openclipart
+  - name: openlibrary
+    engine: openlibrary
+  - name: openmeteo
+    engine: open_meteo
+  - name: openstreetmap
+    engine: openstreetmap
+  - name: openrepos
+    engine: xpath
+  - name: packagist
+    engine: json_engine
+  - name: pdbe
+    engine: pdbe
+  - name: pexels
+    engine: pexels
+  - name: photon
+    engine: photon
+  - name: picjumbo
+    engine: picjumbo
+  - name: pinterest
+    engine: pinterest
+  - name: piped
+    engine: piped
+  - name: piped.music
+    engine: piped
+  - name: piratebay
+    engine: piratebay
+  - name: pixabay images
+    engine: pixabay
+  - name: pixabay videos
+    engine: pixabay
+  - name: pixiv
+    engine: pixiv
+  - name: podchaser
+    engine: podchaser
+  - name: pub.dev
+    engine: xpath
+  - name: public domain image archive
+    engine: public_domain_image_archive
+  - name: pubmed
+    engine: pubmed
+  - name: purili
+    engine: purili
+  - name: purili images
+    engine: purili
+  - name: purili news
+    engine: purili
+  - name: pypi
+    engine: pypi
+  - name: quark
+    engine: quark
+  - name: quark images
+    engine: quark
+  - name: qwant
+    engine: qwant
+  - name: qwant news
+    engine: qwant
+  - name: qwant images
+    engine: qwant
+  - name: qwant videos
+    engine: qwant
+  - name: radio browser
+    engine: radio_browser
+  - name: rawweb
+    engine: json_engine
+  - name: readerfunded
+    engine: readerfunded
+  - name: reuters
+    engine: reuters
+  - name: rottentomatoes
+    engine: rottentomatoes
+  - name: searchmysite
+    engine: xpath
+  - name: searchrockit
+    engine: searchrockit
+  - name: searchrockit images
+    engine: searchrockit
+  - name: searchrockit news
+    engine: searchrockit
+  - name: selfhst icons
+    engine: selfhst
+  - name: sepiasearch
+    engine: sepiasearch
+  - name: shopify stock
+    engine: shopify_stock
+  - name: sogou
+    engine: sogou
+  - name: sogou images
+    engine: sogou_images
+  - name: sogou videos
+    engine: sogou_videos
+  - name: sogou wechat
+    engine: sogou_wechat
+  - name: soundcloud
+    engine: soundcloud
+  - name: stackoverflow
+    engine: stackexchange
+  - name: stocksnap
+    engine: stocksnap
+  - name: askubuntu
+    engine: stackexchange
+  - name: superuser
+    engine: stackexchange
+  - name: discuss.python
+    engine: discourse
+  - name: caddy.community
+    engine: discourse
+  - name: pi-hole.community
+    engine: discourse
+  - name: privacywall
+    engine: privacywall
+  - name: privacywall images
+    engine: privacywall
+  - name: privacywall videos
+    engine: privacywall
+  - name: seekninja
+    engine: seekninja
+  - name: semantic scholar
+    engine: semantic_scholar
+  - name: springer nature
+    engine: springer
+  - name: startpage
+    engine: startpage
+  - name: startpage news
+    engine: startpage
+  - name: startpage images
+    engine: startpage
+  - name: steam
+    engine: steam
+  - name: tokyotoshokan
+    engine: tokyotoshokan
+  - name: solidtorrents
+    engine: solidtorrents
+  - name: tagesschau
+    engine: tagesschau
+  - name: tiger
+    engine: tiger
+  - name: tiger news
+    engine: tiger
+  - name: tmdb
+    engine: xpath
+  - name: tonline
+    engine: tonline
+  - name: tonline images
+    engine: tonline
+  - name: tonline videos
+    engine: tonline
+  - name: tonline news
+    engine: tonline
+  - name: torch
+    engine: xpath
+  - name: Torznab EZTV
+    engine: torznab
+  - name: tusksearch
+    engine: tusksearch
+  - name: tusksearch images
+    engine: tusksearch
+  - name: tusksearch videos
+    engine: tusksearch
+  - name: tusksearch news
+    engine: tusksearch
+  - name: unsplash
+    engine: unsplash
+  - name: unobtanium
+    engine: xpath
+  - name: yandex
+    engine: yandex
+  - name: yandex images
+    engine: yandex
+  - name: yandex api
+    engine: yandex_api
+  - name: yandex music
+    engine: yandex_music
+  - name: yahoo
+    engine: yahoo
+  - name: yahoo news
+    engine: yahoo_news
+  - name: youtube
+    engine: youtube_noapi
+  - name: youtube_api
+    engine: youtube_api
+  - name: dailymotion
+    engine: dailymotion
+  - name: vimeo
+    engine: vimeo
+  - name: wiby
+    engine: json_engine
+  - name: wikibooks
+    engine: mediawiki
+  - name: wikinews
+    engine: mediawiki
+  - name: wikiquote
+    engine: mediawiki
+  - name: wikisource
+    engine: mediawiki
+  - name: wikispecies
+    engine: mediawiki
+  - name: wiktionary
+    engine: mediawiki
+  - name: wikiversity
+    engine: mediawiki
+  - name: wikivoyage
+    engine: mediawiki
+  - name: wikicommons.images
+    engine: wikicommons
+  - name: wikicommons.videos
+    engine: wikicommons
+  - name: wikicommons.audio
+    engine: wikicommons
+  - name: wikicommons.files
+    engine: wikicommons
+  - name: wolframalpha
+    engine: wolframalpha_noapi
+  - name: wolframalpha_api
+    engine: wolframalpha_api
+  - name: dictzone
+    engine: dictzone
+  - name: mymemory translated
+    engine: translated
+  - name: 1337x
+    engine: 1337x
+  - name: duden
+    engine: duden
+  - name: seznam
+    engine: seznam
+  - name: deepl
+    engine: deepl
+  - name: mojeek
+    engine: mojeek
+  - name: mojeek images
+    engine: mojeek
+  - name: mojeek news
+    engine: mojeek
+  - name: moviepilot
+    engine: moviepilot
+  - name: national vulnerability database
+    engine: nvd
+  - name: naver
+    engine: naver
+  - name: naver images
+    engine: naver
+  - name: naver news
+    engine: naver
+  - name: naver videos
+    engine: naver
+  - name: neosearch
+    engine: neosearch
+  - name: rubygems
+    engine: xpath
+  - name: peertube
+    engine: peertube
+  - name: mediathekviewweb
+    engine: mediathekviewweb
+  - name: yacy
+    engine: yacy
+  - name: yacy images
+    engine: yacy
+  - name: rumble
+    engine: rumble
+  - name: reloado
+    engine: xpath
+  - name: repology
+    engine: repology
+  - name: resulthunter
+    engine: resulthunter
+  - name: resulthunter images
+    engine: resulthunter
+  - name: searchch
+    engine: xpath
+  - name: searchzee
+    engine: searchzee
+  - name: searchzee news
+    engine: searchzee
+  - name: startpagina
+    engine: startpagina
+  - name: startpagina images
+    engine: startpagina
+  - name: startpagina videos
+    engine: startpagina
+  - name: startpagina news
+    engine: startpagina
+  - name: swisscows
+    engine: swisscows
+  - name: swisscows images
+    engine: swisscows
+  - name: swisscows videos
+    engine: swisscows
+  - name: swisscows news
+    engine: swisscows_news
+  - name: wordnik
+    engine: wordnik
+  - name: woxikon.de synonyme
+    engine: xpath
+  - name: tootfinder
+    engine: tootfinder
+  - name: uxwing
+    engine: uxwing
+  - name: voidlinux
+    engine: voidlinux
+  - name: vuhuv
+    engine: vuhuv
+  - name: vuhuv images
+    engine: vuhuv
+  - name: vuhuv videos
+    engine: vuhuv
+  - name: wallhaven
+    engine: wallhaven
+  - name: wikimini
+    engine: xpath
+  - name: wttr.in
+    engine: wttr
+  - name: xonaly
+    engine: xpath
+  - name: xprivo
+    engine: xprivo
+  - name: xprivo news
+    engine: xprivo
+  - name: xprivo videos
+    engine: xprivo
+  - name: zapmeta
+    engine: xpath
+  - name: braveapi
+    engine: braveapi
+  - name: brave
+    engine: brave
+  - name: brave.images
+    engine: brave
+  - name: brave.videos
+    engine: brave
+  - name: brave.news
+    engine: brave
+  - name: exaapi
+    engine: exaapi
+  - name: lib.rs
+    engine: lib_rs
+  - name: sourcehut
+    engine: sourcehut
+  - name: bt4g
+    engine: bt4g
+  - name: pkg.go.dev
+    engine: pkg_go_dev
+  - name: senscritique
+    engine: senscritique
+  - name: minecraft wiki
+    engine: mediawiki
+  - name: sina
+    engine: json_engine
+  - name: metacrawler
+    engine: s1search
+  - name: zoo search
+    engine: s1search
+  - name: s1search
+    engine: s1search_rampjs

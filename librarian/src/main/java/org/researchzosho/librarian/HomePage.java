@@ -210,7 +210,7 @@ public final class HomePage {
         if (!l.link().isEmpty()) b.append(" <a href=\"").append(Pages.esc(l.link())).append("\">").append(l.ownPage() && !l.url().contains("/search?q=") ? t("open its page") : t("search the web for it")).append("</a>");   // the home itself: its own page, or a search for its full address
         if (!l.seenOn().isEmpty()) b.append(" · <a href=\"").append(Pages.esc(l.seenOn())).append("\">").append(c.english() ? "seen on " + Pages.esc(HomeFind.possessive(l.seenOnName())) + " page" : t("seen on the page of {0}", Pages.esc(l.seenOnName()))).append("</a>");
         if (!r.reactionWord().isEmpty()) b.append(" <span class=\"k\">").append(r.reactionWord().equals("like") ? t("liked") : t("passed")).append(r.reaction().path("why").asText("").isBlank() ? "" : ": " + Pages.esc(r.reaction().path("why").asText())).append("</span>");
-        if (r.card() != null) b.append(" <span class=\"k\">· ").append(Chrome.now().english() ? t("card {0}", Pages.esc(HomeCard.state(r.card()))) : Pages.esc(HomeCard.state(r.card(), Chrome.now()))).append("</span>");
+        if (r.card() != null) b.append(" <span class=\"k\">· ").append(Chrome.now().english() ? "card " + Pages.esc(HomeCard.state(r.card())) : Pages.esc(HomeCard.state(r.card(), Chrome.now()))).append("</span>");
         return b.toString();
     }
 

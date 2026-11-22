@@ -227,3 +227,23 @@ Nuovi termini e scelte per le 337 stringhe nuove e il file delle parole della ch
 | the audit log / machine, node / awake, asleep / last word / … ago | registro di controllo / computer, nodo / attiva, a riposo / ultimo segnale / {0} secondo/i fa… |
 | Release (the operator's act, was "let go"; a person's own "Let it go" stays lasciar andare) / Keep it ⟦…⟧ / For ⟦…⟧ / kept before by {0} | rilasciare / Tieni / Per l'account / gestita prima da {0} |
 | invitation / Join ⟦…⟧ / Withdraw ⟦…⟧ / a link not taken yet | invito / Unisciti / Ritira / link non ancora usato |
+
+## Quinto giro (0.8.1: i paesi e le regioni che una biblioteca evita, il server del modello isolato dalla rete)
+
+| inglese | italiano |
+|---|---|
+| place (a country code the setting names: CN, HK…) | paese o regione (pl. paesi e regioni) |
+| keep away from / avoid; the places this library avoids | evitare; i paesi e le regioni che questa biblioteca evita |
+| a list of places the program fills in ({0} = «China, Hong Kong and Macao») | after the colon («con sede in uno di questi paesi o regioni: {0}»), because in / a would depend on the place |
+| based or runs in (a provider) | avere sede o operare in |
+| owned by a company based in a place; its owner's place | appartenere a un'azienda con sede in …; il paese o la regione della sua azienda proprietaria |
+| states no place / left out / allow / serve (a model) | non indica paese né regione / escluso, escludere / consentire / offrire (servire, when it is served to the library) |
+| provider / router / request | fornitore / router / richiesta |
+| no way out to the network / can reach the network | isolato dalla rete / può raggiungere la rete |
+| set up with no way out / able to reach the network / the earlier way | configurare isolato dalla rete / con accesso alla rete / nel modo precedente |
+| a reason the program fills in | after «Motivo:», as a clause in small letters |
+| embeddings server / embeddings model | server degli embedding / modello degli embedding |
+| Docker network / container / proxy / route / address range / start script / log | rete Docker / container / proxy / percorso di rete / intervallo di indirizzi / script di avvio / registro |
+| open / closed (values of model_network) | stay as written: «è su open» |
+| an MCP server's answers give addresses | «La ricerca può aprire gli indirizzi che indica nelle sue risposte.» Buttons: Lascia aprire gli indirizzi trovati / Non aprire indirizzi dalle risposte |
+| the eight places of the unset list (CN HK MO CU IR KP RU VE), as the language ordinarily names them | Cina, Hong Kong, Macao, Cuba, Iran, Corea del Nord, Russia, Venezuela; a list of them is joined as the program joins every list (Chrome.and: the language's own "and"); any other place by the locale's name for its code |

@@ -19,7 +19,12 @@ import org.researchzosho.drive.Declined;
  */
 public final class Drafts {
 
-    static final Pattern URL = Pattern.compile("https?://[^\\s<>\"'()\\[\\]]+[^\\s<>\"'()\\[\\].,;:]");
+    /**
+     * A web address in running text. A pair of round brackets inside it is part of it (…/wiki/Saros_(astronomy): until 0.8.1 the address
+     * ended before the bracket, and a reading list asked for a page nobody had named); a bracket that closes one opened before the
+     * address, and the punctuation after it, are not.
+     */
+    static final Pattern URL = Pattern.compile("https?://(?:[^\\s<>\"'()\\[\\]]|\\([^\\s<>\"'()\\[\\]]*\\))*(?:[^\\s<>\"'()\\[\\].,;:]|\\([^\\s<>\"'()\\[\\]]*\\))");
     static final int MAX_CITATIONS = Config.getInt("RESEARCHZOSHO_DRAFT_CITATIONS", 40);
 
     /** {@code declined}: the library's statement when the model declined to list the claims, "" when it did not; the rest was shelved and filed. */

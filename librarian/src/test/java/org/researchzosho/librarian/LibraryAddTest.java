@@ -225,9 +225,9 @@ class LibraryAddTest {
         LibraryProtocol p = new LibraryProtocol(store);
         Path archive = Files.write(home.resolve("things.zip"), ArchivesTest.trickyZip());
         ObjectNode a = M.createObjectNode(); a.put("path", archive.toString()); a.putObject("patron").put("did", "person").put("name", "me").put("runtime", "cli");
-        List<Path> before = ArchivesTest.unpackFolders();
+        List<Path> unpacked = ArchivesTest.unpackWatch();
         ObjectNode r = p.add(a);
-        assertEquals(before, ArchivesTest.unpackFolders(), "the folder it was unpacked into is removed");
+        ArchivesTest.gone(unpacked, 1, "the folder it was unpacked into is removed");
         assertEquals("archive", r.path("kind").asText()); assertEquals("things", r.path("collection").asText()); assertEquals("keep", r.path("mode").asText());
         assertEquals(2, r.path("unpacked").asInt()); assertEquals(3, r.path("left_out").asInt());
         assertEquals(2, r.path("seen").asInt()); assertEquals(2, r.path("added").asInt()); assertEquals(0, r.path("skipped").asInt());
@@ -253,7 +253,7 @@ class LibraryAddTest {
         ProtocolError e2 = assertThrows(ProtocolError.class, () -> p.add(bArgs));
         assertTrue(e2.getMessage().startsWith("Not added: Unpacking stopped at 5,000 entries: the library takes at most that many from one archive. Split the archive"), e2.getMessage());
         assertEquals(were, ArchivesTest.raws(store).size());
-        assertEquals(before, ArchivesTest.unpackFolders());
+        ArchivesTest.gone(unpacked, 2, "no folder of these adds is left, the refused archive's included");
         // a patron who is not the keeper may not name a path, an archive's included
         ObjectNode w = a.deepCopy(); w.putObject("patron").put("did", "did:key:zSomeone").put("name", "someone").put("runtime", "mcp");
         Patrons.set(store, "did:key:zSomeone", "someone", Patrons.Level.write);

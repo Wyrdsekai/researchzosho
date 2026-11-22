@@ -13,6 +13,7 @@ import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.tools.Firecrawl;
 
 import java.io.IOException;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -54,6 +55,7 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_JUDGE_MODEL", Kind.text, "The judge model's name on that server.", ""),
             new Setting("RESEARCHZOSHO_EMBED", Kind.address, "The embeddings server, for search by meaning; off when unset.", "http://localhost:30001"),
             new Setting(ModelServer.MODEL_IDLE, Kind.number, "Minutes the model of this machine's own model server stays loaded with nothing asking it; 10 unless set, 0 for always. Work that runs keeps it loaded.", "10"),
+            new Setting(ModelServer.MODEL_NETWORK, Kind.choice, "Whether the model server that researchzosho model install sets up on this machine may reach the network (Linux, where it runs in Docker). closed: it is set up with no way out, so nothing a model file or the model server does can send anything off this machine; the library and the chat reach it all the same. open: it is set up as before version 0.8.1, able to reach the network, for a machine whose model server has to. A change takes effect when researchzosho model install is given again. Unset: closed.", "", List.of("closed", "open")),
             new Setting(ModelsAwake.EMBED_IDLE, Kind.number, "Minutes the embeddings model, LaBSE and the embeddings server's container stay loaded with nothing asking them; 5 unless set, 0 for always.", "5"),
             // the heavy helpers: where they run (0.7.4)
             new Setting(Helpers.LOCAL, Kind.choice, "Whether this machine runs the heavy helpers itself: MetricX-24 and LaBSE (the scores of a checked translation), the likeness helper, speech-to-text and the embeddings server. off, for a laptop or a small machine: none of them is installed or started here; one an address names runs there, and one no address names is left out, which the work says. Unset: on.", "", List.of("on", "off")),
@@ -85,6 +87,8 @@ public final class Settings {
             new Setting(Candidates.PAGES, Kind.number, "The most Data API search pages one candidate search makes, 100 units each of the day's 10,000. Unset: 20.", "20"),
             new Setting(WebSearchTool.BRAVE_LIMIT, Kind.number, "The most searches the library makes through Brave in a calendar month, for a paid plan; at the limit the web search goes on to SearXNG or the fallback until the month turns, and says so once. No limit unless set.", "1000"),
             new Setting("RESEARCHZOSHO_SEARXNG", Kind.address, "A SearXNG address; the fallback behind Brave, or the web search when there is no key.", "http://localhost:8888"),
+            new Setting(Avoided.SETTING, Kind.text, "The places your library's content is kept away from, as country codes with commas between them. A hosted model reached through OpenRouter is never served by a provider based or running in one of these places, and the search engines based there are left out of the SearXNG settings this program writes. Unset: CN, HK, MO, CU, IR, KP, RU, VE (China with Hong Kong and Macau, Cuba, Iran, North Korea, Russia, Venezuela): the countries of concern of the United States Department of Justice's data security rule (28 CFR 202.601, in effect since 2025-04-08). none: no limit.", "CN, HK, MO, CU, IR, KP, RU, VE"),
+            new Setting(Avoided.BY_OWNER, Kind.choice, "Whether a provider owned by a company based in a place your library avoids is left out too, whatever place it states for itself (a Singapore-registered arm of a company based in mainland China, for one). The owners come from a dated table that ships with the program, each row with its public source. on unless set; off lets those providers serve your library's hosted models.", "on", List.of("on", "off")),
             new Setting("RESEARCHZOSHO_FALLBACK_SEARCH", Kind.choice, "The built-in fallback search (Wikipedia and papers) when nothing else answers.", "on", List.of("on", "off")),
             // the search places of 0.7.0
             new Setting(PubMed.KEY, Kind.secret, "An NCBI API key (free, from the API Key Management part of your NCBI account's settings page): PubMed and PubMed Central answer the pubmed place ten times a second instead of three. The place works without it; the key is sent only to NCBI.", ""),
@@ -233,11 +237,24 @@ public final class Settings {
         return null;
     }
 
-    /** A value as it may be shown: a secret only as set or not, and its last three characters. */
+    /**
+     * A value as it may be shown: a secret only as set or not, and its last three characters; any other value without the password an
+     * address in it carries ({@link #withoutPasswords}). What is shown here is read by the chat's model too (0.8.1: a database's address
+     * with its password in it was a setting of the text kind, and was shown whole).
+     */
     public static String shown(Setting s, String value) {
         if (value == null || value.isBlank()) return "";
-        if (s.kind() != Kind.secret) return value;
+        if (s.kind() != Kind.secret) return withoutPasswords(value);
         return "set (ends with …" + value.substring(Math.max(0, value.length() - 3)) + ")";
+    }
+
+    private static final Pattern USER_PART = Pattern.compile("(://[^\\s:/@]*):[^\\s@/]*@"),
+            SECRET_PARAMETER = Pattern.compile("(?i)([?&;](?:[a-z0-9_.-]*(?:password|passwd|pwd|secret|token|apikey|api_key|api-key|access_key|signature)|key|sig)=)[^&;\\s#]*");
+
+    /** A text with the password of every address in it left out: the part between user: and @, and a parameter named as a password, a token or a key is. */
+    public static String withoutPasswords(String text) {
+        if (text == null || text.isEmpty()) return text == null ? "" : text;
+        return SECRET_PARAMETER.matcher(USER_PART.matcher(text).replaceAll("$1:***@")).replaceAll("$1***");
     }
 
     /** Why a value cannot be this setting's, in a sentence; "" when it can. */

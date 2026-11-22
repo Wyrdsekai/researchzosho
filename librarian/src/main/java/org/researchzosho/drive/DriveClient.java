@@ -1,5 +1,6 @@
 package org.researchzosho.drive;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -24,6 +25,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.TreeSet;
 import java.util.Locale;
 
 import java.io.BufferedReader;
@@ -123,7 +125,7 @@ public final class DriveClient {
     // HTTP/1.1, stated: Java's client tries an HTTP/2 upgrade first (Connection: Upgrade, Upgrade: h2c), and a model server on uvicorn — vLLM — reads
     // such a request with no body and answers 400 "body: Field required" to every call (2026-10-13); llama.cpp ignores the upgrade. The same in
     // every client that speaks to a model, embedding or reranking server.
-    private static final HttpClient SHARED_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build();
+    private static final HttpClient SHARED_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(10)).build());
     private final HttpClient http;
     private final ObjectMapper json = new ObjectMapper();
     // Tolerant reader for SALVAGED tool calls (text-mode recovery, below): the re-emitted JSON can still
@@ -138,6 +140,10 @@ public final class DriveClient {
     public DriveClient(String baseUrl, String model) {
         this.baseUrl = Config.driveBase(baseUrl);   // an address pasted with /v1 on the end is the same drive
         this.model = model;
+        // the model server this client is made for is the owner's: from their settings, a model they added, or their own command line,
+        // never from a model's call (a change of it in the chat waits for the person's yes). Said to the request guard, so that a tool
+        // which asks the model while a model's call is carried out (the page check, the seeing model) is not refused its own model
+        Outbound.owners(this.baseUrl);
         this.http = SHARED_HTTP;
         // drive = bedrock: the person's own AWS account, through Converse, instead of an OpenAI-style server
         this.bedrock = Bedrock.is(this.baseUrl)
@@ -643,7 +649,7 @@ public final class DriveClient {
                     .timeout(limit)
                     .header("Content-Type", "application/json");
             if (openRouter()) rb.header("HTTP-Referer", "https://researchzosho.org").header("X-Title", "ResearchZosho");
-            HttpRequest req = rb.POST(HttpRequest.BodyPublishers.ofString(payload)).build();
+            HttpRequest req = rb.POST(HttpRequest.BodyPublishers.ofString(routed(payload))).build();
             // Retry a 5xx: llama.cpp (--jinja) returns HTTP 500 when the MODEL emits a malformed tool call
             // (bad JSON args — an unescaped quote/newline), and that's the model's sampling, not a real
             // server fault. At temp 0.7 a re-send re-samples and usually produces valid JSON. (A single bad
@@ -661,7 +667,7 @@ public final class DriveClient {
                 resp = send(req, HttpResponse.BodyHandlers.ofString(), limit);
             }
             if (resp.statusCode() != 200) {
-                Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
+                Gated.throwIfRefused(resp.statusCode(), resp.body()); notServed(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // the service's content filter stopped the request: a decline, never an outage to retry
                 // RECOVERY (A): a 5xx whose body says the MODEL's tool call wouldn't parse is a known
@@ -691,7 +697,94 @@ public final class DriveClient {
     }
 
     /** Whether this drive is OpenRouter, which has its own headers and routing fields. */
-    boolean openRouter() { String h = apiHost(baseUrl); return h != null && h.endsWith("openrouter.ai"); }
+    boolean openRouter() { return openRouter(baseUrl); }
+
+    public static boolean openRouter(String url) { return hostIs(apiHost(url), "openrouter.ai"); }
+
+    /**
+     * Whether a host is the one named: the name itself or a name under it, read without the dot that may end a full name and in
+     * small letters. A name that only ends in the same letters is another host (notopenrouter.ai, my-openrouter.ai). Until 0.8.1
+     * the test was on the end of the name: a host that looked like the router was handed the fields meant for it and its key's
+     * check, and the router written with its dot (openrouter.ai.) was taken for another host and sent requests without the list of
+     * providers to leave out.
+     */
+    public static boolean hostIs(String host, String name) {
+        if (host == null || name == null) return false;
+        String h = host.strip().toLowerCase(Locale.ROOT);
+        while (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        return h.equals(name) || h.endsWith("." + name);
+    }
+
+    /**
+     * A request's body as it goes to a router: with the providers left out that are based or running in a place this library avoids
+     * ({@link OpenRouterProviders#ignored}, the field {@code provider.ignore}; a provider's slug covers each of its variants and
+     * regions). Every body this client sends for a completion passes here, whichever path made it (a turn, its stream, a typed
+     * decision, a classification, the recovery of a malformed call), so no request reaches the router without it (0.8.1). When the
+     * router's own list says that nobody else serves the model, the request is not sent at all ({@link NotServed}).
+     */
+    String routed(String payload) throws IOException {
+        if (!openRouter()) return payload;
+        JsonNode read;
+        try { read = json.readTree(payload); } catch (IOException notJson) { return payload; }
+        if (read == null || !read.isObject()) return payload;   // no request in it (nothing, a list, a word): nothing to add the list to, and this is not the place to fail
+        ObjectNode body = (ObjectNode) read;
+        if (routed(body, baseUrl).isEmpty()) return payload;
+        String nobody = nobodyServes(baseUrl, body.path("model").asText(model));
+        if (nobody != null) throw new NotServed(nobody);
+        return json.writeValueAsString(body);
+    }
+
+    /**
+     * The sentence a person reads when every provider that serves {@code model} through the router at {@code url} is left out,
+     * known from the router's own list before anything is sent; null when somebody is left, when who serves it cannot be read, or
+     * when the address is no router's. Every completion this client sends asks it ({@link #routed(String)}); a hello that is no
+     * client's request (setup's, the Connect page's) asks it itself, so that it says the same sentence and sends nothing either.
+     */
+    public static String nobodyServes(String url, String model) {
+        if (!openRouter(url) || OpenRouterProviders.ignored().isEmpty()) return null;
+        OpenRouterProviders.Served served = OpenRouterProviders.served(model);
+        return served.none() ? OpenRouterProviders.noneLeft(served) : null;
+    }
+
+    /**
+     * The same from the router's own answer, when its list could not be read first: its 404 whose words name endpoints or providers,
+     * while this library asked it to leave some out. Null for any other answer.
+     */
+    public static String nobodyServes(String url, String model, int status, String body) {
+        if (status != 404 || !openRouter(url) || OpenRouterProviders.ignored().isEmpty() || body == null) return null;
+        String said = body.toLowerCase(Locale.ROOT);
+        return said.contains("endpoint") || said.contains("provider") ? OpenRouterProviders.noneLeft(new OpenRouterProviders.Served(model, 0, List.of(), 0, false)) : null;
+    }
+
+    /** The same on a body about to be written, for a router's address; what was left out, by slug. */
+    public static List<String> routed(ObjectNode body, String url) {
+        if (!openRouter(url)) return List.of();
+        List<String> ignore = OpenRouterProviders.ignored();
+        if (ignore.isEmpty()) return ignore;
+        ObjectNode provider = body.path("provider").isObject() ? (ObjectNode) body.get("provider") : body.putObject("provider");
+        Set<String> all = new TreeSet<>(ignore);
+        for (JsonNode had : provider.path("ignore")) if (had.isTextual()) all.add(had.asText());
+        ArrayNode list = provider.putArray("ignore");
+        all.forEach(list::add);
+        return ignore;
+    }
+
+    /**
+     * The router has nobody to send a request to: every provider that serves the model is in a place this library avoids. The
+     * sentence is the person's to read (the chat's reply, a run's result), and the request is never tried again as it is.
+     */
+    public static final class NotServed extends Gated.Refused {
+        public NotServed(String said) { super(said); }
+    }
+
+    /**
+     * The router's answer that no provider is left for the request (404, its words naming endpoints or providers), when this library
+     * asked it to leave some out: said as what it is, with the way to allow them. Nothing for any other answer.
+     */
+    void notServed(int status, String body) {
+        String nobody = nobodyServes(baseUrl, model, status, body);
+        if (nobody != null) throw new NotServed(nobody);
+    }
 
     /** The host of the API an address stands for: through a node's gate, the server the gate passes to; else its own. */
     static String apiHost(String url) { return url == null ? null : hostOf(Gated.upstream(url.strip())); }
@@ -702,7 +795,7 @@ public final class DriveClient {
     public static boolean hostedApi(String url) {
         String h = apiHost(url);   // through a node's gate, the API it stands for: its stream is asked for its usage, and its shape is its own
         if (h == null) return false;
-        for (String suffix : new String[]{"openrouter.ai", "googleapis.com", "nebius.com", "huggingface.co", "api.deepseek.com", "api.mistral.ai", "api.groq.com", "api.x.ai", "api.together.xyz", "api.fireworks.ai"}) if (h.endsWith(suffix)) return true;
+        for (String suffix : new String[]{"openrouter.ai", "googleapis.com", "nebius.com", "huggingface.co", "api.deepseek.com", "api.mistral.ai", "api.groq.com", "api.x.ai", "api.together.xyz", "api.fireworks.ai"}) if (hostIs(h, suffix)) return true;
         return false;
     }
 
@@ -716,15 +809,16 @@ public final class DriveClient {
         boolean quick = kw != null && kw.path("enable_thinking").isBoolean() && !kw.path("enable_thinking").asBoolean();
         String h = apiHost(url);
         if (h == null) return body;
+        routed(body, url);   // a router is told which providers to leave out, on a probe too
         if (quick && templateHost(h)) {
             // a host that runs vLLM hands the field to the model's own template, whose word for no thinking differs by model (DeepSeek's is
             // "thinking"): both are said. Without it the plan through Nebius thought through its whole 1,200-token budget and came back cut
             // to one sub-question, twice (2026-10-16); with it the same ask answered in 84 tokens and no thinking.
             ObjectNode t = body.putObject("chat_template_kwargs"); t.put("enable_thinking", false); t.put("thinking", false);
         }
-        if (quick && h.endsWith("api.deepseek.com")) body.putObject("thinking").put("type", "disabled");   // DeepSeek's own API has its own field
+        if (quick && hostIs(h, "api.deepseek.com")) body.putObject("thinking").put("type", "disabled");   // DeepSeek's own API has its own field
         // the current reasoning models refuse a temperature or top_p of ours: OpenRouter routes a request that names one to no endpoint
-        if (h.endsWith("openrouter.ai")) {
+        if (hostIs(h, "openrouter.ai")) {
             Set<String> ok = OpenRouterModels.supportedParameters(body.path("model").asText(""));
             if (ok != null) for (String f : new String[]{"temperature", "top_p", "stop", "parallel_tool_calls", "seed", "frequency_penalty", "presence_penalty", "logit_bias", "logprobs", "response_format"})
                 if (body.has(f) && !ok.contains(f)) body.remove(f);
@@ -733,12 +827,12 @@ public final class DriveClient {
             // the thinking counts against the answer's budget on every hosted API, and a model that will not stop thinking (MiniMax M3 through
             // OpenRouter, 2026-10-16: the plan's 1,200 tokens all thinking, the plan cut to one sub-question) must still get its answer out
             if (body.path("max_tokens").asInt(0) < QUICK_FLOOR) body.put("max_tokens", QUICK_FLOOR);
-            if (h.endsWith("openrouter.ai")) {
+            if (hostIs(h, "openrouter.ai")) {
                 // off where the model allows it (OpenRouter's models list says), else as little as it allows
                 if (OpenRouterModels.reasoningMandatory(body.path("model").asText(""))) body.putObject("reasoning").put("effort", "low");
                 else body.putObject("reasoning").put("enabled", false);
             }
-            else if (h.endsWith("googleapis.com")) body.put("reasoning_effort", "low");
+            else if (hostIs(h, "googleapis.com")) body.put("reasoning_effort", "low");
         }
         return body;
     }
@@ -836,6 +930,15 @@ public final class DriveClient {
     /** A chat completion taken in: its message handed back, and what it cost counted. */
     /** Input tokens read from a server's cache this session, counted beside the prompt tokens (which include them). */
     public static final AtomicLong SESSION_CACHED_TOKENS = new AtomicLong();
+
+    private static final AtomicLong OWN_IDS = new AtomicLong();
+
+    /**
+     * An id for a tool call the server gave none (a call recovered from the reply's text, a stream that carried no ids): its own, never
+     * one another call of the conversation has. Until 0.8.1 every recovered call was {@code recovered_1} and a stream's calls were
+     * {@code call_0}, {@code call_1}… in every message, so one conversation held many calls under one id.
+     */
+    static String ownId(String kind) { return kind + "_" + Long.toString(System.currentTimeMillis(), 36) + Long.toString(OWN_IDS.incrementAndGet(), 36); }
 
     /** The run this thread works for counts its tokens here: {prompt, cached, completion}; a research run sets it on each of its threads. */
     private static final ThreadLocal<long[]> COUNT = new ThreadLocal<>();
@@ -1020,6 +1123,7 @@ public final class DriveClient {
         Supplier<String> gate = GATE;
         String shut = gate == null ? null : gate.get();
         if (shut != null) throw new IOException(shut);
+        Outbound.owners(baseUrl);   // said again at each use: the owner's while it is used, and not for good once it was ever used (Outbound.OWNERS_FOR)
         boolean chat = req.uri().getPath().endsWith("/chat/completions");
         Semaphore slot = chat ? takeSlot() : null;
         try { return Stopping.send(http, req, body, limit, who(), chat ? lost() : null); }
@@ -1159,6 +1263,7 @@ public final class DriveClient {
      * model) is asked again later, and nothing is said on the person's console: it is not their request that went unanswered.
      */
     private HttpResponse<String> look(String url) throws IOException, InterruptedException {
+        Outbound.owners(baseUrl);
         try { return Stopping.send(http, auth(Gated.request(url)).timeout(PROBE).GET().build(), HttpResponse.BodyHandlers.ofString(), PROBE, who()); }
         catch (HttpTimeoutException t) { log.debug("drive ← {} (a look at what the server is; asked again in a minute)", t.getMessage()); throw t; }
     }
@@ -1202,10 +1307,10 @@ public final class DriveClient {
         Duration limit = decisionLimitFor(payload.length(), body.path("max_tokens").asInt(0));
         HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                 .timeout(limit).header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
+                .POST(HttpRequest.BodyPublishers.ofString(routed(payload))).build();
         HttpResponse<String> resp = sendWaitingWhileLoading(req, limit);
         if (resp.statusCode() != 200) {
-            Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is
+            Gated.throwIfRefused(resp.statusCode(), resp.body()); notServed(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is
             String said = "HTTP " + resp.statusCode() + ": " + (resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body());
             // an error in place of a reply is no answer, as a request that did not get through; the server's word about the request's shape stays what it was
             IOException none = Judge.refusesTheRequest(said) ? null : noAnswer(resp.statusCode(), who() + " answered HTTP " + resp.statusCode() + ": " + serverSaid(resp.body()));
@@ -1283,7 +1388,7 @@ public final class DriveClient {
             for (int attempt = 1; ; attempt++) {
             HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit).header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body))).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(routed(json.writeValueAsString(body)))).build();
             long t0 = System.nanoTime();
             HttpResponse<String> resp = sendWaitingWhileLoading(req, limit);
             try {
@@ -1292,7 +1397,7 @@ public final class DriveClient {
                 if (cu.isObject() && resp.statusCode() == 200) counted(cu.path("prompt_tokens").asLong(0), cu.path("prompt_tokens_details").path("cached_tokens").asLong(0), written(cu, bedrock != null));
             } catch (Exception e) { LAST_USAGE.set(null); }
             if (resp.statusCode() != 200) {
-                Gated.throwIfRefused(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
+                Gated.throwIfRefused(resp.statusCode(), resp.body()); notServed(resp.statusCode(), resp.body());   // a node's gate: a cap reached, said as it is, never tried again
                 Declined filtered = filteredRequest(resp.statusCode(), resp.body());
                 if (filtered != null) throw filtered;   // a decline, never an empty answer
                 String said = resp.body().length() > 200 ? resp.body().substring(0, 200) : resp.body();
@@ -1587,7 +1692,7 @@ public final class DriveClient {
             Duration limit = limitFor(payload.length(), maxTokens);
             HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit).header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(routed(payload))).build();
             HttpResponse<String> resp = send(req, HttpResponse.BodyHandlers.ofString(), limit);
             if (resp.statusCode() != 200) {
                 log.warn("recovery re-request returned HTTP {} — cannot salvage", resp.statusCode());
@@ -1638,7 +1743,7 @@ public final class DriveClient {
         out.put("role", "assistant");
         out.putNull("content");
         ObjectNode call = out.putArray("tool_calls").addObject();
-        call.put("id", "recovered_1");
+        call.put("id", ownId("recovered"));
         call.put("type", "function");
         ObjectNode fn = call.putObject("function");
         fn.put("name", name);
@@ -1674,7 +1779,7 @@ public final class DriveClient {
             HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
                     .timeout(limit)
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
+                    .POST(HttpRequest.BodyPublishers.ofString(routed(payload))).build();
             HttpResponse<InputStream> resp = send(req, HttpResponse.BodyHandlers.ofInputStream(), limit);
             if (resp.statusCode() != 200) {
                 if (resp.statusCode() == 402 || resp.statusCode() == 403) Gated.throwIfRefused(resp.statusCode(), new String(resp.body().readAllBytes(), StandardCharsets.UTF_8));   // a node's gate
@@ -1776,7 +1881,7 @@ public final class DriveClient {
             var arr = msg.putArray("tool_calls");
             toolNames.forEach((idx, name) -> {
                 var one = arr.addObject();
-                one.put("id", toolIds.getOrDefault(idx, "call_" + idx));
+                one.put("id", toolIds.getOrDefault(idx, ownId("call")));
                 one.put("type", "function");
                 var fn = one.putObject("function");
                 fn.put("name", name);

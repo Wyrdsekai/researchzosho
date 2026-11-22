@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.8.1
+
+What's new: stronger leak protection, a country avoid list for hosted models, a model server cut off from the network, chat for small models.
+
+### Leak protection
+
+- The library opens only web addresses you gave it or that a search or a page returned. A model or a web page cannot make it send your notes anywhere else.
+- The web app's pages load nothing from other sites.
+- A link from another site cannot sign you out, switch the language or start a translation.
+- A model cannot pick the search engine through its search words.
+- [SECURITY.md](SECURITY.md) lists what leaves your machine and what never does.
+
+### Hosted models
+
+- OpenRouter requests skip providers based in, or owned from, the countries on the avoid list. The default list is in [SECURITY.md](SECURITY.md); the settings `avoid_places` and `avoid_by_owner` change it.
+- `researchzosho models` shows how each model is served.
+
+### Model server (Linux)
+
+- `researchzosho model install` sets the model server up with no way out to the network. Run it again to change an existing install; `researchzosho model status` shows which you have.
+- The search model no longer contacts Hugging Face when it starts.
+
+### Search
+
+- Yandex and the search engines based in the countries on the avoid list are no longer used. A settings file you edited is left as it is.
+- `researchzosho search update` gets the current search program.
+
+### Chat
+
+- Name a paper, a repository or a Wikipedia article and it opens: "read arXiv 2401.12345".
+- Small models (16k window) can chat.
+- Each turn sends about 15% less to the model.
+- `~` in a file path means your home folder; a short code such as F-0001 opens its entry.
+
+### Fixed
+
+- A web address typed without "www" now opens when the model adds it.
+- Home records: a lookup by street address works again.
+- Research runs can read the library's own claims and reports.
+- A vault note you edited is no longer overwritten by an update.
+- Reading lists: an address with a bracket is no longer cut short.
+- Links on a page no longer include the colon or full stop after them.
+- Japanese full-text search works.
+- Pictures: keep, describe and judge get the right pictures.
+- Everything new is translated into all nine languages.
+
 ## 0.8.0
 
 What's new: multiple accounts, picture collections, stronger prompt injection protection, shorter model unload times, chat fixed for gpt-oss-20b.

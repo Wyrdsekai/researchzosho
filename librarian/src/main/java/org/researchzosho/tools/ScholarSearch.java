@@ -36,7 +36,7 @@ public final class ScholarSearch {
     private ScholarSearch() { }
 
     private static final ObjectMapper M = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build());
     public static final AtomicInteger SCHOLAR_USED = new AtomicInteger();
     static final String UA = "ResearchZosho/" + Version.string() + " (a research library; https://researchzosho.org; mailto:support@researchzosho.org)";
 

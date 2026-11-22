@@ -48,6 +48,14 @@ public final class McpServers {
         public List<String> command = new ArrayList<>();
         public Map<String, String> env = new LinkedHashMap<>();
         public boolean readers = false;
+        /**
+         * Whether what this server answers is something it found outside (a search engine's results, a page it read), so that the
+         * addresses in its answers may be opened: the keeper's word, per server (0.8.1). A server may as well compute on what it is
+         * sent (a program that runs code, a tool that puts text together), and then its answer is the model's own words come back:
+         * the library cannot tell the two apart, the keeper can. On for the search engines' servers the library knows by name; off for
+         * a keeper's own server until they say otherwise.
+         */
+        public boolean links = false;
         public Set<String> allowed = new LinkedHashSet<>(), forbidden = new LinkedHashSet<>();
         public int timeoutSeconds = 60, cap = 0;
         public List<McpClient.Tool> tools = new ArrayList<>();
@@ -70,6 +78,7 @@ public final class McpServers {
             else { o.put("url", url); if (!header.isBlank()) o.put("header", header); if (!keySetting.isBlank()) o.put("key_setting", keySetting); }
             if (!preset.isBlank()) o.put("preset", preset);
             o.put("readers", readers);
+            o.put("links", links);
             ArrayNode a = o.putArray("allowed"); allowed.forEach(a::add);
             ArrayNode f = o.putArray("forbidden"); forbidden.forEach(f::add);
             o.put("timeout_seconds", timeoutSeconds).put("cap", cap).put("added", added);
@@ -85,6 +94,7 @@ public final class McpServers {
             j.path("env").properties().forEach(e -> s.env.put(e.getKey(), e.getValue().asText("")));
             s.url = j.path("url").asText(""); s.header = j.path("header").asText(""); s.keySetting = j.path("key_setting").asText(""); s.preset = j.path("preset").asText("");
             s.readers = j.path("readers").asBoolean(false);
+            s.links = j.has("links") ? j.path("links").asBoolean(false) : !s.preset.isBlank();   // a list kept by an earlier version: the search engines' servers, as their answers were taken then
             for (JsonNode x : j.path("allowed")) s.allowed.add(x.asText());
             for (JsonNode x : j.path("forbidden")) s.forbidden.add(x.asText());
             s.timeoutSeconds = Math.max(1, j.path("timeout_seconds").asInt(60)); s.cap = Math.max(0, j.path("cap").asInt(0)); s.added = j.path("added").asText("");

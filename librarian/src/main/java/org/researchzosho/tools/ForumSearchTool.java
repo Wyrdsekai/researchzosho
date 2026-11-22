@@ -23,6 +23,8 @@ public final class ForumSearchTool implements Tool {
 
     @Override public String name() { return "forum_search"; }
 
+    @Override public boolean fromOutside(JsonNode args) { return true; }   // the forums' threads
+
     @Override public String description() {
         return "Discussion threads, read in full: what people wrote to each other, with the votes. For what people say and do — their experience, their practice, "
                 + "the mood of a trade — never for a fact: a date, a number, a name or a claim met here is a lead to confirm in a primary source, and a claim resting only on a "

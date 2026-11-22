@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -288,6 +289,7 @@ public final class Candidates {
             String code = null;
             for (String[] x : LANGUAGES) if (lang.equals(x[0]) || lang.equals(x[1].toLowerCase(Locale.ROOT))) code = x[0];
             if (code == null || name.isEmpty() || name.length() > 40 || name.split("\\s+").length > 5) continue;
+            if (name.contains("://") || name.contains("/") || name.contains("\\")) continue;   // a thing's name, never an address: these words are a model's, and they are printed in an answer that gives addresses
             out.add(new Named(name, code, false));
         }
         return out;
@@ -664,7 +666,7 @@ public final class Candidates {
 
     // ---- the Data API
 
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build());
     static final String USER_AGENT = "ResearchZosho-research/1.0 (https://researchzosho.org)";
 
     /** One window of the search: the language, the phrasing, the bounds, and the page token when the window has more. */

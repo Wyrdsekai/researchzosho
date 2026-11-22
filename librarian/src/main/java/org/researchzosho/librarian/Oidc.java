@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -77,7 +78,7 @@ public final class Oidc {
     /** Tests set this; null means read the settings. */
     static volatile Map<String, String> OVERRIDE;
     private static final long PENDING_MS = 10 * 60_000L, CACHE_MS = 60 * 60_000L, SKEW_S = 60;
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build());
 
     static String setting(String key) { Map<String, String> o = OVERRIDE; return o != null ? o.get(key) : Config.live(key); }
     static boolean blank(String s) { return s == null || s.isBlank(); }

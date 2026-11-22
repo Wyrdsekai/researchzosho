@@ -8,6 +8,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -61,8 +62,11 @@ public final class Requests {
      * The person supplies the document for {@code locator}: its text is captured under that url (so
      * {@link RawCapture#find} answers with it), the request is marked supplied, and the feed says so.
      */
-    public static synchronized Path supply(LibraryStore store, String locator, String text, String title) throws IOException {
-        Path p = RawCapture.capture(store, locator, text, title, "person-supplied", "");
+    public static synchronized Path supply(LibraryStore store, String locator, String text, String title) throws IOException { return supply(store, locator, text, title, Map.of()); }
+
+    /** The same, with more lines for the copy's head ({@link RawCapture#eyeHead}: a scan the model that sees read). */
+    public static synchronized Path supply(LibraryStore store, String locator, String text, String title, Map<String, String> more) throws IOException {
+        Path p = RawCapture.capture(store, locator, text, title, "person-supplied", "", "", more);
         if (p == null) throw new IOException("the document could not be captured");
         if (Files.exists(file(store))) {
             List<String> lines = new ArrayList<>(Files.readAllLines(file(store), StandardCharsets.UTF_8));

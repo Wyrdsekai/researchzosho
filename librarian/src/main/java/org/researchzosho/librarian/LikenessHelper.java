@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -278,7 +279,7 @@ final class LikenessHelper {
     /** The likeness helper at another machine's address: one request a call, the helpers' secret with it; a call that fails is that measure's failure. */
     static final class Served implements Scorer {
         private final String address;
-        private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+        private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
         Served(String address) { this.address = address; }
         @Override public Measure score(byte[] ref, String refType, byte[] cand, String candType) throws IOException {
             ObjectNode req = M.createObjectNode(); ObjectNode one = req.putArray("requests").addObject();

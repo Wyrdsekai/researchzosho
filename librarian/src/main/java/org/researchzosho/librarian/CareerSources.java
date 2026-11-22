@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.researchzosho.Config;
@@ -100,7 +101,7 @@ public final class CareerSources {
     private static final Map<String, Long> ROBOTS_AT = new ConcurrentHashMap<>();
     /** A site's robots rules are read again after a day: the service runs for weeks, and a site may change its rules. */
     static final long ROBOTS_DAY_MS = 86_400_000L;
-    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build());
 
     /** Forgets the robots rules and the request times read so far; for tests. */
     static void reset() { LAST.clear(); ROBOTS.clear(); ROBOTS_AT.clear(); }
@@ -108,7 +109,7 @@ public final class CareerSources {
     static String fetch(String url) {
         try {
             Fetch.Result r = Fetch.get(url, Duration.ofSeconds(20), Fetch.Policy.DEFAULT);
-            return r.status() == 200 ? new String(r.body(), StandardCharsets.UTF_8) : null;
+            return r.status() == 200 ? read(new String(r.body(), StandardCharsets.UTF_8)) : null;
         } catch (Exception e) { return null; }
     }
 
@@ -156,7 +157,7 @@ public final class CareerSources {
     static String get(String url, Map<String, String> headers) {
         if (!allowed(url)) return null;
         pace(url);
-        return RAW_HEADED.apply(url, headers);
+        return read(RAW_HEADED.apply(url, headers));
     }
 
     static String post(String url, String json) {
@@ -189,7 +190,17 @@ public final class CareerSources {
     static String get(String url) {
         if (!allowed(url)) return null;
         pace(url);
-        return RAW.apply(url);
+        return read(RAW.apply(url));
+    }
+
+    /** A page the careers code read: for the board lookup ({@code Outbound.FINDS}) the hosts it names may be asked next; nothing for any other tool. */
+    private static String read(String body) { Outbound.found(body); return body; }
+
+    /** A web search of the careers code's own: its hits' hosts may be asked next by the board lookup. */
+    static List<Hit> searched(String query) {
+        List<Hit> hits = SEARCH.apply(query);
+        if (hits != null) for (Hit h : hits) if (h != null && h.url() != null) Outbound.found(h.url());
+        return hits;
     }
 
     static String postJson(String url, String json) {
@@ -447,7 +458,7 @@ public final class CareerSources {
         String c = company == null ? "" : company.strip();
         if (c.isEmpty()) return new Found(c, null, List.of(), "it has no name");
         List<Hit> hits = new ArrayList<>();
-        for (Hit h : SEARCH.apply(c + " careers jobs")) if (!aggregator(h.url())) hits.add(h);
+        for (Hit h : searched(c + " careers jobs")) if (!aggregator(h.url())) hits.add(h);
         for (Hit h : hits) for (Feed f : boardsIn(h.url(), "found in a search for its careers page"))   // a feed address with the company's own name
             if (tokenIs(f, c)) { Found x = read(f, c, words); if (x != null) return x; }
         Map<String, String> careers = new LinkedHashMap<>();   // the company's own careers pages, read once
@@ -558,7 +569,7 @@ public final class CareerSources {
                 List<String> must = new ArrayList<>();
                 Matcher q = Pattern.compile("\"([^\"]+)\"").matcher(w);
                 while (q.find()) must.add(q.group(1));
-                for (Hit h : SEARCH.apply(w + place + " site:" + site[0])) {
+                for (Hit h : searched(w + place + " site:" + site[0])) {
                     List<Feed> fs = boardsIn(h.url(), "");
                     if (fs.isEmpty() || !posting(h.url())) continue;   // a posting, not a board's front page
                     String job = jobTitle(h);

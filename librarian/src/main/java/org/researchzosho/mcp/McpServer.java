@@ -464,7 +464,7 @@ public final class McpServer {
                 + "show one's tools; add one (a command this computer starts, an address, or exa or tavily by name alone); remove one; allow or forbid a tool; let readers use a server; cap its calls a month; "
                 + "test one; call one of its tools as research would. Research calls the tools that read; a tool that may change things stays off unless allowed. A key is never returned. Since 0.7.0.",
                 schema(new String[]{},
-                        enumProp("op", "list (default) | tools | test | add | remove | allow | forbid | readers | cap | call.", "list", "tools", "test", "add", "remove", "allow", "forbid", "readers", "cap", "call"),
+                        enumProp("op", "list (default) | tools | test | add | remove | allow | forbid | readers | links | cap | call.", "list", "tools", "test", "add", "remove", "allow", "forbid", "readers", "links", "cap", "call"),
                         prop("name", "string", "The server's short name: small letters, digits and dashes. With add, exa or tavily alone adds that search engine's server."),
                         arrayProp("command", "With add: the command that starts a server on this computer, and its arguments, one word an item."),
                         prop("env", "object", "With add and a command: environment variables for it, as names and values."),

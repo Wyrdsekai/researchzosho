@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.Config;
 
 import java.net.URI;
@@ -9,13 +10,19 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Stream;
 
 /**
  * An embeddings server, run for the person through Docker: Text Embeddings Inference serving Qwen3-Embedding-0.6B, so
- * search works by meaning as well as by words. ResearchZosho does not ship a model; it starts the official image, which
- * fetches the model once (about 1.2 GB) into the state directory. The server, not the model, decides the speed: the
+ * search works by meaning as well as by words. ResearchZosho does not ship a model; it fetches the model once (about 1.2 GB) into
+ * the state directory, each file checked, and starts the official image with that folder (0.8.1; before, the image fetched it). The server, not the model, decides the speed: the
  * same model measured 13 chunks a second under llama.cpp and 115 under this image on the same card (2026-09-10), so a
  * library of a thousand documents re-indexes in two minutes instead of twenty. On a machine with an NVIDIA card and the
  * container runtime for it the GPU image is used. Text Embeddings Inference has no image for an AMD or Intel chip, so there
@@ -24,7 +31,7 @@ import java.util.List;
  * {@code researchzosho embed start|stop|status|test} and the setup wizard use this.
  */
 public final class Embed {
-    private static final HttpClient PROBE_HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build();
+    private static final HttpClient PROBE_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(3)).build());
 
     public static final String CONTAINER = "researchzosho-embed";
     public static final String MODEL = "Qwen/Qwen3-Embedding-0.6B";
@@ -33,6 +40,62 @@ public final class Embed {
     public static final int DEFAULT_PORT = 8215;
 
     private Embed() { }
+
+    /**
+     * The model's files as Text Embeddings Inference reads them, pinned (0.8.1): the revision of {@link #MODEL} on Hugging Face and the
+     * sha256 of each of the files the server takes from it. Started by its model's name, the server asks huggingface.co for these at
+     * every start (measured 2026-11-20: 34 to 44 packets each time). Given the folder they are in, it asks nobody, and its answers are the
+     * same numbers (tried 2026-11-21: one sentence embedded both ways, no difference in any of the 1,024). So `model install` fetches
+     * them itself, checked like every download, and names the folder.
+     */
+    static final String REVISION = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3";
+    static final Map<String, String> FILES = filesOf(
+            "config.json", "b5bf1f51fc45be473a54718cef92448d90a1be001bf9b9a44b8c7f10a19feaa9",
+            "config_sentence_transformers.json", "10667c72ddb772627bf1780cb7f86af8e2ae0032b8c243c731172064105c6961",
+            "modules.json", "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf",
+            "tokenizer_config.json", "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0",
+            "tokenizer.json", "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a",
+            "model.safetensors", "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd");   // 1.2 GB, last
+    /** The folder under {@link #dir} that `model install` fetches them into: the model's name and its revision's first letters. */
+    static final String FOLDER = MODEL.substring(MODEL.indexOf('/') + 1) + "-" + REVISION.substring(0, 7);
+
+    private static Map<String, String> filesOf(String... nameAndSum) {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (int i = 0; i < nameAndSum.length; i += 2) m.put(nameAndSum[i], nameAndSum[i + 1]);
+        return Collections.unmodifiableMap(m);
+    }
+
+    static String fileUrl(String name) { return "https://huggingface.co/" + MODEL + "/resolve/" + REVISION + "/" + name; }
+
+    /** Whether a folder holds the model: its configuration, its tokenizer and its weights (a link to a file that is not there is no file). */
+    static boolean whole(Path folder) {
+        for (String f : List.of("config.json", "tokenizer.json", "model.safetensors")) if (!Files.isRegularFile(folder.resolve(f))) return false;
+        return true;
+    }
+
+    /**
+     * The model's folder as the container sees it under {@code /data}: the one `model install` fetched, else the newest whole copy the
+     * server fetched for itself under an earlier version (its own cache's layout: the answers stay the ones the index was built with);
+     * null when there is neither.
+     */
+    static String modelFolder() {
+        if (whole(dir().resolve(FOLDER))) return "/data/" + FOLDER;
+        String cache = "models--" + MODEL.replace("/", "--");
+        Path snapshots = dir().resolve(cache).resolve("snapshots");
+        if (!Files.isDirectory(snapshots)) return null;
+        try (Stream<Path> revisions = Files.list(snapshots)) {
+            return revisions.filter(Embed::whole).max(Comparator.comparingLong((Path r) -> r.toFile().lastModified()).thenComparing(Path::getFileName))
+                    .map(r -> "/data/" + cache + "/snapshots/" + r.getFileName()).orElse(null);
+        } catch (IOException | RuntimeException e) { return null; }
+    }
+
+    /** The files fetched into {@link #FOLDER}, each checked against its recorded sha256; the ones already there are kept. The folder as the container sees it. */
+    static String fetchModel() throws Exception {
+        Path folder = dir().resolve(FOLDER);
+        Files.createDirectories(folder);
+        for (String name : FILES.keySet()) if (!Files.isRegularFile(folder.resolve(name))) ModelServer.fetchChecked(fileUrl(name), folder.resolve(name));
+        return "/data/" + FOLDER;
+    }
 
     /** Whether this machine can embed on a GPU: an NVIDIA card the docker daemon can hand to a container, or an AMD or Intel chip. */
     public static boolean gpu() { return !tag().startsWith("cpu"); }
@@ -91,7 +154,14 @@ public final class Embed {
      * A "llama-" tag is llama.cpp's container on an AMD or Intel chip, serving the embeddings file from the models folder with the
      * same flags the model server's embeddings entry uses; the TEI image otherwise.
      */
-    static List<String> runCommand(int port, String tag) {
+    static List<String> runCommand(int port, String tag) { return runCommand(port, tag, null); }
+
+    /**
+     * {@code folder}: the model's folder as the container sees it ({@link #modelFolder}); Text Embeddings Inference then reads its
+     * model from there, read-only, and asks nobody. Null starts it by the model's name: it fetches the model on its first start, and
+     * asks huggingface.co for the files at every start.
+     */
+    static List<String> runCommand(int port, String tag, String folder) {
         if (tag.startsWith("llama-")) {
             String build = tag.substring("llama-".length());
             List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped"));
@@ -102,12 +172,12 @@ public final class Embed {
             return cmd;
         }
         List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
-                "-p", "127.0.0.1:" + port + ":80", "-v", dir().toAbsolutePath() + ":/data"));
+                "-p", "127.0.0.1:" + port + ":80", "-v", dir().toAbsolutePath() + (folder == null ? ":/data" : ":/data:ro")));
         if (!tag.startsWith("cpu")) { cmd.add("--gpus"); cmd.add("all"); }
         cmd.add(IMAGE + ":" + tag);
         // --auto-truncate: the model declares a 32k input limit and the server refuses a smaller batch without it (the CPU
         // image exited on 16384, 2026-09-10); the client caps each text long before that anyway
-        cmd.addAll(List.of("--model-id", MODEL, "--pooling", "last-token", "--max-client-batch-size", "128",
+        cmd.addAll(List.of("--model-id", folder == null ? MODEL : folder, "--pooling", "last-token", "--max-client-batch-size", "128",
                 "--max-batch-tokens", tag.startsWith("cpu") ? "2048" : "65536", "--auto-truncate"));   // the CPU backend warms up on one core: 16384 never finished, 2048 is ready in 41 s
         return cmd;
     }
@@ -131,7 +201,12 @@ public final class Embed {
                 Path ef = ModelServer.modelsDir().resolve(ModelServer.EMBED_FILE);
                 if (!Files.isRegularFile(ef)) { Files.createDirectories(ef.getParent()); ModelServer.fetchChecked(ModelServer.EMBED_URL, ef); }
             }
-            if (state.equals("absent")) r = Searx.runner.run(runCommand(port, tag));
+            String folder = null;
+            if (state.equals("absent") && !tag.startsWith("llama-")) {   // the server is given its model's folder, fetched here and checked; when that fails it fetches for itself, as before
+                folder = modelFolder();
+                if (folder == null) try { folder = fetchModel(); } catch (Exception e) { folder = null; }
+            }
+            if (state.equals("absent")) r = Searx.runner.run(runCommand(port, tag, folder));
             else if (state.equals("stopped")) r = Searx.runner.run(List.of("docker", "start", CONTAINER));
             else r = new Searx.Result(0, "");
             if (r.code() != 0) return "!docker: " + r.out().strip();

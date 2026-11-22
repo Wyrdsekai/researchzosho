@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
@@ -23,7 +24,7 @@ final class ServiceAccess {
     static volatile String service;
     /** Where the service takes the call. */
     static final String PATH = "/internal/access";
-    private static final HttpClient HTTP = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build();
+    private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(5)).build());
 
     static ObjectNode access(LibraryStore store, Patrons.Patron patron, JsonNode args, ObjectNode r) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
