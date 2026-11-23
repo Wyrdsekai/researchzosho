@@ -44,7 +44,14 @@ dependencies {
 
 tasks.test {
     useJUnitPlatform()
-    testLogging { events("failed") }
+    // a failed test's own message and where it was raised go into the log: the public CI keeps no report, and "at X.java:131" alone was a
+    // failure nobody could read (0.8.1's first runs there)
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+        showStackTraces = true
+    }
 
     // Some tests assert the docs agree with the code (the usage text, the contract's normative sections).
     inputs.files(fileTree(rootDir.resolve("docs")) { include("**/*.md") })
@@ -93,11 +100,12 @@ tasks.test {
     // one JVM runs three hundred classes whose statics accumulate; Gradle's default 512 MB heap ran out on the 4800×3000 picture test once (2026-10-09)
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)
-    // classes in parallel JVMs, each with a home of its own under this one (ForkHome): -PtestForks=N or RZ_TEST_FORKS=N; by default one
-    // less than the machine's processors, at most four (GitHub's four-core runners take 3, the Mac mini 4). lain's chain and gates say 3:
-    // its cores are shared with the owner's work and the live library.
+    // classes in parallel JVMs, each with a home of its own under this one (ForkHome): -PtestForks=N or RZ_TEST_FORKS=N; by default half
+    // the machine's processors, at most four (GitHub's four-core runners take 2, the Mac mini 4). lain's chain and gates say 3: its
+    // cores are shared with the owner's work and the live library. One less than the processors (3 on four) left a four-core runner
+    // with nothing to spare, and tests that count on a step taking under a quarter of a second failed there (0.8.1's public CI).
     maxParallelForks = ((findProperty("testForks") ?: System.getenv("RZ_TEST_FORKS"))?.toString()?.toIntOrNull()
-        ?: (Runtime.getRuntime().availableProcessors() - 1).coerceIn(1, 4))
+        ?: (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4))
     // The pages, the chat and the command line speak the language of the person; the suite speaks English whatever LANG the box has. ChromeTest switches it itself.
     systemProperty("researchzosho.lang", "en")
     // The GPU readers (Gpu) look at an empty kernel tree under the build folder, never this box's /sys and /dev: the build box has an

@@ -117,10 +117,12 @@ class VideoTest {
             long t0 = System.currentTimeMillis();
             Video.ytdlp(List.of("ytsearch1:a"), Duration.ofSeconds(5));
             long afterFirst = System.currentTimeMillis();
+            long firstCalled = Long.parseLong(Files.readString(dir.resolve("pace")).strip());   // the time the first call left in the file: what the second counts from
             Video.ytdlp(List.of("ytsearch1:b"), Duration.ofSeconds(5));
             long afterSecond = System.currentTimeMillis();
             assertTrue(afterFirst - other >= 380, "the first call waited for the other process's call: " + (afterFirst - other) + " ms");
-            assertTrue(afterSecond - afterFirst >= 380, "the second waited for the first: " + (afterSecond - afterFirst) + " ms");
+            // counted from the first call's own time, not from when it came back: a pause between the two on a slow machine is not part of the wait
+            assertTrue(afterSecond - firstCalled >= 380, "the second waited for the first: " + (afterSecond - firstCalled) + " ms");
             assertTrue(afterSecond - t0 < 5000, "and not much longer: " + (afterSecond - t0) + " ms");
             long stamped = Long.parseLong(Files.readString(dir.resolve("pace")).strip());
             assertTrue(stamped >= afterFirst - 50 && stamped <= afterSecond, "the file holds this process's last call for the next process to read: " + stamped);

@@ -127,7 +127,10 @@ class CheckpointTest {
         Checkpoint third = Checkpoint.open(store2, "J-0002", Translation.JOB_KIND, "b1");
         Path out2 = tmp.resolve("job2.ja.md");
         Counting before = new Counting(TranslationTest.standIn(script(), "stand-in"), -1);
-        IOException stopped = assertThrows(IOException.class, () -> translate(store2, in, out2, third, before, () -> scored.get() >= 64));
+        // the stop comes when the first step's scores are in the record, so that it is seen between two steps. Counted from the scorer
+        // (64 pairs handed to it), the stop could come while that step was still scoring: the run then ends inside the step with its
+        // other sentence and keeps nothing of it, which is right and is not this test (it did, on a four-core runner, twice of twice)
+        IOException stopped = assertThrows(IOException.class, () -> translate(store2, in, out2, third, before, () -> third.get("score|all|0") != null));
         assertEquals("Stopped during the scoring; nothing was written.", stopped.getMessage());
         third.close();
         int scoredBefore = scored.getAndSet(0);

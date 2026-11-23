@@ -86,7 +86,14 @@ signing {
 
 tasks.test {
     useJUnitPlatform()
-    testLogging { events("failed") }
+    // a failed test's own message and where it was raised go into the log: the public CI keeps no report, and "at X.java:131" alone was a
+    // failure nobody could read (0.8.1's first runs there)
+    testLogging {
+        events("failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showCauses = true
+        showStackTraces = true
+    }
     environment("RESEARCHZOSHO_EMBED", "off")
     environment("RESEARCHZOSHO_RERANK", "off")
     environment("RESEARCHZOSHO_CTX", "8192")
