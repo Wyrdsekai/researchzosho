@@ -250,14 +250,28 @@ class TakeoverTest {
         return null;
     }
 
-    /** The reference: the same document translated on node B by a library nobody stops. */
+    /** The reference translation and the batches it asked: the same in every test (one document, one stand-in), so made once for the class. */
+    static String referenceDoc;
+    static int referenceBatches;
+
+    /**
+     * The reference: the same document translated on node B by a library nobody stops, made by the first test that needs it and kept
+     * for the next; {@link #referenceBatches} is how many batches it asked. Node B's model is left as it was before the reference: none
+     * of its batches counted, none kept.
+     */
     String reference(NodeProc b) throws Exception {
-        Lib ref = library("Reference Example", b.root());
-        String id = translate(ref);
-        done(ref, id, 120_000);
-        String doc = translated(store.library(ref.lib().id()));
-        assertNotNull(doc, "the reference's translation is written");
-        return doc;
+        if (referenceDoc == null) {
+            Lib ref = library("Reference Example", b.root());
+            String id = translate(ref);
+            done(ref, id, 120_000);
+            String doc = translated(store.library(ref.lib().id()));
+            assertNotNull(doc, "the reference's translation is written");
+            referenceBatches = b.model().batchCalls.get();
+            referenceDoc = doc;
+        }
+        b.model().batchCalls.set(0);
+        b.model().batches.clear();
+        return referenceDoc;
     }
 
     /** The library on node A, its translation held at its fourth batch, and what A had asked by then. */
@@ -294,8 +308,7 @@ class TakeoverTest {
         start(dir);
         NodeProc a = node("machine-a", 47410, model(), null, Map.of()), b = node("machine-b", 47430, model(), null, Map.of());
         String reference = reference(b);
-        int whole = b.model().batchCalls.getAndSet(0);
-        b.model().batches.clear();
+        int whole = referenceBatches;
         assertTrue(whole >= 5, "the document is translated in batches: " + whole);
         Interrupted i = interrupt(a);
         String nodeA = store.placement(i.lib().lib().id()).node();
@@ -312,8 +325,7 @@ class TakeoverTest {
         Config.set(LibraryPlaces.COPIES, copies.toString());   // the service reads the copies too: it decides a takeover from one
         NodeProc a = node("machine-a", 47450, model(), copies, Map.of()), b = node("machine-b", 47470, model(), copies, Map.of());
         String reference = reference(b);
-        int whole = b.model().batchCalls.getAndSet(0);
-        b.model().batches.clear();
+        int whole = referenceBatches;
         Interrupted i = interrupt(a);
         String id = i.lib().lib().id();
         long held = a.model().heldSince;

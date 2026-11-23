@@ -2284,6 +2284,7 @@
  "Search by meaning is on.": "의미 검색이 켜져 있습니다.",
  "Search by meaning is off.": "의미 검색이 꺼져 있습니다.",
  "Search by meaning is not answering.": "의미 검색이 응답하지 않습니다.",
+ "Searched by words this time: search by meaning is starting.": "이번에는 낱말로 검색했습니다. 의미 검색이 시작하는 중입니다.",
  "The model it talks to by default is {0} at {1}, and it answers.": "기본으로 쓰는 모델은 {1}에 있는 {0}입니다. 응답하고 있습니다.",
  "The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.": "기본으로 쓰는 모델은 {1}에 있는 {0}입니다. 지금은 응답하지 않습니다. 조사와 채팅에는 이 모델이 필요합니다.",
  "Named models it can also use: {0}.": "그 밖에 쓸 수 있는 이름 붙은 모델: {0}.",

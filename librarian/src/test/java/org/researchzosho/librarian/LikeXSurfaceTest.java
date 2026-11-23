@@ -2,6 +2,7 @@ package org.researchzosho.librarian;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -11,8 +12,11 @@ import org.researchzosho.librarian.dna.Prefs;
 import org.researchzosho.librarian.dna.Reactions;
 import org.researchzosho.librarian.dna.ShelfDna;
 import org.researchzosho.librarian.profiles.BooksProfile;
+import org.researchzosho.tools.Books;
 import org.researchzosho.tools.MyShelfTool;
 
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -24,7 +28,10 @@ class LikeXSurfaceTest {
 
     static final ObjectMapper M = new ObjectMapper();
 
-    @AfterEach void reset() { Shelf.override = null; Dna.useDir(null); Prefs.useDir(null); }
+    final String openLibrary = Books.BASE.get("openlibrary");
+    HttpServer catalogue;
+
+    @AfterEach void reset() { Shelf.override = null; Dna.useDir(null); Prefs.useDir(null); ShelfAuthors.override = null; Books.BASE.put("openlibrary", openLibrary); if (catalogue != null) catalogue.stop(0); }
 
     static ObjectNode patron(String op) { ObjectNode a = M.createObjectNode(); a.putObject("patron").put("did", "person").put("name", "p").put("runtime", "cli"); a.put("op", op); return a; }
 
@@ -98,11 +105,19 @@ class LikeXSurfaceTest {
         assertEquals("", BooksProfile.likeTitle("what should I read next in space opera"));
         assertEquals("", BooksProfile.likeTitle("something like that one"));
         labelledShelf(tmp);
+        // the shelf's authors' other works are asked of a stand-in for Open Library on the loopback, which knows none: never of openlibrary.org
+        AtomicInteger asked = new AtomicInteger();
+        catalogue = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        catalogue.createContext("/", x -> { asked.incrementAndGet(); byte[] b = "{\"numFound\":0,\"docs\":[]}".getBytes(StandardCharsets.UTF_8); x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(200, b.length); x.getResponseBody().write(b); x.close(); });
+        catalogue.start();
+        Books.BASE.put("openlibrary", "http://127.0.0.1:" + catalogue.getAddress().getPort());
+        ShelfAuthors.override = tmp.resolve("authors");
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Prefs.load(Dna.BOOK).set("words", "quiet books about places", "you");
         String ev = new BooksProfile().runEvidence(store, new Researcher.Ask("books like The Harbour Ledger", "", 0, List.of(), "", List.of(), 0, List.of(), List.of()), null);
         assertTrue(ev.startsWith("THE PERSON'S PREFERENCES FILE (their own lines; the table honours them): In their words: quiet books about places."), ev);
         assertTrue(ev.contains("BOOKS ON THE SHELF LIKE \"The Harbour Ledger\""), ev);
         assertTrue(ev.contains("- The Quiet Quay — Idris Quell (2019): alike on subject (harbour"), ev);
+        assertTrue(asked.get() > 0, "the catalogue the push asked is the stand-in");
     }
 }

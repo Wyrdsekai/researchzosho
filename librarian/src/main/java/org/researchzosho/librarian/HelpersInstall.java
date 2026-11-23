@@ -70,7 +70,7 @@ final class HelpersInstall {
         @Override public boolean installed(Helper h) {
             return switch (h) {
                 case METRICX -> TranslationScores.metricxInstalled();
-                case LABSE -> !TranslationScores.labseState().equals("absent") || Embed.answers("http://127.0.0.1:" + TranslationScores.LABSE_PORT);
+                case LABSE -> !TranslationScores.labseState().equals("absent") || Embed.answers(TranslationScores.LOCAL_LABSE);
                 case LIKENESS -> LikenessHelper.installed();
                 case COMIC -> ComicHelper.installed();
                 default -> answers(h);
@@ -91,7 +91,7 @@ final class HelpersInstall {
             String a = switch (h) {
                 case EMBED -> "http://127.0.0.1:" + Embed.DEFAULT_PORT;
                 case WHISPER -> "http://127.0.0.1:" + Video.WHISPER_PORT;
-                case LABSE -> "http://127.0.0.1:" + TranslationScores.LABSE_PORT;
+                case LABSE -> TranslationScores.LOCAL_LABSE;
                 default -> null;
             };
             if (a == null) return false;

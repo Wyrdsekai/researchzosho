@@ -1261,6 +1261,7 @@ final class Pages {
         if (!subject.isEmpty()) a.put("subject", subject);
         if (q.containsKey("cursor")) a.put("cursor", q.get("cursor"));
         ObjectNode r = p.search(a);
+        if (!r.path("note").asText("").isEmpty()) b.append("<p class=\"k\">").append(esc(r.path("note").asText())).append("</p>");   // went by words this time: search by meaning is starting
         if (r.path("hits").size() == 0) b.append("<p>").append(t("Nothing in the library matches these words.")).append(" <a href=\"/research?q=").append(enc(query)).append("\">").append(t("Research this question")).append("</a>.</p>");
         else {
             b.append("<ol class=\"hits\">");
@@ -1278,6 +1279,7 @@ final class Pages {
         if (question.isEmpty()) return page(store, patron, t("Ask"), b.toString());
         ObjectNode a = args(patron); a.put("question", question); a.put("k", 8); a.put("peers", "none");
         ObjectNode r = p.ask(a);
+        if (!r.path("note").asText("").isEmpty()) b.append("<p class=\"k\">").append(esc(r.path("note").asText())).append("</p>");   // went by words this time: search by meaning is starting
         if (r.path("holds_nothing").asBoolean()) {
             b.append("<p>").append(t("The library has nothing on this yet."));
             if (r.path("filed_as_demand").asBoolean()) b.append(" ").append(t("The question was added to the open questions."));

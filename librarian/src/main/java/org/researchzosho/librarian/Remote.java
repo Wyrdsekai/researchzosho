@@ -160,6 +160,7 @@ public final class Remote {
                     String q = rest(args, 2);
                     if (q.isEmpty()) { err.println("usage: researchzosho ask <question…>"); return 2; }
                     JsonNode r = c.post("ask", M.createObjectNode().put("question", q).put("k", 6));
+                    if (!r.path("note").asText("").isEmpty()) out.println(r.path("note").asText());   // went by words this time: search by meaning is starting
                     if (r.path("holds_nothing").asBoolean(false) || r.path("entries").isEmpty()) {
                         out.println("The library holds nothing on this yet." + (r.path("filed_as_demand").asBoolean(false) ? " The question is filed as an open question; researchzosho research ask \"" + q + "\" sends a run after it." : ""));
                         return 0;
@@ -171,6 +172,7 @@ public final class Remote {
                     String q = rest(args, 2);
                     if (q.isEmpty()) { err.println("usage: researchzosho search <words…>"); return 2; }
                     JsonNode r = c.post("search", M.createObjectNode().put("query", q).put("k", 10));
+                    if (!r.path("note").asText("").isEmpty()) out.println(r.path("note").asText());   // went by words this time: search by meaning is starting
                     if (r.path("hits").isEmpty()) { out.println("Nothing in the library matches \"" + q + "\"."); return 0; }
                     for (JsonNode h : r.path("hits")) out.println("- [" + h.path("id").asText() + "] " + h.path("title").asText() + " (" + h.path("kind").asText() + ", " + h.path("state").asText() + ")" + (h.path("snippet").asText("").isEmpty() ? "" : ": " + h.path("snippet").asText().replace('\n', ' ')));
                     return 0;

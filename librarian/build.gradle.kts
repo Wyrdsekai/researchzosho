@@ -94,6 +94,13 @@ tasks.test {
     // and openrouter.ai's price list is not read when a test adds an OpenRouter entry with no prices (PriceList.FETCH): a test of the
     // reading serves the list on the loopback and stands the fetch in.
     systemProperty("researchzosho.pricelist", "off")
+    // and no command of the machine is run (Searx.runner: docker, nvidia-smi, an archive tool, a Python, pip), and this machine's own LaBSE
+    // is a port where nothing listens: translation tests asked docker for the LaBSE container, started it, stopped it by the idle rule, and
+    // scored their units with the LaBSE that answered on the machine's port, the machine owner's (2026-11-23). Properties and not settings,
+    // so that every process a test starts on this class path is given them too (a library process, a node, a second service); in the test
+    // process NoMachineTools sets the same before every test and fails a test that leaves another in place.
+    systemProperty("researchzosho.commands", "off")
+    systemProperty("researchzosho.labse.here", "http://127.0.0.1:3")
     environment("RESEARCHZOSHO_FALLBACK_SEARCH_DEFAULT", "off")
     // and the settings folder follows user.home, which each test sets: a developer's RESEARCHZOSHO_HOME never reaches the suite
     environment("RESEARCHZOSHO_HOME", "")

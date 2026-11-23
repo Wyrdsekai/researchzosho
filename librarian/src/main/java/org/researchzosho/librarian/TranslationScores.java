@@ -66,6 +66,11 @@ public final class TranslationScores {
     private static final ObjectMapper M = new ObjectMapper();
     public static final String LABSE_CONTAINER = "researchzosho-labse", LABSE_MODEL = "sentence-transformers/LaBSE", LABSE_SIZE = "about 1.9 GB";
     public static final int LABSE_PORT = 8216;
+    /**
+     * Where this machine's own LaBSE answers, its container's port on the loopback; the property {@code researchzosho.labse.here} names
+     * another address (the test task names a port where nothing listens, and a process this one starts is given it).
+     */
+    static volatile String LOCAL_LABSE = System.getProperty("researchzosho.labse.here", "http://127.0.0.1:" + LABSE_PORT);
     public static final String METRICX_MODEL = "google/metricx-24-hybrid-large-v2p6", METRICX_TOKENIZER = "google/mt5-xl";
     public static final String METRICX_SIZE = "about 4.7 GB for the model (its weights as 32-bit floats; the repository holds them twice over, and a fetch of both is 9.2 GB) and about 1 GB for its Python packages (torch's CPU build, transformers, sentencepiece)";
     /** Accepted units a pair needs on record before a score flags anything. */
@@ -172,7 +177,7 @@ public final class TranslationScores {
         String at = Helpers.address(Helpers.Helper.LABSE);
         if (at != null) return Embed.answers(at) ? at : null;
         if (!Helpers.localAllowed()) return null;   // this machine runs no heavy helper: none is started or used here
-        String local = "http://127.0.0.1:" + LABSE_PORT;
+        String local = LOCAL_LABSE;
         if (Embed.answers(local)) return local;
         if (!start || !Searx.haveDocker()) return null;
         String r = startLabse(false);
@@ -238,7 +243,7 @@ public final class TranslationScores {
             else if (state.equals("stopped")) r = Searx.runner.run(List.of("docker", "start", LABSE_CONTAINER));
             else r = new Searx.Result(0, "");
             if (r.code() != 0) return "!docker: " + r.out().strip();
-            String url = "http://127.0.0.1:" + LABSE_PORT;
+            String url = LOCAL_LABSE;
             for (int i = 0; i < LABSE_WAITS; i++) { if (Embed.answers(url)) return url; Thread.sleep(2000); }
             return "!the container started but no embeddings call answered at " + url + " within ten minutes (docker logs " + LABSE_CONTAINER + ")";
         } catch (Exception e) { return "!" + e.getMessage(); }
@@ -474,7 +479,7 @@ public final class TranslationScores {
 
     /** The usable room on the disk under the library's home, or -1 when it cannot be read; a test stands it in. */
     /** Whether a LaBSE server of this machine's own is up: one answers at its port, or its container runs. Stood in by tests, which must not read the machine they run on. */
-    static volatile BooleanSupplier LABSE_UP = () -> Embed.answers("http://127.0.0.1:" + LABSE_PORT) || labseState().equals("running");
+    static volatile BooleanSupplier LABSE_UP = () -> Embed.answers(LOCAL_LABSE) || labseState().equals("running");
     static volatile LongSupplier FREE = TranslationScores::freeBytesNow;
     public static long freeBytes() { return FREE.getAsLong(); }
     static long freeBytesNow() {

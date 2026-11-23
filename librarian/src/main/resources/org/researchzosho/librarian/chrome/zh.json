@@ -2284,6 +2284,7 @@
  "Search by meaning is on.": "按意思搜索已开启。",
  "Search by meaning is off.": "按意思搜索已关闭。",
  "Search by meaning is not answering.": "按意思搜索没有回应。",
+ "Searched by words this time: search by meaning is starting.": "这次按词语搜索：按意思搜索正在启动。",
  "The model it talks to by default is {0} at {1}, and it answers.": "默认使用的模型是 {1} 上的 {0}，它有回应。",
  "The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.": "默认使用的模型是 {1} 上的 {0}，它现在没有回应：调查和聊天都需要它。",
  "Named models it can also use: {0}.": "其他可用的命名模型：{0}。",

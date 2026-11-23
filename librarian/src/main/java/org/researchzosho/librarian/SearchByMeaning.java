@@ -29,7 +29,7 @@ public final class SearchByMeaning {
     /** Whether the configured embedder gives a vector back; a test hands in its own. */
     static volatile Predicate<String> answers = base -> {
         if (Gated.gated(base)) return gatedAnswers(base);   // under an account service: asked what costs nothing, outside any use
-        float[] v = Embeddings.configured().embed("ready"); return v != null && v.length > 0;
+        float[] v = Embeddings.configured(false).embed("ready"); return v != null && v.length > 0;   // a look: no use of a container of this machine, and no start of one
     };
 
     /** An embeddings server behind the node's gate answers when its models list does; a server without that list answers 404 there. */

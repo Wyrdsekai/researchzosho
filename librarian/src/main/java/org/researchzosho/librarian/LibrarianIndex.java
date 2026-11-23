@@ -129,6 +129,10 @@ public final class LibrarianIndex {
         this.embedder = embedder == null ? Embeddings.none() : embedder;
     }
 
+    /** Whether a search here went by words because its embeddings server, stopped while unused, is being started: what the search's answer says. */
+    private volatile boolean byWordsWhileStarting;
+    public boolean byWordsWhileStarting() { return byWordsWhileStarting; }
+
     /**
      * Open a writer, WAITING for the lock: the abstracting crew and a rebuild ran in two JVMs at
      * once (2026-09-03) and the second died on "Lock held by another program". A rebuild holds
@@ -926,6 +930,7 @@ public final class LibrarianIndex {
                     fused.merge(sparse[i].doc, kindWeight(stored.document(sparse[i].doc).get(F_KIND)) / (60 + i + 1), Double::sum);
                 }
                 float[] qv = embedder.embed(query);
+                if (qv == null && embedder.starting()) byWordsWhileStarting = true;
                 if (qv != null) {
                     // KNN always has k nearest neighbours — a query about harpsichords still gets
                     // the four "closest" keigo findings — so a dense hit counts only above a

@@ -239,7 +239,7 @@ class SelfHarmHelpTest {
         try {
             String page = PagesTest.post(HttpClient.newHttpClient(), "http://127.0.0.1:" + d.port() + "/research", "question=" + Pages.enc(SHORT), null).body();
             assertTrue(page.contains("findahelpline.com") && page.contains("Do you want the library to research this question?"), page);
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
+        } finally { GenealogyOfferTest.stopped(d, model); }
     }
 
     @Test
@@ -361,7 +361,7 @@ class SelfHarmHelpTest {
             String yes = PagesTest.post(c, base + "/research", "question=" + Pages.enc(SURE) + "&mode=depth&harm_ok=1", null).body();
             ObjectNode j = GenealogyOfferTest.job(store, yes);
             assertEquals("[\"self-harm\"]", j.path("args").path("allow").toString());
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
+        } finally { GenealogyOfferTest.stopped(d, model); }
     }
 
     @Test
@@ -388,6 +388,6 @@ class SelfHarmHelpTest {
             String sent = PagesTest.post(c, base + "/research", "question=" + Pages.enc(SURE) + "&harm_ok=1&content_told=1", null).body();
             assertFalse(sent.contains("Do you want the library to research this question?"), sent);
             assertEquals("[\"self-harm\"]", GenealogyOfferTest.job(store, sent).path("args").path("allow").toString());
-        } finally { d.stop(); model.stop(0); GenealogyOfferTest.quiet(d); }
+        } finally { GenealogyOfferTest.stopped(d, model); }
     }
 }

@@ -52,6 +52,12 @@ class GateCountingTest {
     List<AccountStore.Usage> rows(String use) throws Exception { return store.usageOfUse(use); }
     long micros(String use) throws Exception { return rows(use).stream().mapToLong(AccountStore.Usage::micros).sum(); }
 
+    /** What a condition about the gate's count needs: the count is written as the reply ends, a moment after the caller has its answer. Looked at until it holds, for thirty seconds at most; the assertion after it says what was there. */
+    interface Count { boolean holds() throws Exception; }
+    static void counted(Count c) throws Exception {
+        for (long until = System.currentTimeMillis() + 30_000; System.currentTimeMillis() < until; Thread.sleep(50)) if (c.holds()) return;
+    }
+
     AccountStore.Use use(String account) throws Exception {
         AccountStore.Use u = new AccountStore.Use(AccountStore.id("use_"), account, "lib_" + account, SpendPurse.CHAT, "", "operator", "", 0, 0, -1, -1, "open", "", System.currentTimeMillis(), 0, 0);
         store.addUse(u);
@@ -99,7 +105,7 @@ class GateCountingTest {
         AccountStore.Use whole = use("acct_whole");
         HttpResponse<String> r = c.send(HttpRequest.newBuilder(URI.create(gateFor(upstream, whole.library()) + "/v1/chat/completions")).header(Gated.USE, whole.id()).POST(HttpRequest.BodyPublishers.ofString(CHAT)).build(), HttpResponse.BodyHandlers.ofString());
         assertEquals(200, r.statusCode());
-        Thread.sleep(500);
+        counted(() -> micros(whole.id()) == 315_000);
         assertEquals(315_000, micros(whole.id()));
 
         // the caller goes away after the first piece (a stopped run, a time limit): counted from what passed, marked estimated
@@ -109,7 +115,8 @@ class GateCountingTest {
         s.body().read(new byte[20]);
         s.body().close();
         own.close();
-        Thread.sleep(4000);
+        counted(() -> !rows(cut.id()).isEmpty());
+        Thread.sleep(1000);   // and once, not twice: a second row would be there by now
         assertEquals(1, rows(cut.id()).size(), "the cut reply is counted: " + rows(cut.id()));
         AccountStore.Usage counted = rows(cut.id()).get(0);
         assertTrue(counted.estimated() && counted.tokensIn() > 0 && counted.micros() > 0, counted.toString());
@@ -142,7 +149,7 @@ class GateCountingTest {
             AccountStore.Use u = use("acct_broken");
             try { c.send(HttpRequest.newBuilder(URI.create(gateFor(upstream, u.library()) + "/v1/messages")).header(Gated.USE, u.id()).POST(HttpRequest.BodyPublishers.ofString(CHAT)).build(), HttpResponse.BodyHandlers.ofString()); }
             catch (Exception e) { /* the caller sees the break */ }
-            Thread.sleep(1000);
+            counted(() -> micros(u.id()) >= 300_000);
             assertTrue(micros(u.id()) >= 300_000, "the 100,000 tokens it read are counted: " + rows(u.id()));
         } finally { ss.close(); }
     }
@@ -200,7 +207,7 @@ class GateCountingTest {
         open(tmp, upstream, "deepseek/deepseek-chat", "0.27/1.10");
         AccountStore.Use u = use("acct_est");
         c.send(HttpRequest.newBuilder(URI.create(gateFor(upstream, u.library()) + "/v1/chat/completions")).header(Gated.USE, u.id()).POST(HttpRequest.BodyPublishers.ofString("{\"model\":\"deepseek/deepseek-chat\",\"stream\":true,\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}]}")).build(), HttpResponse.BodyHandlers.ofString());
-        Thread.sleep(500);
+        counted(() -> !rows(u.id()).isEmpty());
         AccountStore.Usage row = rows(u.id()).get(0);
         assertTrue(row.estimated());
         assertTrue(row.tokensOut() >= 200 && row.tokensOut() <= 400, "200 words of five characters, about 250 tokens, not the stream's framing: " + row);

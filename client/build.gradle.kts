@@ -105,4 +105,8 @@ tasks.test {
     doFirst { testHome.mkdirs() }
     systemProperty("user.home", testHome.path)
     environment("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:1")
+    // and, as in the librarian's suite, no command of the machine is run and the machine's own LaBSE is a port where nothing listens: a
+    // translation filed here asked docker for the LaBSE container of the machine the suite ran on (2026-11-23)
+    systemProperty("researchzosho.commands", "off")
+    systemProperty("researchzosho.labse.here", "http://127.0.0.1:3")
 }

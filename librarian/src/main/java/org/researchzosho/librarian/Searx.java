@@ -46,7 +46,12 @@ public final class Searx {
     /** Runs a command line; stdout+stderr and the exit code. Tests replace it. */
     public interface Runner { Result run(List<String> cmd) throws Exception; }
     public record Result(int code, String out) { }
-    static volatile Runner runner = cmd -> {
+    /**
+     * The runner of the machine's commands (docker, nvidia-smi, an archive tool, a Python, pip). Where the property
+     * {@code researchzosho.commands} is {@code off} (the test task sets it, and a process this one starts is given it), it runs none, and
+     * answers every command as a machine without the program does.
+     */
+    static volatile Runner runner = "off".equals(System.getProperty("researchzosho.commands")) ? cmd -> { throw new IOException("Cannot run program \"" + (cmd.isEmpty() ? "" : cmd.get(0)) + "\": no command of the machine is run here (researchzosho.commands=off)"); } : cmd -> {
         Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         String o = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         return new Result(p.waitFor(), o);

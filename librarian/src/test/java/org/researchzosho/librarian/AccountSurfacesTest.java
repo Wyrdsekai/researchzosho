@@ -75,6 +75,9 @@ class AccountSurfacesTest {
         AccountService.Made ann = AccountService.newAccount(store, root, "Ann Example", "", false, "the test");
         String key = store.mintKey(ann.account().id(), ann.library().id(), "write", "the test").secret(), acct = ann.account().id();
         post(key, "/chat", "say=" + URLEncoder.encode("When was the lighthouse lit?", StandardCharsets.UTF_8), "application/x-www-form-urlencoded");
+        // the turn's use is closed and its calls counted a moment after the page has answered: the month is read once that is done (read the
+        // instant after, it was still empty under a loaded machine, and the month of every surface agreed on nothing, 2026-11-22)
+        until("the chat turn's use closed", 120_000, () -> { try { return store.uses(acct, 0).stream().anyMatch(u -> u.kind().equals(SpendPurse.CHAT) && !u.open()); } catch (IOException e) { return false; } });
 
         JsonNode usage = M.readTree(c.send(HttpRequest.newBuilder(URI.create(svc.url() + AccountService.USAGE)).header("Authorization", "Bearer " + key).GET().build(), HttpResponse.BodyHandlers.ofString()).body());
         JsonNode spend = json(key, "/v1/spend", "{}").path("account_month");

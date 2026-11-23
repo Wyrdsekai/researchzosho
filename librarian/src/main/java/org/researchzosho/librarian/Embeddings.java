@@ -45,6 +45,8 @@ public final class Embeddings {
         /** A short id that changes when the model changes — vectors from different models must
          *  never share an index; the store records it to know when a rebuild is due. */
         String modelId();
+        /** Whether its server, a container of this machine stopped while unused, is being started now: a call that got nothing went by words. */
+        default boolean starting() { return false; }
     }
 
     private static final ObjectMapper M = new ObjectMapper();
@@ -54,7 +56,13 @@ public final class Embeddings {
     private Embeddings() { }
 
     /** The configured embedder: RESEARCHZOSHO_EMBED (e.g. http://localhost:8213), else none. */
-    public static Embedder configured() {
+    public static Embedder configured() { return configured(true); }
+
+    /**
+     * The same; {@code work} false for a look at whether it answers (the status's), which is no use of a container of this machine and
+     * does not start it ({@link #http(String, String, boolean)}).
+     */
+    static Embedder configured(boolean work) {
         String e = Config.get("RESEARCHZOSHO_EMBED");
         if ((e == null || e.isBlank()) && !Helpers.off(Helpers.Helper.EMBED)) e = Helpers.address(Helpers.Helper.EMBED);   // a machine that serves the helpers, when it serves this one
         // "off" is an explicit switch (an EMPTY env var falls through to the config file — a
@@ -62,7 +70,7 @@ public final class Embeddings {
         if (e == null || e.isBlank() || e.equalsIgnoreCase("off") || e.equalsIgnoreCase("none")) return none();
         // embed = bedrock: an embedding model in the person's own AWS account (Titan Text Embeddings V2 unless embed.model names another)
         if (Bedrock.is(e)) return bedrock(e, Config.get("RESEARCHZOSHO_EMBED_MODEL", "amazon.titan-embed-text-v2:0"));
-        return http(e.replaceAll("/+$", ""), Config.get("RESEARCHZOSHO_EMBED_MODEL", "embed"));
+        return http(e.replaceAll("/+$", ""), Config.get("RESEARCHZOSHO_EMBED_MODEL", "embed"), work);
     }
 
     /** Vectors from Amazon Bedrock. A text that AWS refuses gives no vector, like any embedder that is out of reach: the index then works by words. */
@@ -98,8 +106,17 @@ public final class Embeddings {
     static final int MAX_CHARS = 6000;
     static final int BATCH = 32;
 
-    public static Embedder http(String endpoint, String model) {
+    public static Embedder http(String endpoint, String model) { return http(endpoint, model, true); }
+
+    /**
+     * Vectors from an embeddings server at {@code endpoint}. For the library's own work ({@code work}), when the server is a container of
+     * this machine under the idle rule, each call writes its use down, so a server somebody keeps searching with is not stopped, and a
+     * call that finds it stopped has it started in the background and goes on by words that once ({@link ModelsAwake#startForCall}).
+     */
+    static Embedder http(String endpoint, String model, boolean work) {
         return new Embedder() {
+            @Override public boolean starting() { return work && ModelsAwake.starting(endpoint); }
+
             @Override public List<float[]> embedAll(List<String> texts) {
                 // Batched, BATCH at a time: a chunked rebuild embeds thousands of chunks — one
                 // request each ran past ten minutes (2026-09-03); batched it is a minute.
@@ -113,7 +130,7 @@ public final class Embeddings {
                         body.put("model", model);
                         var arr = body.putArray("input");
                         for (String t : slice) arr.add(t == null ? "" : (t.length() > MAX_CHARS ? t.substring(0, MAX_CHARS) : t));
-                        ModelsAwake.used(endpoint);   // a container of this machine's: its use written down for its idle rule (round C2)
+                        if (work) ModelsAwake.used(endpoint);   // a container of this machine's: its use written down for its idle rule (round C2)
                         HttpResponse<String> resp = HTTP.send(Helpers.request(endpoint + "/v1/embeddings")
                                 .timeout(Duration.ofSeconds(300))
                                 .header("Content-Type", "application/json")
@@ -137,6 +154,7 @@ public final class Embeddings {
                         }
                     } catch (Exception e) {
                         Helpers.failed(endpoint, e, t0);
+                        if (work) ModelsAwake.startForCall(endpoint);   // a container of this machine's stopped while unused: started in the background
                         got = null;
                     }
                     if (got == null) { for (int i = 0; i < slice.size(); i++) out.add(null); }
@@ -150,6 +168,7 @@ public final class Embeddings {
                 if (Helpers.away(endpoint)) return null;   // the machine gave no connection a moment ago: by words until it is back, with no wait
                 String t = text.length() > MAX_CHARS ? text.substring(0, MAX_CHARS) : text;
                 long t0 = System.currentTimeMillis();
+                if (work) ModelsAwake.used(endpoint);   // a search's question is a use too: a server somebody keeps searching with is not stopped
                 try {
                     var body = M.createObjectNode();
                     body.put("model", model);
@@ -171,6 +190,7 @@ public final class Embeddings {
                     return v;
                 } catch (Exception e) {
                     Helpers.failed(endpoint, e, t0);
+                    if (work) ModelsAwake.startForCall(endpoint);   // stopped while unused: this search goes by words, and the server starts in the background
                     return null;   // an embedder that is down degrades to BM25, never to a crash
                 }
             }

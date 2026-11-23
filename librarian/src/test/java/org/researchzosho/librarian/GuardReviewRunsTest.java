@@ -90,11 +90,16 @@ class GuardReviewRunsTest {
     static String q(String s) { return M.valueToTree(s).toString(); }
     List<String> with(String what) { return arrived.stream().filter(a -> a.contains(what)).toList(); }
 
-    /** Every run the service has is waited for; the states of all its jobs. */
+    /**
+     * Every run the service has is waited for; the states of all its jobs. A run filed outside the service (the MCP host's, the
+     * terminal's, the chat's, the queue's) is taken by the service when it looks at the ledger, which its worker does when it has
+     * waited ten seconds for work: the wait asks it to look at each turn, with the service's own call, so each way's run starts at once.
+     */
     Map<String, String> allDone() throws Exception {
         HttpClient c = HttpClient.newHttpClient();
         Map<String, String> states = new LinkedHashMap<>();
         for (long until = System.currentTimeMillis() + 120_000; System.currentTimeMillis() < until; Thread.sleep(150)) {
+            service.jobs().pickUp();
             JsonNode list = M.readTree(c.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + service.port() + "/v1/jobs")).GET().build(), HttpResponse.BodyHandlers.ofString()).body());
             states.clear();
             for (JsonNode j : list.findValues("job_id")) {

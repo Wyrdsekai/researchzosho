@@ -24,7 +24,8 @@ final class CrossProcess {
     private CrossProcess() { }
 
     /**
-     * {@code lease <library> <go> <hold-ms>}: takes the library's lease, prints "held" or "refused", holds it that long, lets it go.
+     * {@code lease <library> <go> <release>}: takes the library's lease, prints "held" or "refused" and says which beside the signal
+     * ({@link #decided}); a holder holds it until the file {@code release} is there (two minutes at most), and lets it go.
      * {@code ids <library> <go> <count>}: issues that many job ids, one a line. {@code home}: prints the per-machine settings folder.
      * {@code hold-serials <library>}: holds the id counter's guard, says "holding", and waits to be killed.
      * {@code serve}: the serve command as a person runs it, on the library its environment names, the lease looked at every 200 ms; the
@@ -36,11 +37,17 @@ final class CrossProcess {
                 ready(Path.of(args[2]));
                 waitFor(Path.of(args[2]));
                 LibraryStore store = new LibraryStore(Path.of(args[1]));
-                try (Lease l = Lease.acquire(store)) {
+                Lease l;
+                try { l = Lease.acquire(store); }
+                catch (IOException e) { System.out.println("refused"); decided(Path.of(args[2]), "refused"); break; }
+                try (l) {
                     System.out.println("held " + ProcessHandle.current().pid());
                     System.out.flush();
-                    Thread.sleep(Long.parseLong(args[3]));
-                } catch (IOException e) { System.out.println("refused"); }
+                    decided(Path.of(args[2]), "held");
+                    Path release = Path.of(args[3]);
+                    long until = System.currentTimeMillis() + 120_000;
+                    while (!Files.exists(release) && System.currentTimeMillis() < until) Thread.sleep(10);
+                }
             }
             case "ids" -> {
                 ready(Path.of(args[2]));
@@ -91,11 +98,19 @@ final class CrossProcess {
     /** Says this child is up and about to wait for the signal: a file beside it, named for its process. */
     static void ready(Path go) throws IOException { Files.writeString(go.resolveSibling(go.getFileName() + ".ready-" + ProcessHandle.current().pid()), ""); }
 
+    /** Says what this child did once the signal came: a file beside it, named for its process. */
+    static void decided(Path go, String what) throws IOException { Files.writeString(go.resolveSibling(go.getFileName() + ".decided-" + ProcessHandle.current().pid()), what); }
+
+    /** Waits until {@code n} children of the signal {@code go} said what they did (at most a minute). */
+    static void allDecided(Path go, int n) throws IOException, InterruptedException { allSaid(go, ".decided-", n); }
+
     /** Waits until {@code n} children of the signal {@code go} said they are up (at most a minute), so that it is given when all of them wait. */
-    static void allReady(Path go, int n) throws IOException, InterruptedException {
+    static void allReady(Path go, int n) throws IOException, InterruptedException { allSaid(go, ".ready-", n); }
+
+    private static void allSaid(Path go, String mark, int n) throws IOException, InterruptedException {
         long until = System.currentTimeMillis() + 60_000;
         while (System.currentTimeMillis() < until) {
-            try (var s = Files.list(go.getParent())) { if (s.filter(p -> p.getFileName().toString().startsWith(go.getFileName() + ".ready-")).count() >= n) return; }
+            try (var s = Files.list(go.getParent())) { if (s.filter(p -> p.getFileName().toString().startsWith(go.getFileName() + mark)).count() >= n) return; }
             Thread.sleep(20);
         }
     }

@@ -2284,6 +2284,7 @@
  "Search by meaning is on.": "Поиск по смыслу включен.",
  "Search by meaning is off.": "Поиск по смыслу выключен.",
  "Search by meaning is not answering.": "Поиск по смыслу не отвечает.",
+ "Searched by words this time: search by meaning is starting.": "В этот раз поиск шел по словам: поиск по смыслу запускается.",
  "The model it talks to by default is {0} at {1}, and it answers.": "По умолчанию библиотека обращается к модели «{0}» по адресу {1}, и модель отвечает.",
  "The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.": "По умолчанию библиотека обращается к модели «{0}» по адресу {1}, но сейчас модель не отвечает, а без нее не работают исследования и чат.",
  "Named models it can also use: {0}.": "Кроме нее, доступны именованные модели: {0}.",

@@ -131,12 +131,13 @@ class ModelServerShutInTest {
         Config.invalidate();
         machine = new Machine();
         machine.install();
+        ModelServer.SECOND_MS = 10;   // the stand-in proxy answers or not by the machine's state, never by the time: a wait for it need not last its seconds
     }
 
     @AfterEach void restore() {
         Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev;
         ModelServer.sums.clear(); ModelServer.sums.putAll(realSums);
-        ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.asker = realAsker;
+        ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.asker = realAsker; ModelServer.SECOND_MS = 1000;
         System.setProperty("user.home", realHome);
         Config.invalidate();
     }

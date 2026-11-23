@@ -2,6 +2,8 @@ package org.researchzosho.librarian;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -18,6 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The openings page in tiers: the ones that match the role and the place open first, the near misses and the rest closed, what the decisions set aside closed with its reason, and a big board capped. */
 class CareerOpeningsTiersTest {
+    final CareerCut.Near near = CareerCut.NEAR;
+    final long polite = CareerSources.POLITE_MS;
+
+    /** No place is asked of Wikidata (the places near a city: none known here), and the sources keep no pace: nothing here reaches a site. */
+    @BeforeEach void standIn() { CareerCut.NEAR = (city, within, km) -> new CareerCut.Towns("", List.of()); CareerSources.POLITE_MS = 0; }
+    @AfterEach void back() { CareerCut.NEAR = near; CareerSources.POLITE_MS = polite; }
+
     private static final ObjectMapper M = new ObjectMapper();
 
     private static ObjectNode opening(String id, String company, String title, String location, boolean remote) {

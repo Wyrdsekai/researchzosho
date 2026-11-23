@@ -487,7 +487,7 @@ class GenealogyOfferTest {
             assertTrue(ticked.contains("in genealogy mode"), ticked);
             assertEquals("genealogy", job(store, ticked).path("args").path("field").asText());
             assertEquals("web-box", job(store, ticked).path("args").path("field_how").asText());
-        } finally { d.stop(); model.stop(0); quiet(d); }
+        } finally { stopped(d, model); }
     }
 
     @Test
@@ -507,7 +507,7 @@ class GenealogyOfferTest {
             String runs = PagesTest.get(c, base + to, null).body();
             assertTrue(runs.contains("This looks like family history.") && runs.contains("was sent as ordinary research") && runs.contains("/research?q=" + Pages.enc(FAMILY) + "&field=genealogy"), runs);
             assertFalse(filed(store).path("args").has("field"), "the run itself is ordinary");
-        } finally { d.stop(); model.stop(0); quiet(d); }
+        } finally { stopped(d, model); }
     }
 
     @Test
@@ -588,9 +588,18 @@ class GenealogyOfferTest {
         return new Jobs(store, j -> "").get(m.group(1));
     }
 
-    /** Waits until no run the daemon started is still writing into the library, so the temporary folder can be deleted after the test. */
-    /** Waits until a stopped daemon's job threads have ended, so nothing writes into the test's folder while it is removed. A run the stop interrupted stays in the queue, to be picked up at the next start, so the queue being empty is not the sign. */
-    static void quiet(LibrarianDaemon d) throws Exception {
-        for (int i = 0; i < 200 && !d.jobs().quiet(); i++) Thread.sleep(100);
+    /**
+     * The end of a test of a daemon whose pages file runs that go on after the page has answered: each run is stopped as a person stops
+     * one and waited for (a run looks at its stop several times a second), then the daemon and its model server are stopped and its job
+     * threads waited for, so that nothing writes into the test's folder while it is removed. The daemon was stopped first, and then its
+     * model: a run in the middle of a step waited for a model that was gone, and the wait for the threads gave up after twenty seconds
+     * with the run still going (twenty seconds of one baseline run, none of the next, 2026-11-23).
+     */
+    static void stopped(LibrarianDaemon d, HttpServer model) throws Exception {
+        for (ObjectNode j : d.jobs().active()) d.jobs().stopRun(j.path("job_id").asText(), "the test's end");
+        for (int i = 0; i < 300 && !d.jobs().running().isEmpty(); i++) Thread.sleep(100);
+        d.stop(); model.stop(0);
+        for (int i = 0; i < 300 && !d.jobs().quiet(); i++) Thread.sleep(100);
+        assertTrue(d.jobs().quiet(), "the daemon's job threads ended after its stop: " + d.jobs().running());
     }
 }

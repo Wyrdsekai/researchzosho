@@ -114,6 +114,8 @@ class WebhooksTest {
         LibraryStore store = new LibraryStore(tmp); store.init();
         List<Received> got = new CopyOnWriteArrayList<>();
         HttpServer s = receiver(got, 500);
+        int[] backoff = Webhooks.BACKOFF_MS.clone();
+        Webhooks.BACKOFF_MS[1] = 20; Webhooks.BACKOFF_MS[2] = 80;   // three tries all the same, without waiting out the real two and eight seconds between them
         try {
             String url = "http://127.0.0.1:" + s.getAddress().getPort() + "/hook";
             Webhooks.add(store, "did:key:zW", url, "s3cret", List.of());
@@ -125,7 +127,7 @@ class WebhooksTest {
             String log = Files.readString(Webhooks.log(store));
             assertTrue(log.contains("failed") && log.contains("status 500") && log.contains("seq 1"), log);
             assertEquals(1, Changes.since(store, 0, 10).size(), "the feed is the truth regardless");
-        } finally { s.stop(0); }
+        } finally { s.stop(0); System.arraycopy(backoff, 0, Webhooks.BACKOFF_MS, 0, backoff.length); }
     }
 
     @Test

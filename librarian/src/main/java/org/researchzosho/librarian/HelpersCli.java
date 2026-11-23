@@ -74,11 +74,18 @@ final class HelpersCli {
             boolean scorer = h == Helper.LABSE || h == Helper.METRICX;
             if (scorer ? TranslationScores.off(h) : Helpers.off(h)) line = "off (" + (scorer ? TranslationScores.offSaid(h) : h.setting + "=off") + ")";   // the scorers also by RESEARCHZOSHO_SCORERS=off
             else if (at != null) {
-                String hl = Helpers.health(h, at);
                 // what the helpers machine's front says of it, when it is served there: its line names the card by the index that machine
                 // lists it under; a server whose own health says nothing (Text Embeddings Inference) gets that line too
-                if (hl != null && base != null && at.equals(base + "/" + h.path)) { var serves = Helpers.SERVES.apply(base); String front = serves == null ? "" : serves.getOrDefault(h.path, ""); if (!front.isBlank() && !front.equals("answering")) hl = front; }
-                line = hl == null ? "at " + at + ", which does not answer now" : "at " + at + " (" + (hl.isBlank() ? "answering" : hl) + ")";
+                String front = "";
+                if (base != null && at.equals(base + "/" + h.path)) { var serves = Helpers.SERVES.apply(base); front = serves == null ? "" : serves.getOrDefault(h.path, ""); }
+                // not loaded there now, and why (a container stopped while unused, which the next request starts; a helper with no room
+                // on its card): said as the front says it, and the helper is not asked, which would start a stopped container
+                if (front.startsWith("not loaded")) line = "at " + at + ", which has it " + front;
+                else {
+                    String hl = Helpers.health(h, at);
+                    if (hl != null && !front.isBlank() && !front.equals("answering")) hl = front;
+                    line = hl == null ? "at " + at + ", which does not answer now" : "at " + at + " (" + (hl.isBlank() ? "answering" : hl) + ")";
+                }
             }
             else line = Helpers.localAllowed() ? "on this machine" : "not run here, and no address names it";
             b.append("\n  ").append(h.said).append(": ").append(line);

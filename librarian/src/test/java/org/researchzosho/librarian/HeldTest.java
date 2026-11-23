@@ -154,7 +154,9 @@ class HeldTest {
         HttpServer model = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         model.createContext("/", x -> { if (x.getRequestURI().getPath().endsWith("/chat/completions")) asked.incrementAndGet(); byte[] b = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}".getBytes(StandardCharsets.UTF_8); x.getResponseHeaders().set("Content-Type", "application/json"); x.sendResponseHeaders(200, b.length); try (OutputStream o = x.getResponseBody()) { o.write(b); } });
         model.start();
-        Held.LEASE_MS = 400; LibrarianDaemon.GIVE_UP_WAIT_MS = 60_000; LibrarianDaemon.GIVE_UP_LEAST_MS = 60_000;   // its watch may look; it does not end within the test
+        // a lease of two seconds: held across the word and the first call however loaded the machine (a lease of 0.4 s could run out between
+        // them), and let run out by a silence longer than it; its watch may look; it does not end within the test
+        Held.LEASE_MS = 2_000; LibrarianDaemon.GIVE_UP_WAIT_MS = 60_000; LibrarianDaemon.GIVE_UP_LEAST_MS = 60_000;
         try {
             start(tmp, 1);
             DriveClient drive = new DriveClient("http://127.0.0.1:" + model.getAddress().getPort(), "stand-in");
@@ -165,7 +167,7 @@ class HeldTest {
             int held = asked.get();
             assertTrue(held >= 1, "held, it asks its model");
             AtomicWrite.text(file, "written while held");
-            Thread.sleep(600);   // nobody says "still yours" for longer than a lease
+            Thread.sleep(2_500);   // nobody says "still yours" for longer than a lease
             assertEquals(held, asked.get());
             drive.classify(hi, 8);
             assertEquals(held, asked.get(), "no request reached the model");

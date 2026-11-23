@@ -19,6 +19,9 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
+import com.sun.source.util.JavacTask;
+import javax.tools.Diagnostic;
+import javax.tools.DiagnosticCollector;
 import javax.tools.JavaCompiler;
 import javax.tools.JavaFileObject;
 import javax.tools.StandardJavaFileManager;
@@ -130,6 +133,9 @@ class GenealogyBoundaryTest {
         return out;
     }
 
+    /** A word of the code: a run of the letters, digits, _ and $ that a Java name is made of. */
+    static final Pattern WORD = Pattern.compile("[\\w$]+");
+
     /**
      * Every reference of the core into the module, one line each: the core file, the kind of reference, what it names, and how many
      * times. The lines are sorted, so the baseline is stable under edits that move code around.
@@ -141,10 +147,10 @@ class GenealogyBoundaryTest {
         for (String f : mainFiles()) {
             if (m.files().contains(f)) continue;
             Lexed lx = lex(Files.readString(mainJava().resolve(f), StandardCharsets.UTF_8));
-            for (String name : m.names()) {
-                Matcher x = Pattern.compile("(?<![\\w$])" + Pattern.quote(name) + "(?![\\w$])").matcher(lx.code());
-                while (x.find()) counts.merge(f + "\tclass\t" + name, 1, Integer::sum);
-            }
+            // each word of the code, a whole run of letters, digits, _ and $: a module class named where nothing of a longer name stands
+            // on either side of it (one pass a file; it was one pattern a module class, each over the whole file)
+            Matcher x = WORD.matcher(lx.code());
+            while (x.find()) if (m.names().contains(x.group())) counts.merge(f + "\tclass\t" + x.group(), 1, Integer::sum);
             for (String[] lit : lx.literals()) {
                 String v = lit[1];
                 if (literals.contains(v)) counts.merge(f + "\tword\t" + v, 1, Integer::sum);
@@ -199,12 +205,17 @@ class GenealogyBoundaryTest {
         }
         JavaCompiler javac = ToolProvider.getSystemJavaCompiler();
         assertNotNull(javac, "the tests run on a JDK");
-        Path out = Files.createTempDirectory("core-alone");
+        // the compiler's whole analysis (parse, enter, attribute, flow), where a name it cannot find is an error, and no class file
+        // written: what a missing module class breaks is the analysis, and writing the classes took a third of the time
         StringWriter errors = new StringWriter();
+        DiagnosticCollector<JavaFileObject> said = new DiagnosticCollector<>();
         try (StandardJavaFileManager fm = javac.getStandardFileManager(null, Locale.ROOT, StandardCharsets.UTF_8)) {
             Iterable<? extends JavaFileObject> units = fm.getJavaFileObjectsFromPaths(core);
-            boolean ok = javac.getTask(errors, fm, null, List.of("--release", "21", "-proc:none", "-nowarn", "-encoding", "UTF-8", "-d", out.toString(), "-cp", String.join(File.pathSeparator, cp)), null, units).call();
-            assertTrue(ok, "the core does not compile without the genealogy module. Reach it through a Profile hook instead:\n" + errors);
+            JavacTask task = (JavacTask) javac.getTask(errors, fm, said, List.of("--release", "21", "-proc:none", "-nowarn", "-encoding", "UTF-8", "-cp", String.join(File.pathSeparator, cp)), null, units);
+            task.analyze();
+            List<String> wrong = new ArrayList<>();
+            for (Diagnostic<? extends JavaFileObject> d : said.getDiagnostics()) if (d.getKind() == Diagnostic.Kind.ERROR) wrong.add(d.getSource() == null ? d.getMessage(Locale.ROOT) : d.getSource().getName() + ":" + d.getLineNumber() + ": " + d.getMessage(Locale.ROOT));
+            assertTrue(wrong.isEmpty(), "the core does not compile without the genealogy module. Reach it through a Profile hook instead:\n" + String.join("\n", wrong) + errors);
         }
     }
 }

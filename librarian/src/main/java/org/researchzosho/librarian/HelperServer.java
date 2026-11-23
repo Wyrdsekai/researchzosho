@@ -51,6 +51,8 @@ final class HelperServer implements AutoCloseable {
     private static final ObjectMapper M = new ObjectMapper();
     private final HttpServer server;
     private final Map<String, String> backends;
+    /** The proxied helpers that are containers of this machine under the idle rule (LaBSE, the embeddings server), each with its container's name. */
+    private final Map<String, String> containers;
     /** The helpers this front started itself (MetricX-24, the likeness helper), listed whether they are loaded or not. */
     private final Map<String, Managed> managed;
     /** Helpers this set was installed to serve that are not set up here: listed, each with why. */
@@ -63,8 +65,8 @@ final class HelperServer implements AutoCloseable {
     private final byte[] secret;
     private final HttpClient http = Outbound.client(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build());
 
-    private HelperServer(HttpServer server, Map<String, String> backends, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic, Map<String, String> health, List<Process> processes, String secret) {
-        this.server = server; this.backends = backends; this.managed = managed; this.absent = absent; this.comic = comic; this.health = health; this.processes = processes;
+    private HelperServer(HttpServer server, Map<String, String> backends, Map<String, String> containers, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic, Map<String, String> health, List<Process> processes, String secret) {
+        this.server = server; this.backends = backends; this.containers = containers; this.managed = managed; this.absent = absent; this.comic = comic; this.health = health; this.processes = processes;
         this.secret = secret == null ? new byte[0] : secret.getBytes(StandardCharsets.UTF_8);
     }
 
@@ -91,9 +93,11 @@ final class HelperServer implements AutoCloseable {
     static HelperServer serve(String bind, int port, String secret, Backends b, List<Process> processes) throws IOException {
         if ((secret == null || secret.isBlank()) && !loopback(bind)) throw new IOException("A server listening beyond this machine needs a secret: --secret <words> or --secret-file <file>.");
         Map<String, String> health = new LinkedHashMap<>();
-        for (var e : b.proxied().entrySet()) health.put(e.getKey(), healthOf(e.getValue()));
+        // a container the idle rule stopped is not started here: the first request for it starts it (a start now would only hold its
+        // card's memory until the idle rule stopped it again, at each start of the front, an update's restart included)
+        for (var e : b.proxied().entrySet()) health.put(e.getKey(), lineOf(e.getValue(), b.containers().get(e.getKey())));
         HttpServer s = HttpServers.create(new InetSocketAddress(InetAddress.getByName(bind), port), 32);
-        HelperServer h = new HelperServer(s, new LinkedHashMap<>(b.proxied()), new LinkedHashMap<>(b.managed()), new LinkedHashMap<>(b.absent()), b.comic(), health, processes, secret);
+        HelperServer h = new HelperServer(s, new LinkedHashMap<>(b.proxied()), new LinkedHashMap<>(b.containers()), new LinkedHashMap<>(b.managed()), new LinkedHashMap<>(b.absent()), b.comic(), health, processes, secret);
         s.createContext("/", h::handle);
         // sixteen: a comic's request holds its thread while the helper works on its pages (seconds; minutes for a first load), and a
         // stop or a score must still find one free while the most comics this machine reads at once are under way
@@ -119,7 +123,7 @@ final class HelperServer implements AutoCloseable {
                 ObjectNode o = M.createObjectNode(); o.put("version", Version.string());   // the release this server runs: an install tells a server an update left running on the one before (0.7.7)
                 ObjectNode hs = o.putObject("helpers");
                 // asked again when half a minute old: a container that was still starting when the front started answers now
-                if (System.currentTimeMillis() - healthAt > 30_000) { synchronized (health) { for (var e : backends.entrySet()) health.put(e.getKey(), healthOf(e.getValue())); for (Managed m : managed.values()) m.healthLine = null; healthAt = System.currentTimeMillis(); } }
+                if (System.currentTimeMillis() - healthAt > 30_000) { synchronized (health) { for (var e : backends.entrySet()) health.put(e.getKey(), lineOf(e.getValue(), containers.get(e.getKey()))); for (Managed m : managed.values()) m.healthLine = null; healthAt = System.currentTimeMillis(); } }
                 for (var e : health.entrySet()) hs.put(e.getKey(), e.getValue());
                 for (var e : managed.entrySet()) hs.put(e.getKey(), e.getValue().line());   // listed whether loaded or not, with why not
                 if (comic != null) hs.put(Helper.COMIC.path, comic.line());
@@ -130,8 +134,8 @@ final class HelperServer implements AutoCloseable {
             String name = path.replaceFirst("^/", "").split("/", 2)[0], rest = path.substring(name.length() + 1);
             if (name.equals(Helper.COMIC.path) && comic != null) { comic.handle(x, rest); return; }   // served by this front itself: the requests carry their pictures
             Managed own = managed.get(name);
-            String to = own != null ? own.forRequest() : backends.get(name);
-            if (to != null) ModelsAwake.used(to);   // a container of this machine's: its use written down for its idle rule (round C2)
+            String to = own != null ? own.forRequest() : backends.get(name), container = own != null ? null : containers.get(name);
+            if (container != null) ModelsAwake.usedContainer(container);   // a container of this machine's: its use written down for its idle rule (round C2)
             if (own != null && to == null) { reply(x, 503, M.createObjectNode().put("error", own.line()).toString()); return; }   // not loaded now: why, and a new try when it is due
             if (to == null && absent.containsKey(name)) { reply(x, 503, M.createObjectNode().put("error", absent.get(name)).toString()); return; }
             if (to == null) { reply(x, 404, "{\"error\":\"this machine does not serve " + name.replaceAll("[^a-z]", "") + "\"}"); return; }
@@ -142,10 +146,18 @@ final class HelperServer implements AutoCloseable {
             byte[] body;
             try (InputStream in = x.getRequestBody()) { body = in.readAllBytes(); }
             b.method(x.getRequestMethod(), body.length == 0 ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(body));
-            HttpResponse<byte[]> r;
-            try { r = http.send(b.build(), HttpResponse.BodyHandlers.ofByteArray()); }
-            catch (InterruptedException e) { Thread.currentThread().interrupt(); reply(x, 503, "{\"error\":\"interrupted\"}"); return; }
-            catch (IOException e) { reply(x, 502, "{\"error\":\"" + name + " does not answer on this machine\"}"); return; }
+            HttpRequest req = b.build();
+            HttpResponse<byte[]> r = null;
+            for (int tries = 0; r == null; tries++) {
+                try { r = http.send(req, HttpResponse.BodyHandlers.ofByteArray()); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); reply(x, 503, "{\"error\":\"interrupted\"}"); return; }
+                catch (IOException e) {
+                    // a container stopped by the idle rule (or by hand): this request starts it, waits for it, and is sent again once
+                    String woke = tries == 0 && container != null ? woken(container, to) : null;
+                    if (woke == null) { reply(x, 502, "{\"error\":\"" + name + " does not answer on this machine\"}"); return; }
+                    if (!woke.isEmpty()) { reply(x, 503, M.createObjectNode().put("error", woke).toString()); return; }
+                }
+            }
             x.getResponseHeaders().set("Content-Type", r.headers().firstValue("Content-Type").orElse("application/json"));
             x.sendResponseHeaders(r.statusCode(), r.body().length == 0 ? -1 : r.body().length);
             if (r.body().length > 0) try (OutputStream os = x.getResponseBody()) { os.write(r.body()); }
@@ -175,7 +187,23 @@ final class HelperServer implements AutoCloseable {
             HttpResponse<String> info = c.send(HttpRequest.newBuilder(URI.create(backend + "/info")).timeout(Duration.ofSeconds(10)).GET().build(), HttpResponse.BodyHandlers.ofString());
             if (info.statusCode() == 200 && !info.body().isBlank()) { String id = M.readTree(info.body()).path("model_id").asText(""); if (!id.isEmpty()) return id; }
             return "answering";
-        } catch (Exception e) { return "not answering yet"; }
+        } catch (Exception e) { return NOT_ANSWERING; }
+    }
+
+    static final String NOT_ANSWERING = "not answering yet";
+
+    /** A proxied helper's line: its health; for a container of this machine's that does not answer, starting now or stopped and started by the next request, when it is. */
+    static String lineOf(String backend, String container) {
+        String line = healthOf(backend);
+        if (container == null || !line.equals(NOT_ANSWERING)) return line;
+        String resting = ModelsAwake.restingLine(container);
+        return resting == null ? line : resting;
+    }
+
+    /** A container woken for a request ({@link ModelsAwake#wake}); the health lines are asked again at the next look, as it starts and once it answers. */
+    private String woken(String container, String address) {
+        healthAt = 0;
+        try { return ModelsAwake.wake(container, address); } finally { healthAt = 0; }
     }
 
     @Override public void close() {
@@ -204,9 +232,19 @@ final class HelperServer implements AutoCloseable {
     /** A free port on loopback for a backend of our own. */
     static int freePort() throws IOException { try (ServerSocket s = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) { return s.getLocalPort(); } }
 
-    /** What a set serves: the servers it proxies by name, the helpers it starts itself, the comic helper's sessions (null: not served), and the ones it was meant to serve that are not set up here, each with why. */
-    record Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic) {
+    /**
+     * What a set serves: the servers it proxies by name, the helpers it starts itself, the comic helper's sessions (null: not served), the
+     * ones it was meant to serve that are not set up here, each with why, and the proxied ones that are containers of this machine under
+     * the idle rule, each with its container's name (from its address, as {@link ModelsAwake#containerAt} knows them).
+     */
+    record Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic, Map<String, String> containers) {
+        Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent, ComicSessions comic) { this(proxied, managed, absent, comic, containersOf(proxied)); }
         Backends(Map<String, String> proxied, Map<String, Managed> managed, Map<String, String> absent) { this(proxied, managed, absent, null); }
+        static Map<String, String> containersOf(Map<String, String> proxied) {
+            Map<String, String> c = new LinkedHashMap<>();
+            for (var e : proxied.entrySet()) { String name = ModelsAwake.containerAt(e.getValue()); if (name != null) c.put(e.getKey(), name); }
+            return c;
+        }
         boolean isEmpty() { return proxied.isEmpty() && managed.isEmpty() && absent.isEmpty() && comic == null; }
         List<String> names() { List<String> n = new ArrayList<>(proxied.keySet()); n.addAll(managed.keySet()); if (comic != null) n.add(Helper.COMIC.path); n.addAll(absent.keySet()); return n; }
     }
@@ -263,7 +301,7 @@ final class HelperServer implements AutoCloseable {
                 }
                 // a container of this program's that is still starting (the service and the containers start together after a reboot) is
                 // served all the same: its calls fail until it answers, and the library waits for it as for any named helper
-                case LABSE -> { String a = "http://127.0.0.1:" + TranslationScores.LABSE_PORT; if (Embed.answers(a) || !TranslationScores.labseState().equals("absent")) proxied.put(h.path, a); else { say.accept("LaBSE does not answer here (researchzosho translate scorers install starts it)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); } }
+                case LABSE -> { String a = TranslationScores.LOCAL_LABSE; if (Embed.answers(a) || !TranslationScores.labseState().equals("absent")) proxied.put(h.path, a); else { say.accept("LaBSE does not answer here (researchzosho translate scorers install starts it)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); } }
                 case EMBED -> {
                     String set = Config.get("RESEARCHZOSHO_EMBED", "").strip(), a = set.matches("(?i)https?://(127\\.0\\.0\\.1|localhost)(:\\d+)?/?") ? set.replaceAll("/+$", "") : "http://127.0.0.1:" + Embed.DEFAULT_PORT;
                     if (Embed.answers(a) || !Embed.state().equals("absent")) proxied.put(h.path, a); else { say.accept("no embeddings server answers here (researchzosho embed start starts one)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); }

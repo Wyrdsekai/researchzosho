@@ -165,22 +165,26 @@ public final class LibraryProtocol {
                 r.put("since", route.arg());
             }
             case "subject" -> {
-                for (var h : new LibrarianIndex(store).search(route.arg().replace("--", " "), k, route.arg(), null)) {
+                LibrarianIndex index = new LibrarianIndex(store);
+                for (var h : index.search(route.arg().replace("--", " "), k, route.arg(), null)) {
                     ObjectNode e = entry(h.id(), h.kind(), true);
                     if (e == null || "retired".equals(e.path("state").asText())) continue;
                     e.put("score", h.score());
                     entries.add(e);
                 }
                 r.put("subject", route.arg());
+                if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
             }
             default -> {
-                for (var h : new LibrarianIndex(store).searchStrict(question, k, null, null)) {   // floored: absence is an answer
+                LibrarianIndex index = new LibrarianIndex(store);
+                for (var h : index.searchStrict(question, k, null, null)) {   // floored: absence is an answer
                     ObjectNode e = entry(h.id(), h.kind(), true);
                     if (e == null) continue;
                     if ("retired".equals(e.path("state").asText())) continue;
                     e.put("score", h.score());
                     entries.add(e);
                 }
+                if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
             }
         }
         r.put("holds_nothing", entries.isEmpty() && !route.kind().equals("changes"));
@@ -219,8 +223,11 @@ public final class LibraryProtocol {
         int k = args.path("k").asInt(args.path("limit").asInt(10));
         int offset = cursor(args);
         String subject = args.hasNonNull("subject") ? args.get("subject").asText() : null;
-        List<LibrarianIndex.Hit> all = new LibrarianIndex(store).search(query, offset + k + 1, subject);
+        LibrarianIndex index = new LibrarianIndex(store);
+        List<LibrarianIndex.Hit> all = index.search(query, offset + k + 1, subject);
         ObjectNode r = envelope();
+        // its embeddings server, stopped while unused, starts in the background: this search went by words, and says so
+        if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
         ArrayNode hits = r.putArray("hits");
         int end = Math.min(all.size(), offset + k);
         for (int i = offset; i < end; i++) {

@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -41,7 +42,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * of this program's is installed (a machine that serves the helpers, a machine whose model is hosted). They stop by an idle rule of
  * their own ({@link #tick}): each use, and each round of a hold, writes the time into a stamp file in this program's state folder, which
  * every process of this machine shares; a container whose stamp is older than the embedding models' idle time, and that nothing in this
- * process holds, is stopped by its name. The next use, or an intent, starts it again.
+ * process holds, is stopped by its name. The next use, or an intent, starts it again. On a machine that serves the helpers no work
+ * holds or warms them, so the front starts one when a request finds it silent and waits for it ({@link #wake}); a library's own search
+ * that finds its embeddings server stopped goes by words that once and has it started in the background ({@link #startForCall}).
  */
 final class ModelsAwake {
     private ModelsAwake() { }
@@ -72,8 +75,16 @@ final class ModelsAwake {
     static boolean hosted(String url) { return DriveClient.hostedApi(url) || OpenAI.is(url) || Anthropic.is(url); }
     static boolean translation(String kind) { return kind != null && kind.toLowerCase(Locale.ROOT).startsWith("translat"); }
 
-    /** The containers of this machine the idle rule looks after, by name, with where they answer. */
-    static Map<String, String> containers() { return Map.of(TranslationScores.LABSE_CONTAINER, "http://127.0.0.1:" + TranslationScores.LABSE_PORT, Embed.CONTAINER, "http://127.0.0.1:" + Embed.DEFAULT_PORT); }
+    /**
+     * The containers of this machine the idle rule looks after, by name, with where they answer; LaBSE's is
+     * {@link TranslationScores#LOCAL_LABSE}. A test points them at stand-ins; the test suite points them at ports where nothing listens.
+     */
+    static volatile Map<String, String> CONTAINERS = machine();
+
+    /** The containers of this machine where they answer: LaBSE at {@link TranslationScores#LOCAL_LABSE}, the embeddings server at its port. */
+    static Map<String, String> machine() { return Map.of(TranslationScores.LABSE_CONTAINER, TranslationScores.LOCAL_LABSE, Embed.CONTAINER, "http://127.0.0.1:" + Embed.DEFAULT_PORT); }
+
+    static Map<String, String> containers() { return CONTAINERS; }
 
     /** The container a model server's address is, when it is one of this machine's containers; null otherwise. */
     static String containerAt(String url) {
@@ -204,6 +215,102 @@ final class ModelsAwake {
 
     /** A call made to a model server's address: when it is one of this machine's containers, its use written down. */
     static void used(String url) { String c = containerAt(url); if (c != null) touchStamp(c); }
+
+    /** A call made to a container of this machine's, known by its name: its use written down. */
+    static void usedContainer(String name) { touchStamp(name); }
+
+    // ---- a container woken by a request (the helpers machine's front) ----
+
+    /** How long a request waits for a container it started to answer; a test shortens it. */
+    static volatile Duration WAKE_WAIT = Duration.ofMinutes(2);
+    /** The wakes under way, by container: a request that finds one waits for it, so one start serves every request that came meanwhile. */
+    private static final Map<String, CompletableFuture<String>> WAKING = new ConcurrentHashMap<>();
+
+    /**
+     * A container of this machine's that a request found silent, woken for that request: "" when it answers now (started, if it was
+     * stopped, and its answer waited for at most {@link #WAKE_WAIT}); a line of the front's kind ("not loaded: …") when it was started
+     * and did not answer in that time, or could not be started; null when it is not a stopped container (absent, or running and not
+     * answering, as one that is still loading after the machine started), and nothing was done. Requests that come while a wake is
+     * under way wait for that one: one {@code docker start}.
+     */
+    static String wake(String name, String address) {
+        CompletableFuture<String> mine = new CompletableFuture<>(), under = WAKING.putIfAbsent(name, mine);
+        if (under != null) return under.join();
+        return wakeWith(name, address, mine);
+    }
+
+    /** The same on a thread of its own, unless a wake is under way: the caller goes on at once. */
+    static void wakeInBackground(String name, String address) {
+        CompletableFuture<String> mine = new CompletableFuture<>();
+        if (WAKING.putIfAbsent(name, mine) == null) Thread.ofVirtual().start(() -> wakeWith(name, address, mine));
+    }
+
+    private static String wakeWith(String name, String address, CompletableFuture<String> mine) {
+        String said = null;
+        try { said = wakeNow(name, address); }
+        catch (RuntimeException e) { LOG.debug("The container {} could not be woken: {}", name, e.getMessage()); }
+        finally { WAKING.remove(name, mine); mine.complete(said); }
+        return said;
+    }
+
+    /**
+     * A call of a library's own work (a search's question, an entry's vectors) that found its embeddings server silent: when the server is
+     * a container of this machine and is stopped, it is started on a thread of its own, and the call goes on without it, by words, as it
+     * does when no embeddings server answers. Whether a start is under way now. At most one {@code docker inspect}, and none while a start
+     * is under way or for a server that is no container of this machine (one under llama-swap loads by the request itself; another
+     * machine's helpers front wakes its own).
+     */
+    static boolean startForCall(String url) {
+        String name = containerAt(url);
+        if (name == null) return false;
+        if (WAKING.containsKey(name)) return true;
+        try {
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
+            if (r.code() != 0 || !r.out().strip().equals("false")) return false;   // absent, or running and not answering: nothing to start
+        } catch (Exception e) { return false; }
+        wakeInBackground(name, base(url));
+        return true;
+    }
+
+    /** Whether the container at this address is being started now. */
+    static boolean starting(String url) { String name = containerAt(url); return name != null && WAKING.containsKey(name); }
+
+    private static String wakeNow(String name, String address) {
+        if (Embed.answers(address)) return "";   // it answers already: a start that just ended, or one a library of this machine made
+        try {
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
+            if (r.code() != 0 || !r.out().strip().equals("false")) return null;
+            Searx.Result s = Searx.runner.run(List.of("docker", "start", name));
+            if (s.code() != 0) return "not loaded: its container is stopped and could not be started (" + s.out().strip() + ")";
+        } catch (Exception e) { return null; }
+        touchStamp(name);
+        LOG.info("The container {} was stopped and was asked for, so it is started again.", name);
+        long until = System.currentTimeMillis() + WAKE_WAIT.toMillis();
+        while (!Embed.answers(address)) {
+            if (System.currentTimeMillis() >= until) return "not loaded: its container was stopped, this request started it, and it did not answer within "
+                    + TranslationScores.Metricx.said(WAKE_WAIT) + " (docker logs " + name + " on the helpers machine says why)";
+            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return null; }
+        }
+        return "";
+    }
+
+    /**
+     * The front's line for a container it serves that does not answer, of the kind its own helpers' lines are: starting now, when a
+     * request is waking it; stopped, and started by the next request, when it is stopped (after its idle time, when its last use is
+     * that old); null when it is neither, or Docker cannot say.
+     */
+    static String restingLine(String name) {
+        if (WAKING.containsKey(name)) return "not loaded yet: starting now";
+        try {
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
+            if (r.code() != 0 || !r.out().strip().equals("false")) return null;
+        } catch (Exception e) { return null; }
+        int idle = embedIdleMinutes();
+        long last;
+        try { last = Files.getLastModifiedTime(stamp(name)).toMillis(); } catch (IOException e) { last = -1; }
+        boolean idled = idle > 0 && last >= 0 && System.currentTimeMillis() - last >= idle * 60_000L;
+        return "not loaded now: " + (idled ? "stopped after " + idle + (idle == 1 ? " minute" : " minutes") + " without use" : "its container is stopped") + "; the next request starts it again";
+    }
 
     /**
      * One round of the containers' idle rule: each container of this machine's that runs, held by nothing in this process, whose last

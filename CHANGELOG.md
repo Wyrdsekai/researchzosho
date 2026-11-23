@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.2
+
+What's new: fixes for the helpers machine and for search, faster tests.
+
+### Fixed
+
+- Helpers machine: LaBSE and the embeddings server start again when asked for after resting. `researchzosho helpers` says when one is resting.
+- Search: after the search model has rested, a search says it went by words and starts the model; the next search is by meaning again.
+
+### Tests
+
+- The tests no longer touch Docker, the network or a library running on the machine, and take about a quarter less time.
+
 ## 0.8.1
 
 What's new: stronger leak protection, a country avoid list for hosted models, a model server cut off from the network, chat for small models.

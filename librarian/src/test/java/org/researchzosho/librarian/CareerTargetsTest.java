@@ -57,12 +57,13 @@ class CareerTargetsTest {
         Career.DRIVE = StandIn::new;
         savedOverpass = CareerRegisters.OVERPASS; savedNominatim = CareerRegisters.NOMINATIM;   // the map never reached from a test: the place search knows nothing, Overpass holds nothing
         CareerRegisters.OVERPASS = (url, q) -> "{\"elements\":[]}"; CareerRegisters.NOMINATIM = url -> "[]";
+        CareerRegisters.OVERPASS_GAP_MS = 0;   // the stand-in for the map's servers needs no pause between calls
         pages.put("https://registre.example/hopitaux", listPage(12, "Hôpital"));
         pages.put("https://blog.example/post", "<html><body><p>One hospital I liked.</p><a href=\"/x\">Hôpital Nord</a></body></html>");
         pages.put("https://annuaire.example/cliniques", listPage(9, "Clinique"));
     }
 
-    @AfterEach void back() { CareerSources.RAW = CareerSources::fetch; CareerSources.SEARCH = CareerSources::search; CareerSources.POLITE_MS = 1000; CareerSources.reset(); Career.DRIVE = Explain::drive; CareerRegisters.OVERPASS = savedOverpass; CareerRegisters.NOMINATIM = savedNominatim; }
+    @AfterEach void back() { CareerSources.RAW = CareerSources::fetch; CareerSources.SEARCH = CareerSources::search; CareerSources.POLITE_MS = 1000; CareerSources.reset(); Career.DRIVE = Explain::drive; CareerRegisters.OVERPASS = savedOverpass; CareerRegisters.NOMINATIM = savedNominatim; CareerRegisters.OVERPASS_GAP_MS = 1000; }
     BiFunction<String, String, String> savedOverpass; Function<String, String> savedNominatim;
 
     @Test void namesThatReadAsInstructionsOrAddressesAreNotNames() {

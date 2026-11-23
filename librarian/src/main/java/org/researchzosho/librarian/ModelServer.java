@@ -1015,8 +1015,11 @@ public final class ModelServer {
         }
     }
 
+    /** How long one of the seconds {@link #answersWithin} waits lasts, in milliseconds: a second, except in a test of a proxy that never answers. */
+    static volatile long SECOND_MS = 1000;
+
     static boolean answersWithin(int seconds) throws InterruptedException {
-        for (int i = 0; i < seconds && !health.test(URL); i++) Thread.sleep(1000);
+        for (int i = 0; i < seconds && !health.test(URL); i++) Thread.sleep(SECOND_MS);
         return health.test(URL);
     }
 

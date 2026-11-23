@@ -2284,6 +2284,7 @@
  "Search by meaning is on.": "Die Suche nach Bedeutung ist eingeschaltet.",
  "Search by meaning is off.": "Die Suche nach Bedeutung ist ausgeschaltet.",
  "Search by meaning is not answering.": "Die Suche nach Bedeutung antwortet nicht.",
+ "Searched by words this time: search by meaning is starting.": "Diesmal wurde über die Wörter gesucht: Die Suche nach Bedeutung startet gerade.",
  "The model it talks to by default is {0} at {1}, and it answers.": "Das Modell, mit dem die Bibliothek standardmäßig spricht, ist {0} unter {1}, und es antwortet.",
  "The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.": "Das Modell, mit dem die Bibliothek standardmäßig spricht, ist {0} unter {1}, und es antwortet gerade nicht: Recherchen und der Chat brauchen es.",
  "Named models it can also use: {0}.": "Außerdem kann sie diese benannten Modelle nutzen: {0}.",

@@ -626,6 +626,8 @@ public final class CareerRegisters {
     }
     private static final Object MAP_LOCK = new Object();
     private static long lastOverpass;
+    /** The pause between two calls to the map's servers, a second; a test that stands in for them ({@link #OVERPASS}) sets none. */
+    static volatile long OVERPASS_GAP_MS = 1000;
 
     /** The program's name as Overpass wants it: a product and its site, not a browser's. */
     static final String OVERPASS_UA = "ResearchZosho/" + (Version.number() == null ? "dev" : Version.number()) + " (+https://researchzosho.org)";
@@ -765,7 +767,7 @@ public final class CareerRegisters {
                     List<String> servers = List.of(BASE.get("overpass"), BASE.get("overpass_2"), BASE.get("overpass_mirror"), BASE.get("overpass_mirror_2"), BASE.get("overpass"), BASE.get("overpass_2"));
                     for (int i = 0; i < servers.size() && body == null; i++) {
                         if (i == 4) { String w = OVERPASS_WHY.get(); if (w == null || !w.contains("HTTP 5")) break; try { Thread.sleep(8000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; } }
-                        long wait = 1000 - (System.currentTimeMillis() - lastOverpass);
+                        long wait = OVERPASS_GAP_MS - (System.currentTimeMillis() - lastOverpass);
                         if (wait > 0) try { Thread.sleep(wait); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); return null; }
                         lastOverpass = System.currentTimeMillis();
                         body = OVERPASS.apply(servers.get(i), query);

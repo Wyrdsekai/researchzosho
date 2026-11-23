@@ -24,13 +24,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class LookTest {
     final Video.Runner realRunner = Video.runner;
     final BooleanSupplier realInstalled = Video.installedProbe, realProvider = Video.providerProbe;
-    final long realPace = Video.readPaceMs;
+    final long realPace = Video.readPaceMs, realCallPace = Video.paceMs;
     final VideoRecall.Vision realVision = VideoRecall.VISION;
     final VideoRecall.Words realWords = VideoRecall.WORDS;
     final Video.Runner realFfmpeg = VideoRecall.FFMPEG;
     final Supplier<Embeddings.Embedder> realEmbedder = VideoRecall.EMBEDDER;
     final Path realWork = VideoRecall.workDir;
-    @AfterEach void back() { Video.runner = realRunner; Video.installedProbe = realInstalled; Video.providerProbe = realProvider; Video.readPaceMs = realPace; VideoRecall.VISION = realVision; VideoRecall.WORDS = realWords; VideoRecall.FFMPEG = realFfmpeg; VideoRecall.EMBEDDER = realEmbedder; VideoRecall.workDir = realWork; ImageText.use(null); VideoRecall.forgetVision(); }
+    @AfterEach void back() { Video.runner = realRunner; Video.installedProbe = realInstalled; Video.providerProbe = realProvider; Video.readPaceMs = realPace; Video.paceMs = realCallPace; VideoRecall.VISION = realVision; VideoRecall.WORDS = realWords; VideoRecall.FFMPEG = realFfmpeg; VideoRecall.EMBEDDER = realEmbedder; VideoRecall.workDir = realWork; ImageText.use(null); VideoRecall.forgetVision(); }
 
     static final String ID = "ccccccccccc", TOTE = "https://www.youtube.com/watch?v=" + ID;
     static final int[] COLOURS = {VideoRecallTest.BLUE, VideoRecallTest.GREEN, VideoRecallTest.RED, VideoRecallTest.YELLOW, VideoRecallTest.WHITE, VideoRecallTest.BLACK, VideoRecallTest.GRAY, VideoRecallTest.ORANGE};
@@ -39,7 +39,7 @@ class LookTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         VideoRecall.workDir = tmp.resolve("video");
         VideoRecall.EMBEDDER = Embeddings::none;
-        Video.installedProbe = () -> true; Video.providerProbe = () -> true; Video.readPaceMs = 0;
+        Video.installedProbe = () -> true; Video.providerProbe = () -> true; Video.readPaceMs = 0; Video.paceMs = 0;   // a stand-in for yt-dlp needs no pacing
         // a two-and-a-half-minute video: eight tiles twenty seconds apart (0, 20, 40, 60 in the first minute; 80, 100, 120, 140 after), each its own picture
         byte[] sb = VideoRecallTest.mhtml(VideoRecallTest.webp(VideoRecallTest.sheet(COLOURS[0], COLOURS[1], COLOURS[2], COLOURS[3])), VideoRecallTest.webp(VideoRecallTest.sheet(COLOURS[4], COLOURS[5], COLOURS[6], COLOURS[7])));
         List<List<String>> ran = new ArrayList<>();
@@ -135,7 +135,7 @@ class LookTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         VideoRecall.workDir = tmp.resolve("video");
         VideoRecall.EMBEDDER = Embeddings::none;
-        Video.installedProbe = () -> true; Video.providerProbe = () -> true; Video.readPaceMs = 0;
+        Video.installedProbe = () -> true; Video.providerProbe = () -> true; Video.readPaceMs = 0; Video.paceMs = 0;   // a stand-in for yt-dlp needs no pacing
         byte[] sb = VideoRecallTest.mhtml(VideoRecallTest.webp(VideoRecallTest.sheet(COLOURS[0], COLOURS[1], COLOURS[2], COLOURS[3])), VideoRecallTest.webp(VideoRecallTest.sheet(COLOURS[4], COLOURS[5], COLOURS[6], COLOURS[7])));
         Video.runner = (cmd, t) -> {
             if (cmd.contains("--dump-single-json")) return new Video.Result(0, "{\"id\": \"" + ID + "\", \"title\": \"How to sew a simple bag\", \"duration\": 150, \"upload_date\": \"20240330\", \"channel\": \"homebox crafts\"}");

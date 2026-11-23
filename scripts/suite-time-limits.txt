@@ -1,0 +1,16 @@
+# The test suite's time budget, read by scripts/suite-time.py. Seconds of test time (the sum of the test classes' own times in the
+# reports) of a run of :librarian:test and :client:test on four processors with the suite's own number of test processes.
+#
+# Set on 2026-11-23 from what the suite took then: about 820 s on those four processors (the same suite took 1,135 to 1,353 s before
+# its slow tests were made fast), and its slowest classes below. A run on a busier machine took a fifth longer in every class, so the
+# limits leave that much room.
+
+suite 1000
+class 25
+
+# The classes allowed more, each with why. Their time is what they test: real windows of time, other processes, whole-second waits.
+TakeoverTest 100 two machines of the service, each a process with library processes of its own; a translation taken over between them after a lease runs out
+RateLimitsTest 50 a second service as a process of its own; the limits' real windows (3 per 4 seconds, 10 per 20) let go while the test waits
+FamilyAskingTest 45 the questions' waits are whole seconds by the setting, and a file read while one waits must outlast it
+NodeTest 42 library processes put to sleep and started again; a start left behind gives up at its own lease's look, ten seconds apart
+ChatWordsTest 32 every phrase of every language file read as each meaning (CPU: some 20,000 phrase readings)

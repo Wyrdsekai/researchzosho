@@ -52,13 +52,19 @@ class OneProcessPerLibraryTest {
         } finally { d.stop(); }
     }
 
-    /** Starts {@code n} children taking the lease together; the pids that said they held it. */
+    /**
+     * Starts {@code n} children taking the lease together; the pids that said they held it. A holder holds the lease until every child
+     * has said what it did, so a child that comes late to the lease finds it held however late it comes (a holder that let go after a
+     * fixed 1.5 s left a free lease to a child slower than that, and two holders were counted, on a four-core runner under load).
+     */
     static List<String> leaseRound(Path tmp, Path lib, int n, String round) throws Exception {
-        Path go = tmp.resolve("go-" + round);
+        Path go = tmp.resolve("go-" + round), release = tmp.resolve("release-" + round);
         List<Process> children = new ArrayList<>();
-        for (int i = 0; i < n; i++) children.add(CrossProcess.start(tmp.resolve("home"), "lease", lib.toString(), go.toString(), "1500"));
-        CrossProcess.allReady(go, n);   // every child is up and waiting (it slept 2.5 s for this, and each holder held 3 s)
+        for (int i = 0; i < n; i++) children.add(CrossProcess.start(tmp.resolve("home"), "lease", lib.toString(), go.toString(), release.toString()));
+        CrossProcess.allReady(go, n);   // every child is up and waiting
         Files.writeString(go, "go");
+        CrossProcess.allDecided(go, n);   // and every one has taken the lease or been refused it
+        Files.writeString(release, "done");
         List<String> held = new ArrayList<>();
         for (Process p : children) for (String line : CrossProcess.output(p).split("\n")) if (line.startsWith("held ")) held.add(line);
         return held;

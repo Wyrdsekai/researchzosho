@@ -52,8 +52,11 @@ class LostRequestTest {
     static ArrayNode hello() { ArrayNode msgs = M.createArrayNode(); msgs.addObject().put("role", "user").put("content", "hello"); return msgs; }
 
     /** The failure of one chat call against the server, within a limit of four seconds. */
-    static Throwable failure(HttpServer s) {
-        DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m").timeLimit(Duration.ofSeconds(4));
+    static Throwable failure(HttpServer s) { return failure(s, 4); }
+
+    /** The same within {@code seconds}: two for a call that runs to its limit, where only that it ran there is asked. */
+    static Throwable failure(HttpServer s, int seconds) {
+        DriveClient c = new DriveClient("http://127.0.0.1:" + s.getAddress().getPort(), "m").timeLimit(Duration.ofSeconds(seconds));
         try { c.chat(hello(), null, 8, "auto"); return null; } catch (Throwable t) { return t; }
     }
 
@@ -87,24 +90,26 @@ class LostRequestTest {
 
     @Test void aServerThatIsWorkingOrLoadingKeepsTheCallToItsLimit() throws Exception {
         // a ready model with a busy slot: the request is being worked on (or queued behind another)
+        AtomicInteger asked = new AtomicInteger();
         HttpServer busy = silentChat(new ConcurrentHashMap<>(Map.of("/running", "{\"running\":[{\"model\":\"qwen\",\"state\":\"ready\"}]}",
-                "/upstream/qwen/slots", "[{\"id\":0,\"is_processing\":true},{\"id\":1,\"is_processing\":false}]")), new AtomicInteger());
+                "/upstream/qwen/slots", "[{\"id\":0,\"is_processing\":true},{\"id\":1,\"is_processing\":false}]")), asked);
         try {
-            Throwable t = failure(busy);
+            Throwable t = failure(busy, 2);
+            assertTrue(asked.get() > 0, "the server was asked whether it is working, and said it is");
             assertNull(causeOf(t, Stopping.LostRequest.class), "a server that says it is working loses nothing: " + t);
             assertNotNull(causeOf(t, HttpTimeoutException.class), "it runs to its limit as before");
             assertFalse(Researcher.serverAway(t), "and a limit passed is not a server away");
         } finally { busy.stop(0); }
         // a model still starting: the request waits for it
         HttpServer loading = silentChat(new ConcurrentHashMap<>(Map.of("/running", "{\"running\":[{\"model\":\"qwen\",\"state\":\"starting\"}]}")), new AtomicInteger());
-        try { assertNull(causeOf(failure(loading), Stopping.LostRequest.class), "a model that is loading is working"); }
+        try { assertNull(causeOf(failure(loading, 2), Stopping.LostRequest.class), "a model that is loading is working"); }
         finally { loading.stop(0); }
     }
 
     @Test void aServerThatCannotSayNeverLosesACallAndASilentOneDoesAfterSixLooks() throws Exception {
         // neither page: another kind of server
         HttpServer other = silentChat(new ConcurrentHashMap<>(), new AtomicInteger());
-        try { assertNull(causeOf(failure(other), Stopping.LostRequest.class), "a server with neither page cannot say, so nothing is lost on a guess"); }
+        try { assertNull(causeOf(failure(other, 2), Stopping.LostRequest.class), "a server with neither page cannot say, so nothing is lost on a guess"); }
         finally { other.stop(0); }
         // it answers nothing at all: frozen. (The server's hits are more than the looks: the HTTP client sends a look again when its connection is closed on it.)
         AtomicInteger hits = new AtomicInteger();
@@ -124,7 +129,7 @@ class LostRequestTest {
         });
         heal.start();
         try {
-            Throwable t = failure(blip);
+            Throwable t = failure(blip, 2);
             assertNull(causeOf(t, Stopping.LostRequest.class), "a few silent looks and then a working server lose nothing: " + t);
             assertNotNull(causeOf(t, HttpTimeoutException.class));
         } finally { heal.join(); blip.stop(0); }

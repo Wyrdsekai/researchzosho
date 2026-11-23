@@ -53,6 +53,7 @@ class CareerRegistersTest {
             + "<p><span class=\"govuk-body\">Active</span><p><ul class=\"govuk-list\"><li>Private limited company</li><li></li><li>%s - Incorporated on 17 March 2021</li><li></li><li>%s</li><li>SIC codes - %s</li></ul></td></tr>";
 
     @BeforeEach void stub(@TempDir Path tmp) {
+        CareerRegisters.OVERPASS_GAP_MS = 0;   // the stand-in for the map's servers needs no pause between calls
         realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
         savedRaw = CareerSources.RAW; savedHeaded = CareerSources.RAW_HEADED; CareerSources.POLITE_MS = 0; Career.DRIVE = StandIn::new;
         savedOverpass = CareerRegisters.OVERPASS; overpassAnswer = "{\"elements\":[]}"; savedNominatim = CareerRegisters.NOMINATIM;
@@ -99,7 +100,7 @@ class CareerRegistersTest {
         };
     }
 
-    @AfterEach void back() { CareerRegisters.OVERPASS = savedOverpass; CareerRegisters.NOMINATIM = savedNominatim; CareerSources.RAW = savedRaw; CareerSources.RAW_HEADED = savedHeaded; CareerSources.POLITE_MS = 1000; CareerSources.reset(); Career.DRIVE = Explain::drive; System.setProperty("user.home", realHome); Config.invalidate(); }
+    @AfterEach void back() { CareerRegisters.OVERPASS_GAP_MS = 1000; CareerRegisters.OVERPASS = savedOverpass; CareerRegisters.NOMINATIM = savedNominatim; CareerSources.RAW = savedRaw; CareerSources.RAW_HEADED = savedHeaded; CareerSources.POLITE_MS = 1000; CareerSources.reset(); Career.DRIVE = Explain::drive; System.setProperty("user.home", realHome); Config.invalidate(); }
 
     @Test void theCountryComesFromThePlacesOwnWordsElseTheModelsChoiceAmongTheRegistersCountries() {
         assertEquals("FR", CareerRegisters.countryOf("Lyon, France")); assertEquals("UK", CareerRegisters.countryOf("Manchester, England")); assertEquals("JP", CareerRegisters.countryOf("大阪市, 日本"));

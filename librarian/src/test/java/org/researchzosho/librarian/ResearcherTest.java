@@ -445,7 +445,11 @@ class ResearcherTest {
             }
         };
         drive.criticWantsMore = false;
-        var r = new Researcher(drive, new FakeTools(), null, 1).run(new Researcher.Ask("How were the Antikythera gears cut?", "broad", 40, List.of("how?")), "");
+        long[] waits = Researcher.awayWaitsMs;
+        Researcher.awayWaitsMs = new long[]{20, 20, 20};   // a wire failure is a server away, asked again after a wait: the real one is five seconds
+        Researcher.Result r;
+        try { r = new Researcher(drive, new FakeTools(), null, 1).run(new Researcher.Ask("How were the Antikythera gears cut?", "broad", 40, List.of("how?")), ""); }
+        finally { Researcher.awayWaitsMs = waits; }
         assertTrue(r.done());
         assertTrue(r.evidence().contains("SUMMARY: hand-cut, one source"), "the worker survived the wire failure: " + r.evidence());
     }

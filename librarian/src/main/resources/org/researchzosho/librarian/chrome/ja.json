@@ -2284,6 +2284,7 @@
  "Search by meaning is on.": "意味による検索は有効です。",
  "Search by meaning is off.": "意味による検索は無効です。",
  "Search by meaning is not answering.": "意味による検索は応答していません。",
+ "Searched by words this time: search by meaning is starting.": "今回は言葉で検索しました。意味による検索は起動中です。",
  "The model it talks to by default is {0} at {1}, and it answers.": "既定で話すモデルは {1} の {0} で、応答しています。",
  "The model it talks to by default is {0} at {1}, and it does not answer now: research runs and the chat need it.": "既定で話すモデルは {1} の {0} ですが、いまは応答しません。調査とチャットにはこのモデルが必要です。",
  "Named models it can also use: {0}.": "ほかに使える名前つきのモデル：{0}。",
