@@ -299,7 +299,9 @@ class GuardReviewTest {
         HostileModelTest.Scripted before = new HostileModelTest.Scripted(script, "The ferry ran from 1911 to 1968 (" + kept + ").");
         Checkpoint first = Checkpoint.open(store, "J-0001", "research", "q");
         Researcher r1 = new Researcher(before, before, HostileModelTest.fetches(), s -> { }, 1, store).checkpoint(first);
-        r1.stopWhen(() -> asked.contains("/kept-" + n));
+        // stopped when the page's answer is in the run's record, which is when the next process finds it kept. Stopped when the listener
+        // had been asked for the page, the stop could be seen before the answer was kept, and the next process asked for the page again
+        r1.stopWhen(() -> !first.valuesUnder("t|").isEmpty());
         assertThrows(Stopping.Requested.class, () -> r1.run(ask, ""));
         first.close();
         assertEquals(List.of("/kept-" + n), asked.stream().filter(a -> a.contains(n)).toList(), "the run read the page the person gave, and was stopped there");

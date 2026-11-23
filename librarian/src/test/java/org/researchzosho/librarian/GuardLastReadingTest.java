@@ -364,6 +364,10 @@ class GuardLastReadingTest {
             }
             // a page with no request behind it, on a thread of the library's that wrote a reader's page before
             for (int tries = 0; tries < 40 && withNoRequest.isEmpty(); tries++) {
+                // a page of the reader's first, each time: the library's threads are a pool that hands the next request to the thread that
+                // came free last, so the call lands on the thread that has just written a page. Forty calls with no page between them all
+                // went to one thread that had written none, where the requests before had left such a thread free last (a three-core runner)
+                GuardFixesPagesTest.ask("GET", at + ImagesPage.PATH + "?q=ann-again-" + tries + "-" + n, null, "Cookie", cookie.get("ann"), "Sec-Fetch-Site", "same-origin", "Sec-Fetch-Mode", "navigate", "Sec-Fetch-Dest", "document");
                 HttpResponse<String> r = post(at + "/v1/images", "{\"op\":\"find\",\"words\":\"job-" + tries + "-" + n + "\"}", "Cookie", cookie.get("ann"));
                 assertEquals(200, r.statusCode(), "the call of the protocol is answered: " + r.body());
             }

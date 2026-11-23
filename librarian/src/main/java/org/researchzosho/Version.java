@@ -42,6 +42,13 @@ public final class Version {
     static final String RELEASES = "https://api.github.com/repos/Wyrdsekai/researchzosho/releases/latest";
     static Path cache() { return Config.home().resolve("latest-version.txt"); }
     private static volatile boolean refreshing;
+    /**
+     * Whether the cache is refreshed from GitHub at all. The suite turns it off for every test (NoLiveChecks): a test that makes a
+     * home of its own started a check there, a request to GitHub from a test, and the answer was written into that home after the
+     * test had ended, while its folder was being taken away (the public CI of 0.8.1; of 0.6.3 before it, when QuietHome was made
+     * for the tests that knew to call it).
+     */
+    static volatile boolean refreshes = true;
 
     /**
      * The latest released version, from a cache that is refreshed in the background at most once a day;
@@ -52,7 +59,7 @@ public final class Version {
             Path c = cache();
             long age = Files.exists(c) ? System.currentTimeMillis() - Files.getLastModifiedTime(c).toMillis() : Long.MAX_VALUE;
             String cached = Files.exists(c) ? Files.readString(c, StandardCharsets.UTF_8).strip() : null;
-            if (age > 24L * 3600 * 1000 && !refreshing) {
+            if (refreshes && age > 24L * 3600 * 1000 && !refreshing) {
                 refreshing = true;
                 Thread t = new Thread(() -> { try { String v = latest(); if (v != null) { Files.createDirectories(c.getParent()); Files.writeString(c, v, StandardCharsets.UTF_8); } } catch (Exception ignored) { } finally { refreshing = false; } }, "version-check");
                 t.setDaemon(true); t.start();

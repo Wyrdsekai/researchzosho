@@ -344,7 +344,14 @@ class ComicHelperRemoteTest {
         HttpResponse<String> shortBody = post(at, SECRET, "{\"files\":[{\"name\":\"p1.png\",\"size\":100}]}\nonly some bytes");
         assertEquals(400, shortBody.statusCode()); assertTrue(shortBody.body().contains("the request ended inside its file p1.png"), shortBody.body());
         assertTrue(ComicStandIn.asked(script).isEmpty(), "nothing past a limit reached the helper");
-        try (Stream<Path> left = Files.walk(ComicHelper.dir().resolve("sessions"))) { assertEquals(List.of(), left.filter(Files::isRegularFile).toList(), "and nothing of it is left on the disk"); }
+        // the front answers a request it refuses and then takes away what the request had written: a look straight after the answer
+        // found a file still there on a busy machine, so the look is repeated for a few seconds
+        List<Path> left = List.of();
+        for (long look = System.currentTimeMillis(); System.currentTimeMillis() - look < 5_000; Thread.sleep(50)) {
+            try (Stream<Path> files = Files.walk(ComicHelper.dir().resolve("sessions"))) { left = files.filter(Files::isRegularFile).toList(); }
+            if (left.isEmpty()) break;
+        }
+        assertEquals(List.of(), left, "and nothing of it is left on the disk");
         // the library holds itself to the same: a picture past the limit is that page's failure, said, and never sent
         Path huge = tmp.resolve("huge.png");
         try (RandomAccessFile r = new RandomAccessFile(huge.toFile(), "rw")) { r.setLength(ComicWire.PICTURE_MOST + 1); }

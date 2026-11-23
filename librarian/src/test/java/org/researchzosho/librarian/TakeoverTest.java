@@ -325,7 +325,12 @@ class TakeoverTest {
         resumedOnB(i, b, reference, whole);
         assertFalse(Files.exists(a.root()), "nothing was written where the lost disk was: the job's paths name its new folder");
         assertNotNull(LibraryPlaces.broughtBack(new LibraryStore(LibraryPlaces.library(store.library(id)))), "and the library says it was brought back from its copy");
-        assertTrue(M.readTree(get(i.lib().key(), "/v1/status").body()).path("brought_back").path("note").asText().startsWith("This library was brought back from its copy of "));
+        // asked until the library answers with it: straight after the takeover the service may still be starting the library on node B,
+        // and one look then got an answer with no note in it (a four-core runner, once)
+        until("the library's status says it was brought back from its copy", 30_000, () -> {
+            try { return M.readTree(get(i.lib().key(), "/v1/status").body()).path("brought_back").path("note").asText().startsWith("This library was brought back from its copy of "); }
+            catch (Exception notYet) { return false; }
+        });
     }
 
     @Test

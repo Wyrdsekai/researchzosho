@@ -101,11 +101,11 @@ tasks.test {
     maxHeapSize = "2g"
     systemProperty("user.home", testHome.path)
     // classes in parallel JVMs, each with a home of its own under this one (ForkHome): -PtestForks=N or RZ_TEST_FORKS=N; by default half
-    // the machine's processors, at most four (GitHub's four-core runners take 2, the Mac mini 4). lain's chain and gates say 3: its
+    // the machine's processors, at least two and at most four (GitHub's four-core and three-core runners take 2, the Mac mini 4). lain's chain and gates say 3: its
     // cores are shared with the owner's work and the live library. One less than the processors (3 on four) left a four-core runner
     // with nothing to spare, and tests that count on a step taking under a quarter of a second failed there (0.8.1's public CI).
     maxParallelForks = ((findProperty("testForks") ?: System.getenv("RZ_TEST_FORKS"))?.toString()?.toIntOrNull()
-        ?: (Runtime.getRuntime().availableProcessors() / 2).coerceIn(1, 4))
+        ?: Runtime.getRuntime().availableProcessors().let { if (it < 2) 1 else (it / 2).coerceIn(2, 4) })
     // The pages, the chat and the command line speak the language of the person; the suite speaks English whatever LANG the box has. ChromeTest switches it itself.
     systemProperty("researchzosho.lang", "en")
     // The GPU readers (Gpu) look at an empty kernel tree under the build folder, never this box's /sys and /dev: the build box has an

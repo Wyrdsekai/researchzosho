@@ -174,6 +174,9 @@ class ProgramSubmitTest {
             assertTrue(j.path("offered_help").asBoolean(false));
             String waiting = Jobs.view(j).path("waiting").asText();
             assertTrue(waiting.startsWith("waiting for a yes") && waiting.contains("showed where to find help"), waiting);
+            // the worker writes the state and then takes the id off its running set: two steps, and a look between them saw the state
+            // with the id still on the set (a four-core runner, once)
+            for (long look = System.currentTimeMillis(); jobs.running().contains(id) && System.currentTimeMillis() - look < 5_000; ) Thread.sleep(20);
             assertFalse(jobs.running().contains(id), "off the running set");
             // the person says yes through the protocol: the run is queued, and this runner runs it to the end
             LibraryProtocol p = new LibraryProtocol(store);

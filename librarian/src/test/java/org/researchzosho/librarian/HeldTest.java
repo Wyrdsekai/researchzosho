@@ -128,16 +128,18 @@ class HeldTest {
 
     @Test
     void aLibraryNotToldStillYoursForTheLengthOfALeaseEnds(@TempDir Path tmp) throws Exception {
-        Held.LEASE_MS = 600; LibrarianDaemon.GIVE_UP_WAIT_MS = 300; LibrarianDaemon.GIVE_UP_LEAST_MS = 100;
+        // a lease of three seconds, told every fifth of one: with 600 ms told every 100 ms, one pause of 300 ms in this thread on a busy
+        // machine was a silence past the fence, and the library ended while it was still being told (a three-core runner, once)
+        Held.LEASE_MS = 3_000; LibrarianDaemon.GIVE_UP_WAIT_MS = 300; LibrarianDaemon.GIVE_UP_LEAST_MS = 100;
         start(tmp, 1);
-        for (int i = 0; i < 12; i++) { Thread.sleep(100); assertEquals(200, post(Held.STILL_YOURS, service(1)).statusCode()); }   // twice the lease, told every tenth of a second
+        for (int i = 0; i < 30; i++) { Thread.sleep(200); assertEquals(200, post(Held.STILL_YOURS, service(1)).statusCode()); }   // twice the lease, told every fifth of a second
         assertNull(d.gaveUpLine(), "told still yours: it goes on");
         long t0 = System.currentTimeMillis();
         d.join();   // nobody tells it any more
         long after = System.currentTimeMillis() - t0;
-        // the fence is two thirds of a lease after the last word (Held.silent, round B): 400 ms of a 600 ms lease, and the
-        // test's own last post comes just before t0, so it ends no sooner than that and well before the service could take it over
-        assertTrue(after >= Held.LEASE_MS * 2 / 3 - 50 && after < 5_000, "it ended " + after + " ms after the last word, a lease of 600 ms");
+        // the fence is two thirds of a lease after the last word (Held.silent, round B): two seconds of a three-second lease, and
+        // the test's own last post comes just before t0, so it ends no sooner than that and well before the service could take it over
+        assertTrue(after >= Held.LEASE_MS * 2 / 3 - 50 && after < 10_000, "it ended " + after + " ms after the last word, a lease of " + Held.LEASE_MS + " ms");
         assertTrue(d.gaveUpLine().contains("the account service has not said for") && d.gaveUpLine().contains("that the library is still this start's"), d.gaveUpLine());
     }
 
