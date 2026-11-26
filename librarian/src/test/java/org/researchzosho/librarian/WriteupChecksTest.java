@@ -77,9 +77,16 @@ class WriteupChecksScopedTest {
         String notes = "- the leader scores 92.2% — source: https://a.example/leaderboard";
         String answer = "Top scores cluster in the 38–58% range [1]. The leader scores 92.2% [1]. Cost fell 40% last year.";
         var off = WriteupChecks.numbersUnbacked(answer, notes, refs, texts);
-        assertEquals(3, off.size(), off.toString());
-        assertTrue(off.stream().anyMatch(l -> l.startsWith("58")) && off.stream().anyMatch(l -> l.startsWith("38")) && off.stream().anyMatch(l -> l.startsWith("40")), off.toString());
+        // 58% stands in [2], a source read this run that the sentence does not cite: since 2026-11-25 that is not "in no source read this
+        // run" (a revision deleted a true figure two kept pages gave); it is named under Checks with where it stands, and left as written
+        assertEquals(2, off.size(), off.toString());
+        assertTrue(off.stream().anyMatch(l -> l.startsWith("38")) && off.stream().anyMatch(l -> l.startsWith("40")), off.toString());
+        var elsewhere = WriteupChecks.numbersElsewhereAt(answer, notes, refs, texts, Map.of());
+        assertEquals(1, elsewhere.size(), elsewhere.toString());
+        assertEquals("58 %", elsewhere.get(0).what());
+        assertEquals("the sentence cites [1], which does not state it; [2], read this run, states it", elsewhere.get(0).said());
         assertTrue(WriteupChecks.numbersUnbacked("Somewhere the number is 58% [2].", notes, refs, texts).isEmpty(), "its own cited source holds it");
+        assertTrue(WriteupChecks.numbersElsewhereAt("Somewhere the number is 58% [2].", notes, refs, texts, Map.of()).isEmpty(), "and it is no one else's");
     }
 }
 

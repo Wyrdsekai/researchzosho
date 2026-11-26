@@ -212,6 +212,6 @@ class ChatCommandsTest {
             for (ObjectNode j : jobs.active()) goal = j.path("args").path("goal").asText("");
             if (goal.isEmpty()) for (ObjectNode j : jobs.recent(5, null)) goal = j.path("args").path("goal").asText("");
             assertEquals("home", goal, "the goal the form sent is on the run");
-        } finally { d.stop(); model.stop(0); }
+        } finally { GenealogyOfferTest.stopped(d, model); }   // the run the form filed starts at once: stopped as a person stops one, and its end waited for
     }
 }

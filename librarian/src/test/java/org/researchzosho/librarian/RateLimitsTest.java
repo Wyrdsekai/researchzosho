@@ -123,22 +123,34 @@ class RateLimitsTest {
     static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
     static long retryAfter(HttpResponse<String> r) { return Long.parseLong(r.headers().firstValue("Retry-After").orElseThrow(() -> new AssertionError("no Retry-After: " + r.statusCode()))); }
 
-    /** What a burst of requests sent in turn to the two processes came to: how many each let through, and the last refusal of each. */
-    record Burst(int[] ok, HttpResponse<String>[] refused, long ms) { int total() { return ok[0] + ok[1]; } }
+    /** What a burst of requests sent in turn to the two processes came to: how many each let through, the last refusal of each, and when that refusal came. */
+    record Burst(int[] ok, HttpResponse<String>[] refused, long[] refusedAt, long ms) { int total() { return ok[0] + ok[1]; } }
 
     interface Ask { HttpResponse<String> to(String base) throws Exception; }
 
     @SuppressWarnings("unchecked")
     Burst burst(int n, Ask ask) throws Exception {
-        int[] ok = new int[2]; HttpResponse<String>[] refused = new HttpResponse[2];
+        int[] ok = new int[2]; HttpResponse<String>[] refused = new HttpResponse[2]; long[] at = new long[2];
         long t0 = System.currentTimeMillis();
         for (int i = 0; i < n; i++) {
             HttpResponse<String> r = ask.to(i % 2 == 0 ? one.url() : twoUrl);
-            if (r.statusCode() == 429) refused[i % 2] = r;
+            if (r.statusCode() == 429) { refused[i % 2] = r; at[i % 2] = System.currentTimeMillis(); }
             else { assertTrue(r.statusCode() < 400 || r.statusCode() == 403, r.statusCode() + " " + r.body()); ok[i % 2]++; }
         }
-        return new Burst(ok, refused, System.currentTimeMillis() - t0);
+        return new Burst(ok, refused, at, System.currentTimeMillis() - t0);
     }
+
+    /**
+     * Until the wait a refusal said has passed, counted from when it was said (Retry-After is from its answer), and 300 ms more: {@code
+     * at} is when the answer came, at the latest. The windows of the limits run side by side, so each is waited for from its own refusal.
+     */
+    static void waitOut(long at, HttpResponse<String> refused) throws InterruptedException {
+        long left = at + retryAfter(refused) * 1000 + 300 - System.currentTimeMillis();
+        if (left > 0) Thread.sleep(left);
+    }
+
+    /** Until the waits of both processes' last refusals in a burst have passed. */
+    static void waitOut(Burst b) throws InterruptedException { for (int i = 0; i < 2; i++) waitOut(b.refusedAt()[i], b.refused()[i]); }
 
     /** A shared limit of 10 a window over two processes: 5 at each, and no more than the window's pace adds while the burst lasted. */
     static void heldInShares(Burst b, String what) {
@@ -218,12 +230,13 @@ class RateLimitsTest {
         assertEquals(429, send(twoUrl, "/login", Map.of("X-Forwarded-For", "2001:db8:1:2:ffff::99")).statusCode());
         assertEquals(200, send(twoUrl, "/login", Map.of("X-Forwarded-For", "2001:db8:1:3::1")).statusCode(), "the next network");
 
-        // ---- each lets go once its wait has passed, at both processes ----
-        Thread.sleep(Math.max(retryAfter(api.refused()[0]), retryAfter(api.refused()[1])) * 1000 + 300);
+        // ---- each lets go once its wait has passed, at both processes: the wait each refusal said, from when it said it ----
+        waitOut(api);
         for (String base : new String[]{one.url(), twoUrl}) assertEquals(200, send(base, AccountService.USAGE, program).statusCode(), base);
-        Thread.sleep(Math.max(retryAfter(pages.refused()[0]), retryAfter(pages.refused()[1])) * 1000 + 300);
-        for (String base : new String[]{one.url(), twoUrl}) assertEquals(200, send(base, "/account", browser).statusCode(), base);
-        Thread.sleep(Math.max(retryAfter(anon.refused()[0]), retryAfter(anon.refused()[1])) * 1000 + 300);
+        waitOut(pages);
+        HttpResponse<String> ownPage = null;   // the account page that let go at the first process: the person's own activity is on it
+        for (String base : new String[]{one.url(), twoUrl}) { HttpResponse<String> r = send(base, "/account", browser); assertEquals(200, r.statusCode(), base); if (base.equals(one.url())) ownPage = r; }
+        waitOut(anon);
         for (String base : new String[]{one.url(), twoUrl}) assertEquals(200, send(base, "/login", fromA).statusCode(), base);
 
         // ---- the audit log: the account's limits reached, once a minute at most, whichever process and limit ----
@@ -234,8 +247,8 @@ class RateLimitsTest {
         assertTrue(hits.size() <= 2, "the refusals spanned a minute or two: " + hits);
         AccountStore.Audit first = hits.get(hits.size() - 1);
         assertEquals("{\"limit\":\"api\"}", first.detail()); assertEquals("key", first.via()); assertEquals("192.0.2.10", first.address(), "the address the router forwarded");
-        // the person reads it among their own activity
-        assertTrue(send(one.url(), "/account", browser).body().contains("too many requests: some were refused"));
+        // the person reads it among their own activity (on the page that let go: a page asked again now would wait for the pages' next token)
+        assertTrue(ownPage.body().contains("too many requests: some were refused"));
     }
 
     @Test
@@ -252,59 +265,29 @@ class RateLimitsTest {
         store.setPassword(ann.account().id(), Passwords.hash("ann's long password"));
         Map<String, String> form = Map.of("Content-Type", "application/x-www-form-urlencoded");
 
+        // The five limits run side by side, as they would: sign-ins, join links and sign-ups are filled first and their waits run out
+        // together; the password changes and the invitations need the session the sign-in lets go, and are filled after it.
+
         // ---- failed sign-ins from one address, three names at the two processes; the fourth is refused before its password is read ----
         String[] names = {"Nobody One", "Nobody Two", "Ann Example"};
         for (int i = 0; i < 3; i++) assertEquals(403, post(i % 2 == 0 ? one.url() : twoUrl, "/login", form, "name=" + enc(names[i]) + "&password=wrong").statusCode());
         HttpResponse<String> signin = post(twoUrl, "/login", form, "name=" + enc("Ann Example") + "&password=" + enc("ann's long password"));
+        long signinAt = System.currentTimeMillis();
         assertEquals(429, signin.statusCode(), "the right password, refused all the same");
         assertTrue(signin.body().matches("(?s).*Too many failed sign-ins from this address\\. Try again in \\d seconds?\\..*"), signin.body());
         assertTrue(signin.headers().allValues("Set-Cookie").stream().noneMatch(h -> h.startsWith(AccountService.COOKIE + "=") && !h.startsWith(AccountService.COOKIE + "=;")), "not signed in");
         assertEquals(429, post(one.url(), "/login", form, "name=" + enc("Nobody Three") + "&password=wrong").statusCode(), "the first reads the same count");
-        Thread.sleep(retryAfter(signin) * 1000 + 300);
-        HttpResponse<String> in = post(one.url(), "/login", form, "name=" + enc("Ann Example") + "&password=" + enc("ann's long password"));
-        assertEquals(303, in.statusCode(), "let go: " + in.body());
-        String session = in.headers().allValues("Set-Cookie").stream().filter(h -> h.startsWith(AccountService.COOKIE + "=")).findFirst().orElseThrow();
-        Map<String, String> ann1 = Map.of("Cookie", session.substring(0, session.indexOf(';')), "Content-Type", "application/x-www-form-urlencoded");
-        assertTrue(store.audits(ann.account().id(), 0, 50).stream().anyMatch(a -> a.act().equals("limit_reached") && a.detail().equals("{\"limit\":\"signin\"}") && a.address().equals("127.0.0.1")),
-                "the account whose name was tried is told");
 
         // ---- join links opened from one address: the fourth is refused before its code is looked at ----
         String code = store.newInvite(AccountService.newAccount(store, root, "Bo Example", "", false, "the test").account().id(), "the test", 7);
         for (int i = 0; i < 3; i++) assertEquals(403, send(i % 2 == 0 ? one.url() : twoUrl, "/join?code=not-a-code-" + i, Map.of("Accept", "text/html")).statusCode());
         HttpResponse<String> join = send(twoUrl, "/join?code=" + code, Map.of("Accept", "text/html"));
+        long joinAt = System.currentTimeMillis();
         assertEquals(429, join.statusCode(), "a good code, refused all the same");
         assertTrue(join.body().matches("(?s).*Too many join links opened from this address\\. Try again in \\d seconds?\\..*") && join.body().contains("Try again"), join.body());
-        Thread.sleep(retryAfter(join) * 1000 + 300);
-        HttpResponse<String> opened = send(one.url(), "/join?code=" + code, Map.of("Accept", "text/html"));
-        assertEquals(200, opened.statusCode(), "let go"); assertTrue(opened.body().contains("Choose a password"));
-
-        // ---- changes to a password, a wrong current one counted: the fourth is refused on the account page ----
-        for (int i = 0; i < 3; i++) {
-            HttpResponse<String> r = post(i % 2 == 0 ? one.url() : twoUrl, "/account", ann1, "op=password&current=wrong&password=" + enc("a new long password") + "&again=" + enc("a new long password"));
-            assertEquals(303, r.statusCode(), r.body());
-        }
-        HttpResponse<String> change = post(twoUrl, "/account", ann1, "op=password&current=" + enc("ann's long password") + "&password=" + enc("a new long password") + "&again=" + enc("a new long password"));
-        assertEquals(429, change.statusCode());
-        assertTrue(change.body().contains("Too many changes to this account") && change.body().matches("(?s).*password and keys\\. Try again in \\d seconds?\\..*") && change.body().contains("Delete this account"), "on the account page itself: " + change.body());
-        assertTrue(Passwords.check(store.account(ann.account().id()).passwordHash(), "ann's long password"), "nothing changed");
-        Thread.sleep(retryAfter(change) * 1000 + 300);
-        assertEquals(303, post(one.url(), "/account", ann1, "op=password&current=" + enc("ann's long password") + "&password=" + enc("a new long password") + "&again=" + enc("a new long password")).statusCode());
-        assertTrue(Passwords.check(store.account(ann.account().id()).passwordHash(), "a new long password"), "let go: changed");
-
-        // ---- people one account invites into its libraries: two, then the third is refused and makes no link ----
-        int accounts = store.accounts().size();
-        for (int i = 0; i < 2; i++) assertEquals(200, post(i % 2 == 0 ? one.url() : twoUrl, "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name " + i) + "&level=read").statusCode());
-        HttpResponse<String> made = post(twoUrl, "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name 2") + "&level=read");
-        assertEquals(429, made.statusCode());
-        assertTrue(made.body().matches("(?s).*Too many people invited by this account just now\\. Try again in \\d seconds?\\..*"), made.body());
-        assertEquals(2, store.invitations(ann.library().id()).size(), "the third made nothing");
-        Thread.sleep(retryAfter(made) * 1000 + 300);
-        assertEquals(200, post(one.url(), "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name 2") + "&level=read").statusCode());
-        assertEquals(3, store.invitations(ann.library().id()).size(), "let go");
-        assertEquals(accounts, store.accounts().size(), "an invitation makes no account");
 
         // ---- sign-ups through the provider from one address: two, then the third is refused on the sign-in page ----
-        accounts = store.accounts().size();
+        int accounts = store.accounts().size();
         HttpResponse<String> third = null;
         for (int i = 0; i < 3; i++) {
             stub.sub = "sub-" + i; stub.email = "person" + i + "@example.org"; stub.name = "Person " + i;
@@ -314,15 +297,54 @@ class RateLimitsTest {
             HttpResponse<String> back = send(i % 2 == 0 ? twoUrl : one.url(), "/login/oidc/callback?code=code-1&state=" + OidcTest.query(go.headers().firstValue("Location").orElse("")).get("state"), Map.of("Cookie", begun));
             if (i < 2) assertEquals(303, back.statusCode(), back.body()); else third = back;
         }
+        long thirdAt = System.currentTimeMillis();
         assertEquals(429, third.statusCode());
         assertTrue(third.body().matches("(?s).*Too many new accounts from this address\\. Try again in \\d seconds?\\..*"), third.body());
         assertEquals(accounts + 2, store.accounts().size(), "the third made no account");
-        Thread.sleep(retryAfter(third) * 1000 + 300);
+
+        // ---- each of the three lets go once its own wait has passed ----
+        waitOut(signinAt, signin); waitOut(joinAt, join); waitOut(thirdAt, third);
+        HttpResponse<String> in = post(one.url(), "/login", form, "name=" + enc("Ann Example") + "&password=" + enc("ann's long password"));
+        assertEquals(303, in.statusCode(), "let go: " + in.body());
+        String session = in.headers().allValues("Set-Cookie").stream().filter(h -> h.startsWith(AccountService.COOKIE + "=")).findFirst().orElseThrow();
+        Map<String, String> ann1 = Map.of("Cookie", session.substring(0, session.indexOf(';')), "Content-Type", "application/x-www-form-urlencoded");
+        assertTrue(store.audits(ann.account().id(), 0, 50).stream().anyMatch(a -> a.act().equals("limit_reached") && a.detail().equals("{\"limit\":\"signin\"}") && a.address().equals("127.0.0.1")),
+                "the account whose name was tried is told");
+        HttpResponse<String> opened = send(one.url(), "/join?code=" + code, Map.of("Accept", "text/html"));
+        assertEquals(200, opened.statusCode(), "let go"); assertTrue(opened.body().contains("Choose a password"));
         HttpResponse<String> go = send(one.url(), "/login/oidc", Map.of());
         stub.nonce = OidcTest.query(go.headers().firstValue("Location").orElse("")).get("nonce");
         String begun = go.headers().allValues("Set-Cookie").stream().filter(v -> v.startsWith(AccountPages.SIGNIN + "=")).map(v -> v.substring(0, v.indexOf(';'))).findFirst().orElseThrow();
         assertEquals(303, send(twoUrl, "/login/oidc/callback?code=code-1&state=" + OidcTest.query(go.headers().firstValue("Location").orElse("")).get("state"), Map.of("Cookie", begun)).statusCode(), "let go");
         assertEquals(accounts + 3, store.accounts().size());
+
+        // ---- changes to a password, a wrong current one counted: the fourth is refused on the account page ----
+        for (int i = 0; i < 3; i++) {
+            HttpResponse<String> r = post(i % 2 == 0 ? one.url() : twoUrl, "/account", ann1, "op=password&current=wrong&password=" + enc("a new long password") + "&again=" + enc("a new long password"));
+            assertEquals(303, r.statusCode(), r.body());
+        }
+        HttpResponse<String> change = post(twoUrl, "/account", ann1, "op=password&current=" + enc("ann's long password") + "&password=" + enc("a new long password") + "&again=" + enc("a new long password"));
+        long changeAt = System.currentTimeMillis();
+        assertEquals(429, change.statusCode());
+        assertTrue(change.body().contains("Too many changes to this account") && change.body().matches("(?s).*password and keys\\. Try again in \\d seconds?\\..*") && change.body().contains("Delete this account"), "on the account page itself: " + change.body());
+        assertTrue(Passwords.check(store.account(ann.account().id()).passwordHash(), "ann's long password"), "nothing changed");
+
+        // ---- people one account invites into its libraries: two, then the third is refused and makes no link ----
+        int before = store.accounts().size();
+        for (int i = 0; i < 2; i++) assertEquals(200, post(i % 2 == 0 ? one.url() : twoUrl, "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name " + i) + "&level=read").statusCode());
+        HttpResponse<String> made = post(twoUrl, "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name 2") + "&level=read");
+        long madeAt = System.currentTimeMillis();
+        assertEquals(429, made.statusCode());
+        assertTrue(made.body().matches("(?s).*Too many people invited by this account just now\\. Try again in \\d seconds?\\..*"), made.body());
+        assertEquals(2, store.invitations(ann.library().id()).size(), "the third made nothing");
+
+        // ---- and both let go once their own waits have passed ----
+        waitOut(changeAt, change); waitOut(madeAt, made);
+        assertEquals(303, post(one.url(), "/account", ann1, "op=password&current=" + enc("ann's long password") + "&password=" + enc("a new long password") + "&again=" + enc("a new long password")).statusCode());
+        assertTrue(Passwords.check(store.account(ann.account().id()).passwordHash(), "a new long password"), "let go: changed");
+        assertEquals(200, post(one.url(), "/account", ann1, "op=member-let-in&library=" + ann.library().id() + "&name=" + enc("New Name 2") + "&level=read").statusCode());
+        assertEquals(3, store.invitations(ann.library().id()).size(), "let go");
+        assertEquals(before, store.accounts().size(), "an invitation makes no account");
     }
 
     @Test

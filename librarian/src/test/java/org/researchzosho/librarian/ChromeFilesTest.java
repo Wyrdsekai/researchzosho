@@ -116,6 +116,7 @@ class ChromeFilesTest {
             Map.entry("Pages", new Unread(46, "its t, n and tc delegates hand on their callers' keys; the rest are words of the library's data and tables (a claim's kind and confidence, a run's state and kind, a tier, a reaction, a field's offer and choice, a level of access), on the pages ChromeTest renders")),
             Map.entry("PatentsProfile", new Unread(1, "a patents page's title, handed on from its caller's literal")),
             Map.entry("PdfReading", new Unread(2, "why a page was not read, from its own table (MANY)")),
+            Map.entry("PhonePage", new Unread(2, "its own t delegate; a report's state word, a claim's state as the pages show it (a word of the library's data)")),
             Map.entry("RunProgress", new Unread(5, "a run started again or resumed, made of its reason: RunProgress.resumedSentences(), the made list")),
             Map.entry("SeeksPage", new Unread(1, "a seek's state; /seeks is among ChromeTest's pages")),
             Map.entry("SourcesPage", new Unread(2, "a source's state and a rule's kind; /sources is among ChromeTest's pages")),

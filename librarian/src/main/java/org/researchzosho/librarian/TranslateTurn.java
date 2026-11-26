@@ -160,15 +160,9 @@ final class TranslateTurn {
      */
     static From fromSaid(String words) {
         String w = ChatWords.nfkc(words);
-        List<String> phrases = new ArrayList<>(), patterns = new ArrayList<>();
-        for (String e : ChatWords.entries("translate.from")) { List<String> l = ChatWords.isPattern(e) ? patterns : phrases; if (!l.contains(e)) l.add(e); }
-        phrases.sort(Comparator.comparingInt(String::length).reversed());   // the longest first, whatever file it is from: "depuis le {lang}" before "du {lang}"
-        phrases.addAll(patterns);
-        for (String e : phrases) {
-            Pattern p;
-            try { p = ChatWords.isPattern(e) ? ChatWords.pattern(e, null) : ChatWords.pattern("re:(?iu)[\\s,;、，]*" + ChatWords.phrase(e, fromPlaces()), null); }
-            catch (PatternSyntaxException x) { continue; }
-            List<String> groups = ChatWords.groups(p.pattern());
+        for (ChatWords.Tried t : ChatWords.keep("translate.from", null, TranslateTurn::fromTried)) {
+            Pattern p = t.pattern();
+            List<String> groups = t.groups();
             Matcher m = p.matcher(w);
             while (m.find()) {
                 String code = groups.contains("lang") && m.group("lang") != null ? ChatWords.sourceLanguage(m.group("lang"))
@@ -180,6 +174,25 @@ final class TranslateTurn {
             }
         }
         return From.NONE;
+    }
+
+    /**
+     * The expressions {@link #fromSaid} looks for the saying with, in its order: the phrases the longest first, whatever file each is from
+     * ("depuis le {lang}" before "du {lang}"), then the regular expressions; one that does not compile is left out.
+     */
+    private static List<ChatWords.Tried> fromTried() {
+        List<String> phrases = new ArrayList<>(), patterns = new ArrayList<>();
+        for (String e : ChatWords.entries("translate.from")) { List<String> l = ChatWords.isPattern(e) ? patterns : phrases; if (!l.contains(e)) l.add(e); }
+        phrases.sort(Comparator.comparingInt(String::length).reversed());   // the longest first, whatever file it is from: "depuis le {lang}" before "du {lang}"
+        phrases.addAll(patterns);
+        List<ChatWords.Tried> out = new ArrayList<>();
+        for (String e : phrases) {
+            Pattern p;
+            try { p = ChatWords.isPattern(e) ? ChatWords.pattern(e, null) : ChatWords.pattern("re:(?iu)[\\s,;、，]*" + ChatWords.phrase(e, fromPlaces()), null); }
+            catch (PatternSyntaxException x) { continue; }
+            out.add(new ChatWords.Tried(p, ChatWords.groups(p.pattern())));
+        }
+        return List.copyOf(out);
     }
 
     static String fromIn(String words) { return fromSaid(words).code(); }

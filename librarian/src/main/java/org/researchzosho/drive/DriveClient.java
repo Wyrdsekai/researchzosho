@@ -1303,6 +1303,7 @@ public final class DriveClient {
         if (!body.has("model")) body.put("model", model);
         if (body.path("messages").isArray()) withoutTemplateMarkers((ArrayNode) body.path("messages"));
         if (bedrock != null || anthropic != null || openai != null) throw new IllegalStateException("a typed decision needs token probabilities, which " + (bedrock != null ? "Bedrock" : anthropic != null ? "Anthropic's API" : "OpenAI's API") + " does not give");
+        quickEffort(body);   // a typed decision is a quick check too
         String payload = json.writeValueAsString(body);
         Duration limit = decisionLimitFor(payload.length(), body.path("max_tokens").asInt(0));
         HttpRequest req = auth(Gated.request(Config.v1(baseUrl) + "/chat/completions"))
@@ -1342,6 +1343,15 @@ public final class DriveClient {
         body.set("messages", messages);
         body.put("max_tokens", maxTokens);
         decisionSettings(body);
+        quickEffort(body);   // a model seen thinking on a quick check: the lowest level its chat template lists
+        // a model that thinks on its quick checks even at that level is given room for it from the first request, beside the answer's own
+        // allowance: one request where it took two (Inkling 2 Mini, 2026-11-25: its template's "none" is "Thinking effort level: 0", and
+        // ~290 checks of two runs came back all thinking and were asked again); a model that answers without thinking is asked as before
+        boolean roomy = thinksAtLowest() && maxTokens < THINKING_ROOM;
+        if (roomy) { maxTokens = maxTokens + THINKING_ROOM; body.put("max_tokens", maxTokens); }
+        boolean learntBefore = QUICK_EFFORT.containsKey(decisionKey());   // this request was built with the level learnt earlier, or knowing there is none
+        CLASSIFY_THOUGHT.set(false);
+        CLASSIFY_CUT.set(false);
         // a picture on llama.cpp never reuses a slot's cached prompt: a cached picture was looked for and not found ("Chunk not found"),
         // and the slot then spun for good erasing one checkpoint (2026-11-04, the 27B on homebox); the picture is read fresh
         if (carriesPicture(messages) && llamaCpp()) { body.put("cache_prompt", false); body.put("seed", PICTURE_SEED); }   // and the reading of a picture names its seed: as cold as a request can be made
@@ -1368,7 +1378,7 @@ public final class DriveClient {
                         content = msg.path("content").asText("");
                     }
                 }
-                if (content.isBlank() && !msg.path("reasoning_content").asText("").isBlank()) CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer");
+                if (content.isBlank() && !msg.path("reasoning_content").asText("").isBlank()) { CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer"); CLASSIFY_THOUGHT.set(true); }
                 return content.isBlank() ? msg.path("reasoning_content").asText("") : content;
             } catch (Declined | Stopping.Requested d) { throw d; }   // a decline is the model's answer, never an empty one; a stop ends the call
             catch (RuntimeException e) {
@@ -1415,11 +1425,20 @@ public final class DriveClient {
             JsonNode msg = choice.path("message");
             String content = msg.path("content").asText("");
             String reasoning = msg.path("reasoning_content").asText(msg.path("reasoning").asText(""));   // OpenRouter's name for it is reasoning
-            boolean thoughtItAway = content.isBlank() && (!reasoning.isBlank() || "length".equals(choice.path("finish_reason").asText("")));
-            if (thoughtItAway && attempt == 1 && body.path("max_tokens").asInt(0) < THINKING_ROOM) {
+            boolean cut = "length".equals(choice.path("finish_reason").asText(""));
+            boolean thoughtItAway = content.isBlank() && (!reasoning.isBlank() || cut);
+            // the thinking took the room and the answer was cut off in its first words ({"verdict":"cannot- on 2026-11-24, which a check then read
+            // as a decline): no answer yet either, asked again the same way
+            boolean cutAfterThinking = cut && !content.isBlank() && !reasoning.isBlank();
+            if (!reasoning.isBlank()) learnThinksOnQuickChecks(body);
+            // a small first request, sent at the level learnt before, that came back thinking and with no whole answer: room from now on (a
+            // re-ask with room that thinks and answers is what room is for, and marks nothing)
+            if ((thoughtItAway || cutAfterThinking) && attempt == 1 && learntBefore && body.path("max_tokens").asInt(0) < THINKING_ROOM) thinksAtLowestToo();
+            if ((thoughtItAway || cutAfterThinking) && attempt == 1 && body.path("max_tokens").asInt(0) < THINKING_ROOM) {
                 // the thinking-off field was not taken and the model thought through the budget: once more with room to think, and the
                 // answer read after it; the first ask cost nothing to speak of (the budget was the small one)
-                log.info("decision: the model thought through its {}-token budget and gave no answer; asked again with {} tokens of room", body.path("max_tokens").asInt(0), THINKING_ROOM);
+                log.info("decision: the model thought through its {}-token budget and gave {}; asked again with {} tokens of room", body.path("max_tokens").asInt(0), thoughtItAway ? "no answer" : "an answer cut short", THINKING_ROOM);
+                quickEffort(body);
                 if (!hostedApi()) {
                     // the server just answered, so asking what it is costs little: an Ollama server gets its own word from here on
                     if (serverStyle.isEmpty()) vllmStyle();
@@ -1433,8 +1452,9 @@ public final class DriveClient {
                 } else limit = decisionLimitFor(body.toString().length(), THINKING_ROOM);
                 continue;
             }
-            if (content.isBlank() && !reasoning.isBlank()) CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer");
-            if (content.isBlank()) content = reasoning;
+            if (content.isBlank() && !reasoning.isBlank()) { CLASSIFY_PROBLEM.set("the model thought before answering and gave no answer"); CLASSIFY_THOUGHT.set(true); }
+            CLASSIFY_CUT.set(cut && !content.isBlank());
+            if (content.isBlank()) content = reasoning;   // for the callers that read a verdict wherever it is; never read for a decline (lastClassifyThinking)
             return content;
             }
         } catch (Declined d) {
@@ -1527,7 +1547,96 @@ public final class DriveClient {
     private static final ThreadLocal<String> CLASSIFY_PROBLEM = ThreadLocal.withInitial(() -> "");
     public static String lastClassifyProblem() { return CLASSIFY_PROBLEM.get(); }
     /** Forget this thread's last classify problem and unanswered call, before a call whose outcome is read next. */
-    public static void forgetClassify() { CLASSIFY_PROBLEM.set(""); CLASSIFY_UNANSWERED.remove(); }
+    public static void forgetClassify() { CLASSIFY_PROBLEM.set(""); CLASSIFY_UNANSWERED.remove(); CLASSIFY_THOUGHT.set(false); CLASSIFY_CUT.set(false); }
+
+    /** Whether the text the last {@link #classify} on this thread returned is the model's thinking: its answer was empty. */
+    private static final ThreadLocal<Boolean> CLASSIFY_THOUGHT = ThreadLocal.withInitial(() -> false);
+    /** Whether the answer the last {@link #classify} on this thread returned stopped at its token allowance, after the ask again with room. */
+    private static final ThreadLocal<Boolean> CLASSIFY_CUT = ThreadLocal.withInitial(() -> false);
+
+    /**
+     * Whether the last {@link #classify} on this thread returned the model's thinking in place of an answer it never gave. Such text is no
+     * answer: no verdict is read from it, and it is never taken for the model declining (the thinking of a model that weighs whether it
+     * "cannot" tell is not a refusal).
+     */
+    public static boolean lastClassifyThinking() { return CLASSIFY_THOUGHT.get(); }
+
+    /** Whether the answer the last {@link #classify} on this thread returned was cut off at its token allowance: an answer not finished. */
+    public static boolean lastClassifyCut() { return CLASSIFY_CUT.get(); }
+
+    /**
+     * The drives (by {@link #decisionKey}) whose model thought on a quick check although its thinking was asked off, each with the level of
+     * reasoning_effort its chat template lists lowest ("" when the server lists none). A model whose template reads reasoning_effort and not
+     * enable_thinking (Inkling 2 Mini on llama.cpp, 2026-11-24: "low" is a fifth of its full effort) thought through every 4- and 60-token
+     * check; from the first such reply on, its quick checks ask for that lowest level.
+     */
+    private static final Map<String, String> QUICK_EFFORT = new ConcurrentHashMap<>();
+
+    /** Tests: forget which drives were seen thinking on a quick check. */
+    public static void forgetQuickEffort() { QUICK_EFFORT.clear(); THINKS_AT_LOWEST.clear(); }
+
+    /**
+     * The drives whose quick checks came back with thinking again after the lowest level was learnt (or when the server lists none): a
+     * level is not a switch for every template, and such a drive's quick checks are asked with room for the thinking from the first request.
+     */
+    private static final Set<String> THINKS_AT_LOWEST = ConcurrentHashMap.newKeySet();
+
+    /** Whether this drive's quick checks think even at the lowest level its server lists. */
+    boolean thinksAtLowest() { return THINKS_AT_LOWEST.contains(decisionKey()); }
+
+    private void thinksAtLowestToo() {
+        if (THINKS_AT_LOWEST.add(decisionKey()))
+            log.info("decision: the model at {} ({}) thinks on its quick checks even at the lowest level its chat template lists; they are asked with {} tokens of room for it from now on, one request each", baseUrl, model, THINKING_ROOM);
+    }
+
+    /** The level this drive's quick checks ask for, "" when none was learnt. */
+    String learntQuickEffort() { return QUICK_EFFORT.getOrDefault(decisionKey(), ""); }
+
+    /**
+     * A quick check's reply carried thinking although its thinking was asked off: remembered for this drive once, with the lowest
+     * reasoning_effort its chat template takes. llama.cpp lists the levels a template renders distinctly in {@code /props}
+     * ({@code chat_template_caps.reasoning_effort_levels}, from lowest to highest, "none" among them when the template has it; the ones it
+     * raises on in {@code reasoning_effort_rejected}). The level goes to the template in {@code chat_template_kwargs}, never as the request's
+     * own {@code reasoning_effort} field: from llama.cpp's change of 2026-08-14 to that of 2026-11-21 a field of "none" erased the template's
+     * reasoning_effort, and a template that reads only that (Inkling's) then thought at its own default, 0.9. A hosted API, Ollama (which
+     * gets its own word) and a server with no such page are left as they are.
+     */
+    private void learnThinksOnQuickChecks(ObjectNode body) {
+        if (bedrock != null || anthropic != null || openai != null || hostedApi() || serverStyle.equals("ollama")) return;
+        JsonNode kw = body.path("chat_template_kwargs");
+        if (!kw.path("enable_thinking").isBoolean() || kw.path("enable_thinking").asBoolean()) return;   // thinking was not asked off
+        String key = decisionKey();
+        if (QUICK_EFFORT.containsKey(key)) return;
+        String level = "";
+        try {
+            JsonNode props = pageOf("/props");
+            JsonNode caps = props == null ? null : props.path("chat_template_caps");
+            if (caps != null) {
+                Set<String> rejected = new HashSet<>();
+                for (JsonNode r : caps.path("reasoning_effort_rejected")) rejected.add(r.asText(""));
+                for (JsonNode l : caps.path("reasoning_effort_levels")) { String s = l.asText("").strip(); if (!s.isEmpty() && !rejected.contains(s)) { level = s; break; } }
+            }
+        } catch (Stopping.Requested stop) { throw stop; }
+        catch (Exception e) { /* no page that says: the template is asked as before */ }
+        QUICK_EFFORT.put(key, level);
+        if (!level.isEmpty()) log.info("decision: the model at {} ({}) thought on a quick check although its thinking was asked off; its quick checks now ask its chat template for reasoning_effort \"{}\", the lowest level the server lists", baseUrl, model, level);
+        else log.info("decision: the model at {} ({}) thought on a quick check although its thinking was asked off, and its server lists no reasoning_effort levels; its quick checks are asked as before", baseUrl, model);
+    }
+
+    /**
+     * A quick check's template settings for this drive: the level learnt by {@link #learnThinksOnQuickChecks} in place of the "low" every
+     * quick check asks for, unless the drive's own template settings (RESEARCHZOSHO_DRIVE_TEMPLATE_KWARGS) name a level, which stands.
+     */
+    void quickEffort(ObjectNode body) {
+        String level = learntQuickEffort();
+        if (level.isEmpty() || !(body.path("chat_template_kwargs") instanceof ObjectNode kw)) return;
+        if (!kw.path("enable_thinking").isBoolean() || kw.path("enable_thinking").asBoolean()) return;
+        String tk = Config.get("RESEARCHZOSHO_DRIVE_TEMPLATE_KWARGS");
+        if (tk != null && !tk.isBlank()) {
+            try { if (SETTINGS_JSON.readTree(tk).has("reasoning_effort")) return; } catch (Exception notJson) { /* the drive's own turns say so */ }
+        }
+        kw.put("reasoning_effort", level);
+    }
 
     /** A picture as a call's time limit counts it: about 1,500 tokens of three characters, never the length of its base64. */
     static final int PICTURE_CHARS = 4_500;

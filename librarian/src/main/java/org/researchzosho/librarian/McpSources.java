@@ -78,8 +78,11 @@ public final class McpSources {
     // ---------------------------------------------------------------- who may use a server
 
     /** Whether this patron's runs and chats may use the server: the keeper and writers always, a reader only when the keeper marked it for readers. */
+    /** Nobody: a run that may use none of the keeper's MCP servers (one filed from a phone). Told apart by being this very object. */
+    static final Patrons.Patron NOBODY = new Patrons.Patron("", "", "nobody");
+
     static boolean mayUse(LibraryStore store, Patrons.Patron who, McpServers.Server s) {
-        if (who == null) return false;
+        if (who == null || who == NOBODY) return false;
         if (who.person() && !Patrons.KEY_READ.equals(who.runtime())) return true;   // the keeper
         if (who.web() && !WebAccess.signInRequired()) return true;   // the pages are open: a browser is the keeper
         Patrons.Level level;

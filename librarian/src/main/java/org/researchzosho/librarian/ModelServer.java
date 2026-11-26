@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Locale;
 
 import java.io.File;
+import java.nio.file.LinkOption;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.Comparator;
@@ -335,6 +336,12 @@ public final class ModelServer {
     };
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient PROBE_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build());
+
+    /** What the proxy at {@code base} has loaded now: llama-swap's /running, as it answers; "" when it does not. A seam: the test suite reads no proxy of the machine. */
+    public static Function<String, String> loaded = base -> {
+        try { return PROBE_HTTP.send(HttpRequest.newBuilder(URI.create(base + "/running")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString()).body(); }
+        catch (Exception e) { return ""; }
+    };
 
     /** Whether a proxy answers at {@code base}: llama-swap's /health says OK; any other server's model list will do. */
     public static Predicate<String> health = base -> {
@@ -808,6 +815,7 @@ public final class ModelServer {
         try {
             runner.run(List.of("docker", "stop", CONTAINER));
             runner.run(List.of("docker", "stop", EMBED_CONTAINER));
+            if (Embed.recordedSubnet() != null && !Embed.state().equals("absent")) return;   // the embeddings server `embed start` made is on it too, and starts there again
             for (int i = 0; i < 5; i++) {   // a container that is still going away holds the network for a moment
                 Result r = runner.run(List.of("docker", "network", "rm", NETWORK));
                 if (r.code() == 0 || !r.out().contains("active endpoints")) break;
@@ -1200,6 +1208,29 @@ public final class ModelServer {
     static String settingName() { return MODEL_NETWORK.replaceFirst("^RESEARCHZOSHO_", "").toLowerCase(Locale.ROOT); }
 
     /**
+     * Whether the model server in this folder is another program's: its start script starts a container that is not this program's.
+     * Where CodeZaiku and this program share a home they share this folder, and the one that set the model server up made its start
+     * script, its service and its network; this program's plan file beside them does not make it this program's.
+     */
+    static boolean anotherPrograms(Path dir) {
+        String named = containerOf(dir.resolve("run.sh"), null);
+        return named != null && !named.equals(CONTAINER);
+    }
+
+    /**
+     * The network a start script puts its model on when that gives it no way out, read from the script alone: the container is on a
+     * network the script makes with {@code --internal}, at a fixed address, and no port of this machine is published. Null otherwise.
+     * Both programs write their start scripts so (this program's {@link Shut#said}, CodeZaiku's the same lines).
+     */
+    static String noWayOutNetwork(String script) {
+        if (script == null || script.contains(" -p ")) return null;
+        Matcher on = Pattern.compile(" --network (\\S+) --ip \\S+ ").matcher(script);
+        if (!on.find()) return null;
+        String net = on.group(1);
+        return Pattern.compile("(?m)^docker network inspect " + Pattern.quote(net) + " .*docker network create --internal --subnet \\S+ " + Pattern.quote(net) + "\\b").matcher(script).find() ? net : null;
+    }
+
+    /**
      * What `model status` says of the way out, in a sentence or two: none, and since when; or that the model server can reach the
      * network, and why: the setting, an install from before 0.8.1, an attempt that did not hold, another program's install; with the
      * command that changes it. Where the server is a plain program (macOS, Windows) it says that.
@@ -1212,6 +1243,13 @@ public final class ModelServer {
             Map<String, String> m = readPlan(dir);
             String again = c.t("researchzosho model install sets it up with no way out.");
             boolean ours = Files.exists(dir.resolve("plan.properties")) && CONTAINER.equals(containerOf(dir.resolve("run.sh"), null)) && Files.isRegularFile(unitPath(os));
+            // another program's model server in this folder (CodeZaiku's, where the two share a home): said from its own start script, before
+            // anything this program's plan lines say, which that program may have written; and no command of this program's is advised for it
+            if (anotherPrograms(dir)) {
+                String theirs = noWayOutNetwork(Files.readString(dir.resolve("run.sh"), StandardCharsets.UTF_8));
+                return theirs != null ? c.t("Another program set the model server up, and this one leaves it as it is. By its start script the model is on a Docker network of its own ({0}), with no port of this machine published.", theirs)
+                                      : c.t("The model server can reach the network: another program set it up, and this one leaves it as it is.");
+            }
             Shut shut = shutOf(m);
             if (shut != null) {
                 String run = Files.isRegularFile(dir.resolve("run.sh")) ? Files.readString(dir.resolve("run.sh"), StandardCharsets.UTF_8) : "";
@@ -1530,6 +1568,7 @@ public final class ModelServer {
         try {
             Path dir = dir();
             if (!Files.exists(dir.resolve("plan.properties"))) return "!no model of ours is installed here; `researchzosho model install`";
+            if (setUpByAnother(dir)) return "!the model server here is another program's, and this program does not change its model";   // a switch is an uninstall and an install: neither is this program's to do there
             Map<String, String> m = readPlan(dir);
             Row to = null;
             if (name == null || name.isBlank()) { if (unsupported() != null) return "!" + unsupported(); to = rowFor(budgetGb()); }
@@ -1714,6 +1753,21 @@ public final class ModelServer {
             }
             // the install stays set up the way it is (0.8.1): with no way out the embeddings server needs its model's folder, since it cannot fetch
             Shut shut = os == Os.linux ? shutOf(m) : null;
+            // beside another program's model server (CodeZaiku's, in a home the two share) this program adds its embeddings server and changes
+            // nothing of that program's: its lines in the config, its start script, its plan lines, its network. When its model has no way out
+            // the embeddings server gets none either, on a network of this program's own, made on a range of this program's own (the other
+            // program's network and range are its own, and its uninstall or a change of its way removes them); when none can be made the
+            // embeddings server is not added, and that is said
+            boolean beside = os == Os.linux && anotherPrograms(dir);
+            if (beside) {
+                if (Pattern.compile("(?m)^groups:").matcher(y).find()) return "";   // a config with groups of its own is not of the shape this program adds to
+                shut = null;
+                if (noWayOutNetwork(Files.readString(dir.resolve("run.sh"), StandardCharsets.UTF_8)) != null) {
+                    Made made = makeNetwork();
+                    if (made.shut() == null) return "!" + Chrome.now().t("the embeddings server was not added beside the model server another program set up with no way out to the network, because {0}; search by meaning stays off, and the next start of the service tries again", made.why());
+                    shut = made.shut();
+                }
+            }
             String folder = null;
             if (os == Os.linux && !"llama".equals(embedTag)) {
                 Files.createDirectories(Embed.dir());
@@ -1724,10 +1778,13 @@ public final class ModelServer {
                 }
             }
             Plan p = plan(os, row, modelFile, dir, unitPath(os), gpus, idle, share, embedTag, os == Os.linux ? gpu().build() : "", shut, folder);
-            Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n" + idleChosen(idle) + netProperties(m), StandardCharsets.UTF_8);
+            int entry = p.configYaml().indexOf("  \"" + EMBED_NAME + "\":");
+            if (beside && (entry < 0 || p.embedScript() == null)) return "";
+            if (!beside) Files.writeString(dir.resolve("plan.properties"), planProperties(row, modelFile, gpus, idle, share) + "chosen=" + m.getOrDefault("chosen", known != null ? "suggested" : "yours") + "\n" + idleChosen(idle) + netProperties(m), StandardCharsets.UTF_8);
             if (p.embedScript() != null) { Files.createDirectories(Embed.dir()); Files.writeString(dir.resolve("run-embed.sh"), p.embedScript(), StandardCharsets.UTF_8); dir.resolve("run-embed.sh").toFile().setExecutable(true); }
-            // the model's start script stays as it is, whoever wrote it, so the config's stop command names the container that script starts
-            Files.writeString(cfg, stopsWhatStarts(p.configYaml()), StandardCharsets.UTF_8);
+            // the model's start script stays as it is, whoever wrote it, so the config's stop command names the container that script starts;
+            // beside another program's model only this program's entry and its group are added after that program's lines
+            Files.writeString(cfg, beside ? y + (y.endsWith("\n") ? "" : "\n") + p.configYaml().substring(entry) : stopsWhatStarts(p.configYaml()), StandardCharsets.UTF_8);
             restartProxy(dir, p.unit(), out);   // the proxy rereads its config only on a restart
             String beforeEmbed = Config.stored("RESEARCHZOSHO_EMBED");
             Path prev = dir.resolve("previous");
@@ -1758,9 +1815,16 @@ public final class ModelServer {
         if (!first.find()) return "";
         String name = first.group(1);
         int chat = chatIdle(m), embed = ModelsAwake.embedIdleMinutes();
-        String now = withTtl(withTtl(y, name, chat * 60), EMBED_NAME, embed * 60);
+        // beside another program's model only this program's embeddings server is this program's to set: that program's model keeps its own idle time
+        boolean beside = os == Os.linux && anotherPrograms(dir);
+        String now = beside ? withTtl(y, EMBED_NAME, embed * 60) : withTtl(withTtl(y, name, chat * 60), EMBED_NAME, embed * 60);
         if (now.equals(y)) return "";
         Files.writeString(cfg, now, StandardCharsets.UTF_8);
+        if (beside) {
+            restartProxy(dir, unitPath(os), out);
+            out.println("  the embeddings server beside the model now stops after " + (embed == 0 ? "no idle time (it stays loaded)" : embed + " idle minutes") + "; work that runs keeps it loaded.");
+            return name;
+        }
         Path props = dir.resolve("plan.properties");
         if (Files.exists(props)) {
             String pp = Files.readString(props, StandardCharsets.UTF_8).replaceAll("(?m)^idle_minutes=.*$", "idle_minutes=" + chat).replaceAll("(?m)^idle_chosen=.*\\n?", "");
@@ -1777,6 +1841,7 @@ public final class ModelServer {
      * own model, or wrote another slot by hand. True when it rewrote something; the caller restarts the proxy.
      */
     static boolean slotRule(Path dir, PrintStream out) throws IOException {
+        if (os == Os.linux && anotherPrograms(dir)) return false;   // another program's model (a home the two share): its slot is that program's
         Map<String, String> m = readPlan(dir);
         String name = m.getOrDefault("name", "");
         Row row = null; for (Row r : ROWS) if (r.name().equals(name)) row = r;
@@ -1853,8 +1918,7 @@ public final class ModelServer {
         b.append("  proxy at ").append(URL).append(": ").append(up ? "answers" : "does not answer (service " + serviceState() + "; log: " + logHint() + ")").append('\n');
         if (up) {
             try {
-                HttpClient c = PROBE_HTTP;
-                String running = c.send(HttpRequest.newBuilder(URI.create(URL + "/running")).timeout(Duration.ofSeconds(3)).GET().build(), HttpResponse.BodyHandlers.ofString()).body();
+                String running = loaded.apply(URL);
                 boolean modelUp = running.contains("\"model\":\"" + name + "\""), embedUp = running.contains("\"model\":\"" + EMBED_NAME + "\"");
                 b.append("  loaded now: ").append(modelUp ? "the model, yes (the memory is in use)" : "the model, no (the memory is free; the next request starts it)").append(embedUp ? "; the embeddings server, yes" : "").append('\n');
             } catch (Exception ignored) { }
@@ -1877,6 +1941,9 @@ public final class ModelServer {
     public static String uninstall(boolean force) {
         StringBuilder said = new StringBuilder();   // what is said of a llama-swap this program did not start, before the rest
         try {
+            // a model server another program set up in this folder (CodeZaiku's, in a home the two share) is that program's: it stays, and only
+            // what this program put beside it goes
+            if (setUpByAnother(dir())) return leaveAnothers();
             String sib = siblingDrive();
             if (!force && URL.equals(sib)) return "!CodeZaiku's settings also point at this proxy (" + Path.of(home(), ".codezaiku", "config") + "); point it elsewhere first, or pass --force";
             switch (os) {
@@ -1906,9 +1973,92 @@ public final class ModelServer {
                     restored += "; embeddings " + (none ? "off (search by words)" : "back to " + embed);
                 }
             }
-            if (Files.isDirectory(d)) { try (var s = Files.walk(d)) { s.sorted(Comparator.reverseOrder()).forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) { } }); } }
-            return said + "removed the service and the proxy; the model files in " + modelsDir() + " stay" + restored;
+            return said + "removed the service and the proxy; the model files in " + modelsDir() + " stay" + restored + removeOwn(d);
         } catch (Exception e) { return "!" + e.getMessage(); }
+    }
+
+    /** The files an install of this program makes in its folder, by name: what an uninstall removes, and nothing else. */
+    static final List<String> OWN_FILES = List.of("config.yaml", "run.sh", "run-embed.sh", "plan.properties", "previous", "llama-swap", "llama-swap.exe",
+            "LICENSE.md", "README.md", "start.ps1", "llama-swap.log", "llama-swap.err", SWAP_PID);
+
+    /** Whether a name in the folder is one this program made: one of {@link #OWN_FILES}, a download of its own (an archive, a part), or its llama.cpp folder. */
+    static boolean ownName(String name) {
+        return OWN_FILES.contains(name) || name.equals("llama") || name.endsWith(".part") || name.startsWith("llama-swap_" + SWAP_VERSION + "_") || name.startsWith("llama-" + LLAMA_BUILD + "-bin-");
+    }
+
+    /**
+     * What this program made in its folder removed, and the folder when nothing is left in it. A file another program wrote there stays,
+     * and so does the folder then. "" when the folder is gone; else the words that say what stays.
+     */
+    static String removeOwn(Path d) throws IOException {
+        if (!Files.isDirectory(d)) return "";
+        List<String> stays = new ArrayList<>();
+        try (Stream<Path> in = Files.list(d)) {
+            for (Path p : in.sorted().toList()) {
+                String name = p.getFileName().toString();
+                if (!ownName(name)) { stays.add(name); continue; }
+                if (Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS)) { try (var s = Files.walk(p)) { s.sorted(Comparator.reverseOrder()).forEach(q -> { try { Files.deleteIfExists(q); } catch (IOException ignored) { } }); } }
+                else Files.deleteIfExists(p);
+            }
+        }
+        if (stays.isEmpty()) { Files.deleteIfExists(d); return ""; }
+        return "; the folder " + d + " stays, since it holds what this program did not make (" + String.join(", ", stays) + ")";
+    }
+
+    /**
+     * Whether the model server in this folder was set up by another program (a home the two share): on Linux its start script starts
+     * another program's container; on macOS this program's launch agent is not there; on Windows the start script is not this program's.
+     */
+    static boolean setUpByAnother(Path dir) throws IOException {
+        return switch (os) {
+            case linux -> anotherPrograms(dir);
+            case macos -> Files.isRegularFile(dir.resolve("config.yaml")) && !Files.isRegularFile(unitPath(Os.macos));
+            case windows -> Files.isRegularFile(dir.resolve("start.ps1")) && !Files.readString(dir.resolve("start.ps1"), StandardCharsets.UTF_8).startsWith("# ResearchZosho");
+        };
+    }
+
+    /** A config with this program's embeddings server taken out: its entry, and its group (with the groups line, when it was the only one). */
+    static String withoutEmbed(String y) {
+        String head = "  \"" + EMBED_NAME + "\":\n";
+        int at = y.indexOf(head);
+        String out = at < 0 ? y : y.substring(0, at) + y.substring(blockEnd(y, at + head.length()));
+        out = out.replaceFirst("(?m)^  \"embedding\":\\n(?:    .*\\n)*", "");
+        return out.replaceFirst("(?m)^groups:\\n(?!  )", "");
+    }
+
+    /**
+     * `model uninstall` where another program set the model server up: that server, its files, its service and its network stay, and the
+     * library goes on using it. What this program put beside it goes: its embeddings server's entry in the config (the proxy is started
+     * again to read it, on Linux), its start script, its container, and its own network with no way out; the embeddings setting goes back
+     * to what it was.
+     */
+    static String leaveAnothers() throws Exception {
+        Path d = dir(), cfg = d.resolve("config.yaml"), script = d.resolve("run-embed.sh");
+        boolean removed = false, ownNetwork = false;
+        if (Files.isRegularFile(script) && EMBED_CONTAINER.equals(containerOf(script, null))) {
+            ownNetwork = Files.readString(script, StandardCharsets.UTF_8).contains("--network " + NETWORK + " ");
+            Files.delete(script);
+            removed = true;
+        }
+        if (Files.isRegularFile(cfg)) {
+            String y = Files.readString(cfg, StandardCharsets.UTF_8), without = withoutEmbed(y);
+            if (!without.equals(y)) {
+                Files.writeString(cfg, without, StandardCharsets.UTF_8);
+                removed = true;
+                if (os == Os.linux) runner.run(List.of("systemctl", "--user", "restart", proxyUnit()));   // the proxy rereads its config only on a restart
+            }
+        }
+        if (os == Os.linux && removed) { if (ownNetwork) removeNetwork(); else runner.run(List.of("docker", "stop", EMBED_CONTAINER)); }
+        String restored = "";
+        if (URL.equals(Config.stored("RESEARCHZOSHO_EMBED"))) {   // the file, not the environment: what this program's upgrade wrote
+            String[] lines = Files.isRegularFile(d.resolve("previous")) ? Files.readString(d.resolve("previous"), StandardCharsets.UTF_8).split("\n", -1) : new String[0];
+            String embed = lines.length > 2 ? lines[2].strip() : "";
+            boolean none = embed.isEmpty() || embed.equalsIgnoreCase("off") || embed.equalsIgnoreCase("none") || embed.equals(URL);
+            Config.set("RESEARCHZOSHO_EMBED", none ? "off" : embed);
+            restored = "; embeddings " + (none ? "off (search by words)" : "back to " + embed);
+        }
+        return "the model server in " + d + " is another program's, so it stays and the library goes on using it"
+                + (removed ? "; this program's embeddings server beside it is removed" : "; nothing of this program's was beside it") + restored;
     }
 
     /**

@@ -643,4 +643,155 @@ class ModelServerShutInTest {
         assertEarlierWay(null);
         assertTrue(file("run-embed.sh").contains("--model-id Qwen/Qwen3-Embedding-0.6B ") && out.contains("the model downloads once, about 1.2 GB, on the first search"), file("run-embed.sh") + out);
     }
+
+    // ---- the folder two programs share: CodeZaiku's model server, this program beside it ----
+
+    static final String CZ_NET = "codezaiku-model-shut", CZ_RANGE = "172.16.221.0/28";
+
+    /**
+     * CodeZaiku's model server as its own install leaves it in a home the two programs share (its code read on 2026-11-25): its start
+     * script and its service under its names, its config, its plan file, written in this program's keys; with no way out ({@code shut})
+     * on its own network at its own range, or the earlier way. No embeddings server: CodeZaiku installs none. The embeddings model's
+     * files are on the disk, so nothing is fetched for them.
+     */
+    Map<String, String> codeZaikusInstall(boolean shut) throws Exception {
+        Path dir = ModelServer.dir(); Files.createDirectories(dir);
+        Path model = ModelServer.modelsDir().resolve("gpt-oss-20b-F16.gguf");
+        Map<String, String> files = new LinkedHashMap<>();
+        files.put("run.sh", "#!/bin/sh\n# gpt-oss-20b in llama.cpp, started by llama-swap on demand; $1 is the port it assigned. The flags are the measured ones.\n"
+                + (shut ? "# No way out: it runs on a Docker network that has no route to anything but this machine (" + CZ_NET + ", " + CZ_RANGE + "),\n"
+                        + "# may not write raw packets, and answers this machine at 172.16.221.2:8080 ($1 is not used). When the network was removed it is made again here.\n"
+                        + "docker network inspect " + CZ_NET + " >/dev/null 2>&1 || docker network create --internal --subnet " + CZ_RANGE + " " + CZ_NET + " >/dev/null 2>&1\n" : "")
+                + "exec docker run --rm --name codezaiku-model --gpus all " + (shut ? "--network " + CZ_NET + " --ip 172.16.221.2 --cap-drop NET_RAW" : "-p 127.0.0.1:$1:8080")
+                + " -v " + model.getParent() + ":/m ghcr.io/ggml-org/llama.cpp:server-cuda \\\n  -m /m/gpt-oss-20b-F16.gguf --host 0.0.0.0 --port 8080 --jinja -c 32768 --parallel 2 -ngl 99 --flash-attn on \\\n"
+                + "  --chat-template-kwargs '{\"reasoning_effort\":\"low\"}'\n");
+        files.put("config.yaml", "# CodeZaiku: the model server on demand. llama-swap listens on 8211; the server starts on the first request\n"
+                + "# and stops after ttl seconds idle. `codezaiku model serve status` reads it.\nhealthCheckTimeout: 600\nstartPort: 10001\nlogLevel: info\nmodels:\n"
+                + "  \"gpt-oss-20b\":\n    cmd: " + dir.resolve("run.sh") + (shut ? "" : " ${PORT}") + "\n    cmdStop: docker stop codezaiku-model\n"
+                + "    proxy: " + (shut ? "http://172.16.221.2:8080" : "http://127.0.0.1:${PORT}") + "\n    ttl: 1200\n"
+                + "    aliases: [\"local-model\", \"gpt-oss-20b-F16.gguf\", \"/m/gpt-oss-20b-F16.gguf\"]\n");
+        files.put("plan.properties", "# CodeZaiku: what `model serve install` was told, and which way the model server is set up\nname=gpt-oss-20b\nfile=" + model
+                + "\nctx=32768\nparallel=2\nextra=--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'\ngpus=all\nidle_minutes=20\nshare=false\n"
+                + (shut ? "network=shut\nsubnet=" + CZ_RANGE + "\nnetwork_tried=2026-11-25\n" : "network=open\nnetwork_why=asked\nnetwork_tried=2026-11-25\n"));
+        files.put("previous", "\n\n");
+        ModelServer.writeFiles(dir, files);
+        Path unit = ModelServer.unitPath(ModelServer.Os.linux).resolveSibling("codezaiku-model.service");
+        Files.createDirectories(unit.getParent());
+        Files.writeString(unit, "[Unit]\nDescription=CodeZaiku: the model server on demand (llama-swap)\n\n[Service]\nExecStart=" + dir.resolve("llama-swap") + " --config " + dir.resolve("config.yaml") + " --listen 127.0.0.1:8211\n");
+        Path snapshot = Embed.dir().resolve("models--Qwen--Qwen3-Embedding-0.6B/snapshots/0123abc");
+        Files.createDirectories(snapshot);
+        for (String f : List.of("config.json", "tokenizer.json", "model.safetensors")) Files.writeString(snapshot.resolve(f), "x");
+        if (shut) machine.networks.put(CZ_NET, "true " + CZ_RANGE);
+        Config.set("RESEARCHZOSHO_DRIVE", ModelServer.URL);
+        machine.started = true;
+        return files;
+    }
+
+    @Test
+    void theStatusOfAModelServerAnotherProgramSetUpIsReadFromItsStartScriptAndAdvisesNothingOfThisProgramsForIt() throws Exception {
+        Map<String, String> theirs = codeZaikusInstall(true);
+        String said = ModelServer.wayOutSaid();
+        assertEquals("Another program set the model server up, and this one leaves it as it is. By its start script the model is on a Docker network of its own (" + CZ_NET + "), with no port of this machine published.", said);
+        assertFalse(said.contains("researchzosho model install") || said.contains("no longer as this program made it"), "a command that would do nothing there is not advised: " + said);
+        assertEquals("", ModelServer.changeOver(new PrintStream(new ByteArrayOutputStream())), "and `model install` changes nothing of it");
+        for (var f : theirs.entrySet()) assertEquals(f.getValue(), file(f.getKey()), f.getKey());
+        assertTrue(machine.ran.stream().noneMatch(c -> c.get(0).equals("docker")), "read from the files: " + machine.ran);
+        // set up by it the earlier way, it can reach the network, and that is what is said
+        Files.writeString(ModelServer.dir().resolve("run.sh"), theirs.get("run.sh").replace("--network " + CZ_NET + " --ip 172.16.221.2 --cap-drop NET_RAW", "-p 127.0.0.1:$1:8080"));
+        assertEquals("The model server can reach the network: another program set it up, and this one leaves it as it is.", ModelServer.wayOutSaid());
+        // on a network the script does not make with --internal, it is not said to have no way out
+        Files.writeString(ModelServer.dir().resolve("run.sh"), theirs.get("run.sh").replace("docker network create --internal", "docker network create"));
+        assertEquals("The model server can reach the network: another program set it up, and this one leaves it as it is.", ModelServer.wayOutSaid());
+    }
+
+    @Test
+    void besideAnotherProgramsModelWithNoWayOutTheEmbeddingsServerHasNoneEitherOnANetworkOfThisProgramsOwn() throws Exception {
+        Map<String, String> theirs = codeZaikusInstall(true);
+        assertEquals("gpt-oss-20b", ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream())));
+        String y = file("config.yaml"), embed = file("run-embed.sh");
+        assertTrue(y.startsWith(theirs.get("config.yaml")), "the other program's lines stay as they were, the model's address with them: " + y);
+        assertTrue(y.substring(theirs.get("config.yaml").length()).startsWith("  \"embed\":\n    cmd: " + ModelServer.dir().resolve("run-embed.sh") + "\n    cmdStop: docker stop researchzosho-model-embed\n    proxy: http://172.16.211.3:80\n"), y);
+        assertTrue(y.endsWith("groups:\n  \"embedding\":\n    swap: false\n    exclusive: false\n    persistent: true\n    members: [\"embed\"]\n"), y);
+        assertTrue(embed.contains("docker network create --internal --subnet " + RANGE + " " + NET + " ") && embed.contains("--network " + NET + " --ip 172.16.211.3 --cap-drop NET_RAW") && !embed.contains(" -p "), embed);
+        assertFalse(embed.contains(CZ_NET) || embed.contains("172.16.221."), "nothing of the other program's network or range: " + embed);
+        assertEquals("true " + RANGE, machine.networks.get(NET), "this program's own network, on a range of its own");
+        assertEquals("true " + CZ_RANGE, machine.networks.get(CZ_NET), "the other program's network as it was");
+        assertTrue(machine.ran.stream().noneMatch(c -> String.join(" ", c).contains(CZ_NET)), "no command named the other program's network: " + machine.ran);
+        for (String f : List.of("run.sh", "plan.properties")) assertEquals(theirs.get(f), file(f), f + ": the other program's, untouched (its slot and its plan lines too)");
+        assertTrue(machine.ranLine("systemctl", "--user", "restart", "codezaiku-model"), "the proxy that runs this folder rereads its config: " + machine.ran);
+        assertEquals(ModelServer.URL, Config.stored("RESEARCHZOSHO_EMBED"));
+        assertTrue(file("previous").startsWith(theirs.get("previous")), "the first two lines of the file both write stay; the third is this program's, the embeddings setting before");
+        // the other program removes its network (its uninstall, or its change to the earlier way): this program's embeddings server is not on it
+        machine.networks.remove(CZ_NET);
+        assertEquals("true " + RANGE, machine.networks.get(NET));
+        // the next start of the service changes nothing: the embeddings server's idle time is the only line of this program's to set, and it is set
+        machine.ran.clear();
+        assertEquals("", ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream())));
+        assertEquals(y, file("config.yaml"));
+        assertTrue(machine.ran.isEmpty(), machine.ran.toString());
+    }
+
+    @Test
+    void whenThisProgramCannotMakeANetworkOfItsOwnTheEmbeddingsServerIsNotAddedAndThatIsSaid() throws Exception {
+        Map<String, String> theirs = codeZaikusInstall(true);
+        machine.refused = ModelServer.RANGES;
+        String r = ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream()));
+        assertTrue(r.startsWith("!the embeddings server was not added beside the model server another program set up with no way out to the network, because Docker did not make its network (Error response from daemon: invalid pool request"), r);
+        assertTrue(r.endsWith("; search by meaning stays off, and the next start of the service tries again"), r);
+        for (var f : theirs.entrySet()) assertEquals(f.getValue(), file(f.getKey()), f.getKey());
+        assertFalse(Files.exists(ModelServer.dir().resolve("run-embed.sh")));
+        assertNull(Config.stored("RESEARCHZOSHO_EMBED"), "search by meaning is not set on: a search goes by words, as it says");
+    }
+
+    @Test
+    void besideAnotherProgramsModelThatCanReachTheNetworkTheEmbeddingsServerIsAddedTheEarlierWayAndTheModelsLinesStay() throws Exception {
+        Map<String, String> theirs = codeZaikusInstall(false);
+        assertEquals("gpt-oss-20b", ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream())));
+        assertTrue(file("config.yaml").startsWith(theirs.get("config.yaml")) && file("config.yaml").contains("  \"embed\":\n    cmd: " + ModelServer.dir().resolve("run-embed.sh") + " ${PORT}\n"), file("config.yaml"));
+        assertTrue(file("run-embed.sh").contains(" -p 127.0.0.1:$1:80 "), file("run-embed.sh"));
+        assertTrue(machine.networks.isEmpty() && machine.count("docker", "network", "create") == 0, machine.ran.toString());
+        for (String f : List.of("run.sh", "plan.properties")) assertEquals(theirs.get(f), file(f), f);
+    }
+
+    @Test
+    void anUninstallBesideAnotherProgramsModelServerTakesAwayOnlyWhatThisProgramPutThere() throws Exception {
+        Map<String, String> theirs = codeZaikusInstall(true);
+        ModelServer.upgrade(new PrintStream(new ByteArrayOutputStream()));
+        assertTrue(Files.exists(ModelServer.dir().resolve("run-embed.sh")) && machine.networks.containsKey(NET), "the control: this program's embeddings server is beside it");
+        machine.ran.clear();
+        String r = ModelServer.uninstall(false);
+        assertEquals("the model server in " + ModelServer.dir() + " is another program's, so it stays and the library goes on using it; this program's embeddings server beside it is removed; embeddings off (search by words)", r);
+        for (String f : List.of("run.sh", "config.yaml", "plan.properties")) assertEquals(theirs.get(f), file(f), f + ": the other program's, as it was before this program added anything");
+        assertTrue(file("previous").startsWith(theirs.get("previous")), file("previous"));
+        assertFalse(Files.exists(ModelServer.dir().resolve("run-embed.sh")));
+        assertNull(machine.networks.get(NET), "this program's network goes");
+        assertEquals("true " + CZ_RANGE, machine.networks.get(CZ_NET), "the other program's stays");
+        assertTrue(machine.ranLine("systemctl", "--user", "restart", "codezaiku-model") && machine.ranLine("docker", "stop", ModelServer.EMBED_CONTAINER), machine.ran.toString());
+        assertTrue(machine.ran.stream().noneMatch(c -> c.contains("disable") || c.contains("codezaiku-model") && c.get(0).equals("docker")), "the other program's service and container are not touched: " + machine.ran);
+        assertTrue(Files.exists(ModelServer.unitPath(ModelServer.Os.linux).resolveSibling("codezaiku-model.service")));
+        assertEquals(ModelServer.URL, Config.get("RESEARCHZOSHO_DRIVE"), "the library goes on using the model server that stays");
+        assertEquals("off", Config.stored("RESEARCHZOSHO_EMBED"));
+        // and `model switch`, an uninstall and an install, is not this program's to do there either
+        assertTrue(ModelServer.switchTo("qwen3.5-9b", new PrintStream(new ByteArrayOutputStream())).startsWith("!the model server here is another program's"));
+        for (String f : List.of("run.sh", "config.yaml", "plan.properties")) assertEquals(theirs.get(f), file(f), f);
+    }
+
+    @Test
+    void anUninstallOfThisProgramsOwnModelServerRemovesWhatItMadeAndAFolderOnlyWhenNothingElseIsInIt() throws Exception {
+        install();
+        Path dir = ModelServer.dir();
+        Files.writeString(dir.resolve("notes.txt"), "written by another program");
+        ModelServer.health = base -> false;
+        String r = ModelServer.uninstall(true);
+        assertTrue(r.endsWith("; the folder " + dir + " stays, since it holds what this program did not make (notes.txt)"), r);
+        try (var left = Files.list(dir)) { assertEquals(List.of("notes.txt"), left.map(p -> p.getFileName().toString()).toList(), "what it made is gone, the other file stays"); }
+        assertNull(machine.networks.get(NET));
+        // with nothing else in it the folder goes too
+        Files.delete(dir.resolve("notes.txt"));
+        machine.install(); machine.started = false;
+        install();
+        ModelServer.health = base -> false;
+        assertFalse(ModelServer.uninstall(true).contains("stays, since"));
+        assertFalse(Files.exists(dir));
+    }
 }

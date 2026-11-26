@@ -3,14 +3,17 @@
 #
 # Set on 2026-11-23 from what the suite took then: about 820 s on those four processors (the same suite took 1,135 to 1,353 s before
 # its slow tests were made fast), and its slowest classes below. A run on a busier machine took a fifth longer in every class, so the
-# limits leave that much room.
+# limits leave that much room. The five slowest classes were made faster on 2026-11-25 and their limits lowered the same way: the most
+# each took in that day's runs on those four processors (750 s in all) and on all sixteen with three test processes (822 and 843 s),
+# and a fifth, so that the time they lost cannot come back unnoticed.
 
 suite 1000
 class 25
 
-# The classes allowed more, each with why. Their time is what they test: real windows of time, other processes, whole-second waits.
-TakeoverTest 100 two machines of the service, each a process with library processes of its own; a translation taken over between them after a lease runs out
-RateLimitsTest 50 a second service as a process of its own; the limits' real windows (3 per 4 seconds, 10 per 20) let go while the test waits
-FamilyAskingTest 45 the questions' waits are whole seconds by the setting, and a file read while one waits must outlast it
-NodeTest 42 library processes put to sleep and started again; a start left behind gives up at its own lease's look, ten seconds apart
-ChatWordsTest 32 every phrase of every language file read as each meaning (CPU: some 20,000 phrase readings)
+# The classes with a limit of their own, each with what its time goes to: real windows of time, other processes, whole-second waits,
+# processor work. Each limit is what the class took and a fifth, above the limit of any class or below it.
+TakeoverTest 52 two machines of the service, each a process with library processes of its own; a translation taken over between them after a lease runs out
+RateLimitsTest 21 a second service as a process of its own; the limits' real windows (3 per 4 seconds, 10 per 20) let go while the test waits
+FamilyAskingTest 26 the questions' waits are whole seconds by the setting, and a file read while one waits must outlast it
+NodeTest 20 library processes put to sleep and started again, and a start left behind that gives up at its own look at its lease
+ChatWordsTest 7 every phrase of every language file read as each meaning (CPU: some 20,000 phrase readings; what the words files give is worked out once)

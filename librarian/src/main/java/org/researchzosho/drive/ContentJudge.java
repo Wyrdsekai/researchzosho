@@ -118,10 +118,11 @@ public final class ContentJudge {
             img.putObject("image_url").put("url", image);
         }
         String said = "", failed = "";
-        DriveClient.clearClassifyProblem();
+        DriveClient.forgetClassify();
         try {
             said = String.valueOf(oneWord.ask(msgs)).strip();
-            Matcher w = FIRST_WORD.matcher(said.toLowerCase(Locale.ROOT));
+            // the model's thinking in place of the word it never gave is no answer, whatever its first word
+            Matcher w = FIRST_WORD.matcher(DriveClient.lastClassifyThinking() ? "" : said.toLowerCase(Locale.ROOT));
             String word = w.find() ? w.group(1) : "";
             if (word.equals("yes")) return new Reading(Verdict.YES, 1.0, "one word");
             if (word.equals("no")) return new Reading(Verdict.NO, 0.0, "one word");

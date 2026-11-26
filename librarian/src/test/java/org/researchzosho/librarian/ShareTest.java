@@ -21,6 +21,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -206,7 +207,7 @@ class ShareTest {
         assertTrue(o.text().startsWith("Sign-in is on now:"), "the first open says what it turned on: " + o.text());
         assertTrue(o.text().contains("Shared on your tailnet at https://mylibrary.tail1234.ts.net") && o.text().contains("researchzosho share\n") && o.text().contains("reader invite"), o.text());
         assertEquals("tailscale", Share.kind()); assertEquals("https://mylibrary.tail1234.ts.net", Share.address()); assertTrue(WebAccess.signInRequired());
-        assertEquals(List.of("/usr/bin/tailscale status --json", "/usr/bin/tailscale serve --bg 4651"), ran);
+        assertEquals(List.of("/usr/bin/tailscale status --json", "/usr/bin/tailscale serve status --json", "/usr/bin/tailscale serve --bg 4651"), ran, "what Tailscale serves is read first: another program's handler on 443 would be left as it is");
         assertEquals("https://mylibrary.tail1234.ts.net/join?code=", Invites.address() + "/join?code=", "join links are written with the shared address");
         // serve not yet approved for the node: tailscale prints the link and polls, so the runner's limit ends it (124) and the refusal says the step
         answers = Map.of("status --json", new Video.Result(0, RUNNING), "serve --bg 4651", new Video.Result(124, "\nServe is not enabled on your tailnet.\nTo enable, visit:\n\n         https://login.tailscale.com/f/serve?node=abc\n\n(timed out after 60 s)"));
@@ -222,13 +223,19 @@ class ShareTest {
         assertTrue(Share.share(lib(tmp), List.of("--public")).text().startsWith("Public at"), "--public is accepted and means the default");
         assertEquals("funnel", Share.kind());
         // status and off
-        answers = Map.of("serve status", new Video.Result(0, "https://mylibrary.tail1234.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:4651"), "funnel --https=443 off", new Video.Result(0, ""), "serve --https=443 off", new Video.Result(0, ""));
+        Map<String, Video.Result> st = new LinkedHashMap<>();   // in order: the JSON of the config before the tree a person reads
+        st.put("serve status --json", new Video.Result(0, "{\"TCP\":{\"443\":{\"HTTPS\":true}},\"Web\":{\"mylibrary.tail1234.ts.net:443\":{\"Handlers\":{\"/\":{\"Proxy\":\"http://127.0.0.1:4651\"}}}},\"AllowFunnel\":{\"mylibrary.tail1234.ts.net:443\":true}}"));
+        st.put("serve status", new Video.Result(0, "https://mylibrary.tail1234.ts.net (Funnel on)\n|-- / proxy http://127.0.0.1:4651"));
+        st.put("--set-path=/ off", new Video.Result(0, ""));
+        answers = st;
         String status = Share.share(lib(tmp), List.of("status")).text();
         assertTrue(status.contains("shared: public, Tailscale Funnel at https://mylibrary.tail1234.ts.net") && status.contains("door: 127.0.0.1:4651 (the service is running)") && status.contains("Funnel on"), status);
         o = Share.share(lib(tmp), List.of("off"));
         assertTrue(o.text().startsWith("Not shared any more") && o.text().contains("readers stay"), o.text());
         assertEquals("off", Share.kind()); assertEquals("", Share.address()); assertTrue(WebAccess.signInRequired(), "sign-in stays on");
-        assertTrue(ran.get(ran.size() - 2).endsWith("funnel --https=443 off") && ran.get(ran.size() - 1).endsWith("serve --https=443 off"), ran.toString());
+        // only the library's own handler: its mount on 443, never every handler of the port (until 2026-11-25 it ran "serve --https=443 off")
+        assertTrue(ran.get(ran.size() - 1).endsWith("serve --https=443 --set-path=/ off"), ran.toString());
+        assertTrue(ran.stream().noneMatch(l -> l.endsWith("--https=443 off") && !l.contains("--set-path")), ran.toString());
         assertEquals("shared: no (researchzosho share puts it behind a relay: reachable now; --tailscale for an address that lasts)", Share.statusLine());
     }
 

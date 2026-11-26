@@ -664,11 +664,17 @@ public final class Researcher {
     /** Whether this run may use the paid search places and the paid page reader (Exa, Tavily, the keeper's own search service, Serper, SerpApi, Brave, Firecrawl): false when the person asked for none for this run. */
     private volatile boolean paid = true;
     public void paid(boolean yes) { this.paid = yes; }
+    /** Whether the run was filed from a paired phone: a paid search place with no monthly limit set is left off for it ({@link SearchTally#phoneRun}). */
+    private volatile boolean phoneRun;
+    public void phoneRun(boolean yes) { this.phoneRun = yes; }
     /** Whether this run may read the owner's databases: only a run the library owner filed. */
     private volatile boolean databases = false;
     public void allowDatabases(boolean yes) { this.databases = yes; }
     /** Who filed this run, for the keeper's MCP servers its tables may carry: the keeper unless the service says another (a reader's run gets the servers marked for readers). */
     private volatile Patrons.Patron mcpFor = Patrons.Patron.PERSON;
+    /** Whether this run may query the owner's databases, and whose MCP servers it may use (a test of a phone's run reads them). */
+    boolean databases() { return databases; }
+    Patrons.Patron mcpFor() { return mcpFor; }
     public void mcpFor(Patrons.Patron who) { this.mcpFor = who == null ? Patrons.Patron.ANONYMOUS : who; }
     public void onProgress(Consumer<ObjectNode> sink) { this.onProgress = sink; }
 
@@ -1087,9 +1093,10 @@ public final class Researcher {
         seedAddresses(ask);
         DriveClient.countInto(usage);
         SearchTally.paidOff(!paid);   // on this thread and the threads the run starts: the paid places are left off at the tally's gate
+        SearchTally.phoneRun(phoneRun);
         if (!paid) log.accept("no paid search service this run, as the person asked: Exa, Tavily, the keeper's own search service, Serper, SerpApi, Brave and Firecrawl are left off for it");
         try (var lane = Checkpoint.lane("run")) { return runCounted(ask, known); }
-        finally { DriveClient.stopCounting(); SearchTally.paidOff(false); }
+        finally { DriveClient.stopCounting(); SearchTally.paidOff(false); SearchTally.phoneRun(false); }
     }
 
     private Result runCounted(Ask ask, String known) {
@@ -1729,10 +1736,20 @@ public final class Researcher {
         Map<Integer, String> textByRef = new HashMap<>();
         for (CiteCheck.Ref r : refs) { try { Path rp = RawCapture.find(store, r.locator()); if (rp != null) { String t = RawCapture.read(rp)[2]; sourceTexts.add(t); textByRef.put(r.n(), t); } } catch (Exception ignored) { } }
         List<String> checks = new ArrayList<>();
-        List<WriteupChecks.Unbacked> numbersAt = new ArrayList<>(aside ? List.of() : WriteupChecks.numbersUnbackedAt(text, backing(evidence), refs, textByRef));
+        // the figures: against the notes and the sources a sentence cites, then every other source read this run (a page read that is not a
+        // reference among them), so that "not in any note or source read this run" says what it means
+        WriteupChecks.Checked figures = aside ? new WriteupChecks.Checked(List.of(), List.of(), List.of()) : WriteupChecks.numbersChecked(text, backing(evidence), refs, textByRef, keptElsewhere(textByRef, refs));
+        List<WriteupChecks.Unbacked> numbersAt = new ArrayList<>(figures.unbacked());
         numbersAt.removeIf(u -> Analysis.inLayer(text, u.sentence()));   // a likelihood or a base rate in the analysis layer is the writer's own number
         List<String> numbersOff = new ArrayList<>();
         for (WriteupChecks.Unbacked u : numbersAt) numbersOff.add(u.what() + " — not in any note or source read this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
+        // a figure the check cannot settle either way is not marked and not sent for revision: its sentence stands as written, and is named
+        List<WriteupChecks.Unbacked> unsettledAt = new ArrayList<>(figures.unsettled());
+        unsettledAt.removeIf(u -> Analysis.inLayer(text, u.sentence()));
+        List<String> numbersUnsettled = new ArrayList<>();
+        for (WriteupChecks.Unbacked u : unsettledAt) numbersUnsettled.add(u.what() + " — " + UNSETTLED + ": \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
+        // a figure another source read this run states is not marked and never revised: where it is, and what the sentence cites, are said
+        for (WriteupChecks.Elsewhere e : figures.elsewhere()) if (!Analysis.inLayer(text, e.sentence())) numbersUnsettled.add(e.what() + " — " + e.said() + ": \"" + Acquisitions.compress(e.sentence().strip(), 140) + "\"");
         List<String> namesOff = aside ? List.of() : WriteupChecks.namesUnbacked(text, backing(evidence), refs, textByRef), quotesOff = aside ? List.of() : WriteupChecks.quotesUnbacked(text, withNotes(sourceTexts, backing(evidence)));
         // a books run: every row of a table against what the catalogues returned this run; a book none returned is marked (0.6.0)
         catalogueTitles = runPolicy == null ? Set.of() : runPolicy.catalogue();
@@ -1740,12 +1757,13 @@ public final class Researcher {
         List<String> titlesOff = new ArrayList<>();
         for (WriteupChecks.Unbacked u : titlesAt) titlesOff.add(u.what() + " — in no catalogue result this run: \"" + Acquisitions.compress(u.sentence().strip(), 140) + "\"");
         for (String l : numbersOff) checks.add("number " + l);
+        for (String l : numbersUnsettled) checks.add("number " + l);
         for (String l : namesOff) checks.add("name " + l);
         for (String l : quotesOff) checks.add("quotation " + l);
         for (String l : titlesOff) checks.add("title " + l);
         List<String> retracted = retractedAmong(refs);
         for (String l : retracted) checks.add("retracted " + l);
-        runStats.put("numbers_unbacked", numbersOff.size()); runStats.put("names_unbacked", namesOff.size()); runStats.put("quotes_unbacked", quotesOff.size()); runStats.put("retracted_cited", retracted.size());
+        runStats.put("numbers_unbacked", numbersOff.size()); runStats.put("numbers_unsettled", numbersUnsettled.size()); runStats.put("names_unbacked", namesOff.size()); runStats.put("quotes_unbacked", quotesOff.size()); runStats.put("retracted_cited", retracted.size());
         runStats.put("titles_unbacked", titlesOff.size());
         if (!checks.isEmpty()) { notes.add("checks: " + checks.size() + " line(s) — " + numbersOff.size() + " number(s), " + namesOff.size() + " name(s), " + quotesOff.size() + " quotation(s) unbacked, " + retracted.size() + " retracted source(s) cited"); log.accept(notes.get(notes.size() - 1)); }
         String checked = aside ? "cite-check: not run, since the write-up was set aside and this report is the workers' findings; " + byWork.size() + " reference(s)"
@@ -1782,7 +1800,7 @@ public final class Researcher {
             for (String c : stateLines) out.append("- ").append(c).append('\n');
             if (!checks.isEmpty()) {
                 out.append(stateLines.isEmpty() ? "" : "\n").append("The write-up against the evidence it was written from, mechanically. A number with a unit, a licence, a CVE id or a "
-                        + "quotation that no note or source read this run states is listed here; a book in a table that no catalogue returned this run is named; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
+                        + "quotation that no note or source read this run states is listed here, a figure the check could not settle is named and left as written, and a figure only a source the sentence does not cite states is named with that source and left as written; a book in a table that no catalogue returned this run is named; a cited paper Crossref lists as retracted is named. Read these before the prose.\n\n");
                 for (String c : checks) out.append("- ").append(c).append('\n');
             }
         }
@@ -1867,6 +1885,26 @@ public final class Researcher {
     /** A mark the checks left in the text, with its reason. */
     /** The words of a requirement: a note with one of these, left out of the answer, is listed before the rest. */
     static final Pattern RULE_WORDS = Pattern.compile("(?i)\\b(must|required|requires?|may not|must not|not acceptable|not permitted|prohibited|forbidden|minimum|at least|no less than|no more than|only if|shall|is mandatory|are mandatory)\\b");
+    /** The pages read this run that are not among the references, by their address, with their kept text. */
+    Map<String, String> keptElsewhere(Map<Integer, String> textByRef, List<CiteCheck.Ref> refs) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (store == null) return out;
+        Set<Path> asRefs = new HashSet<>();
+        for (CiteCheck.Ref r : refs) { try { Path rp = RawCapture.find(store, r.locator()); if (rp != null) asRefs.add(rp); } catch (Exception ignored) { } }
+        List<String> read; synchronized (fetchedInRun) { read = new ArrayList<>(fetchedInRun); }
+        for (String l : read) {
+            try {
+                Path rp = RawCapture.find(store, l);
+                if (rp == null || !asRefs.add(rp)) continue;   // not kept, or a reference's (or another address of one page read already)
+                out.put(l, RawCapture.read(rp)[2]);
+            } catch (Exception ignored) { }
+        }
+        return out;
+    }
+
+    /** What the Checks section says of a figure the check could not settle ({@link WriteupChecks#numbersUnsettledAt}). */
+    static final String UNSETTLED = "the check could not settle it against the notes and sources read this run, so the sentence is left as written";
+
     static final Pattern CHECK_MARK = Pattern.compile(" ?\\[(not supported by the cited source on check|cites a source that was not read this run|no catalogue record this run: [^\\]]*|number not in any note or source read this run: [^\\]]*)\\]");
     /** How many flagged sentences one revision turn is given; the rest stand as marked. */
     static final int REVISE_MOST = 12;
@@ -2064,6 +2102,9 @@ public final class Researcher {
         if (revised.isBlank()) return "";   // left out: nothing is claimed
         List<WriteupChecks.Unbacked> nums = WriteupChecks.numbersUnbackedAt(revised, evidence, refs, textByRef);
         if (!nums.isEmpty()) return "it states " + nums.get(0).what() + ", which no note or source read this run states";
+        // a figure the check cannot settle never replaces a sentence
+        List<WriteupChecks.Unbacked> unsure = WriteupChecks.numbersUnsettledAt(revised, evidence, refs, textByRef);
+        if (!unsure.isEmpty()) return "it states " + unsure.get(0).what() + ", which the check could not settle against the notes and sources read this run";
         if (f.why().contains("no catalogue record this run") && !WriteupChecks.titlesUnbackedAt(revised, catalogueTitles).isEmpty()) return "it still names a book no catalogue returned this run";
         boolean citeFlag = f.why().contains("not supported by the cited source") || f.why().contains("not read this run");
         if (!citeFlag) return "";

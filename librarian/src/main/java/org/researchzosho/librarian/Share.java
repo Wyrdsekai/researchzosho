@@ -319,6 +319,12 @@ public final class Share {
                         + (haveCloudflared ? "\nOr, without an account: researchzosho share --cloudflare" : ""));
             }
         } catch (IOException e) { throw e; } catch (Exception e) { return new Outcome(1, "Tailscale could not be asked: " + e.getMessage()); }
+        // another program's handler on 443 stays as it is: share says what is there and changes nothing (an older Tailscale that cannot say
+        // what it serves goes on as before)
+        JsonNode sc = TailscaleServe.read(ts);
+        List<String> others = TailscaleServe.others(sc, door, 443);
+        if (!others.isEmpty()) return new Outcome(1, "Tailscale on this machine already serves something on port 443 that is not the library's:\n  " + String.join("\n  ", others)
+                + "\nNothing was changed. Take it off first (tailscale serve status shows it), then researchzosho share again.");
         StringBuilder text = new StringBuilder(firstOpen(store));
         Video.Result r;
         try { r = runner.run(List.of(ts, pub ? "funnel" : "serve", "--bg", String.valueOf(door)), Duration.ofMinutes(1)); }
@@ -366,9 +372,13 @@ public final class Share {
         if (kind.equals("tailscale") || kind.equals("funnel")) {
             String ts = which.apply("tailscale");
             if (ts != null) {
+                // only the library's own handler: the mount / on 443 that proxies to the shared door (until 2026-11-25 this ran
+                // "serve --https=443 off", which removes every handler on the port, another program's with it)
                 try {
-                    if (kind.equals("funnel")) runner.run(List.of(ts, "funnel", "--https=443", "off"), Duration.ofSeconds(30));
-                    runner.run(List.of(ts, "serve", "--https=443", "off"), Duration.ofSeconds(30));
+                    JsonNode sc = TailscaleServe.read(ts);
+                    if (sc == null) text.append("Tailscale could not say what it serves, so nothing was taken off at the relay; tailscale serve status shows it.\n");
+                    else if (TailscaleServe.ours(sc, doorPort(), 443) != null) runner.run(TailscaleServe.offCommand(ts, 443), Duration.ofSeconds(30));
+                    else text.append("Tailscale does not serve the library's door on port 443 now, so nothing was taken off at the relay.\n");
                 } catch (Exception e) { text.append("tailscale could not be run: ").append(e.getMessage()).append('\n'); }
             }
         }
@@ -447,6 +457,10 @@ public final class Share {
                     if (kind.equals("off") && d.doorPort() >= 0) { d.closeDoor(); Crews.log(store, "share", "the door is closed", 0); }
                     if (kind.equals("cloudflare") && (tunnel == null || !tunnel.alive())) { if (tunnel != null) tunnel.stop(); tunnel = new Tunnel(store, d.doorPort()); tunnel.start(); }
                     if (!kind.equals("cloudflare") && tunnel != null) { tunnel.stop(); tunnel = null; }
+                    // the phone door, beside the shared door and never instead of it: its own setting, its own port (researchzosho phone)
+                    String phone = PhoneDoor.kind();
+                    if (!phone.equals("off") && d.phoneDoorPort() < 0) { d.openPhoneDoor(PhoneDoor.configuredPort()); Crews.log(store, "phone", "the phone door is open at 127.0.0.1:" + d.phoneDoorPort() + " (" + phone + ")", 0); }
+                    if (phone.equals("off") && d.phoneDoorPort() >= 0) { d.closePhoneDoor(); Crews.log(store, "phone", "the phone door is closed; the paired phones stay paired", 0); }
                     Thread.sleep(pollMs);
                 } catch (InterruptedException e) {
                     if (tunnel != null) tunnel.stop();

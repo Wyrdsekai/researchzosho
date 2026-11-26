@@ -48,7 +48,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class SearchStartsTheEmbeddingsServerTest {
     static final ObjectMapper M = new ObjectMapper();
-    static final String QUESTION = "plucked keyboard instrument", BY_WORDS = "Searched by words this time: search by meaning is starting.";
+    static final String QUESTION = "plucked keyboard instrument", BY_WORDS = "Searched by words this time: search by meaning is starting.",
+            NO_ANSWER = "Searched by words this time: search by meaning did not answer.";
     final Searx.Runner realDocker = Searx.runner;
     final Map<String, String> realContainers = ModelsAwake.CONTAINERS;
     final List<HttpServer> servers = new ArrayList<>();
@@ -220,17 +221,20 @@ class SearchStartsTheEmbeddingsServerTest {
         c.held = false;
         until(() -> !ModelsAwake.starting(c.at()), "its start ends");
         ran.clear();
-        // one under llama-swap, at another port of this machine, loads by the request itself; it is not answering here
+        // one under llama-swap, at another port of this machine, loads by the request itself; it is not answering here (its container
+        // could not start: a network it cannot have, a card that is gone): the search goes by words and says so, never in silence
         int closed; try (ServerSocket s = new ServerSocket(0)) { closed = s.getLocalPort(); }
         Config.provide(Map.of("RESEARCHZOSHO_EMBED", "http://127.0.0.1:" + closed));
         ObjectNode swap = search(p);
-        assertTrue(swap.path("hits").isEmpty() && !swap.has("note"), swap.toString());
+        assertTrue(swap.path("hits").isEmpty(), swap.toString());
+        assertEquals(NO_ANSWER, swap.path("note").asText(), swap.toString());
         // one on another machine: its helpers front wakes its own
         LookupsSeen.watch(h -> h.equals("homebox"));
         try {
             Config.provide(Map.of("RESEARCHZOSHO_EMBED", "http://homebox:8217/embed"));
             ObjectNode remote = search(p);
-            assertTrue(remote.path("hits").isEmpty() && !remote.has("note"), remote.toString());
+            assertTrue(remote.path("hits").isEmpty(), remote.toString());
+            assertEquals(NO_ANSWER, remote.path("note").asText(), remote.toString());
         } finally { LookupsSeen.seen(); }
         assertTrue(ran.isEmpty(), "no docker call for either: " + ran);
     }

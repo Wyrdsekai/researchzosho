@@ -251,10 +251,12 @@ public final class OutsideServices {
                     try { r = HTTP.apply(new Req("GET", WebSearchTool.BRAVE_API.get("search") + "?q=researchzosho&count=1", Map.of("X-Subscription-Token", k, "Accept", "application/json"), null)); }
                     finally { SearchTally.settle(WebSearchTool.BRAVE, ok(r), 0, 0); }
                     if (ok(r)) {
-                        String rem = r.headers().getOrDefault("x-ratelimit-remaining", ""), lim = r.headers().getOrDefault("x-ratelimit-limit", "");
-                        String[] rs = rem.split(","), ls = lim.split(",");
-                        if (rs.length > 1 && ls.length > 1 && !ls[1].strip().equals("0")) return new Result(s.name(), true, "accepted, " + rs[1].strip() + " of " + ls[1].strip() + " calls left this month", at);
-                        if (ls.length > 1) return new Result(s.name(), true, "accepted; this plan counts in dollars, not calls ($5 of free calls a month, then $5 per 1,000), and allows " + ls[0].strip() + " calls a second", at);   // the headers' monthly figure is 0 on the credit plans
+                        // the headers' figures read as numbers and nothing else: the sentence is read back to the chat's model, so no word of
+                        // another program's goes into it
+                        String[] rs = r.headers().getOrDefault("x-ratelimit-remaining", "").split(","), ls = r.headers().getOrDefault("x-ratelimit-limit", "").split(",");
+                        Long left = rs.length > 1 ? count(rs[1]) : null, month = ls.length > 1 ? count(ls[1]) : null, second = count(ls[0]);
+                        if (left != null && month != null && month != 0) return new Result(s.name(), true, "accepted, " + left + " of " + month + " calls left this month", at);
+                        if (month != null && month == 0 && second != null) return new Result(s.name(), true, "accepted; this plan counts in dollars, not calls ($5 of free calls a month, then $5 per 1,000), and allows " + second + " calls a second", at);   // the headers' monthly figure is 0 on the credit plans
                         return new Result(s.name(), true, "accepted; this service did not say what is left", at);
                     }
                     return refusedOrSilent(s, r, at);
@@ -303,7 +305,7 @@ public final class OutsideServices {
                 case "Companies House" -> {
                     String basic = Base64.getEncoder().encodeToString((k + ":").getBytes(StandardCharsets.UTF_8));
                     Res r = call(s, new Req("GET", "https://api.company-information.service.gov.uk/company/00000006", Map.of("Authorization", "Basic " + basic), null));
-                    if (ok(r)) { String rem = r.headers().getOrDefault("x-ratelimit-remain", ""), lim = r.headers().getOrDefault("x-ratelimit-limit", ""); return new Result(s.name(), true, rem.isEmpty() ? "accepted; this service did not say what is left" : "accepted, " + rem + " of " + lim + " calls left in the five-minute window", at); }
+                    if (ok(r)) { Long rem = count(r.headers().getOrDefault("x-ratelimit-remain", "")), lim = count(r.headers().getOrDefault("x-ratelimit-limit", "")); return new Result(s.name(), true, rem == null || lim == null ? "accepted; this service did not say what is left" : "accepted, " + rem + " of " + lim + " calls left in the five-minute window", at); }
                     return refusedOrSilent(s, r, at);
                 }
                 case "gBizINFO" -> { return plain(s, new Req("GET", "https://info.gbiz.go.jp/hojin/v1/hojin?name=%E6%97%A5%E6%9C%AC&limit=1", Map.of("X-hojinInfo-api-token", k), null), at); }
@@ -342,8 +344,7 @@ public final class OutsideServices {
                     Res r = call(s, new Req("GET", TavilySearchTool.BASE.get("usage"), Map.of("Authorization", "Bearer " + k), null));
                     if (ok(r)) {
                         JsonNode j = M.readTree(r.body()), acct = j.path("account"), key = j.path("key");
-                        String plan = acct.path("current_plan").asText("");
-                        if (acct.path("plan_limit").isNumber()) return new Result(s.name(), true, "accepted, " + acct.path("plan_usage").asInt() + " of " + acct.path("plan_limit").asInt() + " credits used this month" + (plan.isEmpty() ? "" : " on the " + plan + " plan"), at);
+                        if (acct.path("plan_limit").isNumber()) return new Result(s.name(), true, "accepted, " + acct.path("plan_usage").asInt() + " of " + acct.path("plan_limit").asInt() + " credits used this month", at);   // the plan's name is the service's text: left out
                         if (key.path("limit").isNumber()) return new Result(s.name(), true, "accepted, " + key.path("usage").asInt() + " of " + key.path("limit").asInt() + " credits used by this key", at);
                         return new Result(s.name(), true, "accepted; this service did not say what is left", at);
                     }
@@ -369,6 +370,12 @@ public final class OutsideServices {
         if (r.status() == 0) return new Result(s.name(), null, "the service did not answer", at);
         return new Result(s.name(), null, "the service answered " + r.status() + ", which says nothing about the key", at);
     }
+    /** A figure a service sends in a header, when it is one: digits and nothing else; null otherwise, and the sentence is said without it. */
+    static Long count(String raw) {
+        String v = raw == null ? "" : raw.strip();
+        return v.matches("\\d{1,15}") ? Long.parseLong(v) : null;
+    }
+
     static String cap(String s) { return s == null || s.isEmpty() ? "" : Character.toUpperCase(s.charAt(0)) + s.substring(1); }
     static String enc(String s) { return URLEncoder.encode(s, StandardCharsets.UTF_8); }
     static String dollars(double d) { return d >= 100 ? String.format(Locale.US, "$%,.0f", d) : String.format(Locale.US, "$%.2f", d); }

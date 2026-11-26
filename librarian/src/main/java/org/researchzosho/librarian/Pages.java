@@ -80,12 +80,19 @@ final class Pages {
 
     private Pages() { }
 
+    /** The web app's pages by their exact addresses: one list, which {@link #isPage} reads and the phone door's walk of every route reads too. */
+    static final List<String> PAGE_PATHS = List.of("/", Pages.LANG_PATH, "/keep", "/past", "/updates", "/connect", "/add", "/translate", "/search", "/ask", "/read",
+            "/subjects", "/changes", "/questions", "/dossier", "/suggest", "/inbox", "/jobs", "/research", "/help", "/sources", "/login", "/login/code", "/login/oidc",
+            "/login/oidc/callback", "/login/passkey", "/login/passkey/options", "/logout", "/join", "/account", "/account/passkey", "/account/passkey/options", "/explain",
+            "/download", Pages.FOUND_PATH, ImagesPage.PATH, "/map", "/chat", "/chat/runs", "/chat/live", "/remove", "/settings", "/owned",
+            SeeksPage.PATH, PerspectivesPage.PATH, SubmitPage.PATH, ForecastsPage.PATH, BridgesPage.PATH, LaunchPage.PATH, DbPage.PATH);
+    /** The pages whose address goes on with a name: an entry, a run, an export, a kept picture. */
+    static final List<String> PAGE_PREFIXES = List.of("/entry/", "/jobs/", "/exports/", "/images/");
+
     static boolean isPage(String path) {
-        return path.equals("/") || path.equals(LANG_PATH) || path.equals("/keep") || path.equals("/past") || path.equals("/updates") || path.equals("/connect") || path.equals("/add") || path.equals("/translate") || path.equals("/search") || path.equals("/ask") || path.startsWith("/entry/") || path.equals("/read")
-                || path.equals("/subjects") || path.equals("/changes") || path.equals("/questions") || path.equals("/dossier") || path.equals("/suggest") || path.equals("/inbox") || path.equals("/jobs") || path.startsWith("/jobs/")
-                || path.equals("/research") || path.equals("/help") || path.equals("/sources") || path.equals("/login") || path.equals("/login/code") || path.equals("/login/oidc") || path.equals("/login/oidc/callback") || path.equals("/login/passkey") || path.equals("/login/passkey/options") || path.equals("/logout") || path.equals("/join") || path.equals("/account") || path.equals("/account/passkey") || path.equals("/account/passkey/options") || path.equals("/explain") || path.equals("/download") || path.startsWith("/exports/") || path.startsWith("/images/") || path.equals(FOUND_PATH) || path.equals(ImagesPage.PATH) || path.equals("/map") || path.equals("/chat") || path.equals("/chat/runs") || path.equals("/chat/live") || path.equals("/remove") || path.equals("/settings") || path.equals("/owned")
-                || path.equals(SeeksPage.PATH) || path.equals(PerspectivesPage.PATH) || path.equals(SubmitPage.PATH) || path.equals(ForecastsPage.PATH) || path.equals(BridgesPage.PATH) || path.equals(LaunchPage.PATH) || path.equals(DbPage.PATH)
-                || Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
+        if (PAGE_PATHS.contains(path)) return true;
+        for (String p : PAGE_PREFIXES) if (path.startsWith(p)) return true;
+        return Profiles.known().stream().anyMatch(p -> p.pagePaths().contains(path));   // a field's own pages
     }
 
     /** A field's own page at this address, where the field is on; null when no field has one there. */
@@ -145,12 +152,17 @@ final class Pages {
                         sendJson(x, 200, M.createObjectNode().put("stopping", live != null && !live.done));
                     } else if ("POST".equals(method) && "delete".equals(form.get("op"))) redirect(x, chatDelete(store, patron, form));   // Delete… on a conversation in the list, or on the one open in the page
                     else if ("POST".equals(method) && "1".equals(form.get("page"))) {   // the Chat page's own script: the reply comes back as the page's changing part; the box to say the next thing is never sent back, so what is typed in it stays
-                        Turn turn = liveTurn(d, store, patron, form);
+                        Turn turn = liveTurn(d, store, patron, form, program(x, patron));
+                        if (d != null) d.jobs().pickUp();   // a run the turn filed starts now, not at the runner's next look
                         Librarian.Session s = turn.show() != null ? turn.show() : chatSession(store, patron, form);
                         // a command opened another conversation: the page's script goes to it, so the box to say the next thing names it
                         String open = turn.show() == null ? "" : "<span data-open-session=\"" + esc(turn.show().id) + "\" hidden></span>";
                         send(x, 200, s == null ? "<p class=\"k\">" + esc(t(CHAT_SIGN_IN)) + " <a href=\"/login\">" + t("Sign in") + "</a></p>" : chatView(store, p, patron, s, turn.note()) + open);
-                    } else if ("POST".equals(method)) { Librarian.Session next = chatPost(d, store, patron, form), was = chatSession(store, patron, form); redirect(x, next == null || was == null || next.id.equals(was.id) ? "/" : "/chat?session=" + enc(next.id)); }
+                    } else if ("POST".equals(method)) {
+                        Librarian.Session next = chatPost(d, store, patron, form, program(x, patron)), was = chatSession(store, patron, form);
+                        if (d != null) d.jobs().pickUp();   // a run the turn filed starts now, not at the runner's next look
+                        redirect(x, next == null || was == null || next.id.equals(was.id) ? "/" : "/chat?session=" + enc(next.id));
+                    }
                     else send(x, 200, chat(store, p, patron, q));
                 }
                 case "/read" -> send(x, 200, read(store, p, patron, q));
@@ -219,7 +231,11 @@ final class Pages {
                 case "/download" -> download(x, store, patron, q);
                 case "/translate" -> {   // a document of the person's own translated: the file, the language, the format and the tier, filed as a job
                     Patrons.check(store, patron, Patrons.Level.write);
-                    if ("POST".equals(method)) send(x, 200, page(store, patron, t("Translate"), translatePost(store, patron, form)));
+                    if ("POST".equals(method)) {
+                        String filed = translatePost(store, patron, form);
+                        if (d != null) d.jobs().pickUp();   // the translation starts now, not at the runner's next look: the page that answers shows it under way
+                        send(x, 200, page(store, patron, t("Translate"), filed));
+                    }
                     else send(x, 200, page(store, patron, t("Translate"), translateForm(store)));
                 }
                 case "/add" -> {   // a document of the person's own onto the shelves: a file from their computer, or a page by its address
@@ -282,6 +298,18 @@ final class Pages {
                         String did = form.getOrDefault("did", "").strip();
                         if (Patrons.byDid(store, did) == null) redirect(x, "/settings?note=" + URLEncoder.encode(t("{0} is not on the readers list.", did), StandardCharsets.UTF_8));
                         else send(x, 200, settings(store, p, patron, Map.of("token", Patrons.issueToken(store, did), "did", did)));
+                    }
+                    else if ("POST".equals(method) && op.equals("phone-pair")) {   // the keeper's own: held as the page itself is, before anything is made
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        Hosted.machine();
+                        if (PhoneDoor.kind().equals("off") || PhoneDoor.address().isEmpty()) redirect(x, "/settings?note=" + enc(t(PHONE_OFF)) + "#phone");
+                        else { Phones.Made m = Phones.pairingCode(form.getOrDefault("name", "")); send(x, 200, settings(store, p, patron, Map.of(), PhoneDoor.address() + "/m/pair?c=" + m.code())); }   // the code is shown once, on the page, never in an address
+                    }
+                    else if ("POST".equals(method) && op.equals("phone-remove")) {
+                        Patrons.check(store, patron, Patrons.Level.write);
+                        Hosted.machine();
+                        Phones.Phone gone = Phones.remove(form.getOrDefault("id", ""));
+                        redirect(x, "/settings?note=" + enc(gone == null ? t("No phone is called {0}.", form.getOrDefault("id", "")) : t("Removed: {0}. Its next request is not paired.", gone.name())) + "#phone");
                     }
                     else if ("POST".equals(method) && op.startsWith("reader-")) { String note = readersPost(store, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); }
                     else if ("POST".equals(method)) { String note = settingsPost(p, patron, form); redirect(x, "/settings?note=" + URLEncoder.encode(note, StandardCharsets.UTF_8)); }
@@ -2036,7 +2064,10 @@ final class Pages {
 
     /** POST /remove: the first post shows the plan with a Confirm button; the post with confirm=1 and an unspent token removes. */
     /** The settings page (0.5.5): every setting with what it is for and its value, a key only as set or not, and a form to change one. */
-    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException {
+    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException { return settings(store, p, patron, q, ""); }
+
+    /** The same, with a phone's pairing link just made ({@code phoneLink}), shown once as its QR code; never read from an address. */
+    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q, String phoneLink) throws IOException {
         if (Hosted.on(store)) return hostedSettings(store, p, patron, q, t("Settings"));
         ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
         JsonNode r = p.settings(a);
@@ -2047,7 +2078,37 @@ final class Pages {
         b.append(modelsSection(store)).append(spendSection(store));
         b.append(settingsForm(r));
         b.append(readersSection(store, patron, q));
+        b.append(phoneSection(store, phoneLink));
         return page(store, patron, t("Settings"), b.toString(), 0, null, true);
+    }
+
+    /** What the Settings page says when a phone is to be paired while the phone door is off. */
+    static final String PHONE_OFF = "The phone door is off, so a phone could not reach a pairing link. To use the library from a phone, on this machine: researchzosho phone on";
+
+    /**
+     * The Settings page's Phone section, the keeper's as the page is: where the phone door is, a button that makes a pairing code (its QR
+     * code shown once, here), and the paired phones with what each spent this month and a Remove button.
+     */
+    static String phoneSection(LibraryStore store, String phoneLink) throws IOException {
+        StringBuilder b = new StringBuilder("<h2 id=\"phone\">").append(t("Phone")).append("</h2>");
+        String k = PhoneDoor.kind(), a = PhoneDoor.address();
+        b.append("<p class=\"k\">").append(esc(k.equals("tailnet") ? t("On your tailnet at {0}.", a) : k.equals("public") ? t("Public at {0} (Tailscale Funnel).", a) : k.equals("own") ? t("Behind your own relay at {0}.", a) : t(PHONE_OFF))).append("</p>");
+        if (phoneLink != null && !phoneLink.isBlank()) {
+            b.append("<div class=\"qr\">").append(QrCode.svg(phoneLink, 5)).append("</div><p class=\"k\">").append(esc(phoneLink)).append("</p><p>")
+             .append(esc(t("Scan this with the phone's camera. The link works once, for {0} minutes.", Phones.CODE_MS / 60_000))).append("</p>");
+        }
+        if (!k.equals("off") && !a.isEmpty()) b.append("<form method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"op\" value=\"phone-pair\"><input name=\"name\" placeholder=\"")
+             .append(esc(t("Name of the phone"))).append("\" maxlength=\"40\"> <button class=\"btn\">").append(t("Pair a phone")).append("</button></form>");
+        List<Phones.Phone> all = Phones.list();
+        if (all.isEmpty()) b.append("<p class=\"k\">").append(t("No phone is paired yet.")).append("</p>");
+        else {
+            b.append("<table><tr><th>").append(t("name")).append("</th><th>").append(t("paired")).append("</th><th>").append(t("last used")).append("</th><th>").append(t("this month")).append("</th><th>").append(t("cap")).append("</th><th></th></tr>");
+            for (Phones.Phone ph : all) b.append("<tr><td>").append(esc(ph.name())).append("</td><td>").append(esc(Phones.shown(ph.paired()))).append("</td><td>").append(esc(Phones.shown(ph.used())))
+                    .append("</td><td>").append(esc(Spend.dollars(Spend.phoneMonth(store, ph.id())))).append("</td><td>").append(esc(Phones.capSaid(ph.cap(), Chrome.now())))
+                    .append("</td><td><form method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"op\" value=\"phone-remove\"><input type=\"hidden\" name=\"id\" value=\"").append(esc(ph.id())).append("\"><button class=\"btn quiet\">").append(t("Remove")).append("</button></form></td></tr>");
+            b.append("</table><p class=\"k\">").append(esc(t("A phone's cap on paid models is changed on this machine: researchzosho phone cap <name> <dollars|none>."))).append("</p>");
+        }
+        return b.toString();
     }
 
     /** The models a run may use, by name: the table on Settings and in Keep's fold. */
@@ -2923,7 +2984,7 @@ final class Pages {
     }
 
     /** /images/&lt;file&gt;: a picture kept under catalog/images/ ({@link Images}), shown in the page rather than downloaded, to anyone who may read the library. */
-    private static void imageFile(HttpExchange x, LibraryStore store, Patrons.Patron patron, String name) throws IOException {
+    static void imageFile(HttpExchange x, LibraryStore store, Patrons.Patron patron, String name) throws IOException {
         Patrons.check(store, patron, Patrons.Level.read);
         String[] in = name.startsWith("collections/") ? name.split("/", -1) : null;   // a collection's small copy: collections/<job>/<file>
         Path p = in != null ? (in.length == 3 ? Collection.file(store, in[1], in[2]) : null) : Images.kept(store, name);
@@ -3789,13 +3850,13 @@ final class Pages {
             if (firstAsk[0].startsWith(Librarian.ACT)) { for (String[] w : waiting) if (w[0].startsWith(Librarian.ACT)) { String q = Librarian.choiceQuestion(store, w); if (!above.contains(q)) b.append("<p>").append(esc(q)).append("</p>"); } }
             else { String q = Librarian.choiceQuestion(store, firstAsk); if (!above.contains(q)) b.append("<p>").append(esc(q)).append("</p>"); }
             b.append("<div class=\"opts\">");
-            for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(Librarian.labelSaid(l))).append("</button></form> ");   // the name as the person reads it; the value posted is the name the answer is read by
+            for (String l : Librarian.choiceLabels(store, firstAsk)) b.append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"" + PICK + "\" value=\"1\"><input type=\"hidden\" name=\"say\" value=\"").append(esc(l)).append("\"><button class=\"btn opt\">").append(esc(Librarian.labelSaid(l))).append("</button></form> ");   // the name as the person reads it; the value posted is the name the answer is read by
             b.append("<span class=\"k3\">").append(t("or say which in your own words. No answer within {0} minutes counts as none.", Librarian.OFFER_MINUTES)).append("</span></div></div>");
         } else if (!waiting.isEmpty()) {
             // the Librarian asked a question that ends in (y/N) and still waits: two buttons answer it; with no answer the run starts as it was filed
             b.append("<div class=\"ask\"><p>").append(t("The Librarian asked a question and waits for an answer.")).append("</p><div class=\"opts\">")
-             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"y\"><button class=\"btn primary\">").append(t("Yes")).append("</button></form> ")
-             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"say\" value=\"n\"><button class=\"btn quiet\">").append(t("No")).append("</button></form>")
+             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"" + PICK + "\" value=\"1\"><input type=\"hidden\" name=\"say\" value=\"y\"><button class=\"btn primary\">").append(t("Yes")).append("</button></form> ")
+             .append("<form class=\"inline page-say\" method=\"post\" action=\"/chat\"><input type=\"hidden\" name=\"session\" value=\"").append(esc(s.id)).append("\"><input type=\"hidden\" name=\"" + PICK + "\" value=\"1\"><input type=\"hidden\" name=\"say\" value=\"n\"><button class=\"btn quiet\">").append(t("No")).append("</button></form>")
              .append("<span class=\"k3\">").append(t("No answer within {0} minutes counts as no.", Librarian.OFFER_MINUTES)).append("</span></div></div>");
         }
         return b.append("</div>").toString();
@@ -3832,9 +3893,14 @@ final class Pages {
     /** What a turn from the page's script leaves for the page: the note under the latest turn ("" when the turn ended well), and the conversation to show, when a command opened another. */
     record Turn(String note, Librarian.Session show) { }
 
-    static Turn liveTurn(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+    static Turn liveTurn(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException { return liveTurn(d, store, patron, form, false); }
+
+    static Turn liveTurn(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form, boolean program) throws IOException { return liveTurn(d, store, patron, form, program, false); }
+
+    /** The same; {@code phone}: the turn comes through the phone door, where the chat's own commands are not taken ({@link PhoneRules}). */
+    static Turn liveTurn(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form, boolean program, boolean phone) throws IOException {
         Librarian.Session s = chatSession(store, patron, form);
-        if (s == null) { chatPost(d, store, patron, form); return new Turn("", null); }
+        if (s == null) { chatPost(d, store, patron, form, program, phone); return new Turn("", null); }
         long now = System.currentTimeMillis();
         LIVE.entrySet().removeIf(e -> e.getValue().done && now - e.getValue().since > 600_000);   // an hour's worth would be plenty; ten minutes is
         Live live = new Live();
@@ -3843,7 +3909,7 @@ final class Pages {
         try {
             Stopping.within(() -> live.stop, () -> {
                 DriveClient.streamHere(live::add);
-                try { Librarian.Session next = chatPost(d, store, patron, form); if (next != null && !next.id.equals(s.id)) show[0] = next; } catch (IOException e) { throw new UncheckedIOException(e); } finally { DriveClient.streamHere(null); }
+                try { Librarian.Session next = chatPost(d, store, patron, form, program, phone); if (next != null && !next.id.equals(s.id)) show[0] = next; } catch (IOException e) { throw new UncheckedIOException(e); } finally { DriveClient.streamHere(null); }
                 return null;
             });
             return new Turn("", show[0]);
@@ -4257,8 +4323,33 @@ final class Pages {
      * itself (a command, a field's line) goes through {@link ChatCommands}, the same path as the terminal's. Returns the conversation the
      * page shows next: the same one, or the one {@code /new} or {@code /resume} opened; null when nothing was said.
      */
-    static Librarian.Session chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException {
+    static Librarian.Session chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form) throws IOException { return chatPost(d, store, patron, form, false); }
+
+    /**
+     * Whether a request to the chat came from a program rather than the person at the page: it carries a key or a token (a browser never
+     * adds one on its own), or an account service vouches for it as a key's. A program's words are never read for the person's go-ahead.
+     */
+    static boolean program(HttpExchange x, Patrons.Patron patron) {
+        return x.getRequestHeaders().getFirst("Authorization") != null || (patron != null && (Patrons.KEY.equals(patron.runtime()) || Patrons.KEY_READ.equals(patron.runtime())));
+    }
+
+    /** The page's buttons (yes, no, a named choice) post this beside their answer: their words are the page's, never typed, and give no go-ahead. */
+    static final String PICK = "pick";
+
+    /**
+     * The same, {@code program} saying the post came from a program ({@link #program}). What the person typed in the box, before the files'
+     * sentences are joined to it, is handed to the chat as theirs, for their go-ahead ({@link GoAhead}); a program's words and a button's are not.
+     */
+    static Librarian.Session chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form, boolean program) throws IOException { return chatPost(d, store, patron, form, program, false); }
+
+    /**
+     * The same; {@code phone}: a turn through the phone door. There the chat's own commands are not taken: {@code /go} and a request is the
+     * person's go-ahead as everywhere, {@code /go} alone says how it is used, and every other line that begins with "/" gets the phone's
+     * one sentence ({@link PhoneRules#SAID}); a field's line is never offered the words.
+     */
+    static Librarian.Session chatPost(LibrarianDaemon d, LibraryStore store, Patrons.Patron patron, Map<String, String> form, boolean program, boolean phone) throws IOException {
         String words = form.getOrDefault("say", "").strip();
+        String typed = program || form.containsKey(PICK) ? null : words;
         if (words.isEmpty() && form.getOrDefault("file.path", "").isBlank()) return null;
         Patrons.check(store, patron, Patrons.Level.read);
         Librarian.Session chosen = chatSession(store, patron, form);
@@ -4276,10 +4367,18 @@ final class Pages {
             @Override public String open() throws IOException { opened[0] = Librarian.Session.open(store, patron); return opened[0].id; }
             @Override public Librarian.Session resume(String id) throws IOException { Librarian.Session sx = Librarian.Session.resume(store, id, patron); if (sx != null) opened[0] = sx; return sx; }
         };
-        String answer = ChatCommands.reply(store, patron, "web:" + s.id, words, !Librarian.stillWaiting(store, s).isEmpty(), front);
+        String answer = phone ? phoneCommand(words) : ChatCommands.reply(store, patron, "web:" + s.id, words, !Librarian.stillWaiting(store, s).isEmpty(), front);
         if (answer != null) { chatReplied(s.gone() && opened[0] != null ? opened[0] : s, words, answer); return opened[0] != null ? opened[0] : s; }   // /delete of this conversation: the exchange goes into the fresh one the page goes to
-        new Librarian(store, d.chatDrive(s), patron, s).say(words);
+        new Librarian(store, d.chatDrive(s), patron, s).say(words, typed);
         return s;
+    }
+
+    /** A line from the phone the library answers itself: a command that is not /go and a request; null for the model's words. */
+    static String phoneCommand(String words) {
+        if (!words.startsWith("/")) return null;
+        String first = words.split("\\s+", 2)[0];
+        if (!first.equalsIgnoreCase(GoAhead.SLASH)) return PhoneRules.said(null);
+        return words.strip().length() == first.length() ? t(ChatCommands.GO_USAGE) : null;
     }
 
     /** Paragraphs from the Librarian's plain text, ids linked. */
@@ -4467,15 +4566,28 @@ final class Pages {
             + "if(v==='system'){document.documentElement.removeAttribute('data-theme');try{localStorage.removeItem('rz.theme')}catch(e){}}"
             + "else{document.documentElement.setAttribute('data-theme',v);try{localStorage.setItem('rz.theme',v)}catch(e){}}mark(v)})})();";
 
+    /** The brand's palette by day: cream, plum and teal. One place for the web app's stylesheet and the phone page's ({@link PhonePage#CSS}). */
+    static final String DAY = "--paper:#faf3ea;--paper-2:#f2e8da;--paper-3:#e8dcc9;--ink:#2d1436;--ink-2:#574866;--ink-3:#6f6180;--rule:#e4d9cb;--rule-2:#cbbcae;"
+            + "--accent:#1a6b75;--on-accent:#ffffff;--accept:#2a6f3f;--dispute:#b03a2b;--wait:#7d5f16;--run:#3b5fa8";
+    /** The brand's palette by dark: night, plum and lavender. */
+    static final String NIGHT = "--paper:#16121c;--paper-2:#2a1745;--paper-3:#35215a;--ink:#e8dcf2;--ink-2:#bcaccb;--ink-3:#9688a8;--rule:#322744;--rule-2:#4b3b66;"
+            + "--accent:#c08cf0;--on-accent:#16121c;--accept:#7fc48f;--dispute:#ef8b78;--wait:#d8b45a;--run:#8fb0ec";
+
+    /** One colour of a palette by its token's name ({@code --paper}), for the places a colour must be written out (a page's theme-color). */
+    static String colour(String palette, String token) {
+        for (String d : palette.split(";")) if (d.startsWith(token + ":")) return d.substring(token.length() + 1);
+        throw new IllegalArgumentException(token);
+    }
+
     /**
      * The stylesheet, on every page. The brand's palette: cream, plum and teal by day, night, plum and lavender by dark; light unless
      * the computer or the switch says dark; every colour a token on :root, the dark ones under the computer's setting and under the
      * switch's. The old six names stay as aliases for the pages that style a thing of their own (the map, a dossier's columns).
      */
-    static final String CSS = """
-            :root{color-scheme:light;--paper:#faf3ea;--paper-2:#f2e8da;--paper-3:#e8dcc9;--ink:#2d1436;--ink-2:#574866;--ink-3:#6f6180;--rule:#e4d9cb;--rule-2:#cbbcae;--accent:#1a6b75;--on-accent:#ffffff;--accept:#2a6f3f;--dispute:#b03a2b;--wait:#7d5f16;--run:#3b5fa8;--serif:Georgia,'Noto Serif',serif;--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;--sans:system-ui,-apple-system,'Segoe UI',sans-serif;--col:44em;--strip:17em;--bg:var(--paper);--card:var(--paper-2);--line:var(--rule);--k:var(--ink-2)}
-            @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;--paper:#16121c;--paper-2:#2a1745;--paper-3:#35215a;--ink:#e8dcf2;--ink-2:#bcaccb;--ink-3:#9688a8;--rule:#322744;--rule-2:#4b3b66;--accent:#c08cf0;--on-accent:#16121c;--accept:#7fc48f;--dispute:#ef8b78;--wait:#d8b45a;--run:#8fb0ec}}
-            :root[data-theme=dark]{color-scheme:dark;--paper:#16121c;--paper-2:#2a1745;--paper-3:#35215a;--ink:#e8dcf2;--ink-2:#bcaccb;--ink-3:#9688a8;--rule:#322744;--rule-2:#4b3b66;--accent:#c08cf0;--on-accent:#16121c;--accept:#7fc48f;--dispute:#ef8b78;--wait:#d8b45a;--run:#8fb0ec}
+    static final String CSS = ":root{color-scheme:light;" + DAY + ";--serif:Georgia,'Noto Serif',serif;--mono:ui-monospace,'SF Mono',Menlo,Consolas,monospace;--sans:system-ui,-apple-system,'Segoe UI',sans-serif;--col:44em;--strip:17em;--bg:var(--paper);--card:var(--paper-2);--line:var(--rule);--k:var(--ink-2)}\n"
+            + "@media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark;" + NIGHT + "}}\n"
+            + ":root[data-theme=dark]{color-scheme:dark;" + NIGHT + "}\n"
+            + """
             *{box-sizing:border-box}
             body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.55 var(--serif);-webkit-font-smoothing:antialiased}
             a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}

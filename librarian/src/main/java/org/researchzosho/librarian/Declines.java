@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 import org.researchzosho.drive.DeclineJudge;
+import org.researchzosho.drive.DriveClient;
 import org.researchzosho.drive.Declined;
 
 /**
@@ -127,16 +128,18 @@ public final class Declines {
             }
             @Override public String classify(ArrayNode messages, int maxTokens) {
                 String out;
+                DriveClient.forgetClassify();
                 try { out = d.classify(messages, maxTokens); }
                 catch (Declined x) { throw said(x.seat(seat)); }
-                if (out != null && !out.isBlank() && asksForJson(messages) && !hasJson(out) && DeclineJudge.soundsLikeDecline(out)) read(messages, out);
+                if (out != null && !out.isBlank() && answered() && asksForJson(messages) && !hasJson(out) && DeclineJudge.soundsLikeDecline(out)) read(messages, out);
                 return out;
             }
             @Override public String prose(ArrayNode messages, int maxTokens) {
                 String out;
+                DriveClient.forgetClassify();
                 try { out = d.prose(messages, maxTokens); }
                 catch (Declined x) { throw said(x.seat(seat)); }
-                if (out != null && !out.isBlank() && DeclineJudge.soundsLikeDecline(out)) read(messages, out);
+                if (out != null && !out.isBlank() && answered() && DeclineJudge.soundsLikeDecline(out)) read(messages, out);
                 return out;
             }
             @Override public int contextWindow() { return d.contextWindow(); }
@@ -173,6 +176,14 @@ public final class Declines {
             }
         };
     }
+
+    /**
+     * Whether the text a quick ask just returned on this thread is the model's whole answer, and so may be read for a decline: not its
+     * thinking in place of an answer it never gave, and not an answer cut off at its token allowance (the model was still writing; a decline
+     * is a sentence or two). A cite-check cut at {@code {"verdict":"cannot-}} after the thinking took the room was read as a decline on
+     * 2026-11-24 and the check of the rest of the report stopped. A seat over another kind of drive says neither, and its text is read.
+     */
+    static boolean answered() { return !DriveClient.lastClassifyThinking() && !DriveClient.lastClassifyCut(); }
 
     /** The words of a reply worth asking the judge about, or null when the reply is not suspect. */
     static String suspect(ObjectNode reply, ArrayNode tools, String toolChoice) { return suspect(reply, tools, toolChoice, null); }

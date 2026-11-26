@@ -248,6 +248,14 @@ public final class Outbound {
 
     /** A test's stand-in for a host of the program's list: {@code 127.0.0.1:PORT}. Nothing in the program calls this. */
     public static void standIn(String hostAndPort) { if (hostAndPort != null) STAND_INS.add(hostAndPort.strip().toLowerCase(Locale.ROOT)); }
+
+    /**
+     * Forgets the hosts said to be the owner's ({@link #owners}) and the tests' stand-ins: the suite calls it before each test. Both are
+     * kept for the process, by host and port, and a test's stub server on the loopback is said to be one; a later test of the same
+     * process whose own server was given the same port by the system then found that port the owner's, and the guard let through a
+     * request it was written to refuse (2026-11-25, OutboundTest). Nothing in the program calls this.
+     */
+    public static void forgetSaid() { OWNERS.clear(); STAND_INS.clear(); }
     public static void noStandIns() { STAND_INS.clear(); }
 
     private static final ThreadLocal<Call> CURRENT = new ThreadLocal<>();

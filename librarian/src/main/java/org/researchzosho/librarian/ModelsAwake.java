@@ -79,12 +79,16 @@ final class ModelsAwake {
      * The containers of this machine the idle rule looks after, by name, with where they answer; LaBSE's is
      * {@link TranslationScores#LOCAL_LABSE}. A test points them at stand-ins; the test suite points them at ports where nothing listens.
      */
-    static volatile Map<String, String> CONTAINERS = machine();
+    static volatile Map<String, String> CONTAINERS = null;
 
-    /** The containers of this machine where they answer: LaBSE at {@link TranslationScores#LOCAL_LABSE}, the embeddings server at its port. */
-    static Map<String, String> machine() { return Map.of(TranslationScores.LABSE_CONTAINER, TranslationScores.LOCAL_LABSE, Embed.CONTAINER, "http://127.0.0.1:" + Embed.DEFAULT_PORT); }
+    /**
+     * The containers of this machine where they answer: LaBSE at {@link TranslationScores#LOCAL_LABSE}, the embeddings server where its
+     * start wrote down that it answers ({@link Embed#address}: its own address on the network with no way out since 0.8.3, else its port).
+     */
+    static Map<String, String> machine() { return Map.of(TranslationScores.LABSE_CONTAINER, TranslationScores.LOCAL_LABSE, Embed.CONTAINER, Embed.address()); }
 
-    static Map<String, String> containers() { return CONTAINERS; }
+    /** {@link #CONTAINERS} when a test set them; else the machine's, read again each time, as the embeddings server's address can move. */
+    static Map<String, String> containers() { Map<String, String> set = CONTAINERS; return set != null ? set : machine(); }
 
     /** The container a model server's address is, when it is one of this machine's containers; null otherwise. */
     static String containerAt(String url) {

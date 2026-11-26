@@ -184,6 +184,9 @@ public final class LibrarianCli {
               share [status | off | --public | --cloudflare [--mail <address…>] | --door N]
                                            reach the library from outside your home, behind a relay it dials out to: Tailscale on your tailnet
                                            (reachable now; --tailscale for an address that lasts, --tailnet for your tailnet only), or a Cloudflare quick tunnel. Free; nothing is installed for you
+              phone [status | on [--public] | on --own-relay --address URL | off | pair [name] [--cap $|none] | list | cap <name> <$|none> | remove <name>]
+                                           the library from your phone: a small page with Ask, Runs and Read on port 8443 of this machine's Tailscale
+                                           address (your tailnet, or public with --public) and nothing else of the library; a phone gets in by the QR code pair shows
               records [list | test <source> <query…> | key <source> <key> | login <source>]
                                            the collections of records a research run searches by name: newspapers, patents, scanned books, archive catalogues. test searches one now
               patents [pool <classes…> --from <year> --to <year> --feature "<words>" … | abstracts [key] | claims [key | numbers…]]
@@ -235,7 +238,7 @@ public final class LibrarianCli {
               model install|status|use <address> [<model>]|switch [<name>]|prune|stop|uninstall
                                            the model on this machine, on demand: it starts when a research run needs it and stops after 20 idle
                                            minutes (install [--file <gguf>] [--gpu <index>] [--idle-minutes N] [--share])
-              embed [status|start [port] [--cpu]|stop|test]   the embeddings server (search by meaning): what is configured. Text Embeddings Inference through Docker
+              embed [status|start [port] [--cpu] [--again]|stop|test]   the embeddings server (search by meaning): what is configured. Text Embeddings Inference through Docker
               explain <id> [--beginner|--familiar|--written] [--fresh]
                                            an entry explained at a reading level (Simple, Familiar or Original). From the library only, checked
               explain "<term>" [--in <id>] [--now|--full]
@@ -301,6 +304,9 @@ public final class LibrarianCli {
               service stop [--stop-jobs] · service start · service status
                                            stop the service (or a serve running in a terminal, by its pid record) and start it again; each says
                                            how it stands after. A running job resumes at the next start; --stop-jobs stops it for good
+              home move [--dry-run|--back]  an install that kept its files in CodeZaiku's folder (~/.codezaiku) moves them to its own,
+                                           ~/.researchzosho; it does this by itself at its next start. --dry-run says what it would move;
+                                           --back puts them where they were
               helpers install [--on <user@host>] [--gpu <index> | --cpu] [--beside-port N] [--separate | --move] [--no-cpu-fallback] [--only metricx,labse,…] [--yes]
                                            the heavy helpers (MetricX-24, LaBSE, the likeness helper, speech-to-text, embeddings) set up and served
                                            from the machine with the card, as a user service on port 8217 with a secret; --on does it over ssh from
@@ -685,7 +691,7 @@ public final class LibrarianCli {
                     case "--door" -> door = flagInt(args, i++);   // the shared door, on loopback, for a relay only (researchzosho share)
                     case "--crew-hour" -> { hour = flagInt(args, i++); if (hour > 23) { System.err.println("--crew-hour takes 0 to 23 (the hour nightly maintenance runs), or a negative number to turn it off"); return 2; } }
                     case "--no-crews" -> hour = -1;
-                    case "--log" -> log = Path.of(flagValue(args, i++));
+                    case "--log" -> log = HomeMove.relocated(Path.of(flagValue(args, i++)));   // a unit written before the move still names the old folder
                     default -> { System.err.println("unknown option " + args[i]); return 2; }
                 }
             }
@@ -734,6 +740,7 @@ public final class LibrarianCli {
         if (d.doorPort() >= 0) System.out.println("  shared door: http://127.0.0.1:" + d.doorPort() + "  (for a relay only; a relay's identity headers are trusted here and nowhere else)");
         Share.supervise(store, d).start();   // opens the door and runs the tunnel while `share` is on; nothing while it is off
         System.out.println("  " + Share.statusLine());
+        System.out.println("  " + PhoneCli.statusLine());
         d.join();
         String gaveUp = d.gaveUpLine();   // another process holds the library: said in one line, and an end that is not a success
         if (gaveUp != null) { System.err.println(gaveUp); return GAVE_UP; }
@@ -962,8 +969,12 @@ public final class LibrarianCli {
                             String e = Config.get("RESEARCHZOSHO_EMBED");
                             boolean off = e == null || e.isBlank() || e.equalsIgnoreCase("off") || e.equalsIgnoreCase("none");
                             System.out.println("  embeddings server: " + (off ? "none (search is by words only)" : e + " " + (Embed.answers(e) ? "answers" : "does not answer")));
-                            System.out.println("  docker container " + Embed.CONTAINER + ": " + Embed.state() + (Searx.haveDocker() ? "; image for this machine: " + Embed.tag() : " (no docker here)"));
-                            System.out.println("  researchzosho embed start [port] [--cpu] starts one with Docker (" + Embed.MODEL + "); embed test measures it.");
+                            String made = Embed.state();
+                            System.out.println("  docker container " + Embed.CONTAINER + ": " + made + (Searx.haveDocker() ? "; image for this machine: " + Embed.tag() : " (no docker here)"));
+                            if (!made.equals("absent")) System.out.println("  network: " + (Embed.address().startsWith("http://127.0.0.1:")
+                                    ? "it publishes a port of this machine and can reach the network (made before 0.8.3, or with no way out not holding); researchzosho embed start --again makes it again with no way out"
+                                    : "no way out: it is on " + ModelServer.NETWORK + ", a Docker network with no route to anything but this machine, at " + Embed.address()));
+                            System.out.println("  researchzosho embed start [port] [--cpu] starts one with Docker (" + Embed.MODEL + "); --again makes it again; embed test measures it.");
                             return 0;
                         }
                         case "start" -> {
@@ -976,10 +987,11 @@ public final class LibrarianCli {
                                 return 1;
                             }
                             System.out.print("starting the embeddings server through docker (the model downloads on the first start)… "); System.out.flush();
-                            String r = Embed.start(port, cpu);
+                            String r = Arrays.asList(args).contains("--again") ? Embed.again(port, cpu) : Embed.start(port, cpu);
                             if (r.startsWith("!")) { System.out.println("no: " + r.substring(1)); return 1; }
                             Config.set("RESEARCHZOSHO_EMBED", r);
                             SearchByMeaning.reprobe();
+                            if (!Embed.note.isEmpty()) System.out.println(Embed.note);
                             System.out.println("it answers at " + r + " (saved as RESEARCHZOSHO_EMBED; the container restarts with the machine). Search by meaning is on; researchzosho rebuild indexes the library with it.");
                             return 0;
                         }
@@ -1474,6 +1486,11 @@ public final class LibrarianCli {
                 }
                 case "share" -> {
                     Share.Outcome o = Share.share(store, Arrays.asList(args).subList(2, args.length));
+                    System.out.println(o.text());
+                    return o.code();
+                }
+                case "phone" -> {   // the library from a phone: the phone door, pairing by a QR code, the paired phones (2026-11-25)
+                    Share.Outcome o = PhoneCli.run(store, Arrays.asList(args).subList(2, args.length), System.out);
                     System.out.println(o.text());
                     return o.code();
                 }
@@ -2477,7 +2494,7 @@ public final class LibrarianCli {
             System.out.print("  …"); System.out.flush();
             String reply;
             int before = current[0].size();
-            try { reply = libH[0].say(line); } catch (Exception e) { reply = Chrome.now().t("(the model did not answer: {0})", e.getMessage()); }
+            try { reply = libH[0].say(line, line); } catch (Exception e) { reply = Chrome.now().t("(the model did not answer: {0})", e.getMessage()); }
             // the library's own addresses in it as a terminal opens them, and what it shows under the reply: the gallery and each picture by its full address
             reply = ChatShown.forTerminal(reply, ChatShown.address(store));
             for (ObjectNode m : current[0].repliesSince(before)) { String under = ChatShown.text(m.path("shown"), ChatShown.address(store), Chrome.now(), ChatShown.galleryIn(m.path("content").asText(""), m.path("shown"))); if (!under.isEmpty()) reply = reply + "\n\n" + under; }

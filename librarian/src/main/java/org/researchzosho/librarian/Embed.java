@@ -17,6 +17,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Predicate;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -97,6 +100,11 @@ public final class Embed {
         return "/data/" + FOLDER;
     }
 
+    /** Whether the model this image tag serves is on this machine already, so that a start downloads nothing: llama.cpp's file, or Text Embeddings Inference's folder. */
+    static boolean onDisk(String tag) {
+        return tag.startsWith("llama-") ? Files.isRegularFile(ModelServer.modelsDir().resolve(ModelServer.EMBED_FILE)) : modelFolder() != null;
+    }
+
     /** Whether this machine can embed on a GPU: an NVIDIA card the docker daemon can hand to a container, or an AMD or Intel chip. */
     public static boolean gpu() { return !tag().startsWith("cpu"); }
 
@@ -161,18 +169,28 @@ public final class Embed {
      * model from there, read-only, and asks nobody. Null starts it by the model's name: it fetches the model on its first start, and
      * asks huggingface.co for the files at every start.
      */
-    static List<String> runCommand(int port, String tag, String folder) {
+    static List<String> runCommand(int port, String tag, String folder) { return runCommand(port, tag, folder, null); }
+
+    /**
+     * {@code at}: the container's fixed address on this program's network with no way out ({@link ModelServer#NETWORK}), where this
+     * machine reaches it in place of a published port, with the right to write raw packets dropped; null publishes the port on the
+     * loopback, as every release before 0.8.3 did.
+     */
+    static List<String> runCommand(int port, String tag, String folder, String at) {
         if (tag.startsWith("llama-")) {
             String build = tag.substring("llama-".length());
             List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped"));
             if (build.equals("rocm")) cmd.addAll(List.of("--device", "/dev/kfd"));
-            cmd.addAll(List.of("--device", "/dev/dri", "--group-add", "video", "-p", "127.0.0.1:" + port + ":8080", "-v", ModelServer.modelsDir().toAbsolutePath() + ":/m",
+            cmd.addAll(List.of("--device", "/dev/dri", "--group-add", "video"));
+            cmd.addAll(reach(port, 8080, at));
+            cmd.addAll(List.of("-v", ModelServer.modelsDir().toAbsolutePath() + ":/m",
                     "ghcr.io/ggml-org/llama.cpp:server-" + build, "-m", "/m/" + ModelServer.EMBED_FILE, "--host", "0.0.0.0", "--port", "8080",
                     "--embedding", "--pooling", "last", "-c", "8192", "-b", "8192", "-ub", "8192", "-ngl", "99"));
             return cmd;
         }
-        List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
-                "-p", "127.0.0.1:" + port + ":80", "-v", dir().toAbsolutePath() + (folder == null ? ":/data" : ":/data:ro")));
+        List<String> cmd = new ArrayList<>(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped"));
+        cmd.addAll(reach(port, 80, at));
+        cmd.addAll(List.of("-v", dir().toAbsolutePath() + (folder == null ? ":/data" : ":/data:ro")));
         if (!tag.startsWith("cpu")) { cmd.add("--gpus"); cmd.add("all"); }
         cmd.add(IMAGE + ":" + tag);
         // --auto-truncate: the model declares a 32k input limit and the server refuses a smaller batch without it (the CPU
@@ -180,6 +198,76 @@ public final class Embed {
         cmd.addAll(List.of("--model-id", folder == null ? MODEL : folder, "--pooling", "last-token", "--max-client-batch-size", "128",
                 "--max-batch-tokens", tag.startsWith("cpu") ? "2048" : "65536", "--auto-truncate"));   // the CPU backend warms up on one core: 16384 never finished, 2048 is ready in 41 s
         return cmd;
+    }
+
+    /** How this machine reaches the container: a port of the loopback published, or its fixed address on the network with no way out. */
+    private static List<String> reach(int port, int inside, String at) {
+        return at == null ? List.of("-p", "127.0.0.1:" + port + ":" + inside) : List.of("--network", ModelServer.NETWORK, "--ip", at, "--cap-drop", "NET_RAW");
+    }
+
+    /** The port the server listens on inside its container: llama.cpp's 8080, Text Embeddings Inference's 80. */
+    static int inside(String tag) { return tag.startsWith("llama-") ? 8080 : 80; }
+
+    /**
+     * The address on the network with no way out: the range's first address plus four (the range's own address is plus nothing, the
+     * gateway plus one). A model server of this program's own on the same network takes plus two for the model and plus three for the
+     * embeddings server beside it.
+     */
+    static String shutAddress(ModelServer.Shut shut) { long[] r = ModelServer.range(shut.subnet()); return ModelServer.dotted(r[0] + 4); }
+
+    /** Where the container's last start said this machine reaches it: a file of this program's home holding the address. */
+    static Path atFile() { return Config.home().resolve("embed-at"); }
+
+    /**
+     * Where this machine reaches the embeddings server {@link #start} made: the address its last start wrote down (its own address on
+     * the network with no way out, or the loopback port), else the loopback's default port, as every release before 0.8.3.
+     */
+    public static String address() {
+        try { Path f = atFile(); if (Files.isRegularFile(f)) { String a = Files.readString(f).strip().split("\\R")[0].strip(); if (a.matches("https?://[0-9.]+:\\d+")) return a; } } catch (IOException ignored) { }
+        return "http://127.0.0.1:" + DEFAULT_PORT;
+    }
+
+    /** The range of the network with no way out its last start put it on, as {@code a.b.c.d/n}; null when it publishes a port. Its requests to the library are refused ({@link ModelNetworks}). */
+    static String recordedSubnet() {
+        try {
+            Path f = atFile();
+            if (!Files.isRegularFile(f)) return null;
+            for (String l : Files.readAllLines(f)) if (l.startsWith("subnet ")) return l.substring("subnet ".length()).strip();
+        } catch (IOException ignored) { }
+        return null;
+    }
+
+    private static void record(String url, String subnet) {
+        try { Files.createDirectories(atFile().getParent()); Files.writeString(atFile(), url + "\n" + (subnet == null ? "" : "subnet " + subnet + "\n")); } catch (IOException ignored) { }
+    }
+
+    /** A test's stand-in for {@link #answers}; null asks the address. */
+    static volatile Predicate<String> ANSWERS = null;
+
+    private static boolean answer(String url) { Predicate<String> a = ANSWERS; return a != null ? a.test(url) : answers(url); }
+
+    /** What the last {@link #start} found of the way out, in a sentence; "" when it said nothing. */
+    public static volatile String note = "";
+
+    /**
+     * The arrangement proven by what it does, as `model install` proves the model server's: a container on an ordinary network reaches an
+     * outside address (the control), the server answers at its own address, and the same outside request, by the number the control
+     * reached, made inside its container, does not connect. Null when it holds; else why not, as words that follow "because".
+     */
+    static String proof(String tag, String url) {
+        try {
+            String image = tag.startsWith("llama-") ? "ghcr.io/ggml-org/llama.cpp:server-" + tag.substring("llama-".length()) : IMAGE + ":" + tag;
+            Searx.Result control = Searx.runner.run(List.of("docker", "run", "--rm", "--entrypoint", "curl", image, "-4", "-sS", "-o", "/dev/null", "-m", "15", "-A", "researchzosho.org", "-w", "%{remote_ip}", "https://huggingface.co/"));
+            Matcher m = Pattern.compile("(\\d{1,3}\\.){3}\\d{1,3}").matcher(control.out());
+            String number = null;
+            while (m.find()) number = m.group();
+            if (control.code() != 0 || number == null) return "no container on this machine reached an outside address just now, so it could not be tried (" + ModelServer.firstLine(control.out()) + ")";
+            if (!answer(url)) return "it did not answer at its address on that network";
+            Searx.Result in = Searx.runner.run(List.of("docker", "exec", CONTAINER, "curl", "-sS", "-o", "/dev/null", "-m", "8", "-k", "-A", "researchzosho.org", "https://" + number + "/"));
+            if (in.code() == 7 || in.code() == 28) return null;   // curl's own word: it could not connect, or nothing came back in time
+            if (in.code() < 0 || in.code() >= 125) return "the check could not be run inside its container (" + ModelServer.firstLine(in.out()) + ")";
+            return "an outside address answered from inside its container";
+        } catch (Exception e) { return "the check could not be run (" + e.getMessage() + ")"; }
     }
 
     /** The docker command lines this would run, for a test to read without docker. */
@@ -192,6 +280,7 @@ public final class Embed {
      */
     public static String start(int port, boolean cpu) {
         if (!Searx.haveDocker()) return "!docker is not on this machine (https://docs.docker.com/get-docker/)";
+        note = "";
         try {
             Files.createDirectories(dir());
             String tag = cpu ? "cpu-" + VERSION : tag();
@@ -206,19 +295,59 @@ public final class Embed {
                 folder = modelFolder();
                 if (folder == null) try { folder = fetchModel(); } catch (Exception e) { folder = null; }
             }
-            if (state.equals("absent")) r = Searx.runner.run(runCommand(port, tag, folder));
-            else if (state.equals("stopped")) r = Searx.runner.run(List.of("docker", "start", CONTAINER));
-            else r = new Searx.Result(0, "");
-            if (r.code() != 0) return "!docker: " + r.out().strip();
-            String url = "http://127.0.0.1:" + port;
-            for (int i = 0; i < 300; i++) {   // the first start fetches the model: minutes on a slow line
-                if (answers(url)) return url;
-                Thread.sleep(2000);
+            if (!state.equals("absent")) {   // one made already, by this release or an earlier one: started as it is, at the address its start wrote down
+                r = state.equals("stopped") ? Searx.runner.run(List.of("docker", "start", CONTAINER)) : new Searx.Result(0, "");
+                if (r.code() != 0) return "!docker: " + r.out().strip();
+                String url = Files.isRegularFile(atFile()) ? address() : "http://127.0.0.1:" + port;   // made before 0.8.3: at the port it was given
+                note = url.startsWith("http://127.0.0.1:") ? "The embeddings server publishes a port of this machine and can reach the network: it was made before 0.8.3, or with no way out not holding. researchzosho embed start --again makes it again." : "";
+                return waited(url);
             }
-            return "!the container started but no embeddings call answered at " + url + " within ten minutes (docker logs " + CONTAINER + ")";
+            // with no way out (0.8.3): on this program's network, at a fixed address, proven; else the earlier way, and said
+            String at = null, why = null, subnet = null;
+            if (ModelServer.os == ModelServer.Os.linux && !ModelServer.openAsked()) {
+                ModelServer.Made made = ModelServer.makeNetwork();
+                if (made.shut() != null) { at = shutAddress(made.shut()); subnet = made.shut().subnet(); } else why = made.why();
+            } else if (ModelServer.os == ModelServer.Os.linux) why = "the setting model_network is open";
+            r = Searx.runner.run(runCommand(port, tag, folder, at));
+            if (r.code() != 0 && at != null) { why = "Docker did not start it on that network (" + ModelServer.firstLine(r.out()) + ")"; Searx.runner.run(List.of("docker", "rm", "-f", CONTAINER)); at = null; r = Searx.runner.run(runCommand(port, tag, folder, null)); }
+            if (r.code() != 0) return "!docker: " + r.out().strip();
+            String url = at != null ? "http://" + at + ":" + inside(tag) : "http://127.0.0.1:" + port;
+            record(url, at != null ? subnet : null);
+            String up = waited(url);
+            if (up.startsWith("!") || at == null) {
+                if (why != null) note = "The embeddings server can reach the network: it could not be set up with no way out, because " + why + ".";
+                return up;
+            }
+            String failed = proof(tag, url);
+            if (failed == null) { note = "The embeddings server has no way out to the network: its container is on a Docker network with no route to anything but this machine, at " + at + ". Tried just now: it answered there, and an outside address that another container reached could not be reached from inside."; return url; }
+            // the step back: made again the earlier way, so that search by meaning works all the same, and said
+            Searx.runner.run(List.of("docker", "rm", "-f", CONTAINER));
+            r = Searx.runner.run(runCommand(port, tag, folder, null));
+            if (r.code() != 0) return "!docker: " + r.out().strip();
+            url = "http://127.0.0.1:" + port;
+            record(url, null);
+            note = "The embeddings server can reach the network: it could not be set up with no way out, because " + failed + ". It is set up the way earlier versions did.";
+            return waited(url);
         } catch (Exception e) {
             return "!" + e.getMessage();
         }
+    }
+
+    /** Made again: the container removed by its name and {@link #start} run, with no way out where that holds. */
+    public static String again(int port, boolean cpu) {
+        try { Searx.runner.run(List.of("docker", "rm", "-f", CONTAINER)); } catch (Exception e) { return "!" + e.getMessage(); }
+        return start(port, cpu);
+    }
+
+    /** How long the first answer is waited for, in two-second steps: the first start fetches the model, minutes on a slow line. */
+    static volatile int WAITS = 300;
+
+    private static String waited(String url) throws InterruptedException {
+        for (int i = 0; i < WAITS; i++) {
+            if (answer(url)) return url;
+            Thread.sleep(ANSWERS != null ? 0 : 2000);
+        }
+        return "!the container started but no embeddings call answered at " + url + " within " + Math.max(1, WAITS * 2 / 60) + " minutes (docker logs " + CONTAINER + ")";
     }
 
     public static String stop() {

@@ -622,6 +622,10 @@ Which replies the library asks about:
 - Never asked about: the write-up's closing caveats (what stayed uncertain), a section or a summary
   that cites a source or is longer than 800 characters, and a reader's closing summary after the
   reader noted facts.
+- Only the model's answer is read. A model that thinks before it answers can spend a short check's
+  room on its thinking: an answer that came back empty or cut short is asked again with room first,
+  and an answer still cut short, or thinking with no answer after it, is never taken for a decline,
+  nor read as the one-word "yes" or "no" of the question above.
 
 How sure the answer must be:
 
@@ -662,7 +666,9 @@ What happens then:
 - `researchzosho jobs <J-…>`, the run's page, the chat and `library_job` say it too, with the model
   that declined each part, and `researchzosho stats` counts the declined runs.
 - In the chat, a turn the model declined shows the same kind of statement, instead of asking the
-  model again. When the model of a tool declines, the other tools the chat asked for in the same turn
+  model again. The checks of a reply still read what the model said under the statement (a figure,
+  a licence or an entry nothing looked up is admitted under it), and no picture is added under it.
+  When the model of a tool declines, the other tools the chat asked for in the same turn
   are not run, and the reply says which. When a tool did its own part and the model declined the rest,
   the statement is added under the reply.
 - `library_absorb`, `library_meeting` and `library_check` save the text and file its questions
@@ -731,8 +737,12 @@ How it works:
   the model answers the research itself, the run stops and says why and what to set: the check
   asks with the same temperature and template settings as the research, so `RESEARCHZOSHO_TEMP=none`
   (a server that refuses a temperature) usually mends it. A model that thinks before it answers is
-  handled: an Ollama server is told not to think, and on any server a check that comes back empty
-  after thinking is asked once more with room to think, and the answer is read after the thinking.
+  handled: an Ollama server is told not to think, and on any server a check that comes back empty or
+  cut short after thinking is asked once more with room to think, and the answer is read after the
+  thinking. On llama.cpp, once the model thought on a check, the next checks ask its chat template for
+  the lowest `reasoning_effort` level the server lists for it (`none` where the template has one).
+  A level is not always a switch: when the model still thinks at that level, its checks are asked
+  with room to think from the first request, one request each instead of two.
   A check asked while you wait, when you add a page or send a question, takes at most thirty
   seconds.
 - A page, a reading list or bookmarks that you add yourself are your own choice. Only the last
@@ -910,7 +920,18 @@ researchzosho export I-0009 --docx --out ~/Desktop/statins.docx
 
 The write-up carries its own checks. A sentence whose cited source does not say what it says is marked
 `[not supported by the cited source on check]` where it stands; a number that no note or source read in
-the run states is marked `[number not in any note or source read this run: …]`. After the checks, the
+the run states is marked `[number not in any note or source read this run: …]`. A number is read the
+way each text writes it: 386,258, 386 258, 386.258 where full stops group thousands, 386'258,
+3,86,258 and 38万6258 are one number. A rounded figure counts when a note or source rounds to it at the
+place it is written to: "~386,000", "about 390,000", "over 380,000" and a plain 386,000 all count for
+386,258; "386,250" and "over 390,000" do not, and a source's rounder figure never backs a precise one.
+A figure the check cannot settle is named under **Checks** and left as the writer wrote it, never
+marked or revised: a lone 1.234 in a source that shows neither use of the full stop, or a plain
+400,000 where the source says 386,258. A figure is looked for in the notes and the sources its sentence
+cites, then in every other source read in the run: one that only another source states is named under
+**Checks** with that source (and whether the cited one was kept at all), and left as written. A figure of
+one or two digits counts there only with its unit beside it, "58%" and not a 58 about something else. A
+decade, "1850s" or "the '90s", is read as years, which the check does not check, never as seconds. After the checks, the
 writer revises each marked sentence against the evidence, and a revision replaces its sentence only
 when it passes the same check; "Revision after the checks" under the text lists what changed and what
 stands as marked. A program reads the claims as records with `library_get` and `format: "claims"`: each
@@ -1162,9 +1183,11 @@ the library's owner; a file of anyone else's goes in on the Add page.
 Whatever the model in the chat starts or writes waits for your yes. That covers starting work (a research run
 in any form, a translation, a list of items or questions sent out as runs, a check, a conversation or a meeting
 read in, a survey, a picture kept) and writing into the library (a note, a claim, a page or an address saved,
-bookmarks, a reading list, the inbox and the open questions, a purchase record forgotten), as well as the
-changes it already covered: a setting, the sharing, a model entry or a key, the sources and the saved
-searches, a group of seeks dropped, purchase records imported, and a file or a folder of this machine read in.
+bookmarks, a reading list, the inbox and the open questions, a purchase record forgotten), as well as these
+changes: a setting, the language you read reports in, the sharing, a model entry or a key
+(and a test of an entry, which asks its server), the sources and the saved searches, a group of seeks dropped,
+purchase records imported, the recall notices read now or one put away, your whole shelf or the catalogues of
+your authors read now, a dossier's dated events filed as claims, and a file or a folder of this machine read in.
 The library says under the reply what would be done, with its main argument:
 
 ```
@@ -1186,6 +1209,33 @@ site, because a page can ask the model for such a change; it is still only asked
 free: searching, reading an entry or a page, and the tools that only answer. Your own slash commands and the
 page's buttons are yours, and are not asked about. Someone who reads your library is not asked: their chat
 changes nothing. This is the chat only; a program over MCP or `/v1`, and the command line, act as before.
+
+To skip the question for one message, say so in that message: `/go` and your request, or a sentence of its own that
+says it, as the first or the last sentence: "just go", "execute now", "no confirmation needed", and the like in each
+of the chat's languages ("確認不要", "sans confirmation", "без подтверждения"; `/help` names a few). It holds for that
+message only, and the line under the reply says what was done and how to undo it:
+
+```
+> /go find out why the Kestrel Sound ferry closed
+The model files the run.
+Done without asking, as you said: start a research run: "Why did the Kestrel Sound ferry close?" To undo: stop J-0012 (its stop button among the runs on the Chat page, or researchzosho research stop J-0012).
+```
+
+A go-ahead covers what the model starts or writes for that message: a research run, a translation, pictures, a note, a
+claim, a page or a bookmark saved. A setting, the language you read reports in, the sharing, a model entry or a key, a
+source or a saved search, something dropped or forgotten, and a file or a folder of this machine go ahead only when
+your message names them: the value the setting is set to (and for on, off, a number or a choice that several settings
+share, the setting's name too; a choice only one setting has, such as APA, names that setting in any language), the
+language (in any of the chat's languages), the way of sharing, the entry's name or the key itself, the source's
+address, the question or run dropped, the file's path or its name. A name or a number counts when it stands as a word
+of its own, also written straight against Japanese, Chinese or Korean ("J-0003の調査", "停止J-0003"). What the model asks
+for after something was read in the same turn (a search, an entry, a page) is asked as before; reading the library's
+own settings, its models, its state or its help does not count as reading. With files attached
+to the message, only reading those files in goes ahead. Letting in what the library leaves out, a run's named choice
+and pausing the runner are always asked. A question asked in spite of a go-ahead says why. A sentence in quotation
+marks or on a line starting with `>` does not count, nor does one in the middle of a message, nor one that stands inside
+what would be kept (an e-mail pasted to be saved as a note that ends "Just go." is asked). A message that is only
+the phrase, while a question waits, answers it as a yes. `/go` on its own says how to use it.
 
 The chat runs only the tools on its own list. A picture at a web address in the model's words, or in a
 report's, a claim's or a run's text, is shown as a link and never loaded; the pictures the library keeps, and
@@ -2848,7 +2898,10 @@ to `http://127.0.0.1:8211`. What runs behind the proxy depends on the machine:
 - `--share` makes the proxy answer on every interface, so other machines can use this one.
 
 If the machine already has a proxy on 8211, from CodeZaiku's `model serve install` or from an earlier
-setup, it is used unchanged. Nothing is installed twice.
+setup, it is used unchanged. Nothing is installed twice. The library uses CodeZaiku's model server by its
+address and writes nothing into CodeZaiku's folder. For search by meaning it runs its own embeddings server
+(`researchzosho embed start`). `model uninstall` takes away only what the library made: the service, its files
+and its network. A file another program wrote stays, and so does the folder that holds it.
 
 Every program points at the proxy, never at a server directly. So moving the model to another machine
 means changing one address in each program's settings. Install on the machine with the memory, with
@@ -3485,6 +3538,46 @@ Read section 16 on sign-in before you do this. Do not open that address to the i
 there is no encryption on it, and tokens would travel in the clear. To reach the library from
 outside your home, use `share`, below.
 
+### Its own folder
+
+ResearchZosho keeps its files in `~/.researchzosho`: settings, logs, the helpers' folders and its model server.
+Before 0.8.3, a ResearchZosho installed on a machine that already had CodeZaiku's folder, `~/.codezaiku`, kept
+its files there and shared CodeZaiku's settings file. Such an install moves to its own folder by itself, once,
+at its next start. An update restarts the service, so for most people the move happens at the update. While
+its service runs, other commands leave the files where they are. The move then prints one paragraph that
+lists what moved and what stayed.
+
+- Its own files and folders move to `~/.researchzosho`, renamed on the same disk, so nothing is copied or
+  downloaded. CodeZaiku's files stay where they are, as do files neither program made.
+- Its settings: every setting it read in the shared file goes into its own `~/.researchzosho/config`, with
+  the value it read there, readable only by you. CodeZaiku's settings file is not changed.
+- `search-tally.json` and `openrouter-providers.json`, which both programs keep, are copied.
+- Its model server, when it had one in that folder, moves with it. Its service is pointed at the new folder
+  and started again. Where the model server there is CodeZaiku's, ResearchZosho takes its embeddings entry
+  and start script out of it, and starts its own embeddings server from the model files it already has.
+  CodeZaiku's model server is not restarted, and the library goes on using it by its address.
+- Its services (`researchzosho.service`, `researchzosho-model.service`, or a unit you wrote that runs it) are
+  given the new paths. Its search, LaBSE, embeddings and speech-to-text containers are made again with the
+  new folders, with the ports and cards they had.
+- On macOS its launch agents get the new paths and are loaded again. The model's agent is loaded again at
+  once. When the move happens as the library's own agent starts, it has a helper load that agent again a
+  moment later, so the library stops and starts once. If that does not happen, the move says so; the agent
+  is loaded again at your next login, or now with `researchzosho service stop` and then
+  `researchzosho service start`.
+- On Windows the logon task that starts the library is pointed at its script in the new folder. If Windows
+  refuses that, the script stays where the task looks for it and the move says so. Its own model server's
+  proxy is stopped before the move and started again afterwards. Windows does not let a folder move while a
+  program holds a file in it open; then nothing moves, the move names the folder, and it tries again at the
+  next start.
+- The helpers' Python environments get the new path in their command scripts, including the `.exe`
+  commands on Windows.
+
+`researchzosho home move --dry-run` lists what would move and changes nothing. `researchzosho home move`
+does it now (stop the service first: `researchzosho service stop`). If a step fails before the files are in
+the new folder, everything goes back and nothing has moved. If the computer stops in the middle, the next start
+puts things back first. `researchzosho home move --back` puts the files back where they were, using the
+record kept in `~/.researchzosho/moved.journal`. You can delete that file once all is well.
+
 ### From outside your home
 
 ```
@@ -3551,6 +3644,51 @@ researchzosho connect off                                           # back to th
 library, with the token, so they get its tools without a service of their own. The verbs that touch a
 library's folder or its computer (setup, service, model, add, reader, share, settings…) say to run
 them on the library's computer.
+
+### From your phone
+
+```
+researchzosho phone on                   # the phone page on your tailnet, at https://<this machine>.<tailnet>.ts.net:8443
+researchzosho phone on --public          # the same address, reachable without Tailscale on the phone (Tailscale Funnel)
+researchzosho phone pair                 # a QR code to scan with the phone's camera: good once, for 10 minutes
+researchzosho phone list                 # the paired phones, what each spent this month on paid models, and its cap
+researchzosho phone cap pixel 20         # this phone may spend $20 a month on paid models; 0 for none, none for no limit
+researchzosho phone remove pixel         # out at once
+researchzosho phone off                  # the address closed; the phones stay paired
+```
+
+The phone gets a small page with three parts and nothing else of the library: **Ask** (the chat: type, attach
+a photo from the camera or the photo library, paste a link; `/go` works as on the Chat page), **Runs** (what
+is running, and what finished since you last looked, with each report; it updates while the page is open),
+and **Read** (the reports, laid out for a phone). It does not alert you on a locked phone: the page says what
+finished when you open it. The rest of the web app stays on this machine and its network.
+
+On the machine: Tailscale has to be installed and logged in (`share --tailscale` installs it, or see
+tailscale.com/download), then `phone on`. With `--public` the phone needs nothing but a browser; without it,
+the Tailscale app on the phone, logged in to the same tailnet. The page lives on port 8443 of the machine's
+address, so it works beside `share`, which keeps port 443. If another program already serves port 8443,
+`phone on` says so and changes nothing. A named Cloudflare Tunnel of your own works too: point it at
+`127.0.0.1:4652` and run `phone on --own-relay --address https://phone.example.org`.
+
+Pair first, in the browser, then put the page on the home screen. Run `researchzosho phone pair` on the machine
+and scan the code with the phone's camera; the browser opens the page; tap **Pair this phone**.
+
+**Android.** Chrome's menu (⋮), **Add to Home screen**, then **Install**. The installed app opens the page
+already paired: it uses Chrome's own cookies.
+
+**iPhone.** Safari's Share button (on iOS 26 it is under ⋯), **Add to Home Screen**, then **Add**. The icon opens
+the page already paired: iOS copies Safari's cookies to it when you add it. On an iOS older than 17.2 the icon
+gets no cookies from Safari, so use the page in Safari there.
+
+The page's **Put it on the Home Screen** button shows these taps for the phone you are on.
+
+A phone stays paired until you remove it, through restarts and updates and `phone off`. It has to be paired
+again after its browser's data is cleared, or after the address changed (the machine renamed in Tailscale, or
+the tailnet's name changed); remove the old one then. From the phone you can ask, research (with "use deepseek",
+"from the shelves only", "30 minutes at most" and the rest), save a link, a note or a photo, read, and stop a
+run you started there. Settings, sharing, models, keys, sources and readers are changed on the machine: from
+the phone the library says so in one sentence. Each phone has its own monthly cap on paid models, $10 unless
+you set another; a model on your own machines is never counted. SECURITY.md, "The phone door", has the rest.
 
 ## 15b. Heavy helpers on another machine
 

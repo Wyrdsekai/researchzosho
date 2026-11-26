@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
@@ -282,12 +283,66 @@ public final class Config {
      */
     public static final String HOME_NAME = "RESEARCHZOSHO_HOME";
 
-    /** {@link #home()} for an explicit user home — the seam the service planner and its tests use. */
+    /**
+     * {@link #home()} for an explicit user home — the seam the service planner and its tests use. {@code ~/.researchzosho}; or
+     * {@code ~/.codezaiku} only while an install of this program from before 0.8.3 lives there and has not moved yet
+     * ({@link #livesIn}): its next start moves it (HomeMove), and from then on {@code ~/.researchzosho} exists. Until 0.8.3 the rule was
+     * "{@code ~/.codezaiku} whenever it is a folder and {@code ~/.researchzosho} is not", kept from the split of 2026-09-06 so that an
+     * install from before it kept its settings; it put every ResearchZosho installed beside a CodeZaiku into CodeZaiku's folder.
+     */
     public static Path stateDir(Path userHome) {
         Path now = userHome.resolve(".researchzosho");
+        if (Files.isDirectory(now)) return now;
         Path was = userHome.resolve(".codezaiku");
-        return (!Files.isDirectory(now) && Files.isDirectory(was)) ? was : now;
+        return Files.isDirectory(was) && livesInCached(was) ? was : now;
     }
+
+    /**
+     * The names this program makes under its home that the other program's code never makes there: one of them in
+     * {@code ~/.codezaiku} means this program has lived in that folder. {@code config}, {@code model}, {@code update.lock},
+     * {@code search-tally.json} and {@code openrouter-providers.json} are both programs' names, and say nothing alone.
+     */
+    public static final List<String> OWN_NAMES = List.of("logs", "help", "latest-version.txt", "researchzosho.pid", "site-list", "update.pending",
+            "update-held", "update-restart", "labse", "likeness", "metricx", "comic", "embed", "video", "searxng", "shelf", "share", "share.json",
+            "podcastindex", "recalls", "dna", "prefs", "idle", "spellings", "record-sources.json", "pdf-eye-speed.json", "scorers.tried",
+            "helpers.secret", "helpers-found.json", "accounts", "accounts-own-keys.key", "career-cache", "databases.json", "drivers",
+            "embed-at", "ResearchZosho.ps1", "phones.json", "phones.lock");
+
+    /** Settings only this program writes (as the file normalises them): one of them in a shared file means this program has lived there. */
+    static boolean ownSetting(String normalized) {
+        String k = normalized.startsWith(PREFIX) ? normalized.substring(PREFIX.length()) : normalized;
+        return k.startsWith("ENTRY_") || k.startsWith("EXPLORER_") || k.equals("WEB_SIGNIN") || k.equals("WEB_LOCAL") || k.equals("RESEARCH_PAUSE")
+                || k.equals("RESEARCH_WINDOW") || k.equals("HELPERS") || k.startsWith("HELPERS_") || k.equals("LOCAL_HELPERS") || k.equals("MODEL_NETWORK")
+                || k.equals("REPORT_LENGTH") || k.equals("CITATION_STYLE") || k.equals("LIBRARY_NAME");
+    }
+
+    /** Whether this program has lived in that folder (a {@code ~/.codezaiku}): a name of {@link #OWN_NAMES} in it, or a setting only it writes. */
+    public static boolean livesIn(Path folder) {
+        for (String n : OWN_NAMES) if (Files.exists(folder.resolve(n), LinkOption.NOFOLLOW_LINKS)) return true;
+        Path cfg = folder.resolve("config");
+        if (!Files.isRegularFile(cfg)) return false;
+        Map<String, String> m = new LinkedHashMap<>();
+        try { read(cfg, m); } catch (UncheckedIOException e) { return false; }
+        for (String k : m.keySet()) if (ownSetting(k)) return true;
+        return false;
+    }
+
+    /** {@link #livesIn}, looked at again at most every few seconds: the home is asked for at every read of a setting. */
+    private record Lives(Path folder, boolean verdict, long at) { }
+    private static volatile Lives lives;
+    static final long LIVES_MS = 5_000;
+
+    private static boolean livesInCached(Path folder) {
+        Lives l = lives;
+        long now = System.currentTimeMillis();
+        if (l != null && l.folder().equals(folder) && now - l.at() < LIVES_MS) return l.verdict();
+        boolean v = livesIn(folder);
+        lives = new Lives(folder, v, now);
+        return v;
+    }
+
+    /** Forgets the cached verdict: the move, and a test that changes the folders, call it. */
+    public static void forgetHome() { lives = null; }
 
     /** The settings as the file says now: the snapshot, read again first when there is none. */
     private static Snapshot loaded() {
@@ -339,6 +394,43 @@ public final class Config {
         } catch (IOException e) {
             throw new UncheckedIOException("could not read " + p, e);
         }
+    }
+
+    /**
+     * What this program reads from a settings file shared with CodeZaiku (a {@code ~/.codezaiku/config}): every setting by its normalized
+     * name with the value a read gives, the {@code librarian.} spelling first for the four names CodeZaiku spelled so ({@link #LEGACY_ALIAS}),
+     * as a read of that file does. A blank value is no setting, as at a read. No value leaves this map but into a settings file.
+     */
+    public static Map<String, String> readAsShared(Path file) { return view(file, true); }
+
+    /** The same for a settings file of this program's own, where the plain name is read before the {@code librarian.} one. */
+    public static Map<String, String> readAsOwn(Path file) { return view(file, false); }
+
+    private static Map<String, String> view(Path file, boolean shared) {
+        Map<String, String> raw = new LinkedHashMap<>(), out = new TreeMap<>();
+        read(file, raw);
+        for (Map.Entry<String, String> e : raw.entrySet()) if (e.getValue() != null && !e.getValue().isBlank()) out.put(e.getKey(), e.getValue());
+        for (Map.Entry<String, String> a : LEGACY_ALIAS.entrySet()) {
+            String plain = out.get(a.getKey()), spelled = out.get(normalize(a.getValue()));
+            String read = shared ? (spelled != null ? spelled : plain) : (plain != null ? plain : spelled);
+            if (read != null) out.put(a.getKey(), read);
+        }
+        return out;
+    }
+
+    /**
+     * A settings file's text for these settings: one line each, in the form {@link #set} writes, each value written so that a read gives
+     * it back as it is (in quotes where it begins or ends with a space or a pair of quotes), under a first line that says {@code note}.
+     */
+    public static String text(Map<String, String> settings, String note) {
+        StringBuilder b = new StringBuilder();
+        if (note != null && !note.isBlank()) b.append("# ").append(note.replace("\n", " ")).append("\n\n");
+        for (Map.Entry<String, String> e : settings.entrySet()) {
+            String v = e.getValue(), t = v.strip();
+            boolean quote = !t.equals(v) || v.length() >= 2 && (v.startsWith("\"") && v.endsWith("\"") || v.startsWith("'") && v.endsWith("'"));
+            b.append(shorthand(e.getKey())).append(" = ").append(quote ? "\"" + v + "\"" : v).append('\n');
+        }
+        return b.toString();
     }
 
     /** {@code drive}, {@code RESEARCHZOSHO_DRIVE} and {@code CODEZAIKU_DRIVE} name the same setting. */

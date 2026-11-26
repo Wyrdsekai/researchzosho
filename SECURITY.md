@@ -59,8 +59,20 @@ it is until you run `researchzosho model install` again. `researchzosho settings
 install`, chooses the earlier way on purpose, for a model server that has to reach a network.
 
 What this leaves: the containers still reach your machine itself, so a program on your machine that listens on every
-address and passes things on (a proxy, a name server) would be a way out. On macOS and Windows the model server is an
-ordinary program, not a container, and nothing keeps it from the network.
+address and passes things on (a proxy, a name server) would be a way out. The library is not one: a request that comes
+from the network of a model server with no way out, recorded by a model install on your machine (ResearchZosho's or
+CodeZaiku's), is refused at every door (the pages, the API, MCP, the account service and the helpers), whatever the
+reader list says. A library you opened beyond this machine and left open to everyone is open to everyone else who can
+reach it, as before. On macOS and Windows the model server is an ordinary program, not a container, and nothing keeps
+it from the network.
+
+From version 0.8.3 each program keeps its files in its own folder: ResearchZosho in `~/.researchzosho`, CodeZaiku in
+`~/.codezaiku`. Neither writes into the other's. ResearchZosho may use CodeZaiku's model server by its address
+(`http://127.0.0.1:8211`) and changes nothing of it. Before 0.8.3, a ResearchZosho installed on a machine that already had
+`~/.codezaiku` kept its files there. It read every line of CodeZaiku's settings file as its own and could change one, and
+it added its embeddings server to CodeZaiku's model server. Such an install moves to its own folder by itself, once, at its
+next start (LIBRARIAN_HOWTOUSE.md, "Its own folder"). The move copies the settings ResearchZosho read into its own file
+(readable only by you) and does not change CodeZaiku's settings file. It prints no setting's value.
 
 A model cannot send anything itself. What it writes can make the library act: a search, a page opened. That is what the
 parts below are about.
@@ -78,8 +90,17 @@ Before 0.8.1 the server was started by its model's name, and each time it starte
 machine's address, and no text of your library: none has reached the server before it has started. After that it sent
 nothing. A server set up by an earlier version goes on doing this until you run `researchzosho model install` again; one
 that `embed start` made under an earlier version, until its container is made again. On AMD and Intel cards the embeddings
-server is llama.cpp, which sent nothing at all. The container `embed start` runs by itself, without `model install`, has
-a port of your machine published and is not kept from the network.
+server is llama.cpp, which sent nothing at all.
+
+From version 0.8.3, the container that `researchzosho embed start` runs by itself, without `model install`, has no way
+out either on Linux. It is on ResearchZosho's network with no way out (`researchzosho-model-shut`), at a fixed address
+there. No port of your machine is published, the container cannot write raw packets, and the library's `embed` setting
+points at that address. `embed start` tests it the way `model install` does: an ordinary container reaches an outside
+address, the server answers at its own address, and the same outside address does not connect from inside. When that
+does not hold, or when `model_network` is `open`, it publishes the port as before and says so. A request from that
+network to the library is refused, as one from the model server's is. A container made by an earlier version stays as
+it is: `researchzosho embed status` says it publishes a port and can reach the network, and `researchzosho embed start
+--again` makes it again. On macOS and Windows the container publishes a port of your machine as before.
 
 ### The search service
 
@@ -180,6 +201,42 @@ What this leaves:
 - An address built from a name or a number goes out with the name as the model spelled it: its capitals and the marks
   between its words. It goes to arXiv, the DOI resolver, GitHub or Wikipedia, and nowhere else.
 
+### A go-ahead in the chat
+
+The chat asks before it does what its model starts or writes (a research run, a note, a setting, the sharing), because
+the model may be acting on a page or a document it read rather than on you. A go-ahead skips that question for one
+message. Only your own typed words make one: `/go` and a request, or a sentence that says so ("just go", "execute now",
+"no confirmation needed", and the like in each of the chat's languages) as the first or the last sentence of the message.
+The program reads it from what you typed at the terminal or in the box of the Chat page, before the sentences about
+attached files are added. It never reads one from the conversation, a page, a document, a file's name or title, the
+model's words, a button of the page, or a message a program sends to the Chat page with a key or a token. A sentence in
+quotation marks, on a line starting with `>` or in a fenced block does not count. MCP, `/v1` and the command line have no
+go-ahead and need none: they are not asked in the first place.
+
+It has three limits:
+
+- **One message.** It covers what the model does in answering that message. No setting makes a standing one, and a
+  go-ahead in an earlier message gives nothing.
+- **What your message names.** A setting, the language you read reports in, the sharing, a model entry or a key, a
+  source or a saved search, something dropped or forgotten, and a file or a folder of this machine go ahead only when your
+  own message names them: the value a setting is set to, and for on, off, a number or a choice several settings share
+  the setting's name too (a choice only one setting has, such as APA, names that setting in any language); the
+  language; the way of sharing and every address it lets in; the entry's name or model, the key itself and its host; the
+  source's address; what is dropped; the file's path or name. A name or a number counts as a word of its own, also when it
+  is written straight against Japanese, Chinese or Korean, and never as a part of a longer one. A page read earlier in
+  the conversation stays in it, and could otherwise ask for a change that rides a later go-ahead. Letting in what the
+  library leaves out, a run's named choice and pausing the runner are always asked.
+- **Before anything is read.** Once a search, an entry of the shelves, a page or any other tool's answer has come into
+  the turn, what the model asks for next is asked, go-ahead or not. Four reads do not count, because they return only what
+  you or the program wrote: the settings, the model entries, the library's state and its help. With files attached, only
+  reading those files in goes ahead, since their names and titles are the documents' words.
+
+The line under the reply says what was done without asking and how to undo it. What this leaves: the program cannot
+tell a pasted block from typing. When what the go-ahead would keep holds the very sentence that said go (an e-mail
+pasted to be saved as a note, ending "Just go."), the program takes it for part of the paste and asks. A paste whose own
+first or last sentence is such a phrase, and which is not itself what would be kept, still reads as yours; the three
+limits hold for it as for any go-ahead.
+
 ### The pages of the web app
 
 A page of the web app loads nothing from anywhere but the library itself. Its scripts are the library's own files. A picture
@@ -199,6 +256,84 @@ buttons of the library's own pages, and the same request from another site is re
 A report or a note written out as Markdown for another program (an export, the vault) holds no picture of the web and no tag
 that could load one, in code samples too: there a picture's mark loses its `!` and a tag with an attribute is written with
 `&lt;`.
+
+### The phone door
+
+`researchzosho phone on` puts a small page behind the machine's Tailscale, on port 8443 of its address: on your tailnet,
+or public through Funnel with `--public`. Behind it is a third listener of the library on this machine's loopback (port
+4652), which only the relay points at. It answers the phone page, its script, its icons and its web-app manifest (which
+names the program, not the library, since anyone may read it), and the calls that page makes:
+pairing, the conversation, a message, the answer being written, stop, a new conversation, the runs, "I have looked", the
+reports, one report, and a kept picture. `/m/h/<code>`, the address of a home-screen icon made by an earlier version, only sends
+the browser on to `/m` and reads nothing. Any other address, and any other method, gets a plain
+`404 Not found.` The web app, the sign-in page, settings, keys, readers, models, MCP, the `/v1` calls and the static files do
+not exist there. A test asks the door for every route the library has, taken from the code, in every method, with and without
+a pairing and in the usual disguises (`//settings`, `/m/../settings`, encoded dots and slashes, a backslash, a NUL), and asks
+the library's own port the same, which answers them. The web app stays on the library's own port, for this machine and its
+network. A library under an account service has no phone door.
+
+**Pairing.** `researchzosho phone pair` shows a QR code in the terminal (and the Settings page shows one on this machine). It is
+a link with a code of 128 random bits, good once and for 10 minutes. Opening the link pairs nothing: the page's Pair button
+does, so a link preview or the camera's preview spends nothing. The library keeps only the code's SHA-256. A wrong, used or
+expired code gets the same sentence. One sender may try 10 wrong codes in 10 minutes, and all senders together 50, after
+which pairing waits for everyone until the window passes. The paired browser gets a cookie of 256 random bits:
+`__Host-rz_phone`, `Secure`, `HttpOnly`, `SameSite=Strict`, for 400 days and set again at every open. The library keeps its
+SHA-256 in `~/.researchzosho/phones.json` (mode 0600), with the phone's name, when it was paired and last used, and its monthly
+cap. One pairing is one browser; a second browser is paired with a new code. A pairing lasts until you remove it: a restart of the service, of the relay or of the machine, an update, and `phone off`
+followed by `phone on` leave it as it is. It ends when you remove the phone (`researchzosho phone remove <name>`, or Remove on
+the Settings page: its next request is not paired), when the phone's browser data is cleared, or when the address changes:
+the machine renamed on the tailnet, the tailnet's DNS name changed, the machine moved to another tailnet, or your own relay's
+hostname changed. Then pair it again and remove the old one. Switching between the tailnet and public keeps the address.
+
+**What a paired phone may do** is decided by the program, call by call, never by the model. Through its chat a phone may ask,
+read, start research with any of a run's options (which saved model, the depth, the time, shelves or web), have a report read
+in another language, save a link, a note, a claim or the picture its message carried, find and keep pictures, and stop a run
+that phone started. It may not change a setting, the sharing, a model entry or a key, a source, a saved search or the readers;
+it removes nothing and decides nothing on the inbox or the open questions; it opens no file or folder of this machine by its
+path, queries none of your databases, reads none of your purchase records, exports nothing to a file, and does not reach the
+fields' own tools or your other MCP servers. Those are refused in one sentence ("From the phone the library does not change
+its settings, sharing, models, keys, sources or readers, and removes nothing: do that on the library's own network"),
+whatever the message says and with or without a go-ahead. The phone's turn is shown only the tools it may use; each call is
+checked before the address rule, the library's question and the go-ahead; and the library checks again where every call is
+carried out, a yes to a waiting question included. Every command but `/go` and a request gets the same sentence, and so does
+"make X the default". A phone's conversations are its own, so it cannot answer a question that waits in one of the desktop's.
+
+A run started from the phone queries no database of yours and uses none of your other MCP servers: its report is read on a
+phone, which a stranger may hold.
+
+**Spending.** Each phone has its own monthly cap on paid models, $10 unless you set another: `researchzosho phone cap <name>
+<dollars>`, `0` for no paid model, `none` for no limit. Every run and every chat turn of that phone counts. A model on this
+machine or another machine of your network costs nothing and is never counted or refused. The cap is checked when a run is
+filed, when it starts, and every two seconds while it runs, since a run counts its tokens as it goes. At the cap the run is
+stopped as your own stop stops it, and its record and the phone say why. It can pass the cap by the calls it had under way at
+that moment. A paid model whose prices the library does not know cannot be counted, so the phone does not use it unless its cap
+is "no limit". A model entry's own cap still holds. The paid search places are not dollars the library can count per phone:
+a phone's run uses one only within the monthly limit you set for it, and leaves out one with no limit set.
+
+**Requests from elsewhere.** A call that changes something must come from the phone page's own script. The browser has to say
+it is same-origin (or send an Origin that is this door's own address, port included), and the page's own header has to be
+there. A form cannot send that header, and a script of another site could send it only after a preflight that the door never
+answers. Share's address on port 443 is the same site and another origin, so its pages cannot use the phone's cookie on the
+door. Each door ignores the other's cookie, and no cookie is written to a log. Every answer carries the web app's page
+policy with `frame-ancestors 'none'`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer` and, but for the script and the
+icon, `Cache-Control: no-store`.
+
+**Floods.** The door runs on threads of its own. At most 256 exchanges are open at once: past that, a connection is closed at
+once. The work takes one of 8 places, after a wait of at most 3 seconds in a line of at most 32; past either, the answer is
+"busy". A sender without a pairing may make 60 requests a minute. A phone sends one message at a time and at most 60 an hour.
+A body comes whole within 5 seconds, a message's pictures at 32 KB a second after the first 15 seconds, or the connection
+closes; a body larger than the door takes is closed without an answer. The library and its own port share none of this.
+Tailscale's proxy reads a request's headers whole before it passes the request on, so slow headers never reach the door. The
+sender is the address Tailscale's proxy gives in `X-Forwarded-For` (it replaces whatever the sender wrote there). Behind your
+own relay it is the header that relay documents (`CF-Connecting-IP` for a Cloudflare tunnel, or the one you name with
+`--sender`). Behind a relay that gives none, every sender counts as one.
+
+**What stays open.** A phone in a stranger's hand, unlocked, until you remove it. A flood reaches the relay and your line
+before the door; `researchzosho phone off` ends the address. Slow bodies can fill the door's 256 places until they end; the
+library and its own port go on. Behind your own Cloudflare tunnel, Cloudflare sees the addresses it carries, the pairing link's
+code among them (good once, for 10 minutes). Cookies do not keep to a port, so every service of the machine's Tailscale
+address gets the phone's cookie: share's door ignores it; keep other programs off that address, or pair through your own relay.
+A stopped or failed run of any other kind writes nothing of its cost on the spending ledger today; a phone's run does.
 
 ### A hosted model
 
@@ -223,6 +358,12 @@ them. `researchzosho settings set avoid_by_owner off` lets the providers that ar
 
 Hugging Face's router picks a provider too, and a request to it cannot say which places to leave out. `models add` says so
 when you add such a model, and how to keep it to one provider.
+
+A host you name by its address is used as you named it. When it is run from a place your library avoids, `models add` and
+the list of models say so. They say so too when it is run by a company registered elsewhere and owned by a company based in
+such a place, while `avoid_by_owner` is on: Moonshot's `api.moonshot.ai`, where the host words `moonshot` and `kimi` point,
+is run by Moonshot AI PTE. LTD. in Singapore, and the company gives its address in Beijing (both on its own pages, read
+2026-11-25).
 
 ### The places your library avoids
 

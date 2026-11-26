@@ -110,6 +110,9 @@ public final class ChildLibraries implements LibraryRunner.Local {
     /** The class path a library's process is started with: this process's own. A test names another build's. */
     volatile String classpath = System.getProperty("java.class.path");
 
+    /** Java options a library's process is given beside this process's own: none. A test gives its libraries a property of its own. */
+    volatile List<String> javaOptions = List.of();
+
     /** The number of the library's process this runner started or proved, for whoever runs the service; 0 when it has none. */
     @Override public long pid(String libraryId) { Running r = running.get(libraryId); return r == null || r.process() == null ? 0 : r.process().pid(); }
 
@@ -258,6 +261,7 @@ public final class ChildLibraries implements LibraryRunner.Local {
         cmd.add(ProcessHandle.current().info().command().orElse("java"));
         // what this process's own Java was started with (the opens the launcher gives, a test's stand-ins), less what each library gets of its own
         for (String arg : ManagementFactory.getRuntimeMXBean().getInputArguments()) if (!arg.startsWith("-Xmx") && !arg.startsWith("-Duser.home=") && !arg.startsWith("-Djava.io.tmpdir=") && !arg.startsWith("-javaagent") && !arg.startsWith("-agentlib") && !arg.startsWith("-Dhttp.proxy") && !arg.startsWith("-Dhttps.proxy")) cmd.add(arg);
+        cmd.addAll(javaOptions);
         cmd.add("-Xmx" + heap());
         cmd.add("-Djava.io.tmpdir=" + tmp);   // its uploads and its scratch are its own: nothing of another library's is beside them
         cmd.add("-Duser.home=" + user);       // and nothing of the home of whoever runs the service is read or written by it

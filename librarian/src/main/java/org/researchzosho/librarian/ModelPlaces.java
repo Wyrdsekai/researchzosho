@@ -13,7 +13,8 @@ import java.util.Map;
  * Where what a library asks a hosted model goes, said to the person when it bears on the places the library avoids (0.8.1,
  * {@link Avoided}): for a model reached through OpenRouter, who serves it and who is left out ({@link OpenRouterProviders}); for a
  * model reached through Hugging Face's router, that a request cannot say which places to leave out; for a host the person named by
- * its address, where that host is run from, when that is known. A host the person named is used all the same: the sentence informs.
+ * its address, where that host is run from, when that is known, or the place it is owned from, when a company registered elsewhere runs
+ * it ({@link #HOST_OWNER}). A host the person named is used all the same: the sentence informs.
  */
 public final class ModelPlaces {
     private ModelPlaces() { }
@@ -33,6 +34,35 @@ public final class ModelPlaces {
             // documentation page's own footer names a company of the same group outside Russia (Direct Cursus Technology L.L.C.): the
             // case the owners' rule exists for, a place stated for an arm and another for the company behind it
             Map.entry("yandex.net", "RU"), Map.entry("yandex.cloud", "RU"), Map.entry("yandex.com", "RU"));
+
+    /**
+     * A model host run by a company registered in one place and owned by a company based in another, recorded as the owners' table
+     * records such a provider of the router's ({@code openrouter-controllers.json}): the controlling company's country and the company as
+     * its source names it, one public source with its words, further sources under {@code also}, and a note that says what the row rests
+     * on; and beside these, who runs the host and where that company is registered, which is what the person reads, and the day the
+     * sources were read. It decides nothing either: the library says where what it asks goes. CodeZaiku carries the same row (its commit
+     * of 2026-11-24). The pages are written without their scheme, as above, so that none is taken for a host this program asks.
+     */
+    record HostOwner(String runBy, String registered, String country, String company, String recordedOn, String source, String says, List<String[]> also, String note) { }
+
+    /** By the end of the host's name, as {@link #HOST_PLACE}. */
+    static final Map<String, HostOwner> HOST_OWNER = Map.of(
+            // Moonshot AI's international platform, the address of the host words moonshot and kimi (ModelEntries)
+            "moonshot.ai", new HostOwner("Moonshot AI PTE. LTD.", "SG", "CN", "Moonshot AI", "2026-11-25",
+                    "www.moonshot.ai/about", "76 Zhichun Road, Haidian District, Beijing",
+                    List.of(new String[]{"platform.kimi.ai/docs/agreement/userprivacy", "Our services are provided and controlled by MOONSHOT AI PTE. LTD. (“we”or”Moonshot AI”) in Singapore through web pages."},
+                            new String[]{"platform.kimi.ai/docs/api/chat", "\"url\":\"https://api.moonshot.ai\",\"description\":\"Production\""}),
+                    "The tie between the host and the company rests on the company's own site, not on a sentence of ownership: its About page gives the Beijing address and links its "
+                            + "platform (platform.kimi.ai), whose privacy policy (last updated April 30, 2025) says the services are provided and controlled by MOONSHOT AI PTE. LTD. "
+                            + "in Singapore and whose API reference gives https://api.moonshot.ai as the production server. As the owners' table's row for the provider moonshotai."));
+
+    /** Who runs a model host and where it is owned from, by the table; null when the table has no row for it. */
+    static HostOwner ownerOfHost(String host) {
+        String h = host == null ? "" : host.strip().toLowerCase(Locale.ROOT);
+        while (h.endsWith(".")) h = h.substring(0, h.length() - 1);
+        for (Map.Entry<String, HostOwner> e : HOST_OWNER.entrySet()) if (h.equals(e.getKey()) || h.endsWith("." + e.getKey())) return e.getValue();
+        return null;
+    }
 
     /** Endings a country holds beside its two letters: the Soviet Union's, still Russia's registry; Russia's, China's, Hong Kong's and Macau's in their own script (as written and as a name server holds them). */
     static final Map<String, String> OWN_ENDINGS = Map.ofEntries(Map.entry("su", "RU"), Map.entry("\u0440\u0444", "RU"), Map.entry("xn--p1ai", "RU"),
@@ -77,7 +107,8 @@ public final class ModelPlaces {
         if (own != null) return own;
         if (end.matches("[a-z]{2}") && !GENERIC_TWO_LETTERS.contains(end)) return end.toUpperCase(Locale.ROOT);
         for (Map.Entry<String, String> e : HOST_PLACE.entrySet()) if (h.equals(e.getKey()) || h.endsWith("." + e.getKey())) return e.getValue();
-        return "";
+        HostOwner owner = ownerOfHost(h);   // a host run by a company registered in one place and owned from another: run from the first
+        return owner == null ? "" : owner.registered();
     }
 
     /** What a person is told about where an entry's requests go; "" when nothing bears on the places this library avoids. */
@@ -93,8 +124,13 @@ public final class ModelPlaces {
                     Avoided.names(Avoided.places(), c), e.model() + ":together");
         }
         String place = placeOfHost(host);
-        if (!Avoided.avoids(place)) return "";
-        return c.t("{0} is run from {1}, a place this library keeps its content away from: what the library asks this model goes there. You named the host, so it is used; the setting {2} leaves out a router's providers, not a host you name.",
-                host, Avoided.name(place, c), "avoid_places");
+        if (Avoided.avoids(place))
+            return c.t("{0} is run from {1}, a place this library keeps its content away from: what the library asks this model goes there. You named the host, so it is used; the setting {2} leaves out a router's providers, not a host you name.",
+                    host, Avoided.name(place, c), "avoid_places");
+        // registered elsewhere and owned from a place avoided: said while the library leaves out a router's providers of that kind
+        HostOwner owner = ownerOfHost(host);
+        if (owner == null || !Avoided.byOwner() || !Avoided.avoids(owner.country())) return "";
+        return c.t("{0} is run by {1}, a company registered in {2} and owned by a company based in {3}, a place this library keeps its content away from: what the library asks this model goes to that company. You named the host, so it is used; the setting {4} leaves out a router's providers for their owner's place, not a host you name.",
+                host, owner.runBy(), Avoided.name(owner.registered(), c), Avoided.name(owner.country(), c), "avoid_by_owner");
     }
 }

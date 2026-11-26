@@ -541,6 +541,13 @@ public final class Searx {
      */
     public static String start(int port) { return start(port, false); }
 
+    /** The command that makes the search service's container on {@code port}, with its settings' folder ({@link #dir}) in it. */
+    static List<String> runCommand(int port) {
+        return List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
+                "-p", "127.0.0.1:" + port + ":8080", "-v", dir().toAbsolutePath() + ":/etc/searxng",
+                "-e", "BASE_URL=http://127.0.0.1:" + port + "/", IMAGE);
+    }
+
     /** A note about the settings in use, set by the last {@link #start}: "" when ResearchZosho's own file is in place. */
     public static volatile String settingsNote = "";
 
@@ -580,9 +587,7 @@ public final class Searx {
             String state = state();
             Result r;
             if (state.equals("absent")) {
-                r = runner.run(List.of("docker", "run", "-d", "--name", CONTAINER, "--restart", "unless-stopped",
-                        "-p", "127.0.0.1:" + port + ":8080", "-v", dir().toAbsolutePath() + ":/etc/searxng",
-                        "-e", "BASE_URL=http://127.0.0.1:" + port + "/", IMAGE));
+                r = runner.run(runCommand(port));
             } else if (state.equals("stopped")) {
                 r = runner.run(List.of("docker", "start", CONTAINER));
             } else {

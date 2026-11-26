@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -45,11 +46,14 @@ public final class NoMachineTools implements LauncherSessionListener, BeforeEach
     /** The suite's containers of the machine: LaBSE at {@link #NO_LABSE}, the embeddings server at another port where nothing listens. */
     public static final Map<String, String> NO_CONTAINERS = Map.of(TranslationScores.LABSE_CONTAINER, NO_LABSE, Embed.CONTAINER, "http://127.0.0.1:4");
 
+    /** The suite's reading of what a model proxy has loaded: nothing, and no proxy of the machine is asked. */
+    public static final Function<String, String> NOTHING_LOADED = base -> "";
+
     @Override public void launcherSessionOpened(LauncherSession session) { standIn(); }
 
     @Override public void beforeEach(ExtensionContext context) { standIn(); }
 
-    static void standIn() { Searx.runner = NOT_HERE; ModelServer.runner = MODEL_NOT_HERE; TranslationScores.LOCAL_LABSE = NO_LABSE; ModelsAwake.CONTAINERS = NO_CONTAINERS; }
+    static void standIn() { Searx.runner = NOT_HERE; ModelServer.runner = MODEL_NOT_HERE; TranslationScores.LOCAL_LABSE = NO_LABSE; ModelsAwake.CONTAINERS = NO_CONTAINERS; ModelServer.loaded = NOTHING_LOADED; ModelNetworks.forget(); }   // ModelNetworks: read again from this test's own home
 
     @Override public void afterEach(ExtensionContext context) {
         String said = leftOver(context.getRequiredTestClass().getSimpleName() + "." + context.getDisplayName());
@@ -63,6 +67,7 @@ public final class NoMachineTools implements LauncherSessionListener, BeforeEach
         if (ModelServer.runner != MODEL_NOT_HERE) { ModelServer.runner = MODEL_NOT_HERE; left.add("ModelServer.runner"); }
         if (!NO_LABSE.equals(TranslationScores.LOCAL_LABSE)) { TranslationScores.LOCAL_LABSE = NO_LABSE; left.add("TranslationScores.LOCAL_LABSE"); }
         if (ModelsAwake.CONTAINERS != NO_CONTAINERS) { ModelsAwake.CONTAINERS = NO_CONTAINERS; left.add("ModelsAwake.CONTAINERS"); }
+        if (ModelServer.loaded != NOTHING_LOADED) { ModelServer.loaded = NOTHING_LOADED; left.add("ModelServer.loaded"); }
         return left.isEmpty() ? null : test + " left " + String.join(", ", left) + " in place of the suite's, which reach nothing of the machine: a test that stands in for a tool or a server puts back the one it found";
     }
 }

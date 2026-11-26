@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.LinkedBlockingQueue;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -256,6 +257,11 @@ public final class Jobs {
      */
     private void enqueue(ObjectNode j) {
         ModelsAwake.intent(j.path("kind").asText(""));   // its models start loading now, while it waits its turn (round C2)
+        toLine(j);
+    }
+
+    /** The job into the line: a quick or a priority ask at its front, any other at its end. */
+    private void toLine(ObjectNode j) {
         String id = j.path("job_id").asText();
         JsonNode a = j.path("args");
         if (a.path("quick").asBoolean(false) || a.path("priority").asBoolean(false)) queue.addFirst(id);
@@ -1172,11 +1178,21 @@ public final class Jobs {
                 migrate();
                 sweepLocks();
                 long now = System.currentTimeMillis();
+                List<ObjectNode> outside = new ArrayList<>();   // queued in the ledger and not in this line: filed another way, or in a worker's hand this moment
                 for (ObjectNode j : active()) {
                     String id = j.path("job_id").asText();
                     // a job that waited for the person's answer and got none starts as it was filed; one still waiting is left alone
                     if (OFFERED.equals(j.path("state").asText())) { if (offerEnded(j, now)) ended.add(j); continue; }
-                    if ("queued".equals(j.path("state").asText()) && !queue.contains(id) && !running.contains(id)) enqueue(j);
+                    if ("queued".equals(j.path("state").asText()) && !queue.contains(id) && !running.contains(id)) outside.add(j);
+                }
+                if (!outside.isEmpty()) {
+                    // the line and the hands read as one: a job a worker has just taken from the line is in its hand, and a look made in
+                    // that moment (a request picks up as it answers) must not put it in the line a second time
+                    List<ObjectNode> joined = new ArrayList<>();
+                    handing.lock();
+                    try { for (ObjectNode j : outside) { String id = j.path("job_id").asText(); if (!queue.contains(id) && !inHand.contains(id) && !running.contains(id)) { toLine(j); joined.add(j); } } }
+                    finally { handing.unlock(); }
+                    for (ObjectNode j : joined) ModelsAwake.intent(j.path("kind").asText(""));   // its models start loading now, while it waits its turn (round C2)
                 }
             } catch (IOException ignored) { }
         }
@@ -1227,6 +1243,7 @@ public final class Jobs {
                     if (held) { defer = true; wait = 30_000; }   // the person's pause or window: the ask waits, the crews still run
                     if (defer) {
                         queue.add(id);                          // back to the tail; whatever else is waiting runs first
+                        DEFERRED.accept(id, held ? "held" : "crews".equals(kind) && index != 0 ? "crews" : "model");
                         if (queue.size() > 1) wait = held ? 5_000 : 0;   // something else to do: no wait — unless it is all held asks
                         j = null;
                     }
@@ -1279,6 +1296,13 @@ public final class Jobs {
 
     /** Called between a worker's look at a queued job and its claim of it; a test puts another process's step there. */
     static volatile Consumer<String> CLAIMING = id -> { };
+
+    /**
+     * Called when a worker looked at a queued job and put it back in the line, with why: {@code held} (the person's pause or hours),
+     * {@code model} (no model answers for it yet), {@code crews} (the nightly tasks run on the first worker only). A test's view of what
+     * the worker decided.
+     */
+    static volatile BiConsumer<String, String> DEFERRED = (id, why) -> { };
 
     /**
      * A queued job made this worker's: under the job's lock, the one a stop and a terminal's run of the job take in every process

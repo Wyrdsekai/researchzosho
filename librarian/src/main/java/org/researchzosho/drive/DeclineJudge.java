@@ -139,7 +139,11 @@ public final class DeclineJudge {
         ArrayNode msgs = M.createArrayNode();
         msgs.addObject().put("role", "user").put("content", state + "\n\nQUESTION: " + QUESTION + " Answer with one word: yes or no.");
         try {
-            Matcher w = FIRST_WORD.matcher(String.valueOf(oneWord.ask(msgs)).toLowerCase(Locale.ROOT));
+            DriveClient.forgetClassify();
+            String said = String.valueOf(oneWord.ask(msgs));
+            // the model's thinking in place of the word it never gave is no answer ("Yes, the reply says it can't…" is a thought, not a verdict)
+            if (DriveClient.lastClassifyThinking()) return new Verdict(false, false, 0.5, "one word");
+            Matcher w = FIRST_WORD.matcher(said.toLowerCase(Locale.ROOT));
             String word = w.find() ? w.group(1) : "";
             if (word.equals("yes")) return ends ? new Verdict(false, false, 1.0, "one word") : new Verdict(true, true, 1.0, "one word");
             if (word.equals("no")) return new Verdict(false, true, 0.0, "one word");

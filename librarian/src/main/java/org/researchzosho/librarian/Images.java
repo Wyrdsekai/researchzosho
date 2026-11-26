@@ -1130,9 +1130,9 @@ public final class Images {
         content.addObject().put("type", "text").put("text", question);
         content.addObject().put("type", "image_url").putObject("image_url").put("url", Vision.dataUrl(first, firstType));
         content.addObject().put("type", "image_url").putObject("image_url").put("url", Vision.dataUrl(second, secondType));
-        DriveClient.clearClassifyProblem();
+        DriveClient.forgetClassify();
         DriveClient.callerSays(true);
-        try { return d.classify(msgs, maxTokens); }
+        try { return answerOnly(d.classify(msgs, maxTokens)); }
         catch (Stopping.Requested stop) { throw stop; }
         catch (RuntimeException unanswered) { return null; }
         finally { DriveClient.callerSays(false); }
@@ -1196,13 +1196,20 @@ public final class Images {
         ArrayNode content = msgs.addObject().put("role", "user").putArray("content");
         content.addObject().put("type", "text").put("text", question);
         content.addObject().put("type", "image_url").putObject("image_url").put("url", Vision.dataUrl(bytes, contentType));
-        DriveClient.clearClassifyProblem();
+        DriveClient.forgetClassify();
         DriveClient.callerSays(true);   // a verdict's line carries the reason when the model did not answer: the client's own sentence stays off the terminal
-        try { return prose ? d.prose(msgs, maxTokens) : d.classify(msgs, maxTokens); }
+        try { return answerOnly(prose ? d.prose(msgs, maxTokens) : d.classify(msgs, maxTokens)); }
         catch (Stopping.Requested stop) { throw stop; }
         catch (RuntimeException unanswered) { return null; }
         finally { DriveClient.callerSays(false); }
     }
+
+    /**
+     * What the seeing model answered, never its thinking: a model that thought through its allowance and the ask again with room gave no
+     * answer, and its first thought ("The user asks what colour…") is neither a verdict nor a description. "" then; the reason is the
+     * drive's ({@link DriveClient#lastClassifyProblem}).
+     */
+    static String answerOnly(String said) { return said != null && DriveClient.lastClassifyThinking() ? "" : said; }
 
     static String cut(String s, int n) { String t = s == null ? "" : s.replaceAll("\\s+", " ").strip(); return t.length() > n ? t.substring(0, n) + "…" : t; }
 }

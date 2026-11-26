@@ -1,8 +1,10 @@
 package org.researchzosho.librarian;
 
+import java.math.BigDecimal;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import org.researchzosho.tools.BookSearchTool;
 
@@ -22,7 +24,7 @@ import java.util.Map;
 public final class WriteupChecks {
     private WriteupChecks() { }
 
-    static final Pattern NUMBER = Pattern.compile("(?<![\\w.])(\\d{1,3}(?:,\\d{3})+|\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|B\\b|K\\b|M\\b|million|billion|ms|seconds?|s\\b|minutes?|min\\b|h\\b|hours?|days?|weeks?|months?|years?|tokens?|points?|pts|kg|g\\b|mg|mm|cm|km|m\\b|mi\\b|lbs?|oz|W\\b|kW|MW|Hz|kHz|MHz|GHz|fps|kb|kB|°C|°F)?");
+    static final Pattern NUMBER = Pattern.compile("(?<![\\w.])(\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|B\\b|K\\b|M\\b|thousand|million|billion|ms|seconds?|s\\b|minutes?|min\\b|h\\b|hours?|days?|weeks?|months?|years?|tokens?|points?|pts|kg|g\\b|mg|mm|cm|km|m\\b|ft\\b|feet|mi\\b|lbs?|oz|W\\b|kW|MW|Hz|kHz|MHz|GHz|fps|kb|kB|°C|°F)?");
     static final Pattern LICENSE = Pattern.compile("\\b(MIT|AGPL(?:-?3(?:\\.0)?)?|LGPL(?:-?[23](?:\\.\\d)?)?|GPL(?:-?[23](?:\\.\\d)?)?|Apache(?:-|\\s)?2(?:\\.0)?|BSD(?:-\\d-Clause)?|MPL(?:-?2(?:\\.0)?)?|CC[- ]BY(?:-[A-Z]{2})*(?:[- ]\\d\\.\\d)?|proprietary|closed[- ]source)\\b", Pattern.CASE_INSENSITIVE);
     static final Pattern CVE = Pattern.compile("\\bCVE-\\d{4}-\\d{4,7}\\b", Pattern.CASE_INSENSITIVE);
 
@@ -118,37 +120,137 @@ public final class WriteupChecks {
         return out;
     }
 
-    /** As {@link #numbersUnbacked}, each with its whole sentence. */
+    /** As {@link #numbersUnbacked}, each with its whole sentence. A figure the evidence does not settle is not among them ({@link #numbersUnsettledAt}). */
     public static List<Unbacked> numbersUnbackedAt(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
-        List<Unbacked> out = new ArrayList<>();
+        return numbersChecked(answer, notes, refs, textByRef).unbacked();
+    }
+
+    /**
+     * The figures the check cannot settle either way, each with its whole sentence: one that only a reading of the evidence the evidence
+     * itself does not decide would give (a lone 1.234 in a source that shows neither use of the full stop), or a whole number of one
+     * significant digit with no word of approximation (400,000 where a source says 386,258). Such a sentence is left as the writer wrote
+     * it, never marked or sent for revision, and the report names it ({@link Figures}).
+     */
+    public static List<Unbacked> numbersUnsettledAt(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) {
+        return numbersChecked(answer, notes, refs, textByRef).unsettled();
+    }
+
+    /**
+     * The figures that neither the notes nor the sources their sentence cites state, but another source read this run does: {@code said}
+     * names the cited sources (not kept, or not stating it) and the ones that state it. Such a sentence is not marked and never revised: a
+     * revision deleted a true "8,848.86 m (29,031.7 ft)" on 2026-11-25 whose cited page was never kept while two kept pages gave it.
+     * {@code otherKept}: the pages read this run that are not among the references, by their address.
+     */
+    public static List<Elsewhere> numbersElsewhereAt(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef, Map<String, String> otherKept) {
+        return numbersChecked(answer, notes, refs, textByRef, otherKept).elsewhere();
+    }
+
+    /** A figure another source read this run states: the sentence, the figure, and what the Checks line says of where it is. */
+    public record Elsewhere(String sentence, String what, String said) { }
+
+    /** The figures no note or source states, those the check cannot settle, and those only an uncited source read this run states. */
+    record Checked(List<Unbacked> unbacked, List<Unbacked> unsettled, List<Elsewhere> elsewhere) { }
+
+    static Checked numbersChecked(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef) { return numbersChecked(answer, notes, refs, textByRef, Map.of()); }
+
+    /**
+     * A decade written with an s, "1850s", "the 1990s", "'90s": years, which this check does not check (a year is no quantity: see
+     * {@link #bareNumberCounts}), never 1,850 seconds ("trigonometric surveying (1850s)" was flagged as "1850 s" on 2026-11-25). A duration
+     * in seconds is written with a space ("1850 s") or the word; the other languages' decades (1850年代, 1850년대, 1850er, 1850-е, les
+     * années 1850) are a year followed by its word, which this check passes as a year already.
+     */
+    static boolean decade(String text, int numStart, int numEnd, String num, String unit) {
+        if (unit == null || !unit.equals("s") || numEnd >= text.length() || text.charAt(numEnd) != 's') return false;   // the s right after the digits
+        if (num.matches("1\\d{2}0|20\\d0")) return true;   // 1000s to 2090s
+        if (!num.matches("[1-9]0")) return false;
+        String before = text.substring(Math.max(0, numStart - 7), numStart).toLowerCase(Locale.ROOT);
+        return before.endsWith("'") || before.endsWith("\u2019") || before.matches("(?s).*\\b(?:the|mid-|early|late)\\s*$");   // the '90s, the 90s, mid-90s
+    }
+
+    static Checked numbersChecked(String answer, String notes, List<CiteCheck.Ref> refs, Map<Integer, String> textByRef, Map<String, String> otherKept) {
+        List<Unbacked> out = new ArrayList<>(), unsettled = new ArrayList<>();
+        List<Elsewhere> elsewhere = new ArrayList<>();
         String notesFolded = fold(notes);
+        // the numbers of the evidence, each text read as it writes its own numbers: the notes once, each cited source once
+        Figures.Read[] notesRead = {null};
+        Map<Integer, Figures.Read> refRead = new HashMap<>();
+        // the report's own way of writing numbers, for the groupings its sentences use
+        Figures.Convention reportConvention = Figures.convention(answer);
+        boolean reportSpaces = Figures.spaceGroups(answer == null ? "" : answer);
         Set<String> seen = new LinkedHashSet<>();
         for (String sentence : CiteCheck.sentences(answer)) {
             if (sentence.startsWith("#") || sentence.startsWith("|")) continue;
             String ev = notesFolded;
-            for (CiteCheck.Ref r : CiteCheck.citedRefs(sentence, refs)) { String t = textByRef.get(r.n()); if (t != null) ev = ev + "\n" + fold(t); }
+            List<CiteCheck.Ref> cited = CiteCheck.citedRefs(sentence, refs);
+            for (CiteCheck.Ref r : cited) { String t = textByRef.get(r.n()); if (t != null) ev = ev + "\n" + fold(t); }
             // a range shares its unit: "38–58%" states 38% and 58%
             // an address's digits are no number of the claim, and an escaped space before a year is not one number with it ("%201966" was read
-            // as 201966, the live check of 2026-11-18): addresses out, escapes read, then the numbers
-            String plain = percentDecoded(sentence.replaceAll("https?://\\S+", " "));
-            String expanded = plain.replaceAll("(\\d+(?:\\.\\d+)?)\\s?[–\\-]\\s?(\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|ms|seconds?|minutes?|hours?|days?|tokens?|points?|million|billion)(?![\\p{L}])", "$1 $3 $2 $3");
+            // as 201966, the live check of 2026-11-18): addresses out, escapes read, then the numbers, each read as one however it is grouped
+            String plain = Figures.plainDigits(percentDecoded(sentence.replaceAll("https?://\\S+", " ")), reportConvention, reportSpaces);
+            String expanded = plain.replaceAll("(\\d+(?:\\.\\d+)?)\\s?[–\\-]\\s?(\\d+(?:\\.\\d+)?)\\s?(%|percent|GB|MB|TB|ms|seconds?|minutes?|hours?|days?|tokens?|points?|thousand|million|billion)(?![\\p{L}])", "$1 $3 $2 $3");
             Matcher m = NUMBER.matcher(expanded);
             while (m.find()) {
                 String num = m.group(1).replace(",", ""), unit = m.group(2);
+                if (decade(expanded, m.start(1), m.end(1), num, unit)) continue;
                 if (unit == null) {
                     // a small bare number is the writer's own arithmetic; a count of thousands is a claim. The digits of an id, a path, a
                     // date or a time (F-0012-a, 2026-09-14, 10:30, v1/2048) are none of these
                     char before = m.start(1) > 0 ? expanded.charAt(m.start(1) - 1) : ' ';
                     if ("-_/#:+".indexOf(before) >= 0 || num.startsWith("0") || !bareNumberCounts(num)) continue;
                 }
-                if (unit != null && num.length() < 2 && !"%".equals(unit)) continue;     // "2 days", "1 h": too small to mean anything
+                if (unit != null && num.length() < 2 && !"%".equals(unit) && Figures.scale(unit) == null) continue;     // "2 days", "1 h": too small to mean anything
                 String key = num + (unit == null ? "" : unit.toLowerCase(Locale.ROOT));
                 if (!seen.add(key)) continue;
                 if (ev.contains(num)) continue;
-                out.add(new Unbacked(sentence, num + (unit == null ? "" : " " + unit)));
+                // the digits are not there as written: the numbers the evidence states, read as each text writes them, against the figure
+                // as the report writes it (rounded, a bound, a scale), by the rule of Figures
+                Figures.Read evidence = Figures.Read.empty();
+                if (notesRead[0] == null) notesRead[0] = Figures.read(notes);
+                evidence.addAll(notesRead[0]);
+                for (CiteCheck.Ref r : cited) { String t = textByRef.get(r.n()); if (t != null) evidence.addAll(refRead.computeIfAbsent(r.n(), k -> Figures.read(t))); }
+                Figures.Hedge hedge = Figures.hedge(expanded.substring(0, m.start(1)), expanded.substring(m.end(1)));
+                Figures.Figure fig = Figures.figure(num, unit, hedge);
+                Figures.Backing b = Figures.backs(fig, evidence);
+                if (b == Figures.Backing.BACKED) continue;
+                String what = num + (unit == null ? "" : " " + unit);
+                // not in the notes nor the sources the sentence cites: every other source read this run, by the numbers each states
+                List<String> stating = new ArrayList<>();
+                for (CiteCheck.Ref r : refs) {
+                    if (cited.contains(r)) continue;
+                    String t = textByRef.get(r.n());
+                    if (t != null && states(fig, unit, t, refRead.computeIfAbsent(r.n(), k -> Figures.read(t)))) stating.add("[" + r.n() + "]");
+                }
+                for (Map.Entry<String, String> k : otherKept.entrySet()) if (states(fig, unit, k.getValue(), Figures.read(k.getValue()))) stating.add(k.getKey());
+                if (!stating.isEmpty()) {
+                    List<String> notKept = new ArrayList<>(), silent = new ArrayList<>();
+                    for (CiteCheck.Ref r : cited) (textByRef.containsKey(r.n()) ? silent : notKept).add("[" + r.n() + "]");
+                    String citedSaid = cited.isEmpty() ? "the sentence cites no source"
+                            : !notKept.isEmpty() && silent.isEmpty() ? "the sentence cites " + String.join(", ", notKept) + ", which " + (notKept.size() == 1 ? "was" : "were") + " not kept this run"
+                            : notKept.isEmpty() ? "the sentence cites " + String.join(", ", silent) + ", which " + (silent.size() == 1 ? "does" : "do") + " not state it"
+                            : "the sentence cites " + String.join(", ", notKept) + ", not kept this run, and " + String.join(", ", silent) + ", which " + (silent.size() == 1 ? "does" : "do") + " not state it";
+                    elsewhere.add(new Elsewhere(sentence, what, citedSaid + "; " + String.join(", ", stating) + ", read this run, " + (stating.size() == 1 ? "states" : "state") + " it"));
+                    continue;
+                }
+                (b == Figures.Backing.UNSETTLED ? unsettled : out).add(new Unbacked(sentence, what));
             }
         }
-        return out;
+        return new Checked(out, unsettled, elsewhere);
+    }
+
+    /**
+     * Whether a source the sentence does not cite states the figure: by the numbers it states, as Figures reads them (the same number, or
+     * one the figure is a rounding of). A figure of one or two significant digits is a number any long page holds somewhere (measured:
+     * every source's whole text backed every two-digit number, 2026-09-12), so it counts only written with its unit there: "58%", "12 GB".
+     */
+    static boolean states(Figures.Figure f, String unit, String text, Figures.Read read) {
+        if (f == null || text == null || text.isEmpty()) return false;
+        if (f.significant() >= 3) { for (BigDecimal e : read.certain()) if (Figures.gives(f, e)) return true; return false; }
+        if (unit == null) return false;
+        String u = unit.equals("%") || unit.equalsIgnoreCase("percent") ? "(?:%|\\s?per\\s?cent\\b|\\s?percent\\b)" : "\\s?" + Pattern.quote(unit) + "(?![\\p{L}])";
+        String plain = Figures.plainDigits(text, Figures.convention(text), Figures.spaceGroups(text));
+        Matcher m = Pattern.compile("(?<![\\d.,])(\\d+(?:\\.\\d+)?)" + u, Pattern.CASE_INSENSITIVE).matcher(plain);
+        while (m.find()) { try { if (Figures.gives(f, Figures.norm(new BigDecimal(m.group(1)).multiply(Figures.scale(unit) == null ? BigDecimal.ONE : Figures.scale(unit))))) return true; } catch (NumberFormatException ignored) { } }
+        return false;
     }
 
     /** A text with its %XX escapes read as the characters they stand for (UTF-8); an escape that names none stays as it is. */

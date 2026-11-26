@@ -89,7 +89,7 @@ final class HelpersInstall {
         }
         @Override public boolean answers(Helper h) {
             String a = switch (h) {
-                case EMBED -> "http://127.0.0.1:" + Embed.DEFAULT_PORT;
+                case EMBED -> Embed.address();
                 case WHISPER -> "http://127.0.0.1:" + Video.WHISPER_PORT;
                 case LABSE -> TranslationScores.LOCAL_LABSE;
                 default -> null;

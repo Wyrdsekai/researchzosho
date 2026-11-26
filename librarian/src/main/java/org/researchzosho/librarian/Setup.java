@@ -560,7 +560,7 @@ public final class Setup {
             Config.set("RESEARCHZOSHO_EMBED", embed);
         } else {
             // one already started this way answers on its port; else Docker can start one; else an address, or words only
-            String own = "http://127.0.0.1:" + Embed.DEFAULT_PORT;
+            String own = Embed.address();
             if (probe.embeds(own, key)) {
                 Config.set("RESEARCHZOSHO_EMBED", own); out.println("  Search by meaning is on: the embeddings server started with Docker answers at " + own + ".");
             } else if (acts.haveDocker() && acts.embedGpu() && yesNo("  Start an embeddings server with Docker on your GPU, so search works by meaning as well as by words? (the model downloads once, about 1.2 GB)", true)) {

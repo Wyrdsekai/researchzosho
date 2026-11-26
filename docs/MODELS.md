@@ -24,7 +24,10 @@ at their addresses there. The install tries it (the model answers through it, an
 from inside) and sets the server up the earlier way, saying so, when it does not hold on a machine.
 `researchzosho model status` says which it is. An install from an earlier version changes over when you run
 `researchzosho model install` again; `researchzosho settings set model_network open` keeps the earlier way. On
-macOS and Windows the model server is an ordinary program, and nothing changes. More in
+macOS and Windows the model server is an ordinary program, and nothing changes. Where CodeZaiku set up the model
+server, the library uses it by its address and changes nothing of it. For search by meaning it runs its own
+embeddings server (`researchzosho embed start`), which also has no way out on Linux. An install that kept its files in
+CodeZaiku's folder before 0.8.3 moves to its own folder by itself at its next start. More in
 [SECURITY.md](../SECURITY.md), "What leaves your machine".
 
 ## How the list was made
@@ -101,6 +104,10 @@ checks every download against a recorded sha256 and refuses a mismatch.
 - Granite 4.1 8B: right, but 9.4 GB in use with one 16k slot, so not an 8 GB fit, and one unit slip.
 - Phi-4-reasoning-plus, Falcon-H1 7B, SmolLM3 3B, LFM2 8B, Granite 4.0 micro: copied the prompt, answered
   without sources, or got the facts wrong.
+- Inkling 2 Mini (4-bit): in the chat it picked the right tool for 408 of 472 requests, against the 27B's 458, and
+  took 70% longer over the set. Its research reports were the weaker of the two on both questions tried. It needs
+  the same memory as the 27B. On a 16 GB card it runs only with part of it in RAM, takes about a minute and a half
+  for a chat's first reply, and leaves no room for the search model. Its 8-bit file was not tried.
 
 ## What the runs need from a server
 

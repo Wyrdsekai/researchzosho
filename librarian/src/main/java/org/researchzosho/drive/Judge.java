@@ -205,7 +205,8 @@ public final class Judge {
         try { said = String.valueOf(plain.ask(asked, began)).strip(); }
         catch (Stopping.Requested stop) { throw stop; }
         catch (Exception e) { PROBLEM.set("the server answered: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage())); return e instanceof IOException io ? new Answer(notRan.choice(), Map.of(), 0.0, io) : notRan; }
-        String answer = plainAnswer(said, labels);
+        // the model's thinking in place of the answer it never gave is no answer: its first word is a thought ("Yes, but…", "A source…")
+        String answer = DriveClient.lastClassifyThinking() ? null : plainAnswer(said, labels);
         if (answer == null) {
             IOException none = DriveClient.lastClassifyUnanswered();
             String problem = DriveClient.lastClassifyProblem();

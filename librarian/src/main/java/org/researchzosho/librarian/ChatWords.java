@@ -14,6 +14,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -28,7 +29,7 @@ import java.util.regex.PatternSyntaxException;
  * phrase is matched without regard to case or width; a space in it stands for any run of spaces (or none, between letters that do not
  * space their words); a phrase in letters that space their words (Latin, Cyrillic, Greek) stands as a whole word, and one in kana, han
  * or hangul anywhere. How each meaning is matched is the reader's: a tier anywhere in the words, yes at their start, no as the whole
- * answer, an ask as the whole message.
+ * answer, an ask as the whole message, the person's go-ahead as a whole sentence, the first or the last of a message ({@link GoAhead}).
  */
 final class ChatWords {
     private ChatWords() { }
@@ -47,7 +48,7 @@ final class ChatWords {
             "pictures.find", "pictures.keep", "pictures.keep_all", "pictures.judge", "pictures.describe", "pictures.same", "pictures.like",
             "kind.picture", "kind.person", "kind.place", "kind.thing", "kind.animal",
             "models.model", "models.default", "models.hosted", "models.key", "models.ours", "models.using", "models.research", "models.setup", "models.thing", "models.change",
-            "hint.yes_no");
+            "hint.yes_no", "go", "go.share", "go.public");
     /** The tiers, in the order the words are read for them: the most thorough named wins. */
     static final List<String> TIERS = List.of(Translation.THOROUGH, Translation.REVIEWED, Translation.CHECKED, Translation.QUICK);
 
@@ -57,6 +58,31 @@ final class ChatWords {
     private static volatile Map<String, String> sourceNames;
     private static final Map<String, Pattern> COMPILED = new ConcurrentHashMap<>();
     private static final Pattern PLACE = Pattern.compile("\\{(\\w+)\\}");
+
+    /**
+     * Whether what is worked out from the words files is kept for the next call. The files are read once, so a meaning's entries, a
+     * phrase's expression, the expressions an ask is tried with in their order and the names of their groups are the same at every
+     * call. False: all of it is worked out again at every call, as it was until 2026-11-25 (a test reads every phrase both ways).
+     */
+    static volatile boolean KEEP = true;
+    /** What one value worked out from the words files is kept under: what it is, and up to three inputs, compared by their values. */
+    private record Key(String what, Object a, Object b, Object c) { }
+    private static final Map<Key, Object> KEPT = new ConcurrentHashMap<>();
+
+    /** The value kept under {@code key}, worked out by {@code make} the first time; worked out at every call while {@link #KEEP} is off. */
+    @SuppressWarnings("unchecked")
+    private static <T> T kept(Key key, Supplier<T> make) {
+        if (!KEEP) return make.get();
+        Object v = KEPT.get(key);
+        if (v == null) { v = make.get(); Object was = KEPT.putIfAbsent(key, v); if (was != null) v = was; }   // worked out twice at once: the same value, one kept
+        return (T) v;
+    }
+
+    /** A value another reader of the words works out from the files ({@link TranslateTurn}), kept as these are: {@code what} names it. */
+    static <T> T keep(String what, Object input, Supplier<T> make) { return kept(new Key(what, input, null, null), make); }
+
+    /** A words file's entry folded as {@link #fold} folds it. */
+    private static String folded(String entry) { return kept(new Key("fold", entry, null, null), () -> fold(entry)); }
     /** The blank a phrase leaves behind between two letters of writing that does not space its words; Korean spaces its words, so a blank between Hangul stays ("이 파일" is two words, and a document's name keeps its own). */
     private static final String CJK_GAP = "(?<=[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}、。，])\\s+(?=[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}、。，])";
 
@@ -90,7 +116,9 @@ final class ChatWords {
     }
 
     /** The entries for a meaning, every language joined, English first. */
-    static List<String> entries(String meaning) {
+    static List<String> entries(String meaning) { return kept(new Key("entries", meaning, null, null), () -> List.copyOf(entriesNow(meaning))); }
+
+    private static List<String> entriesNow(String meaning) {
         List<String> out = new ArrayList<>();
         for (Map<String, List<String>> f : files().values()) for (String e : f.getOrDefault(meaning, List.of())) if (!out.contains(e)) out.add(e);
         return out;
@@ -111,7 +139,9 @@ final class ChatWords {
     }
 
     /** A phrase's own regular expression, each place replaced by the group {@code places} gives it (a place not given stays as written). */
-    static String phrase(String phrase, Map<String, String> places) {
+    static String phrase(String phrase, Map<String, String> places) { return kept(new Key("phrase", phrase, places, null), () -> phraseNow(phrase, places)); }
+
+    private static String phraseNow(String phrase, Map<String, String> places) {
         String p = phrase.strip();
         StringBuilder b = new StringBuilder();
         int i = 0;
@@ -142,7 +172,9 @@ final class ChatWords {
     }
 
     /** An entry as a pattern: a regular expression as written; a phrase case- and width-blind. */
-    static Pattern pattern(String entry, Map<String, String> places) {
+    static Pattern pattern(String entry, Map<String, String> places) { return kept(new Key("pattern", entry, places, null), () -> patternNow(entry, places)); }
+
+    private static Pattern patternNow(String entry, Map<String, String> places) {
         String key = entry + "\u0000" + (places == null ? "" : places.toString());
         return COMPILED.computeIfAbsent(key, k -> isPattern(entry) ? Pattern.compile(entry.substring(3)) : Pattern.compile("(?iu)" + phrase(entry, places)));
     }
@@ -167,14 +199,22 @@ final class ChatWords {
     /** The same, a phrase's places taking what {@code places} gives them ("en {fmt}" taken out of "ce fichier en pdf"). */
     static String without(String words, Map<String, String> places, String... meanings) {
         String w = " " + nfkc(words);
-        // the phrases of every meaning named, the longest first whatever file or meaning it is from ("sem notas do tradutor" before
-        // "sem notas", 译注不要 before another language's 注不要), then the expressions in the files' order
+        for (Pattern p : kept(new Key("without", places, List.of(meanings), null), () -> withoutPatterns(places, meanings))) w = p.matcher(w).replaceAll(" ");
+        return tidied(w);
+    }
+
+    /**
+     * What {@link #without} takes out, in its order: the phrases of every meaning named, the longest first whatever file or meaning it is
+     * from ("sem notas do tradutor" before "sem notas", 译注不要 before another language's 注不要), then the expressions in the files' order.
+     */
+    private static List<Pattern> withoutPatterns(Map<String, String> places, String... meanings) {
         List<String> phrases = new ArrayList<>(), patterns = new ArrayList<>();
         for (String meaning : meanings) for (String e : entries(meaning)) { List<String> l = isPattern(e) ? patterns : phrases; if (!l.contains(e)) l.add(e); }
         phrases.sort(Comparator.comparingInt(String::length).reversed());
-        for (String e : phrases) w = pattern("re:(?iu)[\\s,;、，]*" + phrase(e, places), null).matcher(w).replaceAll(" ");
-        for (String e : patterns) w = pattern(e, null).matcher(w).replaceAll(" ");
-        return tidied(w);
+        List<Pattern> out = new ArrayList<>();
+        for (String e : phrases) out.add(pattern("re:(?iu)[\\s,;、，]*" + phrase(e, places), null));
+        for (String e : patterns) out.add(pattern(e, null));
+        return List.copyOf(out);
     }
 
     /** Words a phrase was taken out of, tidied: no blank between two letters of writing that does not space its words, one blank between words, no comma left at an end. */
@@ -187,12 +227,18 @@ final class ChatWords {
     static String withoutAtEnd(String words, String... meanings) {
         String w = nfkc(words).strip();
         int cut = -1;
-        for (String meaning : meanings) for (String e : entries(meaning)) {
-            if (isPattern(e)) continue;
-            Matcher m = pattern("re:(?iu)[\\s,;、，]*" + phrase(e, null) + "\\s*$", null).matcher(w);
+        for (Pattern p : kept(new Key("atEnd", List.of(meanings), null, null), () -> atEndPatterns(meanings))) {
+            Matcher m = p.matcher(w);
             if (m.find() && m.start() > 0 && (cut < 0 || m.start() < cut)) cut = m.start();
         }
         return cut < 0 ? w : w.substring(0, cut).strip();
+    }
+
+    /** The phrases {@link #withoutAtEnd} looks for at the end of the words, meaning by meaning in the files' order. */
+    private static List<Pattern> atEndPatterns(String... meanings) {
+        List<Pattern> out = new ArrayList<>();
+        for (String meaning : meanings) for (String e : entries(meaning)) if (!isPattern(e)) out.add(pattern("re:(?iu)[\\s,;、，]*" + phrase(e, null) + "\\s*$", null));
+        return List.copyOf(out);
     }
 
     // ---------------------------------------------------------------- the short answers
@@ -248,11 +294,8 @@ final class ChatWords {
      */
     static String yesWord(String words) {
         String w = fold(words);
-        List<String> ys = new ArrayList<>(), alone = new ArrayList<>();
-        for (String y : entries("yes.alone")) if (!isPattern(y) && !alone.contains(fold(y))) alone.add(fold(y));
-        ys.addAll(alone);
-        for (String y : entries("yes")) if (!isPattern(y) && !ys.contains(fold(y))) ys.add(fold(y));
-        ys.sort(Comparator.comparingInt(String::length).reversed());
+        Yes yes = kept(new Key("yes", null, null, null), ChatWords::yesNow);
+        List<String> ys = yes.ys(), alone = yes.alone();
         for (String y : ys) {
             if (w.equals(y)) return y;
             if (!w.startsWith(y)) continue;
@@ -264,11 +307,23 @@ final class ChatWords {
         return null;
     }
 
+    /** The yes words, folded: those that stand alone, and every yes, the longest first. */
+    private record Yes(List<String> alone, List<String> ys) { }
+
+    private static Yes yesNow() {
+        List<String> ys = new ArrayList<>(), alone = new ArrayList<>();
+        for (String y : entries("yes.alone")) if (!isPattern(y) && !alone.contains(folded(y))) alone.add(folded(y));
+        ys.addAll(alone);
+        for (String y : entries("yes")) if (!isPattern(y) && !ys.contains(folded(y))) ys.add(folded(y));
+        ys.sort(Comparator.comparingInt(String::length).reversed());
+        return new Yes(List.copyOf(alone), List.copyOf(ys));
+    }
+
     /** Whether the words are a no, or nothing (Enter): the whole answer, its closing stop aside. */
     static boolean isNo(String words) {
         String w = fold(words).replaceAll("[.!。！]+$", "");
         if (w.isEmpty()) return true;
-        for (String n : entries("no")) if (isPattern(n) ? pattern(n, null).matcher(w).matches() : fold(n).equals(w)) return true;
+        for (String n : entries("no")) if (isPattern(n) ? pattern(n, null).matcher(w).matches() : folded(n).equals(w)) return true;
         return false;
     }
 
@@ -284,9 +339,17 @@ final class ChatWords {
     static String language(String name) {
         String n = fold(name);
         if (n.isEmpty()) return "";
-        for (String code : Translate.LANGUAGES.keySet()) for (String e : entries("lang." + code)) if (!isPattern(e) && fold(e).equals(n)) return code;
+        String named = kept(new Key("languages", null, null, null), ChatWords::languagesNow).get(n);
+        if (named != null) return named;
         String c = Translate.code(n);
         return Translate.LANGUAGES.containsKey(c) ? c : "";
+    }
+
+    /** Each name of a language the files hold, folded, to the first language (in the order of {@link Translate#LANGUAGES}) that has it. */
+    private static Map<String, String> languagesNow() {
+        Map<String, String> m = new LinkedHashMap<>();
+        for (String code : Translate.LANGUAGES.keySet()) for (String e : entries("lang." + code)) if (!isPattern(e)) m.putIfAbsent(folded(e), code);
+        return Map.copyOf(m);
     }
 
     /** Every name of a language the files hold and the English ones, the longest first, as the expression a {lang} place takes. */
@@ -357,7 +420,7 @@ final class ChatWords {
 
     /** The first language the words name, in any of the files' words, as its code; "" for none. */
     static String languageIn(String words) {
-        Matcher m = pattern("re:(?iu)(?<![\\p{IsLatin}\\p{IsCyrillic}\\p{IsGreek}])(" + languageNames() + ")", null).matcher(nfkc(words));   // a whole word where words are spaced; 翻译成日语 and 日本語に have a letter before the name
+        Matcher m = kept(new Key("languageIn", null, null, null), () -> pattern("re:(?iu)(?<![\\p{IsLatin}\\p{IsCyrillic}\\p{IsGreek}])(" + languageNames() + ")", null)).matcher(nfkc(words));   // a whole word where words are spaced; 翻译成日语 and 日本語に have a letter before the name
         return m.find() ? language(m.group(1)) : "";
     }
 
@@ -373,10 +436,29 @@ final class ChatWords {
     static Map<String, String> ask(String meaning, String words, Map<String, String> places, boolean rest, Predicate<Map<String, String>> accept) {
         if (words == null) return null;
         String w = words.strip();
+        for (Tried t : kept(new Key("ask", meaning, places, rest), () -> askTried(meaning, places, rest))) {
+            Matcher m = t.pattern().matcher(w);
+            if (!m.matches()) continue;
+            Map<String, String> got = new LinkedHashMap<>();
+            for (String g : t.groups()) { String v = m.group(g); if (v != null) got.put(g, v); }
+            if (accept == null || accept.test(got)) return got;
+        }
+        return null;
+    }
+
+    /** An expression an ask is tried with, and the names of its groups. */
+    record Tried(Pattern pattern, List<String> groups) { }
+
+    /**
+     * The expressions {@link #ask} tries the words with, in its order: the meaning's regular expressions in the files' order, then its
+     * phrases, the longest first, never the files' order; an entry whose expression does not compile is left out.
+     */
+    private static List<Tried> askTried(String meaning, Map<String, String> places, boolean rest) {
         List<String> ordered = new ArrayList<>(), phrases = new ArrayList<>();
         for (String e : entries(meaning)) (isPattern(e) ? ordered : phrases).add(e);
         phrases.sort(Comparator.comparingInt(String::length).reversed());   // the longest phrase first, never the files' order
         ordered.addAll(phrases);
+        List<Tried> out = new ArrayList<>();
         for (String e : ordered) {
             Pattern p;
             try {
@@ -389,13 +471,9 @@ final class ChatWords {
                     p = pattern("re:(?ius)^\\s*(?:" + phrase(e, places) + ")" + tail + "$", null);
                 }
             } catch (PatternSyntaxException x) { continue; }
-            Matcher m = p.matcher(w);
-            if (!m.matches()) continue;
-            Map<String, String> got = new LinkedHashMap<>();
-            for (String g : groups(p.pattern())) { String v = m.group(g); if (v != null) got.put(g, v); }
-            if (accept == null || accept.test(got)) return got;
+            out.add(new Tried(p, groups(p.pattern())));
         }
-        return null;
+        return List.copyOf(out);
     }
 
     static Map<String, String> ask(String meaning, String words, Map<String, String> places) { return ask(meaning, words, places, false, null); }
@@ -415,7 +493,9 @@ final class ChatWords {
     }
 
     /** The names of a pattern's groups. */
-    static List<String> groups(String regex) {
+    static List<String> groups(String regex) { return kept(new Key("groups", regex, null, null), () -> List.copyOf(groupsNow(regex))); }
+
+    private static List<String> groupsNow(String regex) {
         List<String> out = new ArrayList<>();
         Matcher m = Pattern.compile("\\(\\?<([a-zA-Z][a-zA-Z0-9]*)>").matcher(regex);
         while (m.find()) if (!out.contains(m.group(1))) out.add(m.group(1));
@@ -425,13 +505,21 @@ final class ChatWords {
     /** Which meaning under {@code prefix} a word is one of ("kind." and "personne" → "person"); "" for none. */
     static String whichOf(String prefix, String word) {
         String w = fold(word);
+        return kept(new Key("whichOf", prefix, null, null), () -> whichNow(prefix)).getOrDefault(w, "");
+    }
+
+    /** Each word of a meaning under {@code prefix}, folded, to the first such meaning (files in their order) that has it, without the prefix. */
+    private static Map<String, String> whichNow(String prefix) {
+        Map<String, String> m = new LinkedHashMap<>();
         for (Map<String, List<String>> f : files().values())
-            for (var e : f.entrySet()) if (e.getKey().startsWith(prefix)) for (String x : e.getValue()) if (!isPattern(x) && fold(x).equals(w)) return e.getKey().substring(prefix.length());
-        return "";
+            for (var e : f.entrySet()) if (e.getKey().startsWith(prefix)) for (String x : e.getValue()) if (!isPattern(x)) m.putIfAbsent(folded(x), e.getKey().substring(prefix.length()));
+        return Map.copyOf(m);
     }
 
     /** Every entry of every meaning under {@code prefix}, as the expression a place takes, the longest first. */
-    static String alternation(String prefix) {
+    static String alternation(String prefix) { return kept(new Key("alternation", prefix, null, null), () -> alternationNow(prefix)); }
+
+    private static String alternationNow(String prefix) {
         List<String> all = new ArrayList<>();
         for (Map<String, List<String>> f : files().values()) for (var e : f.entrySet()) if (e.getKey().startsWith(prefix)) for (String x : e.getValue()) if (!isPattern(x) && !all.contains(x)) all.add(x);
         all.sort(Comparator.comparingInt(String::length).reversed());

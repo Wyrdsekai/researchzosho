@@ -1,5 +1,6 @@
 package org.researchzosho.librarian;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -296,6 +297,27 @@ public final class Settings {
     }
 
     /** Every setting with its value as it may be shown, in the order above. */
+    /**
+     * The settings of a list whose name or description holds what {@code words} names: the one setting the words name exactly (its key, or
+     * its name with or without the prefix), else every setting whose key, name and description hold each of the words of three letters or
+     * more, case aside, an underscore or a dot read as a space. The chat's model narrows a list of some 160 settings with it; it is
+     * otherwise cut to what one tool result carries, and the setting it looked for may not be among those shown.
+     */
+    public static ArrayNode narrowed(ArrayNode all, String words) {
+        ArrayNode out = all.arrayNode();
+        Setting exact = named(words);
+        for (JsonNode s : all) if (exact != null && s.path("key").asText("").equals(exact.key())) out.add(s);
+        if (!out.isEmpty()) return out;
+        List<String> want = new ArrayList<>();
+        for (String w : words.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+")) if (w.codePointCount(0, w.length()) >= 3 && !want.contains(w)) want.add(w);
+        if (want.isEmpty()) return out;
+        for (JsonNode s : all) {
+            String text = (s.path("key").asText("") + " " + s.path("name").asText("") + " " + s.path("what").asText("")).toLowerCase(Locale.ROOT).replace('_', ' ').replace('.', ' ');
+            if (want.stream().allMatch(text::contains)) out.add(s);
+        }
+        return out;
+    }
+
     public static ArrayNode list(ObjectMapper m) {
         ArrayNode out = m.createArrayNode();
         for (Setting s : KNOWN) {

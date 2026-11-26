@@ -74,6 +74,7 @@ final class ChatCommands {
             case "/interview" -> { return Interview.questions(store, rest); }
             case "/suggest" -> { return Suggestions.text(Suggestions.refresh(store, null), Suggestions.all(store)); }
             case "/sources" -> { return SourcesPage.chat(store, patron, words, "/sources"); }
+            case "/go" -> { return rest.isEmpty() ? t(GO_USAGE) : null; }   // /go and a request is the model's turn, with the person's go-ahead (GoAhead); alone, how it is used
             default -> { }
         }
         if (words.startsWith("/")) { String r = more(store, patron, first, rest); if (r != null) return r; }
@@ -89,6 +90,9 @@ final class ChatCommands {
         return null;
     }
 
+    /** What {@code /go} alone answers. */
+    static final String GO_USAGE = "Type /go and what you want done, for example: /go research why the ferry closed. What the model starts or saves for it is done without the library's question, and the reply says what was done and how to undo it.";
+
     /** {@code /help}: what the library answers itself, and each field's own commands; the front's own lines last. */
     static String help(LibraryStore store, Front front) {
         StringBuilder b = new StringBuilder(t("Ask anything about what the library holds; it answers from its shelves, with the sources. These commands the library answers itself:")).append("\n");
@@ -96,6 +100,7 @@ final class ChatCommands {
         b.append("- ").append(t("/new, a fresh conversation; /sessions, the earlier ones; /resume and an id, to continue one")).append("\n");
         b.append("- ").append(t("/delete, to delete this conversation, or /delete and an id for another of yours: it says first what goes, and the same with --yes deletes it")).append("\n");
         b.append("- ").append(t("/runs, the research runs this conversation follows")).append("\n");
+        b.append("- ").append(t("/go and a request, to have what the model starts or saves for it done without the library's question; \"just go\", \"execute now\" or \"no confirmation needed\" as the first or the last sentence of a message does the same, for that message only")).append("\n");
         b.append("- ").append(t("/model, to see the models this chat can talk to; /model and a name switches to one")).append("\n");
         b.append("- ").append(t("/interview and a name, to have the library ask you what it does not know about someone")).append("\n");
         b.append("- ").append(t("/suggest, for what the library suggests you do next")).append("\n");

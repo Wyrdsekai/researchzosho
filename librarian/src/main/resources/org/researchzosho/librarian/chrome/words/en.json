@@ -54,5 +54,8 @@
  "models.setup": ["re:(?i)\\b(?:set up|setup|configured|installed|available|ready|working|answers?|answering|there)\\b"],
  "models.thing": ["re:(?i)\\bmodels? of\\b|\\bstandard model\\b|\\bbusiness model\\b|\\bscale model\\b|\\brole model\\b"],
  "models.change": ["re:(?i)^(?:the |our )?(?:default|main|primary)(?: model| entry)? (?:should|must|ought to|needs to|has to) (?:be|become) (?<x>.+)$", "re:(?i)^(?:please |can you |could you |would you )?(?:use|take) (?<x>.+?) (?:as|for) (?:the |our )?(?:default|main|primary)(?: model| entry)?(?: from now on)?$", "re:(?i)^(?:please |can you |could you |would you )?(?:switch|change|move|set|point) (?:the |our )?(?:default|main|primary)(?: model| entry)? (?:to|over to|at) (?<x>.+)$", "re:(?i)^(?:please |can you |could you |would you )?make (?<x>.+?) (?:the |our )?(?:default|main|primary)(?: model| entry)?(?: from now on)?$"],
- "hint.yes_no": ["(y/N)"]
+ "hint.yes_no": ["(y/N)"],
+ "go": ["just go", "execute now", "no confirmation needed", "re:(?iu)(?:please[\\s,]+)?just\\s+go(?:\\s+ahead)?(?:[\\s,]+please)?", "re:(?iu)(?:please[\\s,]+)?execute(?:\\s+(?:it|this|that))?\\s+(?:now|right\\s+now|right\\s+away)(?:[\\s,]+please)?", "re:(?iu)no\\s+confirmation\\s+(?:is\\s+)?(?:needed|required|necessary)", "re:(?iu)(?:there\\s+is\\s+)?no\\s+need\\s+to\\s+(?:confirm|ask(?:\\s+me)?)", "re:(?iu)(?:please[\\s,]+)?(?:do\\s+it|go\\s+ahead|proceed)\\s+without\\s+(?:asking(?:\\s+me)?|confirmation|confirming)(?:[\\s,]+please)?", "re:(?iu)without\\s+(?:asking(?:\\s+me)?|confirmation)", "re:(?iu)(?:please[\\s,]+)?skip\\s+the\\s+confirmation", "re:(?iu)(?:do\\s+not|don't|don’t)\\s+ask(?:\\s+me)?[\\s,;:]+just\\s+(?:do\\s+it|go)"],
+ "go.share": ["share", "sharing", "shared", "unshare", "relay", "tailscale", "tailnet", "cloudflare", "funnel"],
+ "go.public": ["public", "publicly", "anyone", "everyone"]
 }

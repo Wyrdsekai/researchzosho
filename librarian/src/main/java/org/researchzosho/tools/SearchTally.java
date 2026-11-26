@@ -175,8 +175,20 @@ public final class SearchTally {
     /** Whether this thread's work was asked to use no paid service. */
     public static boolean paidOff() { return Boolean.TRUE.equals(PAID_OFF.get()); }
 
-    /** Whether a service with a monthly limit is left off for this thread's run, because the run asked for no paid service. */
-    private static boolean offForThisRun(String service) { return paidOff() && limitOf(service) != null; }
+    /**
+     * Whether the work on this thread is a run filed from a paired phone (2026-11-25): a paid search place is used for it only within the
+     * library's own monthly limit, so one with no limit set is left off for it. Their fees are not dollars the library can count against
+     * the phone's cap (most say none per call), so the library's limit is what holds them.
+     */
+    private static final InheritableThreadLocal<Boolean> PHONE_RUN = new InheritableThreadLocal<>();
+
+    /** This thread's work, and the threads it starts from now, are a phone's run ({@code on}); or are not. */
+    public static void phoneRun(boolean on) { if (on) PHONE_RUN.set(Boolean.TRUE); else PHONE_RUN.remove(); }
+
+    static boolean phoneRun() { return Boolean.TRUE.equals(PHONE_RUN.get()); }
+
+    /** Whether a service with a monthly limit is left off for this thread's run, because the run asked for no paid service, or is a phone's and the place has no limit set. */
+    private static boolean offForThisRun(String service) { return limitOf(service) != null && (paidOff() || (phoneRun() && limit(service) < 0)); }
 
     /** Whether this month's calls through a service have reached its limit, or the run on this thread asked for no paid service. */
     public static boolean reached(String service) {
@@ -202,7 +214,8 @@ public final class SearchTally {
 
     /** What a place says, in one sentence, when this month's calls through its service are used: searches, or for Firecrawl pages; or that this run asked for no paid service. */
     public static String usedUp(String service, String place) {
-        if (offForThisRun(service)) return "This run asked for no paid service, so " + place + " is left off for it.";
+        if (offForThisRun(service)) return paidOff() ? "This run asked for no paid service, so " + place + " is left off for it."
+                : "This run was filed from a phone, and " + place + " has no monthly limit set, so it is left off for it; the library's keeper sets one with " + limitOf(service).shortName() + " in the settings.";
         Limit l = limitOf(service);
         int n = limit(service);
         String what = service.equals(Firecrawl.TALLY) ? (n == 1 ? " page" : " pages") : (n == 1 ? " search" : " searches");

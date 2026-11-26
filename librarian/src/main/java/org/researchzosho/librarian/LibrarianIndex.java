@@ -134,6 +134,19 @@ public final class LibrarianIndex {
     public boolean byWordsWhileStarting() { return byWordsWhileStarting; }
 
     /**
+     * Whether a search here went by words because its embeddings server is set and gave no vector, and is not being started: one behind
+     * llama-swap whose container could not start, one on another machine that is away. Said too, so a search never goes by words in silence.
+     */
+    private volatile boolean byWordsNoAnswer;
+
+    /** What a search's answer says when it went by words although search by meaning is set; null when it did not. */
+    public String byWordsSaid() {
+        if (byWordsWhileStarting) return Pages.t("Searched by words this time: search by meaning is starting.");
+        if (byWordsNoAnswer) return Pages.t("Searched by words this time: search by meaning did not answer.");
+        return null;
+    }
+
+    /**
      * Open a writer, WAITING for the lock: the abstracting crew and a rebuild ran in two JVMs at
      * once (2026-09-03) and the second died on "Lock held by another program". A rebuild holds
      * the lock for minutes; a crew waits its turn instead of failing the article it just wrote.
@@ -931,6 +944,7 @@ public final class LibrarianIndex {
                 }
                 float[] qv = embedder.embed(query);
                 if (qv == null && embedder.starting()) byWordsWhileStarting = true;
+                else if (qv == null && !"none".equals(embedder.modelId())) byWordsNoAnswer = true;
                 if (qv != null) {
                     // KNN always has k nearest neighbours — a query about harpsichords still gets
                     // the four "closest" keigo findings — so a dense hit counts only above a

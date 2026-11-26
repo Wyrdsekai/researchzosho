@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.8.3
+
+What's new: `/go` in the chat, your phone, leak protection for the search model, and bug fixes for reports and for running beside CodeZaiku.
+
+### New
+
+- Chat: `/go` and a request does it without the yes/no question: `/go research why the ferry closed`. So does "just go" or "no confirmation needed" as the first or last sentence. It holds for that one message, and the reply says what was done and how to undo it.
+- A setting, sharing, a model, a source or a file of your computer goes ahead only when your message names it. Anything the model wants after it has read a page is still asked.
+- Your phone (for a library you run for yourself, not with multiple accounts): `researchzosho phone on` gives your phone a small page of its own. Ask, start research, add a photo or a link, see what is running and what finished, read reports. Only that page can be reached from outside; the rest of the library stays on your network.
+- `researchzosho phone pair` shows a QR code; scan it with the phone's camera. The phone stays paired until `researchzosho phone remove`.
+- From the phone the library does not change settings, sharing, models, keys, sources or readers, and removes nothing.
+- Each phone may spend $10 a month on paid models unless you set another amount with `researchzosho phone cap`. Models on your own machines are free.
+- Leak protection (Linux): `researchzosho embed start` sets the search model up so that nothing can leave your machine through it, as `model install` has done for the model since 0.8.1. `embed status` says how yours is set up; `embed start --again` sets up an older one the new way.
+- Leak protection: the model's container cannot ask your library anything.
+- `researchzosho models` says when a host you named is owned from a place on the avoid list (api.moonshot.ai).
+
+### Bug fixes
+
+- Installed beside CodeZaiku, ResearchZosho kept its files in CodeZaiku's folder and could overwrite its settings. It now has its own folder, `~/.researchzosho`, and moves there by itself at its next start. `researchzosho home move --dry-run` shows what would move; `--back` undoes it.
+- Sharing CodeZaiku's model server: `model status` gave wrong advice, ResearchZosho changed CodeZaiku's model settings at every start, and `model uninstall` deleted CodeZaiku's files. All three are fixed.
+- Reports: a figure written the way its source writes it (386 258) or rounded (~386,000) was marked as missing from the sources. It no longer is, and a figure the check cannot settle stays as written.
+- Reports: a figure was marked as missing from the sources when the page its sentence cited had not been kept, even though another page of the same research stated it, and the report could be rewritten without it. The check now looks in every page the research read.
+- Reports: a decade such as "the 1850s" was read as 1,850 seconds and marked as missing from the sources.
+- A model that thinks before it answers: a check whose answer was cut short was taken for the model declining, and the rest of the report's citations went unchecked.
+- A model that keeps thinking on short checks was asked each of them twice. It is now asked once, with room to think.
+- Chat: under a "declined" statement, the figures and references the model gave were not checked.
+- Chat: the model could change the language you read reports in without asking. It now asks first, like every other setting.
+- Chat: testing a model (which costs money on a paid model), refreshing your shelf and filing a dossier's dated events ran without asking. They now ask first.
+- Chat: the model saw only 11 of the library's 161 settings and could not look one up, so it could not change a setting it did not see. It can now find one by its name or a few words.
+- A research run or a translation started from the web app, the API or MCP over HTTP waited up to 10 seconds before it started. It now starts at once.
+- Search: when the search model did not answer, a search went by words without saying so.
+- `share off` removed everything served on its Tailscale port. It now removes only the share address, and `share` says so when another program already uses that port.
+
 ## 0.8.2
 
 What's new: fixes for the helpers machine and for search, faster tests.

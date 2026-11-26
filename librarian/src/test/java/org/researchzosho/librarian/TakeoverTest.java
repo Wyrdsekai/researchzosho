@@ -147,7 +147,22 @@ class TakeoverTest {
         List<ProcessHandle> tree() { List<ProcessHandle> t = new ArrayList<>(p.toHandle().descendants().toList()); t.add(p.toHandle()); return t; }
     }
 
-    NodeProc node(String machine, int firstPort, Model model, Path copies, Map<String, String> more) throws IOException {
+    NodeProc node(String machine, int firstPort, Model model, Path copies, Map<String, String> more) throws IOException { return written(launch(machine, firstPort, model, copies, more)); }
+
+    /** Machine A and machine B, started side by side as two machines start, each with a model of its own; both written into the store. */
+    NodeProc[] two(int firstPortA, int firstPortB, Path copies) throws IOException {
+        NodeProc a = launch("machine-a", firstPortA, model(), copies, Map.of()), b = launch("machine-b", firstPortB, model(), copies, Map.of());
+        return new NodeProc[]{written(a), written(b)};
+    }
+
+    /** The node once it has written itself into the store, with its address. */
+    NodeProc written(NodeProc n) {
+        until(n.machine() + " has written itself into the store", 60_000, () -> { try { return store.nodes().stream().anyMatch(r -> r.root().equals(n.root().toString()) && !r.address().isEmpty()); } catch (IOException e) { return false; } });
+        return n;
+    }
+
+    /** The node's process started; it writes itself into the store as it comes up ({@link #written}). */
+    NodeProc launch(String machine, int firstPort, Model model, Path copies, Map<String, String> more) throws IOException {
         Path root = Files.createDirectories(tmp.resolve(machine)), home = Files.createDirectories(tmp.resolve(machine + "-home"));
         List<String> cmd = new ArrayList<>();
         cmd.add(ProcessHandle.current().info().command().orElse("java"));
@@ -171,7 +186,6 @@ class TakeoverTest {
         pb.redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.appendTo(tmp.resolve(machine + ".log").toFile())).redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
         Process p = pb.start();
         started.add(p);
-        until(machine + " has written itself into the store", 60_000, () -> { try { return store.nodes().stream().anyMatch(n -> n.root().equals(root.toString()) && !n.address().isEmpty()); } catch (IOException e) { return false; } });
         return new NodeProc(p, root, machine, model);
     }
 
@@ -306,7 +320,7 @@ class TakeoverTest {
     @Test
     void aMachineThatGoesOffInTheMiddleOfATranslationIsTakenOverFromItsFolder(@TempDir Path dir) throws Exception {
         start(dir);
-        NodeProc a = node("machine-a", 47410, model(), null, Map.of()), b = node("machine-b", 47430, model(), null, Map.of());
+        NodeProc[] ab = two(47410, 47430, null); NodeProc a = ab[0], b = ab[1];
         String reference = reference(b);
         int whole = referenceBatches;
         assertTrue(whole >= 5, "the document is translated in batches: " + whole);
@@ -323,7 +337,7 @@ class TakeoverTest {
         start(dir);
         Path copies = Files.createDirectories(dir.resolve("copies"));
         Config.set(LibraryPlaces.COPIES, copies.toString());   // the service reads the copies too: it decides a takeover from one
-        NodeProc a = node("machine-a", 47450, model(), copies, Map.of()), b = node("machine-b", 47470, model(), copies, Map.of());
+        NodeProc[] ab = two(47450, 47470, copies); NodeProc a = ab[0], b = ab[1];
         String reference = reference(b);
         int whole = referenceBatches;
         Interrupted i = interrupt(a);
@@ -348,7 +362,7 @@ class TakeoverTest {
     @Test
     void aFrozenMachineLetGoAfterTheTakeoverAsksNothingMoreAndItsLibraryEnds(@TempDir Path dir) throws Exception {
         start(dir);
-        NodeProc a = node("machine-a", 47490, model(), null, Map.of()), b = node("machine-b", 47510, model(), null, Map.of());
+        NodeProc[] ab = two(47490, 47510, null); NodeProc a = ab[0], b = ab[1];
         Interrupted i = interrupt(a);
         String id = i.lib().lib().id(), nodeA = store.placement(id).node();
         List<ProcessHandle> tree = a.tree();   // node A and its library, by the numbers this test started

@@ -518,7 +518,7 @@ public final class McpServer {
                 + "op=check asks every outside service whose key is set whether it is accepted and what is left, keeps the answers and returns checks[].",
                 schema(new String[]{},
                         enumProp("op", "list (default) | set | unset | read_in | check.", "list", "set", "unset", "read_in", "check"),
-                        prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER."),
+                        prop("name", "string", "The setting, e.g. podcastindex_key or RESEARCHZOSHO_WHISPER; with list, a setting's name or a few words, and only the settings whose name or description holds them are listed."),
                         prop("value", "string", "The value to write (set)."),
                         patronProp())));
         tools.add(tool("library_share",

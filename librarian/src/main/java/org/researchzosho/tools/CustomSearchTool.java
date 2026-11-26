@@ -127,6 +127,9 @@ public final class CustomSearchTool implements Tool {
         finally { SearchTally.settle(TALLY, o != null && o.made(), 0, 0); }
         if (o.hits() != null) return new Checked(true, "it answers: " + o.hits().size() + (o.hits().size() == 1 ? " hit" : " hits") + " for a test search, in a shape the library reads");
         String said = o.said().replaceFirst("^ERROR: ", "");
+        // a move's address is the service's own text: the check's sentence, which the settings list carries to the chat's model, says the move without it
+        int moved = said.indexOf(" answered with a move to ");
+        if (moved > 0) said = said.substring(0, moved) + " answered with a move to another address, which the library does not follow with its key; the address it moves to is what custom_search_url should hold.";
         if (said.contains("refused the key")) return new Checked(false, "refused: " + said);
         return new Checked(null, said);
     }

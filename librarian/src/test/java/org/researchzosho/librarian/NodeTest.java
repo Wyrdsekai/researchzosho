@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,6 +76,21 @@ class NodeTest {
         return ProcessHandle.current().children().filter(p -> p.isAlive() && p.info().commandLine().orElse("").contains(lib.folder())).toList();
     }
 
+    /**
+     * Until the node has heard the library {@code times} times more in rounds whose state {@code what} holds: each such round is one in
+     * which the node decides whether to act (put it to sleep, start it again), so what it must not do has had that many chances.
+     */
+    static void heard(Node n, String id, int times, Predicate<Node.State> what, String why) throws InterruptedException {
+        Node.State[] last = {n.state(id)};
+        int[] seen = {0};
+        until(why, 15_000, () -> { Node.State s = n.state(id); if (s != null && s != last[0]) { last[0] = s; if (what.test(s)) seen[0]++; } return seen[0] >= times; });
+    }
+
+    /** Whether the library's log says a start of it ended at its own look at its folder's lease, the start {@code pid} holding it. */
+    static boolean gaveUpTo(Path log, long pid) {
+        try { return Files.readString(log).contains("Stopped: another process holds this library's lease (pid " + pid + " on "); } catch (IOException e) { return false; }
+    }
+
     JsonNode health(String address) throws Exception { return M.readTree(c.send(HttpRequest.newBuilder(URI.create(address + "/healthz")).GET().build(), HttpResponse.BodyHandlers.ofString()).body()); }
 
     @Test
@@ -115,7 +131,7 @@ class NodeTest {
 
         // a request on its way to the library keeps it up, however long nothing else is asked
         node.ensure(lib);
-        Thread.sleep(3_000);
+        heard(node, id, 2, s -> s.quiet() && s.idleMs() >= 1_500, "two rounds of the node's that heard the library has had nothing to do past its time: each would put it to sleep");
         assertTrue(node.awake(id), "a request is open"); assertFalse(node.sleep(id, "the test asks"), "and it is not stopped under it");
         assertEquals(2, node.state(id) == null ? 2 : store.placement(id).epoch());
         node.done(id);
@@ -175,6 +191,7 @@ class NodeTest {
     void whereNothingCanBeProvenNothingIsStoppedAndALaterStartTakesTheFolderAtOnce(@TempDir Path tmp) throws Exception {
         start(tmp);
         Node.SLEEP_AFTER_MS = 0L;
+        local.javaOptions = List.of("-Dresearchzosho.lease.watch_ms=1000");   // the earlier start looks at its folder's lease every second, not every ten: the look it gives up at
         AccountService.Made ann = AccountService.newAccount(store, root, "Ann Example", "", false, "the test");
         AccountStore.Library lib = ann.library();
         String id = lib.id(), key = store.mintKey(ann.account().id(), id, "write", "the test").secret();
@@ -191,8 +208,12 @@ class NodeTest {
             assertEquals(200, get("/v1/status", key).statusCode(), "the next start is answered");
             System.out.println("[node] with nothing proven, the next start answered after " + (System.currentTimeMillis() - t0) + " ms");
             assertEquals(2, again.epoch(id));
-            assertTrue(earlier.isAlive(), "the earlier start was not stopped: nothing proved it was the one meant");
+            long later = processes(lib).stream().mapToLong(ProcessHandle::pid).filter(p -> p != earlier.pid()).findFirst().orElse(-1);
+            Path log = Path.of(lib.folder()).resolve("serve.log");
+            // alive, or already ended at its own look with the later start holding its folder (a second after it looked): never stopped by the node
+            assertTrue(earlier.isAlive() || gaveUpTo(log, later), "the earlier start was not stopped: nothing proved it was the one meant");
             until("the earlier start gives up by itself", 60_000, () -> !earlier.isAlive());
+            assertTrue(gaveUpTo(log, later), "at its own look at its folder's lease, start " + later + " holding it: " + ChildLibraries.lastLines(log));
             assertEquals(200, get("/v1/status", key).statusCode());
         } finally { ChildLibraries.READ_ARGUMENTS = true; }
     }
@@ -227,7 +248,7 @@ class NodeTest {
         again.start();
         assertTrue(again.awake(id)); assertEquals(1, again.epoch(id), "taken back as the start it is");
         assertEquals(pid, processes(lib).get(0).pid(), "the same process");
-        Thread.sleep(1_500);
+        heard(again, id, 2, s -> s.quiet() && !s.version().equals(Version.string()), "two rounds of the new node's that heard the library quiet and of an older build: each would start it again");
         assertEquals(pid, processes(lib).get(0).pid(), "with a request open it is left as it is, older build or not");
         assertEquals(200, get("/v1/status", key).statusCode());
         again.done(id);
@@ -238,7 +259,7 @@ class NodeTest {
         String now = Version.number() == null ? "dev" : Version.number();
         until("the repairs of this version", 10_000, () -> { try { return Files.readString(repairs).contains("version: " + now + "\n"); } catch (IOException e) { return false; } });
         assertEquals(200, get("/v1/status", key).statusCode(), "and a person's next request is answered as before");
-        Thread.sleep(1_000);
+        heard(again, id, 2, s -> s.quiet() && s.version().equals(Version.string()), "two rounds that heard the library of this build, quiet: neither starts it again");
         assertEquals(2, again.epoch(id), "once: a library of this build is left alone");
     }
 }

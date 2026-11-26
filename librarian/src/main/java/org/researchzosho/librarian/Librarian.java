@@ -161,13 +161,18 @@ public class Librarian {
     private volatile List<Instrument> table;
     /** The tools of the keeper's MCP servers this patron may use, from what each server listed last. */
     private final List<Instrument> mcp;
+    /** Whether this conversation is a paired phone's, through the phone door: what it may do is {@link PhoneRules}', call by call. */
+    private final boolean phone;
+    /** What the library says under this turn's reply for the calls it refused from the phone: each sentence once. */
+    private final Set<String> phoneRefused = new LinkedHashSet<>();
 
     public Librarian(LibraryStore store, Researcher.Drive drive, Patrons.Patron patron, Session session) {
         this.store = store; this.drive = drive; this.patron = patron; this.session = session;
+        this.phone = PhoneRules.isPhone(patron);
         this.protocol = new LibraryProtocol(store);
-        this.base = Instruments.forChat(store);
+        this.base = phone ? List.of() : Instruments.forChat(store);   // the fields' instruments and the keeper's MCP servers are not the phone's
         this.table = base;
-        this.mcp = McpSources.instruments(store, patron);
+        this.mcp = phone ? List.of() : McpSources.instruments(store, patron);
         this.brain = Brain.of(drive, null, drive == null ? "" : drive.model(), null, null);   // a page's Librarian may have no drive
         this.protocol.asker = this::research;   // the runs a batch tool starts are asked about the chat's way too
         for (JsonNode m : session.messages) if ("tool".equals(m.path("role").asText())) evidence.append('\n').append(m.path("content").asText(""));
@@ -515,7 +520,8 @@ public class Librarian {
         boolean none = ChatWords.isNone(s);   // no, none, none of them, neither, nothing, いいえ, aucun …
         if (o[0].startsWith(ACT)) {   // a held act: a yes alone does it, a no alone does nothing, and anything else is more for the model to hear
             String yw = yesWord(s);
-            boolean bareYes = yw != null && s.substring(Math.min(s.length(), yw.length())).replaceFirst("^[\\s,.;:!、。，！]+", "").isBlank();
+            boolean bareYes = yw != null && s.substring(Math.min(s.length(), yw.length())).replaceFirst("^[\\s,.;:!、。，！]+", "").isBlank()
+                    || goNow != null && goNow.only();   // a message that is only the person's go-ahead ("just go") answers the question they were shown, as a yes
             if (!bareYes && !none) return moreAbout(waiting, words);
             // the acts a turn proposed are asked together under its reply, and one yes or one no answers them all
             List<String> answers = new ArrayList<>();
@@ -592,15 +598,52 @@ public class Librarian {
      * library waits for the person's answer to its question, the words are read first as that answer; a wait that has ended is over, and
      * the words are a message like any other.
      */
-    public String say(String words) throws IOException {
+    public String say(String words) throws IOException { return say(words, null); }
+
+    /**
+     * One turn, with what the person typed as the surface knows it ({@code typed}: the terminal's line, the page's box before the files'
+     * sentences are joined), read by the program for a go-ahead ({@link GoAhead}); null when the words are not the person's typing (a
+     * program's post, a button of the page). The go-ahead belongs to this call alone.
+     */
+    public String say(String words, String typed) throws IOException {
+        goNow = GoAhead.read(typed);
+        String heard = words;
+        if (goNow != null && goNow.how() == GoAhead.How.SLASH) { recordAs = words; heard = withoutSlash(words); }   // the model hears the request; the conversation keeps what was typed
+        try { return sayCounted(heard); }
+        finally { goNow = null; recordAs = null; doneUnasked.clear(); doneUnaskedCalls.clear(); attachedNow.clear(); filesCame = false; readSoFar = false; }   // nothing of this message's go-ahead outlives it
+    }
+
+    /** The words without the /go they begin with (in any width); the files' sentences after the request stay. */
+    static String withoutSlash(String words) {
+        String w = words == null ? "" : words.strip();
+        int cut = 0; while (cut < w.length() && !Character.isWhitespace(w.charAt(cut))) cut++;
+        String head = Normalizer.normalize(w.substring(0, cut), Normalizer.Form.NFKC);
+        return head.equalsIgnoreCase(GoAhead.SLASH) ? w.substring(cut).strip() : w;
+    }
+
+    /** The go-ahead the person's typed words gave this message; null for none. Never read from the conversation, never kept beyond the call. */
+    private GoAhead.Given goNow;
+    /** What the person's message is kept as when the model hears less of it (/go and the request: the request); null when the words themselves. */
+    private String recordAs;
+
+    /** The person's message as the conversation keeps it, with its go-ahead marked: a record, which nothing reads to give one. */
+    private ObjectNode personMessage(String words, long at) {
+        ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", recordAs != null ? recordAs : words == null ? "" : words); user.put("at", at);
+        if (goNow != null) user.put("go", goNow.how().said());
+        return user;
+    }
+
+    private String sayCounted(String words) throws IOException {
         // marked for its length: a conversation is not deleted while its reply is being written; its model calls go on the ledger as the chat's
         // under an account service a chat turn is a use: asked for first, told ended after (0.8.0, stage 3)
         String entry = ServiceUses.entryName("");
         double[] est = Hosted.on(store) ? ServiceUses.estimate(store, entry, SpendPurse.CHAT) : new double[]{0, 0};
         ServiceUses.Granted use = ServiceUses.start(store, SpendPurse.CHAT, entry, est[0], est[1], "");
         String ended = "failed";
+        String wasPhone = Spend.PHONE.get();
+        if (phone) Spend.PHONE.set(PhoneRules.phoneId(patron));   // a phone's chat turn: its model calls count against that phone's month
         try (Closeable turning = session.turn(); SpendPurse paid = SpendPurse.open(store, SpendPurse.CHAT, "", use == null ? null : use.id(), Gated.WAITING)) { String said = sayMarked(words); ended = "done"; return said; }
-        finally { if (use != null) ServiceUses.end(use.id(), ended); }
+        finally { if (use != null) ServiceUses.end(use.id(), ended); if (phone) { if (wasPhone == null) Spend.PHONE.remove(); else Spend.PHONE.set(wasPhone); } }
     }
 
     private String sayMarked(String words) throws IOException {
@@ -627,7 +670,7 @@ public class Librarian {
         if (a.rest() == null) {
             if (!a.next().isEmpty()) said = said.isEmpty() ? a.next() : said + "\n\n" + a.next();   // the next question, one after the other
             long now = System.currentTimeMillis();
-            ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words); user.put("at", now);
+            ObjectNode user = personMessage(words, now);
             if (session.att != null) { user.set("att", session.att); session.att = null; }
             session.append(user);
             // the answer to the library's own question is the library's reply, no model asked: its mark says so (it said "the model's own words" until 2026-11-10)
@@ -650,9 +693,12 @@ public class Librarian {
      */
     private String ownTurn(String words) throws IOException {
         String own = ReadInTurn.reply(store, session, patron, words);
-        if (own == null) own = TranslateTurn.reply(store, session, patron, words);
+        // on the phone: a file of this machine is not translated and the pictures' turn is not taken (their words go to the model under the
+        // phone's table), and the default model is not changed, which ModelsTurn does without a question
+        if (own == null && !phone) own = TranslateTurn.reply(store, session, patron, words);
         List<String> found = List.of();   // what a search outside found for the reply (pictures and their pages): those addresses may be opened, as a search's
-        if (own == null) { own = ImagesTurn.reply(store, session, patron, words); found = ImagesTurn.foundNow(); }
+        if (own == null && !phone) { own = ImagesTurn.reply(store, session, patron, words); found = ImagesTurn.foundNow(); }
+        if (own == null && phone && ModelsTurn.about(words) && ModelsTurn.changeTarget(TranslateTurn.withoutAttachment(words).strip().replaceAll("[\\s.!?。！？]+$", "")) != null) own = PhoneRules.said(null);
         if (own == null) own = ModelsTurn.reply(store, session, patron, words);   // which model is the default, why a run used one, "make deepseek the default": the library's own state
         if (own == null && ReadInTurn.parse(words) != null) own = t(ReadInTurn.UNRESOLVED);   // an ask to read something in a language that named nothing either turn could find
         if (own == null) return null;
@@ -661,7 +707,7 @@ public class Librarian {
         GivenAddresses.personSaid(words);
         for (String a : found) GivenAddresses.received(a);
         GivenAddresses.recorded(store, own, Set.of());
-        ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words == null ? "" : words); user.put("at", System.currentTimeMillis());
+        ObjectNode user = personMessage(words, System.currentTimeMillis());
         if (session.att != null) { user.set("att", session.att); session.att = null; }
         session.append(user);
         ObjectNode reply = M.createObjectNode(); reply.put("role", "assistant"); reply.put("content", own); reply.put("at", System.currentTimeMillis()); reply.put("by", "library");
@@ -690,9 +736,21 @@ public class Librarian {
         partlyDeclined.clear();
         personWords = words == null ? "" : words;
         GivenAddresses.personSaid(personWords);   // an address the person wrote may be opened
-        ObjectNode user = M.createObjectNode(); user.put("role", "user"); user.put("content", words); user.put("at", t0);
+        ObjectNode user = personMessage(words, t0);
         if (session.att != null) { user.set("att", session.att); session.att = null; }   // the file this turn carried
         session.append(user);
+        doneUnasked.clear(); doneUnaskedCalls.clear(); attachedNow.clear();
+        // the files this message carried, by what the page knows them as (the entries it shelved them as, the copy an ask kept): their
+        // sentences in the message are the documents' words, so a go-ahead reaches only the call that reads one of them in (GoAhead.readsInAttached)
+        filesCame = user.has("att");
+        JsonNode att = user.path("att");
+        for (String k : List.of("id", "path")) if (!att.path(k).asText("").isBlank()) attachedNow.add(att.path(k).asText());
+        for (JsonNode f : att.path("files")) if (f.path("kept").asBoolean(true) && !f.path("id").asText("").isBlank()) attachedNow.add(f.path("id").asText());
+        if (goNow != null) {   // the person said to go ahead: the model hears it from the library, so it acts rather than asks; what is done is the program's to decide, call by call
+            ObjectNode note = M.createObjectNode(); note.put("role", "user"); note.put("by", "library"); note.put("at", t0);
+            note.put("content", GO_NOTE);
+            session.append(note);
+        }
         if (!moreAbout.isEmpty()) {   // the person answered a held act with more: the model hears what it proposed, and that nothing was done
             ObjectNode note = M.createObjectNode(); note.put("role", "user"); note.put("by", "library"); note.put("at", t0);
             note.put("content", "(The library: what you proposed was not done: " + String.join("; ", moreAbout) + ". The person answered with more information, in their message above. "
@@ -700,7 +758,8 @@ public class Librarian {
             session.append(note);
             moreAbout.clear();
         }
-        ArrayNode tools = tools(store);
+        ArrayNode tools = phone ? tools(PhoneRules.tools(toolNames(store))) : tools(store);   // a phone's turn is shown only what the phone may do
+        phoneRefused.clear();
         if (!mcp.isEmpty()) { List<Instrument> t = new ArrayList<>(base); t.addAll(McpSources.pick(mcp, personWords, brain.tier())); table = t; }   // the MCP tools that match this turn's words join the table for it
         for (Instrument i : table) tools.add(Brain.fn(i.name(), ChatTable.words(i), i.schema(M)));   // the fields' instruments, for the model to pick, in the chat's words (ChatTable)
         Set<String> offered = new LinkedHashSet<>(); for (JsonNode t : tools) offered.add(t.path("function").path("name").asText(""));   // what this turn may run: its table, and nothing a name alone reaches
@@ -717,6 +776,8 @@ public class Librarian {
         String reply = null;
         boolean nudged = false, ownReply = false;   // ownReply: the library's own sentence, no model's words
         declinedThisTurn = null;
+        readSoFar = false;
+        declinedWords = "";
         for (int round = 0; round <= MAX_TOOL_ROUNDS + 1; round++) {
             ArrayNode messages = fitted(context(), 0.55);
             boolean last = round >= MAX_TOOL_ROUNDS || toolsCalled.size() - openings[0] >= MAX_CALLS;   // opening a tool is no look-up
@@ -755,6 +816,7 @@ public class Librarian {
                 // the model declined: the library's statement is the reply; no nudge, no second try
                 declinedThisTurn = d;
                 reply = d.statement("to answer this");
+                declinedWords = d.said();   // what the chat's model did say, quoted in the statement: still read by the checks below
                 break;
             } catch (Gated.Refused capped) {
                 // the service's gate refused the call (a cap reached, 0.8.0): its sentence is the reply, as every surface says it
@@ -769,6 +831,7 @@ public class Librarian {
                 session.append(keep);
                 List<String> notRun = new ArrayList<>();
                 int place = -1;   // this call's place among its message's calls: what its answer is paired with when the conversation is opened again
+                boolean roundRead = false;   // a call of this round was carried out and brought something read into the turn: the go-ahead reaches no later round
                 for (JsonNode c : calls) {
                     place++;
                     String name = c.path("function").path("name").asText("");
@@ -792,6 +855,18 @@ public class Librarian {
                     }
                     args = ChatTable.homeIn(args, System.getProperty("user.home"));   // a path the person wrote from their home (~/…) is that path, for every check below and the question a yes answers
                     args = keepingIsCollecting(name, args);   // keeping found pictures is a collection: one path, its form read from the person's words
+                    // from the phone, what the phone may not do is refused first, before the address rule, the question and the go-ahead, and
+                    // whatever the message says: nothing is run, held or asked, and the library says so under the reply
+                    String phoneWhy = phone && (offered.contains(name) || allToolNames().contains(name)) ? PhoneRules.refusal(store, patron, name, args) : null;
+                    if (phoneWhy != null) {
+                        phoneRefused.add(PhoneRules.said(store, patron, phoneWhy));
+                        String result = PhoneRules.result(name, phoneWhy);
+                        toolsCalled.add(name);
+                        tm.put("content", result);
+                        session.append(tm);
+                        evidence.append('\n').append(result); turnEvidence.append('\n').append(result);
+                        continue;
+                    }
                     // an address the model put together is never opened, nor handed to a run (2026-11-18); in a call that would store what it
                     // is given or start work from it, a search's words are looked at too: they are kept, and asked for later (0.8.1)
                     boolean wouldWait = offered.contains(name) && waitsForYes(name, args);
@@ -801,20 +876,29 @@ public class Librarian {
                     // address rule, so an address nobody gave is refused the same in every form
                     String unformed = offered.contains(name) && unopened == null ? ChatTable.unopened(tools, full, name, args) : null;
                     boolean held = wouldWait && unopened == null && unformed == null;
-                    String result = !offered.contains(name) ? notOffered(name, offered) : unopened != null ? GivenAddresses.refused(unopened) : unformed != null ? unformed : held ? askedFor(name, args) : call(name, args);
+                    // a held call the person's go-ahead reaches is carried out now, as their yes would; any other is asked, and says why when a go-ahead was given
+                    String why = held && goNow != null ? goWhy(name, args) : null;
+                    boolean unasked = held && goNow != null && why == null;
+                    boolean carried = offered.contains(name) && unopened == null && unformed == null && (!held || unasked);
+                    String result = !offered.contains(name) ? notOffered(name, offered) : unopened != null ? GivenAddresses.refused(unopened) : unformed != null ? unformed
+                            : unasked ? goAhead(name, args) : held ? askedFor(name, args, why) : call(name, args);
+                    // a look-up's answer, a page, a fetch: what the model does next may be its wish; the library's own settings, models, state and
+                    // documentation, read, hold only what the person or the program wrote (GoAhead.ownReading)
+                    if (carried && !(unasked && GoAhead.ownResult(name, args)) && !(!held && GoAhead.ownReading(name, args))) roundRead = true;
                     // what came back from outside may be opened next, and from the shelves only what the library recorded itself; never the call's own address, which a refusal or an error repeats
-                    boolean fromOutside = offered.contains(name) && unopened == null && unformed == null && !held && outside(name, args);
+                    boolean fromOutside = carried && outside(name, args);
                     GivenAddresses.gave(fromOutside, store, result, GivenAddresses.Own.of(args));
                     tm.put(GivenAddresses.OUTSIDE, fromOutside);   // kept with the answer: a conversation opened again reads it here, never from the calls' ids
                     readFrom(name, args, result);   // the page this turn read, for a change the model asks for after it
                     toolsCalled.add(name);
                     // the chat follows the runs it starts, read from what the tool that started one answered: a call that was refused or is put
                     // to the person first has started none, and what the library says of it holds the model's own words (a run named there is not one to follow)
-                    if (STARTS_RUNS.contains(name) && offered.contains(name) && unopened == null && unformed == null && !held) { Matcher jm = JOB_ID.matcher(result); while (jm.find()) session.watch(jm.group(1)); }
+                    if (STARTS_RUNS.contains(name) && carried) { Matcher jm = JOB_ID.matcher(result); while (jm.find()) session.watch(jm.group(1)); }
                     tm.put("content", result);
                     session.append(tm);
                     evidence.append('\n').append(result); turnEvidence.append('\n').append(result);
                 }
+                readSoFar |= roundRead;
                 // a tool's model declined its step: the turn ends with the library's statement, and the chat does not go on around it
                 if (declinedThisTurn != null) {
                     reply = declinedThisTurn.statement() + (notRun.isEmpty() ? "" : " " + (notRun.size() == 1 ? t("The library did not run the other tool the model asked for in the same turn: {0}.", String.join(", ", notRun)) : t("The library did not run the {0} other tools the model asked for in the same turn: {1}.", notRun.size(), String.join(", ", notRun))));
@@ -833,13 +917,18 @@ public class Librarian {
             if (reply.isEmpty()) reply = t("I have nothing to say to that; ask me again, another way.");
             break;
         }
-        // rule 7, mechanically: a number with a unit, a licence or a CVE id the reply states that no tool result holds is admitted
-        // (a declined turn's reply is the library's own statement, quoting the model: nothing in it is the model's claim)
-        boolean said = declinedThisTurn != null || ownReply;
-        List<String> unbacked = said ? new ArrayList<>() : WriteupChecks.numbersUnbacked(reply, evidence.toString());
-        if (!said) unbacked.addAll(WriteupChecks.namesUnbacked(reply, evidence.toString()));
+        // rule 7, mechanically: a number with a unit, a licence or a CVE id the reply states that no tool result holds is admitted. The checks
+        // read the model's own words: the reply, or, when the chat's model declined, the words it said that the library's statement quotes (a
+        // label on one part switches off no check of another: on 2026-11-24 a model's "~12,000 per branch" went unchecked under a label). A
+        // tool's model's decline and the library's own sentence carry no claim of the chat's model. The library's lines (the question about a
+        // held act, the go-ahead's "Done without asking") are appended after this, so none is read here; a copy of one the model wrote itself
+        // is taken out first, as it is taken out of the reply below
+        String modelWords = ownReply || (declinedThisTurn == null ? reply : declinedWords) == null ? "" : withoutHeldCopies(declinedThisTurn == null ? reply : declinedWords);
+        boolean said = modelWords.isBlank();
+        List<String> unbacked = said ? new ArrayList<>() : WriteupChecks.numbersUnbacked(modelWords, evidence.toString());
+        if (!said) unbacked.addAll(WriteupChecks.namesUnbacked(modelWords, evidence.toString()));
         // rule 2, mechanically: an entry id cited in brackets that no tool result returned is a made-up reference (the 4B did this, 2026-09-14)
-        List<String> madeUp = said ? List.of() : idsUnbacked(reply, evidence.toString());
+        List<String> madeUp = said ? List.of() : idsUnbacked(modelWords, evidence.toString());
         if (!unbacked.isEmpty() || !madeUp.isEmpty()) {
             StringBuilder adm = new StringBuilder("\n\n(");
             List<String> items = new ArrayList<>();
@@ -851,7 +940,7 @@ public class Librarian {
             unbacked.addAll(madeUp);
         }
         // a finding the reply cites that rests on one source: the library says so under the reply, whatever the model wrote of it (round E)
-        if (!said) { List<String> one = OneSource.chatLines(store, reply, madeUp); if (!one.isEmpty()) reply = reply + "\n\n" + String.join("\n", one); }
+        if (!said) { List<String> one = OneSource.chatLines(store, modelWords, madeUp); if (!one.isEmpty()) reply = reply + "\n\n" + String.join("\n", one); }
         // what the person's own words set for the runs of this turn, said back once, before the library's question
         if (!limitsThisTurn.isEmpty()) reply = reply + "\n\n" + limitsLine();
         // a time the person's words set now, read as a research run's is, for a picture collection this conversation follows that is still going
@@ -861,16 +950,24 @@ public class Librarian {
         if (!translationsThisTurn.isEmpty()) reply = reply + "\n\n" + String.join("\n", translationsThisTurn);
         // what the model asked to change in the library, said by the library and done only on the person's yes; once: the model, which saw the
         // library's question under earlier replies, wrote it out itself as well, and the page showed one question two and three times (2026-11-19)
-        if (!actsThisTurn.isEmpty() || reply.contains(heldPrefix())) reply = withoutHeldCopies(reply);
+        if (!actsThisTurn.isEmpty() || !doneUnasked.isEmpty() || reply.contains(heldPrefix()) || reply.contains(donePrefix())) reply = withoutHeldCopies(reply);
+        // what the person's go-ahead had done without the question, a line each with how to undo it, in the library's words: never the model's
+        if (!doneUnasked.isEmpty()) reply = (reply.isEmpty() ? "" : reply + "\n\n") + String.join("\n", doneUnasked);
+        // what the phone may not do, refused by the library: its own sentence, once each, never the model's words
+        if (!phoneRefused.isEmpty()) { reply = withoutPhoneCopies(reply); reply = (reply.isEmpty() ? "" : reply + "\n\n") + String.join("\n", phoneRefused); }
         if (!actsThisTurn.isEmpty()) reply = (reply.isEmpty() ? "" : reply + "\n\n") + String.join("\n", actsThisTurn);
         // the library's own question, once, under the reply: every run of this turn that waits for the person's answer
         if (!offeredThisTurn.isEmpty()) reply = reply + "\n\n" + offerLine(offeredThisTurn);
         askedThisTurn = !offeredThisTurn.isEmpty();   // known from the turn itself, never read off the end of a sentence in the person's language
         // where to find help comes first, before the model's words and the question whether to research it
         if (helpThisTurn) reply = CrisisHelp.text(Chrome.now()) + "\n\n" + reply;
-        // a tool that did its own part and whose model declined the rest: the library's statement under the reply, in its own words
-        if (declinedThisTurn == null && !partlyDeclined.isEmpty()) reply = reply + "\n\n" + String.join("\n\n", partlyDeclined);
-        // a picture under the reply when the words ask about a thing a picture can show (0.7.0): one, the shelves first, judged in the words' connection
+        // a tool that did its own part and whose model declined the rest: the library's statement under the reply, in its own words, whatever
+        // else of the turn was declined
+        if (!partlyDeclined.isEmpty()) reply = reply + "\n\n" + String.join("\n\n", partlyDeclined);
+        // a picture under the reply when the words ask about a thing a picture can show (0.7.0): one, the shelves first, judged in the words'
+        // connection. It is chosen from the person's words, which the declined part answered: under a decline none is fetched, since a
+        // picture of what the model declined would get around it (the owner's rule, 2026-09-23). A tool that declined only its own part
+        // (partlyDeclined) leaves the reply its picture
         if (declinedThisTurn == null && !ownReply && store != null) { String under = ChatPicture.under(store, words, reply, toolsCalled, offeredThisTurn.isEmpty()); if (!under.isEmpty()) reply = reply + "\n\n" + under; }
         ObjectNode a = M.createObjectNode(); a.put("role", "assistant"); a.put("content", reply); a.put("at", System.currentTimeMillis());
         if (ownReply) a.put("by", "library");   // the library's own sentence, marked as its other lines are
@@ -1011,6 +1108,8 @@ public class Librarian {
             ObjectNode m = session.messages.get(i).deepCopy();
             if ("tool".equals(m.path("role").asText())) m.put("content", Researcher.cut(m.path("content").asText("")));
             m.remove("name"); m.remove(GivenAddresses.CALL); m.remove(GivenAddresses.OUTSIDE);   // the library's own record of the answer, not the model's to read
+            if (GoAhead.SLASH.equals(m.path("go").asText())) m.put("content", withoutSlash(m.path("content").asText("")));   // /go and a request: the model hears the request, and the library's line says the rest
+            m.remove("go");
             msgs.add(m);
         }
         return msgs;
@@ -1085,7 +1184,7 @@ public class Librarian {
             Map.entry("library_my_shelf", "The person's own shelf, read from their Calibre library, their follows and their purchases: op=profile says what they went for (the books they added one by one — a bulk import counts as holdings, not taste — and any they rated themselves: the subject mix with its tilt against the shelf, the authors chosen more than once, decades, sample titles, podcasts followed, shops bought from); op=have title=… (author=…) says whether a book is already on the shelf, in the ledger or on a holdings list — check every book before recommending it; op=liked words=… lists the books they went for on a subject, best first (stars narrows to what they rated themselves); op=refresh reads the catalogues of the authors rated well now, after the person asked. A rating counts only when the person gave it. A reference, never a requirement."),
             Map.entry("library_models", "The models this library can run on, by name: op=list; op=add with name, drive (a host word), model, prices; op=remove; op=key with host and value. A research run names one with model=<name>."),
             Map.entry("library_sources", "The sources the library mines, registers, directories, boards, list pages, feeds, saved searches, each with what it yields and for whom: op=list (field=…, for=…, off=true to include the ones taken off); op=show id=…; op=add address=… for=… field=… (after the person said so); op=remove id=…; op=restore id=…."),
-            Map.entry("library_settings", "The library's settings: op=list shows every setting and its value (a key only as set or not); op=set name=… value=… changes one, after the person said so in this conversation; a blank value unsets it. op=read_in value=<language> sets the language the person reads reports in; a blank unsets it. Each key's setting carries its service, what it adds, its terms (free or paid, the allowance, the day read), the link to get one and this month's use: answer how to get a key, or what one costs, from those. op=check asks every service with a key whether it is accepted and what is left, and says so per service."),
+            Map.entry("library_settings", "The library's settings: op=list shows every setting and its value (a key only as set or not), and op=list name=… with a setting's name or a few words of what it does shows only those; op=set name=… value=… changes one, after the person said so in this conversation; a blank value unsets it. op=read_in value=<language> sets the language the person reads reports in; a blank unsets it. Each key's setting carries its service, what it adds, its terms (free or paid, the allowance, the day read), the link to get one and this month's use: answer how to get a key, or what one costs, from those. op=check asks every service with a key whether it is accepted and what is left, and says so per service."),
             Map.entry("library_share", "The library reached from outside the house: op=status how it stands; op=tailscale, op=public (anyone with the link) or op=cloudflare (mail=…) turns the relay on, after the person asked for it; op=off turns it off. Installing a missing program is the person's own step: tell them to say /share."),
             Map.entry("library_bridges", "Discovery by combination: pairs of areas no source read together, joined by terms both use. op=run from an area (dry=true only shows the pairs), op=list the proposals, op=accept files the run that tests one, op=dismiss drops it, op=measure the tally."),
             Map.entry("library_who", "Family history: which of the people the web shows under a relative's name IS the relative. op=list who waits, op=show one person's numbered entries, op=answer the person's word (is=\"1\" or \"1,3\", none=true, later=true), op=tell what they say of the relative, op=find looks one person up."),
@@ -1184,6 +1283,7 @@ public class Librarian {
         limits.put(args);
         String question = args.path("question").asText("").strip();
         args.put("from_chat", true); args.put("person_words", personWords == null ? "" : personWords);   // the run opens only what the person's words or its results give
+        if (phone) args.put(PhoneRules.FROM_PHONE, PhoneRules.phoneId(patron)); else args.remove(PhoneRules.FROM_PHONE);   // the program's mark, never the model's: a phone's run has no database or MCP server of the machine
         Fields.Suggestion s = Fields.suggest(store, question);
         if (s == null) s = fromPersonWords(question);
         if (s == null && !asked.isBlank()) { Profile p = Fields.enabledNamed(store, asked); if (p != null && p.joinsOnlyWhenAsked()) s = new Fields.Suggestion(p.name(), p.offer()); }
@@ -1397,18 +1497,22 @@ public class Librarian {
      * what a page says, file the request as a note, file a research run and save the page's address as a conversation; so now also:
      * starting work (research in any form, a translation, a list or questions as runs, a check, a meeting, a survey, a merge or a bridge
      * run), and writing (a note, a claim, a page or an address saved, a bookmark, a reading list, a decision on the inbox or the open
-     * questions, kept pictures, a standing watch, purchase records forgotten, a family answer). Reads stay free: search, get, read,
-     * holdings, the instruments that only answer. A program over MCP or /v1, the command line, and a run's own workers are not held here.
+     * questions, kept pictures, a standing watch, purchase records forgotten, a family answer). On 2026-11-25 a page read in the chat had a
+     * go-ahead set the person's own reading language, which nothing held; every op that changes something was then read against this list,
+     * and these joined it: the reading language (read_in), a model entry tested (a call to its server, paid on a hosted one, and what it
+     * sees written onto the entry), the recall feeds read now or a recall put away, the authors' catalogues or the whole shelf read now,
+     * and a dossier's dated events filed as claims. Reads stay free: search, get, read, holdings, the instruments that only answer. A
+     * program over MCP or /v1, the command line, and a run's own workers are not held here.
      */
     static boolean waitsForYes(String name, JsonNode args) {
         String op = args == null ? "" : args.path("op").asText("").strip().toLowerCase(Locale.ROOT).replace('-', '_');
         return switch (name) {
-            case "library_settings" -> op.equals("set") || op.equals("unset");
+            case "library_settings" -> op.equals("set") || op.equals("unset") || op.equals("read_in");   // the person's own reading language too: a page asked for it on 2026-11-25 and a go-ahead ran it
+            case "library_models" -> op.equals("add") || op.equals("remove") || op.equals("key") || op.equals("test");   // a test asks the entry's server, paid on a hosted one, and writes onto the entry whether it sees
             case "library_share" -> !op.isEmpty() && !op.equals("status");
-            case "library_models" -> op.equals("add") || op.equals("remove") || op.equals("key");
             case "library_sources" -> op.equals("add") || op.equals("remove") || op.equals("restore");
             case "library_serials" -> Set.of("add", "remove", "park", "unpark", "every").contains(op);
-            case "library_owned" -> op.equals("import") || op.equals("forget");
+            case "library_owned" -> op.equals("import") || op.equals("forget") || op.equals("recalls") && (args.path("check").asBoolean(false) || !args.path("hit").asText("").isBlank());   // the feeds read now, a recall put away
             // starting work, and writing to the library: every form
             case "library_research", "library_translate", "library_tell", "library_submit", "library_items", "library_check", "library_questions",
                  "library_absorb", "library_meeting", "library_reading", "library_bookmarks", "library_survey" -> true;
@@ -1416,7 +1520,8 @@ public class Librarian {
             case "library_bridges" -> op.equals("run") ? !args.path("dry").asBoolean(false) : Set.of("accept", "dismiss").contains(op)
                     || op.equals("settings") && List.of("sources", "reach", "toward", "away", "since", "per_night", "via").stream().anyMatch(args::has);   // settings that set
             case "library_inbox", "library_frontier" -> !op.isEmpty() && !op.equals("list");
-            case "library_dossier" -> Set.of("watch", "story", "score").contains(op);
+            case "library_dossier" -> Set.of("watch", "story", "score", "claims").contains(op);   // claims: the reports' dated events filed as claims
+            case "library_my_shelf" -> op.equals("refresh") || op.equals("dna") && args.path("title").asText("").isBlank();   // the authors' catalogues read now, or the whole shelf read for its DNA now: minutes of work, kept
             case "library_who", "who" -> op.equals("answer") || op.equals("tell");   // the family's instrument passes its op on too
             // the instruments that file work or keep and spend (round F, the second review, S12): the home search files a run and spends the
             // keeper's allowance; look reads a video's frames with the model and keeps them; candidates keeps a pool from searches; sift judges
@@ -1474,26 +1579,49 @@ public class Librarian {
             if (allows != null) return allows;
             if (setting != null) return t("set {0} to {1}", setting.shortName(), Settings.shown(setting, value));
         }
+        if (name.equals("library_settings") && op.equals("read_in")) {   // the person's own language to read reports in
+            String lang = a.path("value").asText("").strip();
+            return lang.isEmpty() || Translate.code(lang).isEmpty() ? t("read every report as it was written") : t("read every report in {0}", Chrome.now().languageName(Translate.code(lang)));
+        }
         if ((name.equals("library_items") || name.equals("library_questions")) && a.path("as").asText("").equalsIgnoreCase("runs"))
-            return t("start a research run for each of these: \"{0}\"", clip(firstOf(a, "text", "items"), 300));
+            return t("start a research run for each of these: \"{0}\"", inner(clip(firstOf(a, "text", "items"), 300)));
         if (name.equals("library_images") && op.equals("collect")) {   // the form the model filled, in plain words: the person's yes, or what they add, is the check (0.8.0)
             CollectionForm form = CollectionForm.fromArgs(a);
-            return form.words().isEmpty() ? t("collect pictures for the request: \"{0}\"", clip(form.ask(), 300)) : form.said(Chrome.now());
+            return form.words().isEmpty() ? t("collect pictures for the request: \"{0}\"", inner(clip(form.ask(), 300))) : form.said(Chrome.now());
         }
         return switch (name) {
-            case "homes" -> t("start a home search: \"{0}\"", clip(firstOf(a, "words"), 300));
+            case "homes" -> t("start a home search: \"{0}\"", inner(clip(firstOf(a, "words"), 300)));
             case "look" -> t("look at the video {0} with the model and keep what it shows", clip(firstOf(a, "video").isEmpty() ? a.path("videos").toString() : firstOf(a, "video"), 300));
             case "candidates" -> t("search for the remembered video's candidates and keep the list: {0}", clip(a.path("things").toString(), 200));
-            case "sift" -> t("have the model judge each candidate's pictures for: \"{0}\"", clip(firstOf(a, "what"), 200));
-            case "library_research" -> t("start a research run: \"{0}\"", a.path("question").asText(firstOf(a, "question", "q")).replaceAll("\\s+", " ").strip());   // whole: what the yes starts is all of it (round F)
+            case "sift" -> t("have the model judge each candidate's pictures for: \"{0}\"", inner(clip(firstOf(a, "what"), 200)));
+            case "library_research" -> t("start a research run: \"{0}\"", inner(a.path("question").asText(firstOf(a, "question", "q")).replaceAll("\\s+", " ").strip()));   // whole: what the yes starts is all of it (round F)
             // the document a translation reads is its path or its saved page, never an address (LibraryProtocol.translate); a glossary entry is a change
             case "library_translate" -> op.equals("glossary") ? t("change this library: {0}", actSaid(name, a))
                     : t("start a translation of {0} into {1}", firstOf(a, "path", "raw").isEmpty() ? t("the document") : clip(firstOf(a, "path", "raw"), 200), a.path("to").asText(a.path("language").asText("?")));
-            case "library_tell", "library_submit" -> t("write this into the library: \"{0}\"", clip(firstOf(a, "text", "claim", "says", "note", "what"), 300));
+            case "library_tell", "library_submit" -> t("write this into the library: \"{0}\"", inner(clip(firstOf(a, "text", "claim", "says", "note", "what"), 300)));
             case "library_add", "library_absorb", "library_items", "library_check", "library_questions", "library_meeting", "library_reading", "library_bookmarks", "library_survey" ->
                     t("read {0} into the library", main.isEmpty() ? t("the text given") : clip(main, 200));
             default -> t("change this library: {0}", actSaid(name, a));
         };
+    }
+
+    /** The quotation marks each language sets inside its own: what a quoted argument quotes itself is shown in these, so no pair sits inside the same pair. */
+    static final Map<String, String[]> INNER_QUOTES = Map.of("en", new String[]{"‘", "’"}, "ja", new String[]{"『", "』"}, "zh", new String[]{"‘", "’"}, "ko", new String[]{"‘", "’"},
+            "de", new String[]{"‚", "‘"}, "fr", new String[]{"“", "”"}, "es", new String[]{"“", "”"}, "pt", new String[]{"‘", "’"}, "it", new String[]{"“", "”"}, "ru", new String[]{"„", "“"});
+    private static final Pattern QUOTED = Pattern.compile("\"([^\"]*)\"|“([^“”]*)”|„([^„“”]*)[“”]|«\\s?([^«»]*?)\\s?»|「([^「」]*)」");
+
+    /** A quoted argument's own quotations, in the inner marks of the person's language ({@link #INNER_QUOTES}). */
+    static String inner(String s) {
+        if (s == null || s.isEmpty()) return s == null ? "" : s;
+        String[] q = INNER_QUOTES.getOrDefault(Chrome.now().code, INNER_QUOTES.get("en"));
+        Matcher m = QUOTED.matcher(s);
+        StringBuilder b = new StringBuilder();
+        while (m.find()) {
+            String in = null; for (int g = 1; g <= m.groupCount() && in == null; g++) in = m.group(g);
+            m.appendReplacement(b, Matcher.quoteReplacement(q[0] + (in == null ? "" : in) + q[1]));
+        }
+        m.appendTail(b);
+        return b.toString();
     }
 
     private static String firstOf(JsonNode a, String... keys) {
@@ -1526,9 +1654,73 @@ public class Librarian {
      * refuses this person before it acts ({@link #couldMake}) goes to it at once, so the refusal is said and no question is asked whose
      * yes could only be refused.
      */
-    private String askedFor(String name, JsonNode args) throws IOException {
+    private String askedFor(String name, JsonNode args) throws IOException { return askedFor(name, args, null); }
+
+    /** The same, with why a go-ahead the person gave does not reach this call ({@link #goWhy}), said in the question; null when none was given. */
+    private String askedFor(String name, JsonNode args, String why) throws IOException {
         if (!Patrons.mayWrite(store, patron)) return readsOnly(name);
-        return couldMake(name, args) ? held(name, args) : call(name, args);
+        return couldMake(name, args) ? held(name, args, why) : call(name, args);
+    }
+
+    /** The model's line at the start of a turn the person gave the go-ahead for: positive, and no promise of what the program will decide. */
+    static final String GO_NOTE = "(The library: the person said to go ahead without the library's question for this message. Do what they ask with the tools now; "
+            + "the library carries out what it can without asking and says under your reply what was done.)";
+
+    /** Whether a call of this turn was carried out and brought something read into it, before the round now running: the go-ahead reaches no call after. */
+    private boolean readSoFar = false;
+    /** Whether the person's message carried files: their sentences are the documents' words, and only reading one of them in goes ahead. */
+    private boolean filesCame = false;
+    /** What this message's files are known by: the entries the page shelved them as, the copy an ask kept. */
+    private final Set<String> attachedNow = new LinkedHashSet<>();
+    /** The lines under the reply for what the go-ahead did without the question, and the calls themselves for the turn's line. */
+    private final List<String> doneUnasked = new ArrayList<>(), doneUnaskedCalls = new ArrayList<>();
+
+    /**
+     * Why the person's go-ahead does not reach a held call, or null when it does ({@link GoAhead}): something was read in this turn
+     * before the model asked for it; the message carried files and this is not one of them read in; it is a change the person's own
+     * message does not name; or it is one no go-ahead reaches.
+     */
+    String goWhy(String name, JsonNode args) {
+        if (goNow == null) return "none";
+        if (readSoFar) return "read";
+        if (filesCame) return GoAhead.readsInAttached(store, name, args, attachedNow) ? null : "files";
+        if (GoAhead.pasted(goNow, args)) return "pasted";
+        if (GoAhead.kind(name, args) == GoAhead.Kind.NEVER) return "never";
+        if (!GoAhead.named(store, name, args, goNow.request())) return "named";
+        return null;
+    }
+
+    /** The sentence a question gets when the person said to go ahead and it is asked all the same. */
+    static String goWhySaid(String why) {
+        return switch (why == null ? "" : why) {
+            case "read" -> t("You said to go ahead, but this is asked: the model asked for it after something was read in this turn.");
+            case "files" -> t("You said to go ahead, but this is asked: files came with your message, and with them only reading those files in goes ahead.");
+            case "named" -> t("You said to go ahead, but this is asked: your message does not name what it changes.");
+            case "pasted" -> t("You said to go ahead, but this is asked: the sentence that said so is inside what would be kept, so it may belong to a pasted text.");
+            case "never" -> t("You said to go ahead, but this is asked: a go-ahead does not reach this.");
+            default -> "";
+        };
+    }
+
+    /**
+     * A held call the person's go-ahead reaches, carried out now as their yes would carry it out: the same arguments the question would
+     * have shown, as the person, its runs followed; and a line under the reply that says what was done without the question and how to undo
+     * it. A reader changes nothing, and a change the protocol refuses this person is said as its refusal, with no line.
+     */
+    private String goAhead(String name, JsonNode args) throws IOException {
+        if (!Patrons.mayWrite(store, patron)) return readsOnly(name);
+        if (!couldMake(name, args)) return call(name, args);
+        ObjectNode a = prepared(name, args);
+        String phrase = Pages.picturesAsLinks(actPhrase(name, a));
+        GoAhead.Before before = GoAhead.before(store, name, a, patron);
+        String r = call(name, a);
+        if (r.startsWith("ERROR") || r.startsWith("DECLINED") || r.startsWith("NOT ")) return r;   // nothing was done: the model reads why, and no line says it was
+        boolean collected = name.equals("library_images") && a.path("op").asText("").equalsIgnoreCase("collect");
+        if (STARTS_RUNS.contains(name) || name.equals("library_translate") || collected) { Matcher jm = JOB_ID.matcher(r); while (jm.find()) session.watch(jm.group(1)); }   // followed, as after a yes
+        boolean closes = phrase.matches("(?s).*[.?!]\"$");
+        doneUnasked.add((closes ? t("Done without asking, as you said: {0}", phrase) : t("Done without asking, as you said: {0}.", phrase)) + " " + (phone ? phoneUndo(name, a, r, before) : GoAhead.undo(name, a, r, before)));
+        doneUnaskedCalls.add(actSaid(name, a));
+        return r;
     }
 
     /**
@@ -1562,6 +1754,21 @@ public class Librarian {
         return false;
     }
 
+    /** The undo line of a run the go-ahead filed from the phone: the phone's own stop, under Runs; anything else as everywhere. */
+    static String phoneUndo(String name, JsonNode args, String result, GoAhead.Before before) {
+        Set<String> jobs = new LinkedHashSet<>(); Matcher jm = GoAhead.JOB.matcher(result == null ? "" : result); while (jm.find()) jobs.add(jm.group());
+        if (name.equals("library_research") && !jobs.isEmpty()) return t(PhonePage.UNDO, String.join(", ", jobs));
+        return GoAhead.undo(name, args, result, before);
+    }
+
+    /** The model's words without a copy of the phone's sentence it wrote itself: the library says it under the reply, once. */
+    static String withoutPhoneCopies(String reply) {
+        String said = t(PhoneRules.SAID);
+        StringBuilder out = new StringBuilder();
+        for (String line : reply.split("\n", -1)) { if (line.strip().equals(said)) continue; if (out.length() > 0) out.append('\n'); out.append(line); }
+        return out.toString().strip();
+    }
+
     /** What the model is told of a change it asked for in a reader's conversation: nothing ran, and the person is not asked. */
     static String readsOnly(String name) {
         return "ERROR: the person in this conversation reads this library and may not change it, so the library ran nothing (" + name + ") and asks them nothing about it.";
@@ -1570,12 +1777,16 @@ public class Librarian {
     /** How the library's question about a held act begins, in the person's language: the model may never write it itself. */
     static String heldPrefix() { String q = t("The model asks to {0}. Do it? (yes, no, or tell me more)", "\u0000"); int at = q.indexOf('\u0000'); return at <= 0 ? "The model asks to" : q.substring(0, at).strip(); }
 
-    /** The model's words without the library's question copied into them: every line (and the rest of a line cut short) that begins as the library's question does. */
+    /** How the library's line for what a go-ahead did begins, in the person's language: the model may never write it itself. */
+    static String donePrefix() { String q = t("Done without asking, as you said: {0}.", "\u0000"); int at = q.indexOf('\u0000'); return at <= 0 ? "Done without asking" : q.substring(0, at).strip(); }
+
+    /** The model's words without the library's question, or its line for what a go-ahead did, copied into them: every line (and the rest of a line cut short) that begins as either does. */
     static String withoutHeldCopies(String reply) {
-        String prefix = heldPrefix();
+        String prefix = heldPrefix(), done = donePrefix();
         StringBuilder out = new StringBuilder();
         for (String line : reply.split("\n", -1)) {
-            if (line.replaceFirst("^[\\s>*_#-]+", "").startsWith(prefix)) continue;   // also quoted, bulleted or in bold
+            String bare = line.replaceFirst("^[\\s>*_#-]+", "");
+            if (bare.startsWith(prefix) || bare.startsWith(done)) continue;   // also quoted, bulleted or in bold
             if (out.length() > 0) out.append('\n');
             out.append(line);
         }
@@ -1588,9 +1799,11 @@ public class Librarian {
         if (shown != null) reply.set("shown", shown);
     }
 
-    /** A call that waits for the person's yes: kept with the conversation's questions, asked under the reply in the library's words, and the model told nothing was done. */
-    private String held(String name, JsonNode args) throws IOException {
-        ObjectNode call = M.createObjectNode(); call.put("name", name);
+    /**
+     * The arguments a held call is asked about and done with, its yes's or the go-ahead's: the model's own, less the person's fields; a
+     * collection's form read from the person's words, as the question shows it in plain words.
+     */
+    private ObjectNode prepared(String name, JsonNode args) {
         ObjectNode a = args != null && args.isObject() ? ((ObjectNode) args).deepCopy() : M.createObjectNode();
         a.remove("patron"); a.remove("allow");   // a field the model passed stays: done, it is put to the person as a question, as it would have been
         boolean collect = name.equals("library_images") && a.path("op").asText("").strip().equalsIgnoreCase("collect");
@@ -1611,6 +1824,17 @@ public class Librarian {
             if (!grounded.dropped().isEmpty()) { ArrayNode dr = filled.putArray("dropped"); grounded.dropped().forEach(dr::add); }   // kept on the job for reading, never asked
             a.removeAll(); a.setAll(filled);
         }
+        return a;
+    }
+
+    /**
+     * A call that waits for the person's yes: kept with the conversation's questions, asked under the reply in the library's words, and the
+     * model told nothing was done. {@code why}: why the person's go-ahead does not reach it ({@link #goWhy}), said after the question.
+     */
+    private String held(String name, JsonNode args, String why) throws IOException {
+        ObjectNode call = M.createObjectNode(); call.put("name", name);
+        boolean collect = name.equals("library_images") && GoAhead.op(args).equals("collect");
+        ObjectNode a = prepared(name, args);
         call.set("args", a);
         call.put("words", personWords);   // the person's words of the turn it was proposed in: what they set for it (a mode, a time) is read from them when it is done
         call.put("before", previousPersonWords());   // and the turn before it, which a bare yes to the model's offer carries
@@ -1622,7 +1846,8 @@ public class Librarian {
         boolean closes = phrase.matches("(?s).*[.?!]\"$");   // a quoted question or sentence ends the phrase: no full stop after it
         String question = (closes ? t("The model asks to {0} Do it? (yes, no, or tell me more)", phrase) : t("The model asks to {0}. Do it? (yes, no, or tell me more)", phrase))
                 + (readThisTurn.isEmpty() ? "" : " " + t("The model asks this after reading {0}.", String.join(", ", readThisTurn)))   // in the library's voice: a careless yes is less likely
-                + (phrase.contains(said) || collect ? "" : " " + t("Exactly: {0}", said));   // the call itself beside the plain words: what the yes does is this, every argument of it (round F, S14); a collection's form says every rule in plain words (0.8.0)
+                + (phrase.contains(said) || collect ? "" : " " + t("Exactly: {0}", said))   // the call itself beside the plain words: what the yes does is this, every argument of it (round F, S14); a collection's form says every rule in plain words (0.8.0)
+                + (goWhySaid(why).isEmpty() ? "" : " " + goWhySaid(why));   // the person said to go ahead: why this is asked all the same
         // the same act asked twice in one turn (two finds that keep, read into one form from the person's words) is one question, asked once
         if (actsThisTurn.contains(question)) return "NOT DONE YET: the same request is already put to the person under your reply: " + said + ". Say in one sentence that it waits for their answer.";
         session.offerChoice(ACT + Base64.getUrlEncoder().withoutPadding().encodeToString(M.writeValueAsBytes(call)), question, List.of("yes", "no"));
@@ -1657,6 +1882,7 @@ public class Librarian {
         JsonNode call;
         try { call = M.readTree(Base64.getUrlDecoder().decode(key.substring(ACT.length()))); }
         catch (RuntimeException e) { return t("Nothing was changed."); }
+        if (phone) { String why = PhoneRules.refusal(store, patron, call.path("name").asText(""), call.path("args")); if (why != null) return PhoneRules.said(store, patron, why) + " " + t("Nothing was changed."); }   // a yes from the phone carries out only what the phone may do
         translationsThisTurn.clear(); limitsThisTurn.clear(); partlyDeclined.clear(); declinedThisTurn = null; helpThisTurn = false;
         String before = personWords;
         if (call.hasNonNull("words")) personWords = call.path("words").asText("");   // a mode or a time the person set in that turn holds for the act
@@ -1695,6 +1921,8 @@ public class Librarian {
 
     /** One tool call, as the person: the patron rides in, the result comes back as text the model reads (cut when long). */
     String call(String name, JsonNode argsIn) {
+        // a phone's turn: every way of carrying a call out ends here, the go-ahead's and a yes's too, so the phone's rules are read again
+        if (phone) { String why = PhoneRules.refusal(store, patron, name, argsIn); if (why != null) { phoneRefused.add(PhoneRules.said(store, patron, why)); return PhoneRules.result(name, why); } }
         // every request this call makes is checked as it leaves: a host the call's own words name is asked only for an address that was given
         Outbound.Call out = Outbound.call(name, argsIn);
         try { return carriedOut(name, argsIn); }
@@ -1829,6 +2057,8 @@ public class Librarian {
     static final String REFUSED = "requests_refused";
     /** The statements of this turn's tools that did their own part while the model declined the rest (the claims of an absorbed text). */
     private final Set<String> partlyDeclined = new LinkedHashSet<>();
+    /** The words the chat's own model said when it declined this turn, which the library's statement quotes; "" otherwise. */
+    private String declinedWords = "";
 
     /**
      * A tool result the model can read whole: every list at the top level keeps its first {@link #LIST_CAP} items and says
@@ -1927,6 +2157,8 @@ public class Librarian {
             o.put("words", Acquisitions.compress(words, 160)); ArrayNode t = o.putArray("tools"); for (String n : toolsCalled) t.add(n);
             o.put("unbacked", unbacked); o.put("ms", ms);
             if (declined) o.put("declined", true);
+            if (goNow != null) o.put("go", goNow.how().said());   // the person's go-ahead, and what it had done without the question
+            if (!doneUnaskedCalls.isEmpty()) { ArrayNode u = o.putArray("done_unasked"); doneUnaskedCalls.forEach(u::add); }
             if (!unsureThisTurn.isEmpty()) { ArrayNode u = o.putArray("decline_unsure"); unsureThisTurn.forEach(u::add); }   // replies the judge was not sure were declines
             if (formThisTurn != null) { o.put("table", formThisTurn.said); formThisTurn = null; }   // which form of the table the model was sent (0.8.1)
             if (!refusedThisTurn.isEmpty()) { ArrayNode u = o.putArray(REFUSED); for (Outbound.Refusal r : refusedThisTurn) u.addObject().put("tool", r.tool()).put("host", r.host()).put("rule", r.rule()); refusedThisTurn.clear(); }   // requests the guard did not send
@@ -1970,6 +2202,8 @@ public class Librarian {
          * browser that has not signed in, a caller with no name) has none: null.
          */
         static Path dir(LibraryStore store, Patrons.Patron patron) {
+            // a paired phone's conversations are its own: it never opens one of the desktop's, nor answers a question that waits in one
+            if (PhoneRules.isPhone(patron)) { String id = PhoneRules.phoneId(patron); return id.matches("[a-z0-9]{1,32}") ? dir(store).resolve("phone").resolve(id) : null; }
             if (Patrons.mayWrite(store, patron)) return dir(store);
             if (patron == null || patron.anonymous() || patron.web()) return null;
             return dir(store).resolve("readers").resolve(Patrons.sha256(patron.did()).substring(0, 16));

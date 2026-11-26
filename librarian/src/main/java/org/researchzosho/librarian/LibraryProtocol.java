@@ -173,7 +173,7 @@ public final class LibraryProtocol {
                     entries.add(e);
                 }
                 r.put("subject", route.arg());
-                if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
+                if (index.byWordsSaid() != null) r.put("note", index.byWordsSaid());
             }
             default -> {
                 LibrarianIndex index = new LibrarianIndex(store);
@@ -184,7 +184,7 @@ public final class LibraryProtocol {
                     e.put("score", h.score());
                     entries.add(e);
                 }
-                if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
+                if (index.byWordsSaid() != null) r.put("note", index.byWordsSaid());
             }
         }
         r.put("holds_nothing", entries.isEmpty() && !route.kind().equals("changes"));
@@ -227,7 +227,7 @@ public final class LibraryProtocol {
         List<LibrarianIndex.Hit> all = index.search(query, offset + k + 1, subject);
         ObjectNode r = envelope();
         // its embeddings server, stopped while unused, starts in the background: this search went by words, and says so
-        if (index.byWordsWhileStarting()) r.put("note", Pages.t("Searched by words this time: search by meaning is starting."));
+        if (index.byWordsSaid() != null) r.put("note", index.byWordsSaid());
         ArrayNode hits = r.putArray("hits");
         int end = Math.min(all.size(), offset + k);
         for (int i = offset; i < end; i++) {
@@ -1736,6 +1736,8 @@ public final class LibraryProtocol {
         if (hosted && !Hosted.keeper(store, patron)) throw ProtocolError.forbidden("The person who keeps this library sets how its reports are written.");
         if (op.equals("list")) {
             ArrayNode settings = Settings.list(M);
+            String narrow = args.path("name").asText("").strip();   // a setting's name, or a few words: only the settings whose name or description holds them (0.8.3)
+            if (!narrow.isEmpty()) { settings = Settings.narrowed(settings, narrow); r.put("narrowed", narrow); }
             if (hosted) for (Iterator<JsonNode> it = settings.iterator(); it.hasNext(); ) if (!Hosted.ownSetting(it.next().path("key").asText(""))) it.remove();
             if (hosted) { r.set("settings", settings); r.put("read_in", ReadIn.of(store, patron)); r.put("note", Pages.t("These are this library's own settings. Every other setting is set by whoever runs the service it runs under.")); return r; }
             for (JsonNode s : settings) {   // a key's service: what it adds, its terms with the day they were read, the link to get one, this month's use, the last check
@@ -3410,6 +3412,10 @@ public final class LibraryProtocol {
         if (!args.path("paid").asBoolean(true)) a.put("paid", false);   // no paid search place for this run: the tally's gate leaves them off (SearchTally)
         // filed by the chat's model: the person's words of that turn, not the model's question, give the run its addresses (round F)
         if (args.path("from_chat").asBoolean(false)) { a.put("from_chat", true); a.put("person_words", Acquisitions.compress(args.path("person_words").asText(""), 4000)); }
+        // filed from a paired phone: the mark the phone's rules and its cap read, kept only when the caller is that phone itself, so no
+        // program or model can put it on a run or take it off (PhoneRules)
+        String phone = PhoneRules.phoneOfJob(args);
+        if (!phone.isEmpty() && phone.equals(PhoneRules.phoneId(Patrons.Patron.from(args)))) a.put(PhoneRules.FROM_PHONE, phone);
         // an open question run again from the questions page, or any ask that says its question is stored text: nobody's words of now
         if (args.path(STORED_QUESTION).asBoolean(false) || "explorer-line".equals(way.how())) a.put(STORED_QUESTION, true);
         if (args.hasNonNull("seek") && !args.get("seek").asText().isBlank()) a.put("seek", Seeks.checkedName(args.get("seek").asText()));   // a seek: its own copy of the shelves
@@ -3985,6 +3991,36 @@ public final class LibraryProtocol {
     }
 
     private static final Pattern REF_LINE = Pattern.compile("^\\[(\\d+)\\] (.*)$");
+    /** A reference's address: a URL, a raw capture, a shelved file by name, or a host and path a worker wrote without its scheme ("arxiv.org/html/2510.24011v1"). */
+    private static final Pattern REF_LOCATOR = Pattern.compile("(?:https?|file)://\\S+|raw/\\S+|(?<=^| )[^\\s]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?)(?= |$)|(?<=^| )(?:[a-z0-9-]+\\.)+[a-z]{2,}/\\S*");
+
+    /** One reference of a write-up as written: its number, the line after the number, and the address in it with where it stands. */
+    record Reference(String n, String rest, String locator, int start, int end) { }
+
+    /**
+     * A write-up's references as written, in order, from the "## References" section the runner writes (one numbered line each) or,
+     * in an older record without one, its "## Sources cited" list, unnumbered. Nothing is looked up: the rows with the library's
+     * knowledge of each source are {@link #investigationSources}.
+     */
+    static List<Reference> references(String body) { return references(body, sectionOf(body, "references")); }
+
+    private static List<Reference> references(String body, String refs) {
+        List<String[]> rows = new ArrayList<>();   // [n, rest]
+        if (refs != null) {
+            for (String line : refs.split("\n")) { Matcher m = REF_LINE.matcher(line.strip()); if (m.matches()) rows.add(new String[]{m.group(1), m.group(2)}); }
+        } else {
+            String cited = sectionOf(body, "sources cited");
+            if (cited == null) cited = sectionOf(body, "sources");
+            int n = 0;
+            if (cited != null) for (String line : cited.split("\n")) { String t = line.strip(); if (t.startsWith("- ")) t = t.substring(2).strip(); if (t.contains("://") || t.startsWith("raw/")) rows.add(new String[]{String.valueOf(++n), t}); }
+        }
+        List<Reference> out = new ArrayList<>();
+        for (String[] row : rows) {
+            Matcher um = REF_LOCATOR.matcher(row[1]);
+            if (um.find()) out.add(new Reference(row[0], row[1], um.group().replaceAll("[),.;]+$", ""), um.start(), um.end()));
+        }
+        return out;
+    }
     private static final Pattern REF_PUBLISHED = Pattern.compile("\\(published (\\d{4}-\\d{2}-\\d{2})[^)]*\\)");
     private static final Pattern REF_SAME = Pattern.compile("\\(same text as \\[(\\d+)\\]\\)");
     private static final Pattern NOTE_LINE = Pattern.compile("^- (.+?) — source: (.+?)(?: — quote: \"(.*)\")?$", Pattern.MULTILINE);
@@ -4008,26 +4044,13 @@ public final class LibraryProtocol {
             String url = um.find() ? um.group().replaceAll("[),.;]+$", "") : loc;
             langOf.putIfAbsent(url, Lanes.languageOf(url, nm.group(3) == null ? "" : nm.group(3)));
         }
-        List<String[]> rows = new ArrayList<>();   // [n, rest]
-        if (refs != null) {
-            for (String line : refs.split("\n")) { Matcher m = REF_LINE.matcher(line.strip()); if (m.matches()) rows.add(new String[]{m.group(1), m.group(2)}); }
-        } else {
-            String cited = sectionOf(body, "sources cited");
-            if (cited == null) cited = sectionOf(body, "sources");
-            int n = 0;
-            if (cited != null) for (String line : cited.split("\n")) { String t = line.strip(); if (t.startsWith("- ")) t = t.substring(2).strip(); if (t.contains("://") || t.startsWith("raw/")) rows.add(new String[]{String.valueOf(++n), t}); }
-        }
-        for (String[] row : rows) {
-            String rest = row[1];
-            // a URL, a raw capture, a shelved file by name, or a host and path a worker wrote without its scheme ("arxiv.org/html/2510.24011v1")
-            Matcher um = Pattern.compile("(?:https?|file)://\\S+|raw/\\S+|(?<=^| )[^\\s]+\\.(?:md|pdf|txt|docx|pptx|odt|epub|html?)(?= |$)|(?<=^| )(?:[a-z0-9-]+\\.)+[a-z]{2,}/\\S*").matcher(rest);
-            if (!um.find()) continue;
-            String locator = um.group().replaceAll("[),.;]+$", "");
-            String head = rest.substring(0, um.start()).strip();
+        for (Reference ref : references(body, refs)) {
+            String rest = ref.rest(), locator = ref.locator();
+            String head = rest.substring(0, ref.start()).strip();
             if (head.endsWith("—")) head = head.substring(0, head.length() - 1).strip();
-            String tail = rest.substring(um.end());
+            String tail = rest.substring(ref.end());
             ObjectNode o = M.createObjectNode();
-            o.put("n", Integer.parseInt(row[0]));
+            o.put("n", Integer.parseInt(ref.n()));
             o.put("locator", locator);
             // the head is an edition citation (authors, a journal, a year) or the page's title; a citation carries a year
             boolean isEdition = head.matches(".*\\b(1[5-9]\\d\\d|20\\d\\d)\\b.*") && (head.contains(",") || head.contains("("));
@@ -4046,7 +4069,7 @@ public final class LibraryProtocol {
             o.put("tier", SourceTier.of(locator).name());
             SourceRules.Rule rule = rules.ruleFor(locator);
             if (rule != null) o.put("rule", rule.kind()); else o.putNull("rule");
-            o.put("why", "reference [" + row[0] + "] of the report");
+            o.put("why", "reference [" + ref.n() + "] of the report");
             out.add(o);
         }
         return out;

@@ -113,6 +113,7 @@ final class HelperServer implements AutoCloseable {
 
     private void handle(HttpExchange x) throws IOException {
         try (x) {
+            if (ModelNetworks.refused(x)) return;   // a model server's network with no way out asks nothing of the helpers, secret or not (ModelNetworks)
             if (secret.length > 0) {
                 String auth = x.getRequestHeaders().getFirst("Authorization");
                 byte[] given = auth == null || !auth.startsWith("Bearer ") ? new byte[0] : auth.substring(7).strip().getBytes(StandardCharsets.UTF_8);
@@ -303,7 +304,7 @@ final class HelperServer implements AutoCloseable {
                 // served all the same: its calls fail until it answers, and the library waits for it as for any named helper
                 case LABSE -> { String a = TranslationScores.LOCAL_LABSE; if (Embed.answers(a) || !TranslationScores.labseState().equals("absent")) proxied.put(h.path, a); else { say.accept("LaBSE does not answer here (researchzosho translate scorers install starts it)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); } }
                 case EMBED -> {
-                    String set = Config.get("RESEARCHZOSHO_EMBED", "").strip(), a = set.matches("(?i)https?://(127\\.0\\.0\\.1|localhost)(:\\d+)?/?") ? set.replaceAll("/+$", "") : "http://127.0.0.1:" + Embed.DEFAULT_PORT;
+                    String set = Config.get("RESEARCHZOSHO_EMBED", "").strip(), own = Embed.address(), a = set.matches("(?i)https?://(127\\.0\\.0\\.1|localhost)(:\\d+)?/?") || set.replaceAll("/+$", "").equals(own) ? set.replaceAll("/+$", "") : own;   // its own address on the network with no way out (0.8.3), or its port
                     if (Embed.answers(a) || !Embed.state().equals("absent")) proxied.put(h.path, a); else { say.accept("no embeddings server answers here (researchzosho embed start starts one)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); }
                 }
                 case WHISPER -> { String a = "http://127.0.0.1:" + Video.WHISPER_PORT; if (answers(a) || !Video.state(Video.CONTAINER_WHISPER).equals("absent")) proxied.put(h.path, a); else { say.accept("speech-to-text does not answer here (researchzosho video install sets it up)"); if (onlyGiven) absent.put(h.path, NOT_SET_UP); } }

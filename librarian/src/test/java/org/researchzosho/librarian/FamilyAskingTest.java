@@ -36,8 +36,10 @@ class FamilyAskingTest {
     static final String BOOK = "In 1932 森田健二 was adopted by 森田勇 as 婿養子.\nIn 1940 髙橋正二 was adopted by 髙橋源三郎 as 婿養子.\n";
 
     private String home;
+    private final long pause = FamilyAsking.PAUSE_MS;
 
     @BeforeEach void reader() {
+        FamilyAsking.PAUSE_MS = 0;   // nobody here types an answer after a question's time ran out: the pause that keeps one from the next question is not waited
         GenealogyProfile.useReader(prompt -> "{\"people\": [], \"facts\": ["
                 + "{\"subject\": \"森田健二\", \"relation\": \"adopted-by\", \"object\": \"森田勇\", \"date\": \"1932\", \"quote\": \"In 1932 森田健二 was adopted by 森田勇 as 婿養子.\"},"
                 + "{\"subject\": \"髙橋正二\", \"relation\": \"adopted-by\", \"object\": \"髙橋源三郎\", \"date\": \"1940\", \"quote\": \"In 1940 髙橋正二 was adopted by 髙橋源三郎 as 婿養子.\"}]}");
@@ -45,6 +47,7 @@ class FamilyAskingTest {
     }
 
     @AfterEach void restore() {
+        FamilyAsking.PAUSE_MS = pause;
         GenealogyProfile.useReader(null);
         Interaction.OVERRIDE = null;
         Interaction.INPUT = null;
@@ -317,8 +320,8 @@ class FamilyAskingTest {
         assertTrue(said.indexOf("WHAT HAPPENS NEXT") > said.lastIndexOf("Your answer:"), said);
         assertEquals(1, FamilyNameQuestions.open(store).size());
         // two waits and the reading of the long files overlap: the read takes less than the waits (each with its pause after the time
-        // runs out, so a late answer is not taken for the next question) and the reading one after the other
-        long pauses = 2L * Math.min(3, secs) * 1000;
+        // runs out, so a late answer is not taken for the next question: none here) and the reading one after the other
+        long pauses = 2L * Math.min(FamilyAsking.PAUSE_MS, secs * 1000L);
         assertTrue(took < 2L * secs * 1000 + pauses + modelMs[0], "took " + took + " ms; two waits of " + secs + " s, " + pauses + " ms of pauses and " + modelMs[0] + " ms of reading");
     }
 

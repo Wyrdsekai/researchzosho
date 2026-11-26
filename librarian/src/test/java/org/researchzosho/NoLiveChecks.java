@@ -3,7 +3,9 @@ package org.researchzosho;
 import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.researchzosho.drive.ContentJudge;
+import org.researchzosho.drive.DriveClient;
 import org.researchzosho.tools.ImageText;
+import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.PageCheck;
 import org.researchzosho.tools.SiteList;
 
@@ -31,5 +33,10 @@ public final class NoLiveChecks implements BeforeEachCallback {
         ContentJudge.use(NO);
         ImageText.useChecker(null);
         PageCheck.useGetter(null);
+        // the hosts an earlier test said were the owner's, and its stand-ins, kept by host and port: a stub server of this test that the
+        // system gave the same port is not the owner's (an earlier test's stub on that port let through a hop OutboundTest refuses)
+        Outbound.forgetSaid();
+        // the drives an earlier test's stand-in model was seen thinking on, kept by address: a stand-in of this test on the same port is another model
+        DriveClient.forgetQuickEffort();
     }
 }

@@ -54,5 +54,8 @@
  "models.setup": ["configurado", "configurada", "instalado", "instalada", "disponible", "listo", "funciona", "funcionando", "responde"],
  "models.thing": ["modelo de negocio", "modelo a escala", "modelo estándar", "modelo a seguir", "modelo económico", "modelo matemático"],
  "models.change": ["pon {x} como predeterminado", "pon {x} como modelo predeterminado", "pon {x} como modelo por defecto", "pon {x} por defecto", "ponga {x} como predeterminado", "usa {x} como predeterminado", "usa {x} como modelo predeterminado", "usa {x} por defecto", "use {x} como predeterminado", "establece {x} como predeterminado", "quiero {x} como predeterminado", "quiero que {x} sea el predeterminado", "haz que {x} sea el predeterminado", "el modelo predeterminado debe ser {x}", "el predeterminado debe ser {x}", "cambia el modelo predeterminado a {x}", "cambia el modelo por defecto a {x}", "cambia el predeterminado a {x}"],
- "hint.yes_no": ["(s/N)"]
+ "hint.yes_no": ["(s/N)"],
+ "go": ["hazlo sin preguntar", "sin confirmación", "no hace falta confirmar", "ejecuta ahora", "re:(?iu)(?:por\\s+favor[\\s,]+)?(?:hazlo|h[aá]galo)\\s+(?:sin\\s+preguntar(?:me)?|directamente|ya)(?:[\\s,]+por\\s+favor)?", "re:(?iu)(?:por\\s+favor[\\s,]+)?ejec[uú]t(?:a|alo|e|elo)\\s+(?:ahora|ya|ahora\\s+mismo)(?:[\\s,]+por\\s+favor)?", "re:(?iu)sin\\s+(?:confirmaci[oó]n|preguntar(?:me)?)", "re:(?iu)no\\s+(?:hace\\s+falta|es\\s+necesario|necesitas|necesita)\\s+(?:confirmar|preguntar(?:me)?|confirmaci[oó]n)", "re:(?iu)no\\s+(?:me\\s+)?preguntes[\\s,;:]+hazlo"],
+ "go.share": ["re:(?iu)(?<![\\p{L}])(?:compart\\p{L}*|rel[eé])(?![\\p{L}])"],
+ "go.public": ["re:(?iu)(?<![\\p{L}])(?:p[uú]blic[oa]|p[uú]blicamente|cualquiera|todo\\s+el\\s+mundo)(?![\\p{L}])"]
 }

@@ -54,5 +54,8 @@
  "models.setup": ["configurato", "configurata", "installato", "installata", "disponibile", "pronto", "pronta", "funziona", "funzionante", "risponde", "attivo", "c'è"],
  "models.thing": ["modello di business", "modello in scala", "modellino", "modello standard", "modello economico", "modello matematico", "modello statistico", "modello da seguire", "modello organizzativo", "modello 730", "modello f24"],
  "models.change": ["imposta {x} come predefinito", "imposta il modello {x} come predefinito", "imposta {x} come modello predefinito", "imposta come predefinito {x}", "imposta {x} come default", "usa {x} come predefinito", "usa il modello {x} come predefinito", "usa {x} come modello predefinito", "usa {x} come default", "d'ora in poi usa {x} come predefinito", "metti {x} come predefinito", "rendi {x} il predefinito", "il modello predefinito deve essere {x}", "il predefinito deve essere {x}", "cambia il modello predefinito in {x}", "cambia il predefinito in {x}", "passa il predefinito a {x}"],
- "hint.yes_no": ["(s/N)"]
+ "hint.yes_no": ["(s/N)"],
+ "go": ["senza conferma", "esegui ora", "procedi senza chiedere", "non serve conferma", "re:(?iu)(?:per\\s+favore[\\s,]+)?(?:esegui(?:lo)?|esegua)\\s+(?:ora|adesso|subito)(?:[\\s,]+per\\s+favore)?", "re:(?iu)(?:procedi|proceda|vai|fallo|fai)\\s+(?:pure\\s+)?senza\\s+(?:chiedere|chiedermi|conferma)", "re:(?iu)senza\\s+(?:conferma|chiedere|chiedermi)", "re:(?iu)(?:non\\s+serve|non\\s+c'[èe]\\s+bisogno\\s+di|nessun\\s+bisogno\\s+di)\\s+(?:la\\s+)?(?:conferma|confermare|chiedere|chiedermi)", "re:(?iu)nessuna\\s+conferma\\s+(?:necessaria|richiesta)", "re:(?iu)fallo\\s+e\\s+basta", "re:(?iu)non\\s+chiedere[\\s,;:]+fallo"],
+ "go.share": ["re:(?iu)(?<![\\p{L}])condivi\\p{L}*(?![\\p{L}])"],
+ "go.public": ["re:(?iu)(?<![\\p{L}])(?:pubblic[oa]|pubblicamente|chiunque|tutti)(?![\\p{L}])"]
 }

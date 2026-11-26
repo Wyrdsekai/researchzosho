@@ -210,6 +210,7 @@ public final class AccountService {
         x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");   // nothing this program serves is read as another type than it says: only its own script files are scripts
         String path = x.getRequestURI().getPath(), method = x.getRequestMethod();
         try {
+            if (ModelNetworks.refused(x)) return;   // a model server's network with no way out asks nothing of the service (ModelNetworks)
             if (Proxy.behindTrusted(x)) x.setAttribute(Proxy.PROXIED, Boolean.TRUE);   // a router in front of the service, named in the trusted-proxy setting: its forwarded headers are believed
             if (path.equals("/healthz")) { ObjectNode o = Statement.M.createObjectNode(); o.put("ok", true); o.put("version", Version.string()); o.put("service", "accounts"); json(x, 200, o); return; }
             if (path.equals(KEYS_PATH)) { ObjectNode o = Statement.M.createObjectNode(); ArrayNode keys = o.putArray("keys"); for (String k : store.publicJwks()) keys.add(Statement.M.readTree(k)); json(x, 200, o); return; }

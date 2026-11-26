@@ -45,6 +45,12 @@ public final class FamilyAsking {
     static final int POLL_MS = 150;
 
     /**
+     * The moment after a question's time runs out before the next is put, so that an answer typed just too late is not taken as the
+     * answer to the next one: three seconds, or the question's own time when that is shorter. A test that types no late answer shortens it.
+     */
+    static volatile long PAUSE_MS = 3_000;
+
+    /**
      * The one lock that filing goes through while a read asks beside it: the reading holds it while it files a file and works out the
      * questions the file raised, and the asker while it checks a question and files an answer. Never held while a model reads or a
      * question waits.
@@ -303,7 +309,7 @@ public final class FamilyAsking {
                         ? "The question stays open, and the library asks it once more when the reading is finished. The reading goes on."
                         : "The question waits for you: researchzosho genealogy who"));
                 // a moment before the next question, so an answer typed just too late is not taken as the answer to the next one
-                Thread.sleep(Math.min(3, secs) * 1000L);
+                Thread.sleep(Math.min(PAUSE_MS, secs * 1000L));
                 return;
             }
             if (t.line() == null) {

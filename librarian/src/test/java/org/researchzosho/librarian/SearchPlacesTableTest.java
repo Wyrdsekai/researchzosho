@@ -155,7 +155,7 @@ class SearchPlacesTableTest {
         for (OutsideServices.Result r : OutsideServices.check(store)) by.put(r.service(), r);
         assertEquals("accepted, 10 requests a second", by.get("PubMed (NCBI)").said());
         assertEquals("refused: the key is not accepted", by.get("Semantic Scholar").said());
-        assertEquals("accepted, 150 of 1000 credits used this month on the Researcher plan", by.get("Tavily").said());
+        assertEquals("accepted, 150 of 1000 credits used this month", by.get("Tavily").said());
         assertEquals("accepted; Exa does not say what is left, and this check's search cost $0.004", by.get("Exa").said());
         for (OutsideServices.Req r : asked) if (r.url().startsWith("https://api.exa.ai/")) assertTrue(r.body().contains("\"type\":\"lite\"") && r.body().contains("\"numResults\":1"), "the check is the lighter search: " + r.body());
         assertEquals(3, SearchTally.thisMonth().get(ExaSearchTool.TALLY)[0], "the check's search is counted against the month");

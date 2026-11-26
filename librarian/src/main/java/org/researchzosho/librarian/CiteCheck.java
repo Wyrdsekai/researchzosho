@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import java.math.BigDecimal;
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -127,12 +128,23 @@ public final class CiteCheck {
         return out;
     }
 
-    /** Whether every number the clause states appears in the source (commas dropped, so 1,266 meets 1266). */
+    /**
+     * Whether every number the clause states appears in the source (commas dropped, so 1,266 meets 1266), or the source states the same
+     * number written its own way (386 258 with narrow no-break spaces, 386.258 where full stops group, 38万6258: {@link Figures}). The same
+     * number only: a rounded figure is for the judge, never a pass.
+     */
     static boolean numbersInSource(String clause, String source) {
-        List<String> nums = numbers(clause);
+        List<String> nums = numbers(Figures.plainDigits(clause, Figures.convention(clause), Figures.spaceGroups(clause)));   // each number of the clause read as one
         if (nums.isEmpty()) return false;
         String src = source.replace(",", "");
-        for (String n : nums) if (!src.contains(n)) return false;
+        Figures.Read read = null;
+        for (String n : nums) {
+            if (src.contains(n)) continue;
+            if (read == null) read = Figures.read(source);
+            BigDecimal v;
+            try { v = Figures.norm(new BigDecimal(n)); } catch (NumberFormatException e) { return false; }
+            if (!read.certain().contains(v)) return false;
+        }
         return true;
     }
 

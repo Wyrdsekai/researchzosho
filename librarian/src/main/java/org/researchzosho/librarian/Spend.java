@@ -83,7 +83,10 @@ public final class Spend {
             if (u[0] + u[2] == 0) return;
             ModelEntries.Entry e = entryOf(drive, model);
             boolean hosted = e != null ? e.hosted() : new ModelEntries.Entry("", drive, model, null, "", 0, "").hosted();
-            if (!hosted && (e == null || e.prices() == null)) return;   // a model on the library's own machine with no prices costs nothing
+            // a model on the library's own machine with no prices costs nothing; a phone's work on a model it pays for (a key kept for its
+            // host, an address outside the house) is written all the same, so the phone's month can say what it could not count
+            boolean phonePaid = PHONE.get() != null && PhoneRules.paid(e != null ? e : new ModelEntries.Entry("", drive, model, null, "", 0, ""));
+            if (!hosted && !phonePaid && (e == null || e.prices() == null)) return;
             if (e == null) e = new ModelEntries.Entry("", drive, model, null, "", 0, "");
             ObjectNode o = M.createObjectNode();
             o.put("kind", CALLS); o.put("for", purpose);
@@ -107,7 +110,35 @@ public final class Spend {
         return found;
     }
 
+    /**
+     * The paired phone the work on this thread is for (a run filed from it, a chat turn it sent): every line written on this thread
+     * meanwhile carries it ({@code phone}), so the phone's month is counted apart ({@link #phoneMonth}); null for work of no phone. A
+     * thread of its own, not inherited: a pool made during the work would carry the mark into other work for its life. A run's lines are
+     * written on its own thread (its count at the end, its steps' purse at the close), and a chat turn's on the turn's.
+     */
+    static final ThreadLocal<String> PHONE = new ThreadLocal<>();
+
+    /** Dollars this calendar month that a paired phone's runs and chat turns spent on models: every line that carries its id. */
+    public static double phoneMonth(LibraryStore store, String phoneId) {
+        if (phoneId == null || phoneId.isBlank()) return 0;
+        String ym = YearMonth.now().toString();
+        double sum = 0;
+        for (JsonNode l : lines(store)) if (l.path("t").asText("").startsWith(ym) && phoneId.equals(l.path("phone").asText(""))) sum += l.path("cost").asDouble(0);
+        return sum;
+    }
+
+    /** Calls this calendar month of a paired phone's work on paid models whose prices are unknown: what no dollar figure holds. */
+    public static long phoneUnpriced(LibraryStore store, String phoneId) {
+        if (phoneId == null || phoneId.isBlank()) return 0;
+        String ym = YearMonth.now().toString();
+        long n = 0;
+        for (JsonNode l : lines(store)) if (l.path("t").asText("").startsWith(ym) && phoneId.equals(l.path("phone").asText("")) && !l.path("priced").asBoolean(true)) n += Math.max(1, l.path("calls").asLong(1));
+        return n;
+    }
+
     private static synchronized void append(LibraryStore store, ObjectNode o) throws IOException {
+        String phone = PHONE.get();
+        if (phone != null && !phone.isBlank() && !o.has("phone")) o.put("phone", phone);
         NotHolder.check(file(store));
         Files.createDirectories(file(store).getParent());
         Files.writeString(file(store), o.toString() + "\n", StandardCharsets.UTF_8, StandardOpenOption.CREATE, StandardOpenOption.APPEND);

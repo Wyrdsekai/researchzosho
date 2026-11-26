@@ -331,6 +331,6 @@ class ReportOptionsTest {
                     .POST(HttpRequest.BodyPublishers.ofString(words)).build(), HttpResponse.BodyHandlers.ofString()).body();
             String id2 = sent2.replaceFirst("(?s).*Sent as <a href=\"/jobs/(J-\\d+)[^\"]*\">.*", "$1");
             assertEquals("750", new Jobs(store, j -> "").get(id2).path("args").path("length").asText(), sent2);
-        } finally { daemon.stop(); probe.stop(0); }
+        } finally { GenealogyOfferTest.stopped(daemon, probe); }   // the second run starts at once: stopped as a person stops one, and its end waited for
     }
 }

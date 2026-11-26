@@ -37,8 +37,8 @@ public final class Lease implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(Lease.class);
     static final long TTL_MS = 5 * 60_000L;
     static final long RENEW_MS = 4 * 60_000L;
-    /** How often the holder looks at the lease file; a test shortens it. */
-    static volatile long WATCH_MS = 10_000;
+    /** How often the holder looks at the lease file; a test shortens it, and the property shortens it for a library a test starts as a process. */
+    static volatile long WATCH_MS = Long.getLong("researchzosho.lease.watch_ms", 10_000);
 
     private final Path file;
     private final long pid = ProcessHandle.current().pid();

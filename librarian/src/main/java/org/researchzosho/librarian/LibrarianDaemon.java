@@ -167,6 +167,13 @@ public final class LibrarianDaemon {
         }
     }
 
+    /** What a run filed from a phone that is no longer paired is told when it would start. */
+    static final String PHONE_GONE = "The phone this run was filed from is no longer paired, so the run is not started.";
+    /** What a run filed from a phone says when the phone's cap stopped it. {0}: spent, {1}: the cap, {2}: the phone. */
+    static final String PHONE_CAPPED = "Stopped at the monthly cap of the phone {2}: {0} of {1} spent on paid models. Nothing from this run was filed.";
+    /** How often a phone's run is looked at against its phone's cap; a test shortens it. */
+    static volatile long PHONE_CAP_LOOK_MS = 2_000;
+
     /** How often a hosted library asks the service whether its running jobs' uses have reached their caps. */
     static volatile long CAP_WATCH_MS = Long.getLong("researchzosho.accounts.cap_watch_ms", 5_000);
 
@@ -227,11 +234,14 @@ public final class LibrarianDaemon {
         if (!named.isEmpty() && entry == null) throw new IllegalStateException("No model is named " + named + " any more. researchzosho models lists the names; ask again with one of them.");
         JOB_MODEL.set(entry == null ? model() : entry.model());
         JOB_ENTRY.set(entry == null ? ModelEntries.defaultEntry() : entry);
+        // a job filed from a paired phone: every line it puts on the spending ledger carries the phone, whose month is counted apart
+        String phone = PhoneRules.phoneOfJob(job.path("args"));
+        if (!phone.isEmpty()) Spend.PHONE.set(phone);
         // the job's model calls outside its run's own count (the steps around it, a job with no run) go on the ledger, for what the job is for
         try (SpendPurse paid = SpendPurse.open(store, SpendPurse.purposeOfJob(job.path("kind").asText()), job.path("job_id").asText(job.path("id").asText("")), job.path("use").asText(""), Gated.BACKGROUND)) {
             return dispatchNow(job, entry == null ? drive : entry.drive());
         }
-        finally { JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove(); }
+        finally { JOB_MODEL.remove(); JOB_ENTRY.remove(); JOB_WHY.remove(); Spend.PHONE.remove(); }
     }
 
     private String dispatchNow(ObjectNode job, String drive) {
@@ -242,6 +252,15 @@ public final class LibrarianDaemon {
             case "research" -> {
                 // a cap on the named model: a run that would start past it is refused with the figure, before any call is made
                 ModelEntries.Entry entry = JOB_ENTRY.get();
+                // a run filed from a phone: that phone still paired, and a paid model only with its prices known and within the phone's month,
+                // for the entry it starts on now (named, the default, or best judgement's)
+                String phoneId = PhoneRules.phoneOfJob(a);
+                if (!phoneId.isEmpty()) {
+                    Phones.Phone ph; try { ph = Phones.get(phoneId); } catch (IOException e) { ph = null; }
+                    if (ph == null) throw new IllegalStateException(Pages.t(PHONE_GONE));
+                    String why = PhoneRules.spend(store, PhoneRules.patron(ph), entry);
+                    if (why != null) throw new IllegalStateException(PhoneRules.said(store, PhoneRules.patron(ph), why) + " " + Pages.t("The run is not started."));
+                }
                 if (entry != null && entry.cap() > 0) {
                     double spent = Spend.monthTotal(store, entry.name());
                     if (spent >= entry.cap()) throw new IllegalStateException("The model " + entry.name() + " has spent " + Spend.dollars(spent) + " this month against its cap of " + Spend.dollars(entry.cap()) + ". The run is not started. Raise the cap (researchzosho models set " + entry.name() + " --cap <dollars>) or ask again with another model.");
@@ -404,6 +423,39 @@ public final class LibrarianDaemon {
                 + "sentence and cite " + earlierId + " rather than repeating it.";
     }
 
+    /** The watch on a phone's run: every {@link #PHONE_CAP_LOOK_MS}, the phone's month and the run's cost so far against its cap, and the phone still paired. */
+    private Thread watchPhoneCap(String jobId, String phoneId, Researcher researcher, AtomicBoolean capped) {
+        Thread t = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try { Thread.sleep(PHONE_CAP_LOOK_MS); } catch (InterruptedException e) { return; }
+                try {
+                    Phones.Phone ph = Phones.get(phoneId);
+                    boolean paid = researcher.entry != null && PhoneRules.paid(researcher.entry);
+                    if (ph != null && (!paid || ph.cap() < 0 || Spend.phoneMonth(store, phoneId) + researcher.cost() < ph.cap())) continue;   // no limit: never stopped for spending
+                    capped.set(ph != null);
+                    jobs.stop(jobId, ph == null ? "the phone is no longer paired" : "the phone's monthly cap");
+                    return;
+                } catch (Exception ignored) { /* looked at again at the next round */ }
+            }
+        }, "phone-cap-" + jobId);
+        t.setDaemon(true); t.start();
+        return t;
+    }
+
+    private String phoneCappedSaid(String phoneId) {
+        Phones.Phone ph; try { ph = Phones.get(phoneId); } catch (IOException e) { ph = null; }
+        double spent = Spend.phoneMonth(store, phoneId);
+        return Pages.t(PHONE_CAPPED, Spend.dollars(spent), Spend.dollars(ph == null ? 0 : ph.cap()), ph == null ? phoneId : ph.name());
+    }
+
+    /** What a phone's run that filed nothing cost, on the ledger with the phone's mark (on this thread), so the phone's month holds it. */
+    private void phoneSpentUnfiled(String jobId, Researcher researcher, long t0, String how) {
+        if (researcher.entry == null) return;
+        long[] u = researcher.usage();
+        if (u[0] + u[2] == 0 || !PhoneRules.paid(researcher.entry)) return;
+        try { Spend.record(store, jobId, "", researcher.entry, u, researcher.cost(), (System.currentTimeMillis() - t0) / 1000, how, "research"); } catch (IOException ignored) { }
+    }
+
     private String runResearch(ObjectNode job, ObjectNode a, String drive, String writer) throws IOException {
         String jobId = job.path("job_id").asText("job");
         // the run keeps its work as it goes: a restart or an update resumes it at the turn it was on
@@ -456,8 +508,13 @@ public final class LibrarianDaemon {
             if (!later.sentence().isEmpty()) Crews.log(store, "research " + jobId, later.sentence(), 0);
         } catch (Exception ignored) { }
         String asker = job.path("patron").asText("");
-        researcher.allowDatabases(asker.equals("person") || (asker.equals("web") && !WebAccess.signInRequired()));   // the owner's databases are for the owner's questions
-        researcher.mcpFor(McpSources.patronOf(asker));   // the keeper's MCP servers a run may use: a reader's only those the keeper marked for readers
+        // a run filed from a phone reads no database of the owner's and uses no MCP server of the keeper's: both are the machine's, and its
+        // report is read from the phone, which a stranger may hold (the phone door's design, 2026-11-25)
+        String fromPhoneId = PhoneRules.phoneOfJob(a);
+        boolean fromPhone = !fromPhoneId.isEmpty();
+        researcher.phoneRun(fromPhone);   // a paid search place with no monthly limit set is left off for a phone's run
+        researcher.allowDatabases(!fromPhone && (asker.equals("person") || (asker.equals("web") && !WebAccess.signInRequired())));   // the owner's databases are for the owner's questions
+        researcher.mcpFor(fromPhone ? McpSources.NOBODY : McpSources.patronOf(asker));   // the keeper's MCP servers a run may use: a reader's only those the keeper marked for readers
         researcher.stopWhen(() -> jobs.stopRequested(jobId));
         researcher.beginFiling(() -> { try { return jobs.beginFiling(jobId); } catch (IOException e) { return !jobs.stopRequested(jobId); } });
         researcher.onProgress(p -> { try { jobs.progress(jobId, p); } catch (IOException ignored) { } });
@@ -470,25 +527,40 @@ public final class LibrarianDaemon {
             Crews.log(store, "research " + jobId, "seek " + seek + ": this run reads and writes its own copy of the shelves (seeks/" + seek + "/" + jobId + ")", 0);
         }
         Researcher.Filed filed;
+        // a phone's run is looked at against its phone's month as it goes: its own cost so far (counted on every thread of the run) and what
+        // the phone spent before; at the cap it is stopped the way a person's stop stops it, and its record says why
+        AtomicBoolean phoneCapped = new AtomicBoolean();
+        Thread capWatch = fromPhone ? watchPhoneCap(jobId, fromPhoneId, researcher, phoneCapped) : null;
         try { filed = Researcher.file(shelves, researcher, ask, writer, jobId, a.path("field_how").asText("asked"), a.path("allow_how").asText("asked")); }
         catch (Researcher.CannotCheck c) {
+            if (fromPhone) phoneSpentUnfiled(jobId, researcher, t0, "failed");   // a run that files nothing writes no spending of its own: a phone's month counts it all the same
             // the page check cannot run on this server while its model answers: the run stops, and its result is the plain statement
             ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "page check"); ev.put("statement", c.getMessage()); trace.event("stopped", ev);
             Crews.log(store, "research " + jobId, c.getMessage(), System.currentTimeMillis() - t0);
             throw new Jobs.Failure(c.getMessage());
         }
         catch (DriveClient.NotServed n) {
+            if (fromPhone) phoneSpentUnfiled(jobId, researcher, t0, "failed");
             // the router has no provider left for the run's model among those this library allows: the run stops, and its result is that sentence
             ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "router"); ev.put("statement", n.getMessage()); trace.event("stopped", ev);
             Crews.log(store, "research " + jobId, n.getMessage(), System.currentTimeMillis() - t0);
             throw new Jobs.Failure(n.getMessage());
         }
         catch (Stopping.Requested s) {
+            if (fromPhone) phoneSpentUnfiled(jobId, researcher, t0, "stopped");
+            if (phoneCapped.get()) {   // the phone's cap stopped it: said so on the run's record and in its result, which the phone shows
+                String said = phoneCappedSaid(fromPhoneId);
+                ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "phone cap"); ev.put("statement", said); trace.event("stopped", ev);
+                Crews.log(store, "research " + jobId, said, System.currentTimeMillis() - t0);
+                return said;
+            }
             // stopped between two turns or in the middle of a call: the worker marks the job stopped from the marker
             ObjectNode ev = new ObjectMapper().createObjectNode(); ev.put("by", "person"); trace.event("stopped", ev);
             Crews.log(store, "research " + jobId, "stopped by the person; nothing from this run was filed", System.currentTimeMillis() - t0);
             return "nothing from this run was filed";
         }
+        catch (RuntimeException other) { if (fromPhone) phoneSpentUnfiled(jobId, researcher, t0, "failed"); throw other; }
+        finally { if (capWatch != null) capWatch.interrupt(); }
         try { jobs.recordTurns(job.path("patron").asText(""), filed.result().turnsUsed()); } catch (IOException ignored) { }
         ObjectNode declined = filed.result().declinedView();
         if (declined != null) { try { jobs.declined(jobId, declined); } catch (IOException ignored) { } }
@@ -704,6 +776,25 @@ public final class LibrarianDaemon {
         door = d2;
     }
 
+    /** The phone door: a third listener on the loopback, which only a relay points at and which serves the phone page alone ({@link PhoneDoor}); null while closed. */
+    private volatile PhoneDoor phoneDoor;
+
+    /** Opens the phone door at a port on this machine's loopback (0 = any free one); nothing when it is open. A library under an account service has none. */
+    public synchronized void openPhoneDoor(int port) throws IOException {
+        if (phoneDoor != null) return;
+        if (vouching != null) throw new IOException("A library under an account service has no phone door: it is reached through the service alone.");
+        phoneDoor = PhoneDoor.open(this, store, port);
+    }
+
+    /** Closes the phone door; nothing when it is closed. The pairings stay. */
+    public synchronized void closePhoneDoor() { PhoneDoor p = phoneDoor; if (p == null) return; phoneDoor = null; p.close(); }
+
+    /** The phone door's port, or -1 while it is closed. */
+    public int phoneDoorPort() { PhoneDoor p = phoneDoor; return p == null ? -1 : p.port(); }
+
+    /** The phone door itself, for a test that reads its counts; null while closed. */
+    PhoneDoor phoneDoor() { return phoneDoor; }
+
     /** Closes the shared door; nothing when it is closed. */
     public synchronized void closeDoor() { HttpServer d = door; if (d == null) return; door = null; d.stop(0); }
     /** Whether the shared door is open: the library is reached from outside, and its agent card is served ({@link A2a}). */
@@ -741,7 +832,7 @@ public final class LibrarianDaemon {
     /** Released when the daemon has stopped, by {@link #stop()} or because another process holds the library. */
     private final CountDownLatch ended = new CountDownLatch(1);
 
-    private void stopNow() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); if (held != null) { DriveClient.GATE = null; NotHolder.unfence(store.root()); } server.stop(0); if (door != null) door.stop(0); McpConnections.closeFor(store); SpendPurse.outsideWorkEnds(store); if (vouching != null) { Hosted.end(store); if (!Hosted.any()) Config.writable(null); } if (lease != null) lease.close(); }
+    private void stopNow() { if (stopping != null) { try { Runtime.getRuntime().removeShutdownHook(stopping); } catch (IllegalStateException exiting) { } } if (crews != null) crews.interrupt(); if (stallWatch != null) stallWatch.interrupt(); jobs.stop(); if (held != null) { DriveClient.GATE = null; NotHolder.unfence(store.root()); } server.stop(0); if (door != null) door.stop(0); closePhoneDoor(); McpConnections.closeFor(store); SpendPurse.outsideWorkEnds(store); if (vouching != null) { Hosted.end(store); if (!Hosted.any()) Config.writable(null); } if (lease != null) lease.close(); }
     public Jobs jobs() { return jobs; }
     public String describeWorkers() {
         return ModelSlots.describe() + "; on " + String.join(", ", jobs.drives().stream().map(d -> d.isEmpty() ? driveNow() : d).toList());
@@ -835,8 +926,6 @@ public final class LibrarianDaemon {
      * crews/run; GET routes are theirs. A test pins this map, the tool list and the protocol document to each other.
      */
     private static final Map<String, Route> V1 = new LinkedHashMap<>();
-    /** The routes after which a job filed or released by the call is picked up at once. */
-    private static final Set<String> PICKS_UP = Set.of("seeks", "job", "crews");
     static {
         V1.put("ask", LibraryProtocol::ask); V1.put("search", LibraryProtocol::search); V1.put("get", LibraryProtocol::get); V1.put("read", LibraryProtocol::read);
         V1.put("established", LibraryProtocol::established); V1.put("submit", LibraryProtocol::submit); V1.put("add", LibraryProtocol::add); V1.put("translate", LibraryProtocol::translate); V1.put("absorb", LibraryProtocol::absorb);
@@ -874,6 +963,7 @@ public final class LibrarianDaemon {
         x.getResponseHeaders().set("X-Content-Type-Options", "nosniff");   // nothing this program serves is read as another type than it says: only its own script files are scripts
         String path = x.getRequestURI().getPath();
         String method = x.getRequestMethod();
+        if (ModelNetworks.refused(x)) return;   // a model server's network with no way out asks nothing of the library, at any door (ModelNetworks)
         if (Proxy.behindTrusted(x)) x.setAttribute(Proxy.PROXIED, Boolean.TRUE);   // from a proxy the setting names: its forwarded headers are believed
         // on the loopback only, a request under another name came from a page elsewhere that pointed its own name here (LocalName)
         if (loopbackOnly && !Boolean.TRUE.equals(x.getAttribute(DOOR)) && !Proxy.proxied(x) && !LocalName.servedHere(x.getRequestHeaders().getFirst("Host"))) { LocalName.refuse(x); return; }
@@ -1038,6 +1128,7 @@ public final class LibrarianDaemon {
                 // a visitor who asked to be let in: once the owner has let them in, their next load signs them in and loads again as them
                 if (who.web()) { String ask = Pages.cookie(x, Pages.ASK); if (ask != null && !ask.isBlank() && Pages.collectAsk(x, store, ask)) { Pages.redirectTo(x, x.getRequestURI().toString()); return; } }
                 Pages.handle(x, this, store, who, query(x), form);
+                if (!reads) jobs.pickUp();   // a run a page's form filed through a ledger of its own (a translation, a picture collection, a run) starts now, not at the workers' next look
                 return;
             }
             JsonNode parsed = bodyText.isBlank() ? M.createObjectNode() : M.readTree(bodyText);
@@ -1060,6 +1151,7 @@ public final class LibrarianDaemon {
                     ((ObjectNode) req.get("params")).set("patron", provenNode(patron));
                 }
                 ObjectNode env = McpServer.envelopeFor(req, store);
+                if (req.path("method").asText("").equals("tools/call")) jobs.pickUp();   // a run or a translation the tool filed through a ledger of its own starts now, not at the workers' next look
                 if (env == null) { x.sendResponseHeaders(202, -1); x.close(); return; }
                 String gaveUp = notHolder;   // a tool that would write, refused because another process holds the library: 503, as over the other routes
                 reply(x, gaveUp != null && env.path("error").path("message").asText("").contains(gaveUp) ? 503 : 200, env);
@@ -1124,7 +1216,7 @@ public final class LibrarianDaemon {
                 Route route = V1.get(name);
                 if (route == null) throw ProtocolError.notFound("route " + path);
                 out = route.apply(p, body);
-                if (PICKS_UP.contains(name)) jobs.pickUp();   // a job the call may have filed or released is taken up now, not at the next look
+                jobs.pickUp();   // a job the call filed or released through a ledger of its own (a translation, a run, a merge) is taken up now, not at the workers' next look
             } else {
                 throw ProtocolError.notFound("route " + method + " " + path);
             }

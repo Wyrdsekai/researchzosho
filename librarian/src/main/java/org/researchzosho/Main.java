@@ -1,6 +1,7 @@
 package org.researchzosho;
 
 import org.researchzosho.librarian.HttpServers;
+import org.researchzosho.librarian.HomeMove;
 import org.researchzosho.librarian.LibrarianCli;
 import org.researchzosho.librarian.Logs;
 import org.researchzosho.librarian.Webhooks;
@@ -48,6 +49,9 @@ public final class Main {
     /** {@code researchzosho <verb> …} → the librarian's verbs; returns the exit code. */
     public static int run(String[] args) {
         quietForTerminal(args.length > 0 ? args[0] : "");
+        String verb = args.length > 0 ? args[0] : "";
+        if (verb.equals("home")) return HomeMove.command(args, 1, System.out);
+        HomeMove.atStart(verb, System.err);   // an install that lived in CodeZaiku's folder moves to its own, once, before anything reads a setting
         String[] withVerb = new String[args.length + 1];
         withVerb[0] = "librarian";
         System.arraycopy(args, 0, withVerb, 1, args.length);

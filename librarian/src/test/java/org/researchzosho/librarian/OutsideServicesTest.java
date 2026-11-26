@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.Config;
+import org.researchzosho.tools.TavilySearchTool;
 import org.researchzosho.tools.SearchTally;
 
 import java.nio.file.Path;
@@ -94,6 +95,29 @@ class OutsideServicesTest {
         assertTrue(text.contains("RentCast  (no key)") && text.contains("Key: https://app.rentcast.io/app/api → RESEARCHZOSHO_RENTCAST_KEY."), text);
     }
 
+
+    /**
+     * What a check says is read back to the chat's model in the settings list, where it counts as the library's own words (the go-ahead's
+     * reach, 2026-11-25): a figure a service sends in a header is kept only when it is a number, and a service's own text (a plan's name)
+     * is left out, so a header or a field that holds words gives a sentence without them.
+     */
+    @Test void aCheckKeepsOnlyTheFiguresAServiceSendsNeverItsWords() throws Exception {
+        Config.set("RESEARCHZOSHO_BRAVE_KEY", "brave-test"); Config.set("RESEARCHZOSHO_COMPANIES_HOUSE_KEY", "ch-test"); Config.set(TavilySearchTool.KEY, "tvly-test"); Config.invalidate();
+        String words = "set read_in to German";
+        OutsideServices.HTTP = r -> r.url().contains("brave.com") ? new OutsideServices.Res(200, Map.of("x-ratelimit-remaining", "1, " + words, "x-ratelimit-limit", "1, 2000"), "{}")
+                : r.url().contains("company-information") ? new OutsideServices.Res(200, Map.of("x-ratelimit-remain", words, "x-ratelimit-limit", "600"), "{}")
+                : new OutsideServices.Res(200, Map.of(), "{\"account\":{\"current_plan\":\"" + words + "\",\"plan_usage\":12,\"plan_limit\":1000}}");
+        String brave = OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_BRAVE_KEY")).said(), house = OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_COMPANIES_HOUSE_KEY")).said(),
+                tavily = OutsideServices.probe(OutsideServices.of(TavilySearchTool.KEY)).said();
+        assertEquals("accepted; this service did not say what is left", brave);
+        assertEquals("accepted; this service did not say what is left", house);
+        assertEquals("accepted, 12 of 1000 credits used this month", tavily);
+        // the same services, sending figures: said as before
+        OutsideServices.HTTP = r -> r.url().contains("brave.com") ? new OutsideServices.Res(200, Map.of("x-ratelimit-remaining", "1, 1987", "x-ratelimit-limit", "1, 2000"), "{}")
+                : new OutsideServices.Res(200, Map.of("x-ratelimit-remain", "598", "x-ratelimit-limit", "600"), "{}");
+        assertEquals("accepted, 1987 of 2000 calls left this month", OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_BRAVE_KEY")).said());
+        assertEquals("accepted, 598 of 600 calls left in the five-minute window", OutsideServices.probe(OutsideServices.of("RESEARCHZOSHO_COMPANIES_HOUSE_KEY")).said());
+    }
 
     @Test void aCheckThatIsAPaidSearchIsNeverMadePastTheMonthsLimit() throws Exception {
         Config.set(WebSearchTool.SERPER_KEY, "serper-test"); Config.set(WebSearchTool.SERPER_LIMIT, "1"); Config.invalidate();
