@@ -21,6 +21,8 @@ import java.io.UncheckedIOException;
 import java.security.NoSuchAlgorithmException;
 import org.researchzosho.tools.DocText;
 import org.researchzosho.tools.Fetch;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 /**
  * The raw tier — the web rots, and a finding whose source is a dead link is unverifiable, so
  * every successfully fetched page is preserved in full at CAPTURE time with its provenance
@@ -50,6 +52,34 @@ public final class RawCapture {
     };
 
     private RawCapture() { }
+
+    private static final Logger log = LoggerFactory.getLogger(RawCapture.class);
+
+    /**
+     * Why the last capture or link on this thread was not kept, in the sentence the person reads: a file of the programs' own folders
+     * ({@link OwnFolders}), or a text that holds a secret this library keeps ({@link HeldSecrets}); "" when it was kept or failed for
+     * another reason. Every caller that keeps a document meets here, so a door that says why a document was not kept reads this.
+     */
+    public static String refused() { String s = REFUSED.get(); return s == null ? "" : s; }
+    private static final ThreadLocal<String> REFUSED = new ThreadLocal<>();
+
+    /**
+     * Whether a document may be kept (2026-11-26): not a file inside the programs' own folders (a {@code file://} locator, links followed),
+     * and no text that holds the exact value of a secret this library keeps. The sentence why not, or null; it is also what {@link #refused}
+     * says, and the log names the setting, never the value.
+     */
+    static String whyNot(LibraryStore store, String locator, String text, String title) {
+        REFUSED.remove();
+        String no = null;
+        if (locator != null && locator.startsWith("file://")) {
+            try { no = OwnFolders.refusal(Path.of(locator.substring("file://".length())), store); } catch (RuntimeException notAPath) { }
+        }
+        if (no == null) { HeldSecrets.Held h = HeldSecrets.in(text, title); if (h != null) no = HeldSecrets.said(h); }
+        if (no == null) return null;
+        REFUSED.set(no);
+        log.warn("A document was not kept ({}): {}", oneLine(locator == null ? "" : locator), no);
+        return no;
+    }
 
     /** Capture one fetched/added document. Returns the raw/ path, or null (absent library, dupe, error). */
     public static Path capture(String locator, String text, String title) {
@@ -81,7 +111,9 @@ public final class RawCapture {
     /** The same, with more lines for the head ({@code more}: name → value; a translation's {@code translation_of} and {@code language}). */
     public static Path capture(LibraryStore store, String locator, String text, String title, String by, String collection, String published, Map<String, String> more) {
         try {
+            REFUSED.remove();
             if (locator == null || text == null || text.isBlank()) return null;
+            if (whyNot(store, locator, text, title) != null) return null;   // a file of the programs' own folders, or a secret this library keeps
             String hash = HexFormat.of().formatHex(
                     MessageDigest.getInstance("SHA-256")
                             .digest(locator.getBytes(StandardCharsets.UTF_8)), 0, 6);
@@ -136,9 +168,11 @@ public final class RawCapture {
     /** The same, with more lines for the head ({@link #eyeHead}: a picture or a scan, whose text the model that sees gives each time it is read). */
     public static Path link(LibraryStore store, Path file, String text, String title, String by, String collection, Map<String, String> more) {
         try {
+            REFUSED.remove();
             Path abs = file.toAbsolutePath().normalize();
             String locator = "file://" + abs;
             if (text == null || text.isBlank()) return null;
+            if (whyNot(store, locator, text, title) != null) return null;   // its text is indexed and read again each time: the same rule as a kept one
             String hash = HexFormat.of().formatHex(
                     MessageDigest.getInstance("SHA-256").digest(locator.getBytes(StandardCharsets.UTF_8)), 0, 6);
             Path p = store.rawDir().resolve(LocalDate.now() + "-" + hash + ".md");
@@ -367,6 +401,8 @@ public final class RawCapture {
 
     /** The text of a linked file, extracted on demand; cached by path and modification time. */
     static String linkedText(Path file) {
+        String own = OwnFolders.refusal(file, null);   // a link made before 2026-11-26 into the programs' own folders: never read again
+        if (own != null) { log.warn("A linked document was not read ({}): {}", file, own); return "[not read: " + own + "]"; }
         String key = file.toString();
         long mtime;
         try { mtime = Files.getLastModifiedTime(file).toMillis(); }
@@ -383,6 +419,8 @@ public final class RawCapture {
         } catch (Exception e) {
             return unreachable(file, e.getMessage());
         }
+        HeldSecrets.Held held = HeldSecrets.in(text);   // a linked file is read again whenever it changed: a secret this library keeps is never what it reads
+        if (held != null) { text = "[not read: " + HeldSecrets.said(held) + "]"; log.warn("A linked document was not read ({}): {}", file, HeldSecrets.said(held)); }
         synchronized (LINKED) { LINKED.put(key, new String[]{Long.toString(mtime), text}); }
         return text;
     }

@@ -4,9 +4,11 @@ import org.researchzosho.tools.Outbound;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintStream;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
@@ -110,8 +112,24 @@ public final class ModelServer {
     public static final String EMBED_NAME = "embed";
     public static final String EMBED_CONTAINER = NAMED + "-model-embed";
     public static final String EMBED_FILE = "Qwen3-Embedding-0.6B-Q8_0.gguf";
-    public static final String EMBED_URL = "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/main/" + EMBED_FILE;
-    public static final String EMBED_SHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439";   // 639 MB
+    /** The embeddings model's GGUF for llama.cpp, at a revision of its repository like every model file ({@link Row}). */
+    public static final String EMBED_REPO = "Qwen/Qwen3-Embedding-0.6B-GGUF", EMBED_REVISION = "d20cf9c16f82914a21dbd9c645f56895fb1d7750";
+    public static final String EMBED_URL = fileUrl(EMBED_REPO, EMBED_REVISION, EMBED_FILE);
+    public static final String EMBED_SHA256 = "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439";
+    public static final long EMBED_BYTES = 639_150_592L;
+
+    /** Where the model files are. Every address of a pinned file names a revision of its repository, never main. */
+    static final String HUGGING_FACE = "https://huggingface.co";
+
+    /** A file at a revision (a commit) of a Hugging Face repository. */
+    static String fileUrl(String repo, String revision, String file) { return HUGGING_FACE + "/" + repo + "/resolve/" + revision + "/" + file; }
+
+    /**
+     * Where a request for an address of a pinned file goes: the address itself. The machine's downloader and the release's check
+     * ({@link #check}) ask through it; in the test suite it is a port of the loopback where nothing listens, and a test sends it to a
+     * stand-in of its own.
+     */
+    static volatile Function<String, String> reach = Function.identity();
 
     public enum Os {
         linux, macos, windows;
@@ -121,10 +139,20 @@ public final class ModelServer {
         }
     }
 
-    /** A measured model row: the memory it fits, the file and its sha256 as recorded from Hugging Face, and the llama.cpp flags the guide names for it. */
-    public record Row(String name, int minGb, String hf, String file, String sha256, int ctx, int parallel, String extra, Moe moe) {
-        public Row(String name, int minGb, String hf, String file, String sha256, int ctx, int parallel, String extra) { this(name, minGb, hf, file, sha256, ctx, parallel, extra, null); }
-        String url() { return "https://huggingface.co/" + hf + "/resolve/main/" + file; }
+    /**
+     * A measured model row: the memory it fits; its file at a revision (a commit) of its Hugging Face repository, with the file's sha256
+     * and size as Hugging Face gives them; and the llama.cpp flags the guide names for it. The download names the revision, so a file
+     * its publisher replaces under the same name on main changes nothing for an install. The picture file ({@link #VISION}) is taken
+     * at the same revision.
+     */
+    public record Row(String name, int minGb, String hf, String revision, String file, String sha256, long bytes, int ctx, int parallel, String extra, Moe moe) {
+        public Row(String name, int minGb, String hf, String revision, String file, String sha256, long bytes, int ctx, int parallel, String extra) { this(name, minGb, hf, revision, file, sha256, bytes, ctx, parallel, extra, null); }
+        /** A row for a file on this machine (a file the person named, a plan read back): nothing is downloaded for it. */
+        public Row(String name, int minGb, String hf, String file, String sha256, int ctx, int parallel, String extra) { this(name, minGb, hf, "", file, sha256, 0, ctx, parallel, extra, null); }
+        /** The file at the row's revision: what install downloads. */
+        String url() { return fileUrl(hf, revision, file); }
+        /** The file that lets the model read pictures, at the same revision. */
+        String visionUrl() { return fileUrl(hf, revision, VISION_FILE); }
     }
 
     /**
@@ -137,18 +165,23 @@ public final class ModelServer {
 
     // The 27B was measured on Qwen3.8-27B-Q4_K_M.gguf (2026-08-15); unsloth replaced that file with the UD quantization
     // of the same model, and only the UD file resolves now (found by a reviewer, 2026-09-12). `model check` reads every row.
+    // On 2026-11-11 (commit acb953b1, "New UD3.1 quants") unsloth replaced the UD file on main under the same name; an install, which
+    // asked main, downloaded 16.5 GB that did not match the row and refused it. Each row now names the commit its file is taken at:
+    // for the 27B the August revision that still holds the file every 27B number was measured on (a newer quantization is measured
+    // before a row moves to it), for the others the commit that last changed their file. Revisions, sha256 and sizes as Hugging Face
+    // gave them on 2026-11-26; each row's revision serves its picture file with the bytes VISION pins too.
     // One conversation holds the chat: its tools and instructions are about 16,000 tokens, so 16,384 held none of it (gpt-oss-20b with 32k
     // for two refused the first page the chat read, 2026-11-18). gpt-oss-20b was measured on a 16 GB card: 32k for one loads (13.1 GB for
     // the server), 64k for two does not. The 9B and Gemma 4 E4B by their cache: 32 KiB a token for the 9B (8 of its 32 layers keep one),
     // 16 KiB for E4B (4 of its own 24), so 32k adds 0.5 GB and 0.25 GB to what they used at 16k (5.9 and 3.6 GB). Gemma 4 E2B used its
     // 2 GB card at 16k already, and keeps it.
     public static final List<Row> ROWS = List.of(
-        new Row("qwen3.8-27b",  24, "unsloth/Qwen3.8-27B-GGUF",    "Qwen3.8-27B-UD-Q4_K_M.gguf", "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482", 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
-        new Row("qwen3.6-35b-a3b", 4, "unsloth/Qwen3.6-35B-A3B-GGUF", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61", 65536, 2, "-b 4096 -ub 4096", new Moe(32, 40, 0.46, 4.5, 28)),
-        new Row("gpt-oss-20b",  16, "unsloth/gpt-oss-20b-GGUF",    "gpt-oss-20b-F16.gguf",       "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66",  32768, 1, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
-        new Row("qwen3.5-9b",    8, "unsloth/Qwen3.5-9B-GGUF",     "Qwen3.5-9B-Q4_K_M.gguf",     "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",  32768, 1, "--chat-template-kwargs '{\"enable_thinking\":false}'"),
-        new Row("gemma-4-e4b",   4, "unsloth/gemma-4-E4B-it-GGUF", "gemma-4-E4B-it-Q4_K_M.gguf", "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",  32768, 1, ""),
-        new Row("gemma-4-e2b",   2, "unsloth/gemma-4-E2B-it-GGUF", "gemma-4-E2B-it-Q4_K_M.gguf", "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",  16384, 1, ""));
+        new Row("qwen3.8-27b",  24, "unsloth/Qwen3.8-27B-GGUF",    "4ca720788d1e01f1bff70c033e0d0028fd02e502", "Qwen3.8-27B-UD-Q4_K_M.gguf", "322e194ff79741c7baa497c240f677f54b201b0efab44ca8e50f122b39123482", 16_464_440_224L, 131072, 4, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
+        new Row("qwen3.6-35b-a3b", 4, "unsloth/Qwen3.6-35B-A3B-GGUF", "edc6f12e7bb90602ca1d34faecbec9844137b7fe", "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", "ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61", 22_134_528_992L, 65536, 2, "-b 4096 -ub 4096", new Moe(32, 40, 0.46, 4.5, 28)),
+        new Row("gpt-oss-20b",  16, "unsloth/gpt-oss-20b-GGUF",    "a1b6de7b9f9540e2e00885ca1a96614a187c9c3a", "gpt-oss-20b-F16.gguf",       "4e4f9cd88d6456e4f389e7262eca4a8d565211e2b22ece9ca7a8556168ff3c66", 13_792_639_168L,  32768, 1, "--chat-template-kwargs '{\"reasoning_effort\":\"low\"}'"),
+        new Row("qwen3.5-9b",    8, "unsloth/Qwen3.5-9B-GGUF",     "99a1b2185534379e6e8b5ec869da25d3e7b3f73c", "Qwen3.5-9B-Q4_K_M.gguf",     "03b74727a860a56338e042c4420bb3f04b2fec5734175f4cb9fa853daf52b7e8",  5_680_522_464L,  32768, 1, "--chat-template-kwargs '{\"enable_thinking\":false}'"),
+        new Row("gemma-4-e4b",   4, "unsloth/gemma-4-E4B-it-GGUF", "bfc15c382204943c3a8fff0c750b94ae2364d7a3", "gemma-4-E4B-it-Q4_K_M.gguf", "85a896a047553e842f25297ee5b031d64ff30147d9c4af17b1e4b394cd1fab87",  4_977_171_584L,  32768, 1, ""),
+        new Row("gemma-4-e2b",   2, "unsloth/gemma-4-E2B-it-GGUF", "0314792d7f1f7e229411f620751375812bb9faf2", "gemma-4-E2B-it-Q4_K_M.gguf", "740185b21d22ceb83a11c3aa62ad5842ef32c70f6096d756bbee85a1e4ec34b8",  3_106_738_272L,  16384, 1, ""));
 
     /**
      * What every download must hash to: the model files above, llama-swap's assets from its published checksums, and
@@ -165,20 +198,36 @@ public final class ModelServer {
         Map.entry("llama-b10929-bin-macos-x64.tar.gz",   "09621ac7f7636a6577075aba3bf40db4e22203aa2cac87c2dff7532982f89313"),
         Map.entry("llama-b10929-bin-win-vulkan-x64.zip", "0527be2bcb79797337c4c500e6c25a62e0cdb572b14ef2db1066c94706208936")));
     /**
-     * The file that lets a model read pictures (llama.cpp's --mmproj), by row: mmproj-F16.gguf of the row's own repository, about
-     * 1 GB, with its sha256 as recorded from Hugging Face. A row without one reads text only.
+     * What every download must be in size, in bytes, where it is recorded: the model files, their picture files and the embeddings
+     * model's, as Hugging Face gives them. A download of another size is refused without being hashed. A test may put its own entries here.
      */
-    static final Map<String, String> VISION = Map.of(
-        "qwen3.8-27b", "cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e",
-        "qwen3.6-35b-a3b", "8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f",
-        "qwen3.5-9b",  "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f",
-        "gemma-4-e4b", "ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51",
-        "gemma-4-e2b", "140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa");
+    public static final Map<String, Long> sizes = new ConcurrentHashMap<>();
+
+    /** The sha256 and the size of a pinned file. */
+    record Pin(String sha256, long bytes) { }
+
+    /** The picture file's name in each row's repository. */
+    static final String VISION_FILE = "mmproj-F16.gguf";
+
+    /**
+     * The file that lets a model read pictures (llama.cpp's --mmproj), by row: {@link #VISION_FILE} of the row's own repository at the
+     * row's revision, about 1 GB, with its sha256 and size as Hugging Face gives them. A row without one reads text only.
+     */
+    static final Map<String, Pin> VISION = Map.of(
+        "qwen3.8-27b", new Pin("cbb841a9ee0636b2ec172f5bb8df2ea8dfeb01e90fe7c6126581d662a0b4e43e", 927_607_488L),
+        "qwen3.6-35b-a3b", new Pin("8971ee4f331ff0a4c609374f32984b3d4e6dc086c0aa35f1d637fad1829e887f", 899_283_680L),
+        "qwen3.5-9b",  new Pin("f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f", 918_166_080L),
+        "gemma-4-e4b", new Pin("ddf46c21d7078e95338cfc22306b19b276a29a5ad089023449dd54d4b6170a51", 990_372_672L),
+        "gemma-4-e2b", new Pin("140be8d7849741f88c50757d529b84373ee8e27052cc2236855b537f4a8215fa", 985_654_080L));
 
     static Path visionFile(Row row, Path modelFile) { return modelFile.toAbsolutePath().getParent().resolve("mmproj-" + row.name() + "-F16.gguf"); }
 
-    static { for (Row r : ROWS) sums.put(r.file(), r.sha256()); sums.put(EMBED_FILE, EMBED_SHA256); for (var v : VISION.entrySet()) sums.put("mmproj-" + v.getKey() + "-F16.gguf", v.getValue());
-        for (var f : Embed.FILES.entrySet()) sums.put(Embed.FOLDER + "/" + f.getKey(), f.getValue()); }
+    static {
+        for (Row r : ROWS) { sums.put(r.file(), r.sha256()); sizes.put(r.file(), r.bytes()); }
+        sums.put(EMBED_FILE, EMBED_SHA256); sizes.put(EMBED_FILE, EMBED_BYTES);
+        for (var v : VISION.entrySet()) { sums.put("mmproj-" + v.getKey() + "-F16.gguf", v.getValue().sha256()); sizes.put("mmproj-" + v.getKey() + "-F16.gguf", v.getValue().bytes()); }
+        for (var f : Embed.FILES.entrySet()) { sums.put(Embed.FOLDER + "/" + f.getKey(), f.getValue()); sizes.put(Embed.FOLDER + "/" + f.getKey(), Embed.SIZES.get(f.getKey())); }
+    }
 
     static String sha256(Path p) throws Exception {
         var md = MessageDigest.getInstance("SHA-256");
@@ -186,14 +235,60 @@ public final class ModelServer {
         return HexFormat.of().formatHex(md.digest());
     }
 
-    /** Fetch {@code url} to {@code dest} and check it against the recorded hash; a mismatch is deleted and refused. */
-    static void fetchChecked(String url, Path dest) throws Exception {
-        downloader.fetch(url, dest);
-        String want = sums.get(dest.getParent() == null ? "" : dest.getParent().getFileName() + "/" + dest.getFileName());   // a model that is several files in a folder of its own
-        if (want == null) want = sums.get(dest.getFileName().toString());
-        if (want == null) return;   // a file the person named with --file has no recorded hash; the rows and the pinned builds do
-        String got = sha256(dest);
-        if (!want.equalsIgnoreCase(got)) { Files.deleteIfExists(dest); throw new IOException("checksum mismatch for " + dest.getFileName() + "; refusing to install\n  expected " + want + "\n  got      " + got); }
+    /** {@link #fetchChecked(String, Path, PrintStream)} with nothing said. */
+    static void fetchChecked(String url, Path dest) throws Exception { fetchChecked(url, dest, null); }
+
+    /**
+     * Fetch {@code url} for {@code dest} and check it against its recorded size and sha256 BEFORE it is put in place: the download goes
+     * to {@code <dest>.part}, a file that does not match is deleted and refused, and only one that matches is moved to {@code dest}. So no
+     * file but the pinned one is ever at a pinned file's name. Until 0.8.4 the download was moved into place first and checked there: a
+     * stop during the check (a minute for the 27B) left the other file under the model's name, and the next install took it for the model.
+     * A download that fails leaves nothing. An unfinished one from an earlier try, left by a stop, cannot be continued (it may be of
+     * other bytes): {@code out}, when given, says so in a line, and the download starts again from the beginning.
+     */
+    static void fetchChecked(String url, Path dest, PrintStream out) throws Exception {
+        Path part = dest.resolveSibling(dest.getFileName() + ".part");
+        if (out != null && Files.isRegularFile(part))
+            out.println("  An unfinished download of " + dest.getFileName() + " from an earlier try is in " + dest.getParent() + ". It cannot be continued, so the download starts again from the beginning.");
+        try { downloader.fetch(url, part); }
+        catch (Exception e) { Files.deleteIfExists(part); throw e; }
+        String key = dest.getParent() == null ? "" : dest.getParent().getFileName() + "/" + dest.getFileName();   // a model that is several files in a folder of its own
+        if (!sums.containsKey(key) && !sizes.containsKey(key)) key = dest.getFileName().toString();
+        String want = sums.get(key);   // null: a file without a recorded hash; the rows, their picture files and the pinned builds have one
+        Long size = sizes.get(key);
+        long got = Files.size(part);
+        if (size != null && size > 0 && got != size) {
+            Files.deleteIfExists(part);
+            throw new IOException("the downloaded " + dest.getFileName() + " is " + String.format(Locale.ROOT, "%,d", got) + " bytes, not the " + String.format(Locale.ROOT, "%,d", size)
+                    + " of the file this version installs; refusing to install it, and it was not kept\n  from " + url);
+        }
+        if (want != null) {
+            String sha = sha256(part);
+            if (!want.equalsIgnoreCase(sha)) { Files.deleteIfExists(part); throw new IOException("checksum mismatch for " + dest.getFileName() + "; refusing to install, and it was not kept\n  expected " + want + "\n  got      " + sha + "\n  from " + url); }
+        }
+        Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING);
+    }
+
+    /** The size recorded for a download to {@code dest} ({@link #sizes}), by the same name {@link #fetchChecked} reads it by; 0 when none is. */
+    static long recordedSize(Path dest) {
+        Long n = dest.getParent() == null ? null : sizes.get(dest.getParent().getFileName() + "/" + dest.getFileName());
+        if (n == null) n = sizes.get(dest.getFileName().toString());
+        return n == null ? 0 : n;
+    }
+
+    /**
+     * Why the file at a pinned file's name is not taken for it: it is there and its size is not the recorded one. Null when it is not
+     * there, or is that size, or no size is recorded. The file is left as it is: it may be the person's own, or another program's in a
+     * folder the two share, so it is said, not removed.
+     */
+    static String notThePinned(Path f) throws IOException {
+        long bytes = recordedSize(f);
+        if (bytes <= 0 || !Files.isRegularFile(f)) return null;
+        long have = Files.size(f);
+        if (have == bytes) return null;
+        return f.getFileName() + " in " + f.getParent() + " is not the file this version installs: it is " + String.format(Locale.ROOT, "%,d", have) + " bytes, and that file is "
+                + String.format(Locale.ROOT, "%,d", bytes) + ". It may be another upload under the same name, or a download that was stopped. It is left as it is. To install the measured model, "
+                + "move it out of " + f.getParent() + " or delete it, then give the same command again; to run that file as your own model instead: researchzosho model install --file " + f;
     }
 
     /** The row for {@code gb} of memory for the model, or null when no measured model fits. */
@@ -328,11 +423,10 @@ public final class ModelServer {
         Process p = new ProcessBuilder(cmd).inheritIO().start();
         return new Result(p.waitFor(), "");
     }
+    /** The machine's curl, writing to the path it is given ({@link #fetchChecked} gives it {@code <file>.part} and moves the file once it is checked). */
     public static Downloader downloader = (url, dest) -> {
-        Path part = dest.resolveSibling(dest.getFileName() + ".part");
-        Process p = new ProcessBuilder(os == Os.windows ? "curl.exe" : "curl", "-fL", "--progress-bar", "-o", part.toString(), url).inheritIO().start();
+        Process p = new ProcessBuilder(os == Os.windows ? "curl.exe" : "curl", "-fL", "--progress-bar", "-o", dest.toString(), reach.apply(url)).inheritIO().start();
         if (p.waitFor() != 0) throw new IOException("download failed: " + url);
-        Files.move(part, dest, StandardCopyOption.REPLACE_EXISTING);
     };
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final HttpClient PROBE_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).connectTimeout(Duration.ofSeconds(2)).build());
@@ -493,14 +587,8 @@ public final class ModelServer {
                 + DEFAULT_IDLE_MINUTES + " idle minutes.";
     }
 
-    static String sizeNote(Row r) {
-        try {
-            Result h = runner.run(List.of(os == Os.windows ? "curl.exe" : "curl", "-sIL", r.url()));
-            Matcher m = Pattern.compile("(?i)content-length:\\s*(\\d+)").matcher(h.out());
-            long n = 0; while (m.find()) n = Long.parseLong(m.group(1));
-            return n > 0 ? " (about " + Math.round(n / 1e9) + " GB)" : "";
-        } catch (Exception e) { return ""; }
-    }
+    /** " (about 16 GB)", from the row's own size: nothing is asked of anyone (until 0.8.4 Hugging Face was asked each time). "" for a file the person named. */
+    static String sizeNote(Row r) { return r.bytes() > 0 ? " (about " + Math.round(r.bytes() / 1e9) + " GB)" : ""; }
 
     static String arch() {
         String a = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
@@ -1350,15 +1438,23 @@ public final class ModelServer {
             } else {
                 Files.createDirectories(modelsDir());
                 modelFile = modelsDir().resolve(row.file());
+                // a file at the model's name that is not the pinned one (by its size) is not taken for the model: said, and left as it is
+                String inTheWay = notThePinned(modelFile);
+                if (inTheWay != null) return "!" + inTheWay;
                 if (!Files.isRegularFile(modelFile)) {
                     out.println("  Downloading the model " + row.file() + sizeNote(row) + " into " + modelsDir() + ". This is a large file and can take a while; it is checked when it is done.");
-                    fetchChecked(row.url(), modelFile);
+                    fetchChecked(row.url(), modelFile, out);
                 } else out.println("  The model " + row.file() + " is already in " + modelsDir() + ", so it is not downloaded again.");
                 // the file that lets this model read pictures (a photographed page, a scanned PDF); without it the model reads text only
                 Path vision = visionFile(row, modelFile);
-                if (VISION.containsKey(row.name()) && !Files.isRegularFile(vision)) {
+                Pin pin = VISION.get(row.name());
+                if (pin != null && Files.isRegularFile(vision) && recordedSize(vision) > 0 && Files.size(vision) != recordedSize(vision)) {   // a name only this install gives: a stopped download of an earlier release
+                    out.println("  " + vision.getFileName() + " is not the file this version installs, so it is removed and downloaded again.");
+                    Files.delete(vision);
+                }
+                if (pin != null && !Files.isRegularFile(vision)) {
                     out.println("  Downloading " + vision.getFileName() + " (about 1 GB). With it the model can read pictures, such as scanned pages and photographs.");
-                    try { fetchChecked("https://huggingface.co/" + row.hf() + "/resolve/main/mmproj-F16.gguf", vision); }
+                    try { fetchChecked(row.visionUrl(), vision, out); }
                     catch (Exception e) { out.println("  That download failed (" + e.getMessage() + "). The model is installed and reads text, but it cannot read pictures yet. To try the download again, give the same command again."); }
                 }
             }
@@ -1399,7 +1495,9 @@ public final class ModelServer {
             if ("llama".equals(embedTag)) {
                 // the embeddings model for llama.cpp (its own build on macOS and Windows, its container on a Linux box with an AMD or Intel GPU); the TEI container fetches its own copy from Hugging Face
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
-                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
+                String efInTheWay = notThePinned(ef);
+                if (efInTheWay != null) return "!" + efInTheWay;
+                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef, out); }
             }
             Chrome c = Chrome.now();
             String build = os == Os.linux ? gpu().build() : "";
@@ -1493,34 +1591,155 @@ public final class ModelServer {
         return switch (os) { case linux -> "journalctl --user -u " + proxyUnit(); case macos, windows -> dir().resolve("llama-swap.log").toString(); };
     }
 
-    /** `model check`: does every row's file still resolve where the row says, and the pinned builds too? For the release gate. */
-    public static int check(PrintStream out) {
-        int bad = 0;
-        List<String> urls = new ArrayList<>();
-        for (Row r : ROWS) urls.add(r.url());
-        for (String a : new String[]{"linux_amd64.tar.gz", "linux_arm64.tar.gz", "darwin_arm64.tar.gz", "darwin_amd64.tar.gz", "windows_amd64.zip"}) urls.add("https://github.com/mostlygeek/llama-swap/releases/download/v" + SWAP_VERSION + "/llama-swap_" + SWAP_VERSION + "_" + a);
-        for (String a : new String[]{"macos-arm64.tar.gz", "macos-x64.tar.gz", "win-vulkan-x64.zip"}) urls.add("https://github.com/ggml-org/llama.cpp/releases/download/" + LLAMA_BUILD + "/llama-" + LLAMA_BUILD + "-bin-" + a);
-        for (String f : Embed.FILES.keySet()) urls.add(Embed.fileUrl(f));   // the embeddings model's files, by their pinned revision
-        int limited = 0;
-        for (String u : urls) {
-            String status = "";
-            // a host that is rate-limiting (429) says nothing about the file: wait and ask again, up to three times
-            for (int attempt = 0; attempt < 3; attempt++) {
-                if (attempt > 0) { try { Thread.sleep(checkBackoffMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; } }
-                try {
-                    Result h = runner.run(List.of(os == Os.windows ? "curl.exe" : "curl", "-sIL", "-o", os == Os.windows ? "NUL" : "/dev/null", "-w", "%{http_code}", u));
-                    status = h.out().strip();
-                } catch (Exception e) { status = "no curl"; }
-                if (!status.equals("429")) break;
-            }
-            boolean ok = status.equals("200"), rateLimited = status.equals("429");
-            if (rateLimited) limited++; else if (!ok) bad++;
-            out.println("  " + (ok ? "ok  " : rateLimited ? "WAIT" : "GONE") + " " + status + "  " + u + (rateLimited ? "  (the host is rate-limiting this machine; not checked, not proof of absence)" : ""));
+    /** One file a download of this program takes by a pin, for the release's check: what it is, its address, its sha256 and its size. */
+    record Pinned(String what, String url, String sha256, long bytes) {
+        /** The same file on main, for one on Hugging Face pinned at a revision: where the check learns that a newer file is out. Null elsewhere. */
+        String mainUrl() {
+            Matcher m = AT_REVISION.matcher(url);
+            return url.startsWith(HUGGING_FACE + "/") && m.find() ? url.substring(0, m.start()) + "/resolve/main/" + url.substring(m.end()) : null;
         }
-        if (bad == 0 && limited == 0) out.println("  every row and pinned build resolves");
-        if (bad > 0) out.println("  " + bad + " missing: re-point the row (and re-record its sha256) before a release");
+    }
+
+    /** The part of a Hugging Face address that names a revision (a commit). */
+    static final Pattern AT_REVISION = Pattern.compile("/resolve/[0-9a-f]{40}/");
+
+    /**
+     * Every file a download of this program takes by a pin: each row's model file and picture file, the embeddings model in both its
+     * forms, and the comic helper's models, fonts and word lists (its manifest). The builds of llama-swap and llama.cpp are pinned by
+     * their release and checked from GitHub's listing ({@link #check}).
+     */
+    static List<Pinned> pinnedFiles() {
+        List<Pinned> out = new ArrayList<>();
+        for (Row r : ROWS) {
+            out.add(new Pinned(r.name(), r.url(), r.sha256(), r.bytes()));
+            Pin v = VISION.get(r.name());
+            if (v != null) out.add(new Pinned(r.name() + ", its picture file", r.visionUrl(), v.sha256(), v.bytes()));
+        }
+        out.add(new Pinned("the embeddings model for llama.cpp", EMBED_URL, EMBED_SHA256, EMBED_BYTES));
+        for (var f : Embed.FILES.entrySet()) out.add(new Pinned("the embeddings model for Text Embeddings Inference", Embed.fileUrl(f.getKey()), f.getValue(), Embed.SIZES.get(f.getKey())));
+        try (InputStream in = ModelServer.class.getResourceAsStream(ComicHelper.RESOURCES + ComicHelper.MANIFEST)) {
+            for (JsonNode m : JSON.readTree(in).path("models"))
+                for (JsonNode f : m.path("files")) out.add(new Pinned("the comic helper's " + m.path("name").asText(), f.path("url").asText(), f.path("sha256").asText(), f.path("size").asLong()));
+        } catch (IOException | RuntimeException e) { throw new IllegalStateException("the comic helper's manifest could not be read: " + e.getMessage(), e); }
+        return out;
+    }
+
+    /** A release of a pinned build: GitHub's listing of it (each asset with the sha256 GitHub gives it) and the assets this program fetches from it. */
+    record Build(String listing, String downloads, List<String> assets) { }
+
+    static List<Build> pinnedBuilds() {
+        List<String> swap = new ArrayList<>(), llama = new ArrayList<>();
+        for (String a : new String[]{"linux_amd64.tar.gz", "linux_arm64.tar.gz", "darwin_arm64.tar.gz", "darwin_amd64.tar.gz", "windows_amd64.zip"}) swap.add("llama-swap_" + SWAP_VERSION + "_" + a);
+        for (String a : new String[]{"macos-arm64.tar.gz", "macos-x64.tar.gz", "win-vulkan-x64.zip"}) llama.add("llama-" + LLAMA_BUILD + "-bin-" + a);
+        return List.of(new Build("https://api.github.com/repos/mostlygeek/llama-swap/releases/tags/v" + SWAP_VERSION, "https://github.com/mostlygeek/llama-swap/releases/download/v" + SWAP_VERSION + "/", swap),
+                new Build("https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/" + LLAMA_BUILD, "https://github.com/ggml-org/llama.cpp/releases/download/" + LLAMA_BUILD + "/", llama));
+    }
+
+    /** The name the release's check gives itself: a plain public request, the program's name and nothing of the machine or the person. */
+    static final String CHECK_AGENT = "researchzosho.org release check (https://researchzosho.org)";
+    private static final HttpClient CHECK_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).followRedirects(HttpClient.Redirect.NORMAL).connectTimeout(Duration.ofSeconds(20)).build());
+
+    /** What one request answered: the last response's status (0: none, {@code error} says why), the first response's headers (Hugging Face names a file's sha256 and size there), the last one's, and the body when it was asked for. */
+    record Asked(int status, HttpHeaders first, HttpHeaders last, byte[] body, String error) {
+        String linked(String which) { return first == null ? "" : first.firstValue("x-linked-" + which).orElse("").replace("\"", "").strip(); }
+        String said() { return status == 0 ? "no answer (" + error + ")" : String.valueOf(status); }
+    }
+
+    /** A HEAD of {@code url} (a GET when {@code body}), redirects followed, asked again on a 429 up to three times in all. */
+    static Asked ask(String url, boolean body) {
+        Asked got = null;
+        for (int attempt = 0; attempt < 3; attempt++) {
+            if (attempt > 0) { try { Thread.sleep(checkBackoffMs); } catch (InterruptedException e) { Thread.currentThread().interrupt(); break; } }
+            try {
+                HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(reach.apply(url))).timeout(Duration.ofSeconds(60)).header("User-Agent", CHECK_AGENT);
+                HttpResponse<byte[]> r = CHECK_HTTP.send(body ? b.GET().build() : b.method("HEAD", HttpRequest.BodyPublishers.noBody()).build(), HttpResponse.BodyHandlers.ofByteArray());
+                HttpResponse<byte[]> first = r;
+                while (first.previousResponse().isPresent()) first = first.previousResponse().get();
+                got = new Asked(r.statusCode(), first.headers(), r.headers(), r.body(), "");
+            } catch (InterruptedException e) { Thread.currentThread().interrupt(); return new Asked(0, null, null, null, "interrupted"); }
+            catch (IOException | RuntimeException e) { got = new Asked(0, null, null, null, e.getClass().getSimpleName() + (e.getMessage() == null ? "" : ": " + e.getMessage())); }
+            if (got.status() != 429) break;
+        }
+        return got;
+    }
+
+    /**
+     * `model check`, the release's gate on the pins: for every pinned file ({@link #pinnedFiles}), is the file at its address the one
+     * pinned? On Hugging Face the address names a revision, and Hugging Face's own sha256 and size for the file there (its
+     * x-linked-etag and x-linked-size) are compared with the pin; a small file that Hugging Face keeps without a sha256 is fetched and
+     * hashed. A file elsewhere (GitHub, at a commit) is compared by its size, and each pinned build of llama-swap and llama.cpp by the
+     * sha256 GitHub's listing of its release gives. A pin that does not resolve or does not match fails the check. A file on Hugging
+     * Face whose main has moved on is said in a line and does not fail it: that is how a newer upload is learned of, and a pin moves
+     * only after the new file is measured. A host that answers 429 three times is said and does not fail it either.
+     */
+    public static int check(PrintStream out) {
+        int bad = 0, changed = 0, limited = 0, moved = 0;
+        for (Pinned p : pinnedFiles()) {
+            Asked at = ask(p.url(), false);
+            if (at.status() == 429) { limited++; out.println("  WAIT 429  " + p.url() + "  (the host is rate-limiting this machine; not checked, not proof of absence)"); continue; }
+            if (at.status() != 200) { bad++; out.println("  GONE " + at.said() + "  " + p.url() + "  (" + p.what() + ")"); continue; }
+            long size; String sha;
+            if (p.mainUrl() == null) { size = at.last().firstValueAsLong("content-length").orElse(-1); sha = ""; }   // GitHub at a commit: by its size
+            else {
+                size = parseLong(at.linked("size"));
+                sha = at.linked("etag");
+                if (!sha.matches("[0-9a-f]{64}")) {   // a small file kept in git itself: its etag is git's own hash, so it is fetched and hashed
+                    Asked whole = ask(p.url(), true);
+                    if (whole.status() != 200 || whole.body() == null) { bad++; out.println("  GONE " + whole.said() + "  " + p.url() + "  (" + p.what() + ")"); continue; }
+                    sha = sha256(whole.body()); size = whole.body().length;
+                }
+            }
+            if (size == p.bytes() && (sha.isEmpty() || sha.equalsIgnoreCase(p.sha256()))) out.println("  ok   200  " + p.url());
+            else {
+                changed++;
+                out.println("  DIFF 200  " + p.url() + "  (" + p.what() + ": " + (sha.isEmpty() ? "" : "sha256 " + sha + ", ") + (size < 0 ? "no size" : size + " bytes") + " there; the pin is "
+                        + (sha.isEmpty() ? "" : "sha256 " + p.sha256() + ", ") + p.bytes() + " bytes)");
+            }
+            if (p.mainUrl() != null) {
+                Asked main = ask(p.mainUrl(), false);
+                String there = at.linked("etag"), now = main.linked("etag");
+                String file = p.url().substring(p.url().lastIndexOf('/') + 1), rev = p.url().substring(p.url().indexOf("/resolve/") + 9, p.url().indexOf("/resolve/") + 21);
+                if (main.status() == 200 && !now.isEmpty() && !now.equalsIgnoreCase(there)) {
+                    moved++;
+                    out.println("  note " + file + " (" + p.what() + ") on main is now " + (now.matches("[0-9a-f]{64}") ? "sha256 " + now : "another file") + ", " + main.linked("size") + " bytes; the pin stays at "
+                            + rev + ": a newer file is measured before a pin moves to it");
+                } else if (main.status() == 404) { moved++; out.println("  note " + file + " (" + p.what() + ") is no longer on main; the pin at " + rev + " still serves it"); }
+            }
+        }
+        for (Build b : pinnedBuilds()) {
+            Asked listing = ask(b.listing(), true);
+            Map<String, String> digests = new HashMap<>();
+            if (listing.status() == 200) {
+                try { for (JsonNode a : JSON.readTree(listing.body()).path("assets")) digests.put(a.path("name").asText(), a.path("digest").asText("").replaceFirst("^sha256:", "")); }
+                catch (IOException e) { listing = new Asked(0, null, null, null, "the listing is not JSON"); }
+            }
+            for (String asset : b.assets()) {
+                String u = b.downloads() + asset;
+                if (listing.status() == 200) {
+                    String d = digests.get(asset);
+                    if (d == null) { bad++; out.println("  GONE 404  " + u + "  (not in the release's listing)"); }
+                    else if (d.isEmpty() || d.equalsIgnoreCase(sums.get(asset))) out.println("  ok   200  " + u);
+                    else { changed++; out.println("  DIFF 200  " + u + "  (GitHub gives sha256 " + d + "; the pin is " + sums.get(asset) + ")"); }
+                    continue;
+                }
+                Asked at = ask(u, false);   // the listing did not answer: the asset by its address alone
+                if (at.status() == 429) { limited++; out.println("  WAIT 429  " + u + "  (the host is rate-limiting this machine; not checked, not proof of absence)"); }
+                else if (at.status() == 200) out.println("  ok   200  " + u + "  (by its address: the release's listing answered " + listing.said() + ")");
+                else { bad++; out.println("  GONE " + at.said() + "  " + u); }
+            }
+        }
+        if (bad == 0 && changed == 0 && limited == 0) out.println("  every pinned file is the one pinned, at its revision, and every pinned build resolves");
+        if (bad > 0) out.println("  " + bad + " missing: re-point the pin (its revision, sha256 and size) before a release");
+        if (changed > 0) out.println("  " + changed + " not the file pinned: the file at the pin's address is not the one the pin records; find out why before a release");
+        if (moved > 0) out.println("  " + moved + " moved on main (said above): the pins still serve the files they name; not a failure");
         if (limited > 0) out.println("  " + limited + " not checked: the host answered 429 (rate-limited) three times; nothing is known to be missing, run the check again later");
-        return bad == 0 ? 0 : 1;
+        return bad == 0 && changed == 0 ? 0 : 1;
+    }
+
+    static long parseLong(String s) { try { return Long.parseLong(s.strip()); } catch (NumberFormatException e) { return -1; } }
+
+    static String sha256(byte[] b) {
+        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(b)); } catch (Exception e) { throw new IllegalStateException(e); }
     }
 
     /** The pause between attempts when a host answers 429; a test sets it to 0. */
@@ -1579,7 +1798,9 @@ public final class ModelServer {
             // the download first: a failed one leaves the running model as it was
             Files.createDirectories(modelsDir());
             Path file = modelsDir().resolve(to.file());
-            if (!Files.isRegularFile(file)) { out.println("  downloading " + to.file() + sizeNote(to) + " into " + modelsDir()); fetchChecked(to.url(), file); }
+            String inTheWay = notThePinned(file);
+            if (inTheWay != null) return "!" + inTheWay;
+            if (!Files.isRegularFile(file)) { out.println("  downloading " + to.file() + sizeNote(to) + " into " + modelsDir()); fetchChecked(to.url(), file, out); }
             String gone = uninstall(true);
             if (gone.startsWith("!")) return gone;
             return install(null, name == null || name.isBlank() ? null : to, gpus, idle, share, out);
@@ -1749,7 +1970,9 @@ public final class ModelServer {
             String gpus = m.getOrDefault("gpus", "all"); int idle = chatIdle(m); boolean share = Boolean.parseBoolean(m.getOrDefault("share", "false"));
             if ("llama".equals(embedTag)) {
                 Path ef = modelFile.getParent().resolve(EMBED_FILE);
-                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef); }
+                String efInTheWay = notThePinned(ef);
+                if (efInTheWay != null) return "!" + efInTheWay;
+                if (!Files.isRegularFile(ef)) { out.println("  downloading " + EMBED_FILE + " (about 0.6 GB) into " + modelFile.getParent()); fetchChecked(EMBED_URL, ef, out); }
             }
             // the install stays set up the way it is (0.8.1): with no way out the embeddings server needs its model's folder, since it cannot fetch
             Shut shut = os == Os.linux ? shutOf(m) : null;

@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.8.4
+
+What's new: a job search that looks for the job you want and shows it first, costs far fewer paid searches and reads more hiring sites; Exa as one more way to find jobs; and bug fixes for keys, the model install and a slow status.
+
+### New
+
+- Job search: with an Exa key, a search also asks Exa for postings like the one you want, up to three times a search (`career_exa`; 0 turns it off). Only the job title and your place are sent. The summary says how many jobs came from Exa.
+- Job search reads seven more hiring sites: SmartRecruiters, Teamtailor, Rippling, Paylocity, Pinpoint, BambooHR and JazzHR.
+- Job search shows jobs in groups: first the ones whose title is one you search for; then ones with another title the library takes for the same work, with a note on how to remove that title; then near misses.
+- Job search: if you have not decided where you want to work, jobs in or near the place on your record come first, and the summary says the rest are from elsewhere.
+- Job search remembers what it learns about each employer: its careers page for a month, its website and size for three. `career board <employer>` shows it and takes your correction.
+- Job search ends by saying how many web searches it made, through which search engine, and how many were paid. One search pays for at most 47, or 50 with Exa.
+- Job search says which employer it is reading. A search takes about ten to fifteen minutes, and about eight more the first time each month, when it also researches your field.
+- `researchzosho settings set <name> --file <path>` reads a key from a file, so the key does not appear on the command line or in your shell's history. `models key`, `records key`, `connect` and `peer add` take `--file <path>` too.
+- `researchzosho phone cap --default none` sets what a new phone may spend on paid models: an amount, 0 for none, or none for no limit. Phones already paired keep theirs.
+- Leak protection: the library never reads its own folder (`~/.researchzosho`, where your settings and keys are) or CodeZaiku's, whoever asks. Adding your home folder reads it without them.
+- Leak protection: a file, a page, a note or a claim that holds one of the keys the library keeps is not kept, and the answer names the setting, never the key.
+- The status and Help say when search by meaning is asleep: the library stops its search model after a few idle minutes, and the next search starts it again.
+
+### Bug fixes
+
+- Job search showed many jobs of other kinds: a security engineer was shown every kind of engineer, and a nurse was shown dietitians. It searched for single words such as "Engineer" and let through any job with one of them in its title. It now searches for the whole titles you want and shows a job only when its title matches one.
+- Job search could rule out the very titles you asked for (a UX designer's search ruled out titles with UX, UI and Product) and show nothing. It no longer does, and a search that lets almost nothing through says so and shows what it counted as a fit.
+- Job search with a paid search key used up to 114 paid searches, most of them looking up each employer's careers page, website and size, and paid for them all again at the next search. It now asks the free search engine for those, asks nothing twice, and pays for at most 20 of them.
+- Job search: the search for the titles you want came last and sometimes never ran. Part of the list is now kept for it, and the summary says when a source was not searched and why.
+- Job search: a person who named no country could be held to remote jobs "in the US". The country now comes only from you or from your place, and "remote" is recognised in nine languages.
+- Job search: Workday jobs listed in several cities showed no place, so they were shown to people anywhere, and some SmartRecruiters jobs showed "Contract" as the place. Both now show their places.
+- Job search: a hiring site's own practice board was listed as an employer, and a job that had been taken down still counted as open when the employer had another with the same title. Both are fixed.
+- Job search: when a hiring site said it was busy, the employer was dropped and looked for elsewhere. The site is now skipped while it is busy, and its jobs are checked at the next search.
+- Job search: a job was dropped as taken down when the hiring site had only refused the request. Now only the site's own "gone" answer drops a job.
+- Job search: some employers were named by a short form from the web address ("Kcura", "Att"). They are now named as their postings name them.
+- The Career page said nothing leaves the library. The job titles, your place and the employers' names do go to the search engine, and the page now says so.
+- The library's status took five to ten seconds once a minute while its search model was asleep or down, so other programs could report a running library as not running. It now answers at once, and so does Help.
+- `settings set exa_key --file key.txt` saved the words "--file key.txt" as the key and said the key was set. Now the key is read from the file, and a word starting with two dashes is never saved as a value.
+- `settings` showed the last three characters of every key, so a very short key was shown whole. Now the end is shown only for a key of 12 characters or more.
+- A new settings file could be read by other people on the same computer. A new one can now be read only by you.
+- `researchzosho model install` failed for the default model since 2026-11-11, when its file was replaced where it is downloaded from. Each model file is now downloaded at the version it was tested at.
+- A model download that stopped half-way could be taken for the finished file. A download is now checked first and put in place only when it is whole.
+- On a computer with no internet, every page started a check for a new version. It now waits an hour after a check fails.
+
 ## 0.8.3
 
 What's new: `/go` in the chat, your phone, leak protection for the search model, and bug fixes for reports and for running beside CodeZaiku.

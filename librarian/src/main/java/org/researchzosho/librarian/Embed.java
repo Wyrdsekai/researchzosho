@@ -59,6 +59,9 @@ public final class Embed {
             "tokenizer_config.json", "253153d0738ceb4c668d2eff957714dd2bea0b56de772a9fdccd96cbf517e6a0",
             "tokenizer.json", "def76fb086971c7867b829c23a26261e38d9d74e02139253b38aeb9df8b4b50a",
             "model.safetensors", "0437e45c94563b09e13cb7a64478fc406947a93cb34a7e05870fc8dcd48e23fd");   // 1.2 GB, last
+    /** Each file's size in bytes, as Hugging Face gives it at {@link #REVISION}: a download of another size is refused unhashed, and `model check` compares it. */
+    static final Map<String, Long> SIZES = Map.of("config.json", 727L, "config_sentence_transformers.json", 215L, "modules.json", 349L,
+            "tokenizer_config.json", 9_706L, "tokenizer.json", 11_423_705L, "model.safetensors", 1_191_586_416L);
     /** The folder under {@link #dir} that `model install` fetches them into: the model's name and its revision's first letters. */
     static final String FOLDER = MODEL.substring(MODEL.indexOf('/') + 1) + "-" + REVISION.substring(0, 7);
 
@@ -68,7 +71,7 @@ public final class Embed {
         return Collections.unmodifiableMap(m);
     }
 
-    static String fileUrl(String name) { return "https://huggingface.co/" + MODEL + "/resolve/" + REVISION + "/" + name; }
+    static String fileUrl(String name) { return ModelServer.fileUrl(MODEL, REVISION, name); }
 
     /** Whether a folder holds the model: its configuration, its tokenizer and its weights (a link to a file that is not there is no file). */
     static boolean whole(Path folder) {

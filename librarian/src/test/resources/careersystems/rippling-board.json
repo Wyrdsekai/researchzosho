@@ -1,0 +1,67 @@
+[
+ {
+  "uuid": "9d772eeb-4e13-4d69-a41b-c4ead8806ef2",
+  "name": "Director of Business Development – US",
+  "department": {
+   "id": "Commercial",
+   "label": "Commercial"
+  },
+  "url": "https://ats.rippling.com/arkeuscareer/jobs/9d772eeb-4e13-4d69-a41b-c4ead8806ef2",
+  "workLocation": {
+   "label": "Remote (United States)",
+   "id": "Remote (United States)"
+  }
+ },
+ {
+  "uuid": "53beb6a4-39ce-42b7-9b5b-d9cf01de129f",
+  "name": "Executive Business Partner",
+  "department": {
+   "id": "Administration",
+   "label": "Administration"
+  },
+  "url": "https://ats.rippling.com/arkeuscareer/jobs/53beb6a4-39ce-42b7-9b5b-d9cf01de129f",
+  "workLocation": {
+   "label": "Port Melbourne, Australia",
+   "id": "Port Melbourne, Australia"
+  }
+ },
+ {
+  "uuid": "5e395314-17d4-4328-a1e1-52e3921fc374",
+  "name": "ILS Manager",
+  "department": {
+   "id": "Manufacturing",
+   "label": "Manufacturing"
+  },
+  "url": "https://ats.rippling.com/arkeuscareer/jobs/5e395314-17d4-4328-a1e1-52e3921fc374",
+  "workLocation": {
+   "label": "Port Melbourne, Australia",
+   "id": "Port Melbourne, Australia"
+  }
+ },
+ {
+  "uuid": "5e395314-17d4-4328-a1e1-52e3921fc374",
+  "name": "ILS Manager",
+  "department": {
+   "id": "Manufacturing",
+   "label": "Manufacturing"
+  },
+  "url": "https://ats.rippling.com/arkeuscareer/jobs/5e395314-17d4-4328-a1e1-52e3921fc374",
+  "workLocation": {
+   "label": "Ormeau, Australia",
+   "id": "Ormeau, Australia"
+  }
+ },
+ {
+  "uuid": "09ca979c-62ff-45c1-96e3-ccfc4a30253c",
+  "name": "Test & Data Collection Enablement Lead",
+  "department": {
+   "id": "Advanced Development",
+   "label": "Advanced Development"
+  },
+  "url": "https://ats.rippling.com/arkeuscareer/jobs/09ca979c-62ff-45c1-96e3-ccfc4a30253c",
+  "workLocation": {
+   "label": "Port Melbourne, Australia",
+   "id": "Port Melbourne, Australia"
+  }
+ }
+]

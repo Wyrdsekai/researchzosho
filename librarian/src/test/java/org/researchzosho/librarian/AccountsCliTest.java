@@ -1,6 +1,7 @@
 package org.researchzosho.librarian;
 
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.researchzosho.Config;
@@ -23,7 +24,16 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class AccountsCliTest {
 
-    @AfterEach void reset() throws Exception { Config.set(AccountService.ROOT, ""); Config.set(AccountService.SETTING, ""); Config.set("RESEARCHZOSHO_LIBRARY", ""); }
+    /**
+     * The service's settings whose defaults the lines read below are written for: set to their defaults here, never taken from the home as
+     * it was found. A run stopped in the middle of another class leaves what that class had set in the fork's home (2026-11-26: the
+     * nights off, which turned this class's two tests red in the next run).
+     */
+    static final List<String> DEFAULTED = List.of(Scheduler.NIGHTS, Scheduler.AT_ONCE, LibraryPlaces.COPIES, AccountService.SIGNUP, Oidc.ISSUER);
+
+    @BeforeEach void defaults() throws Exception { for (String k : DEFAULTED) Config.set(k, ""); }
+
+    @AfterEach void reset() throws Exception { Config.set(AccountService.ROOT, ""); Config.set(AccountService.SETTING, ""); Config.set("RESEARCHZOSHO_LIBRARY", ""); for (String k : DEFAULTED) Config.set(k, ""); }
 
     record Ran(int code, String out, String err) { }
 
@@ -71,7 +81,7 @@ class AccountsCliTest {
             assertEquals("drive is unset.\n", cli("settings", "unset", "drive").out());
             assertEquals("accounts_signup is one of invited, anyone, domain.\n", cli("settings", "set", "accounts_signup", "everybody").err());
             Ran list = cli("settings");
-            assertTrue(list.out().startsWith("Settings of this service (") && list.out().contains("\n  accounts  = on\n") && list.out().endsWith("researchzosho settings set <name> <value> changes one; unset <name> removes it.\n"), list.out().substring(0, Math.min(300, list.out().length())));
+            assertTrue(list.out().startsWith("Settings of this service (") && list.out().contains("\n  accounts  = on\n") && list.out().endsWith("researchzosho settings set <name> <value> changes one, settings set <name> --file <path> reads it from a file (for a key); unset <name> removes it.\n"), list.out().substring(0, Math.min(300, list.out().length())));
             assertEquals("No account yet. Make the first one with: researchzosho accounts add \"<your name>\" --admin\n", cli("accounts").out());
             Ran ann = cli("accounts", "add", "Ann Example", "--admin");
             assertTrue(ann.out().startsWith("An account is made for Ann Example, with a library of its own (ann-example).\nSend them this link. It works once, for 7 days; there they choose their password:\nhttp://127.0.0.1:4649/join?code="), ann.out());

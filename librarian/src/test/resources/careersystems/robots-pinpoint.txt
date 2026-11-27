@@ -1,0 +1,7 @@
+User-Agent: *
+Disallow: /mydata
+Disallow: /admin
+Disallow: /companies
+Disallow: /postings/ec294b3c-9481-4461-98b2-fe55b74d3ee4
+
+Sitemap: https://ravelin.pinpointhq.com/sitemap

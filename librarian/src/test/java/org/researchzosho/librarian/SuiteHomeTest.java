@@ -61,6 +61,7 @@ class SuiteHomeTest {
         try {
             assertFalse(WebSearchTool.searxConfigured(), "the closed port is not a SearXNG of the library's own");
             assertEquals("http://localhost:2", WebSearchTool.defaultEndpoint());
+            Help.forgetLooks(); Help.webSearch(); Help.settleLooks();   // the look at the search engine, made off the ask, has ended
             assertTrue(Help.webSearch().contains("No SearXNG answers searches at http://localhost:2"), "the help's line on web search asks the same address, not this machine's own: " + Help.webSearch());
             assertFalse(WebSearchTool.fallbackOn(), "off when a test sets nothing");
             Config.set("RESEARCHZOSHO_FALLBACK_SEARCH", "on");

@@ -56,6 +56,7 @@ class NearTownsTest {
     }
 
     @BeforeEach void standIns() {
+        CareerCut.NEAR = CareerCut::nearFromWikidata;   // the reader itself, on the stand-in pages below (the suite's guard sets a stand-in that finds no town)
         CareerSources.POLITE_MS = 0;
         CareerSources.RAW = url -> {
             String q = URLDecoder.decode(url.substring(url.indexOf("query=") + 6), StandardCharsets.UTF_8);

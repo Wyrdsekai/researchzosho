@@ -22,7 +22,7 @@ final class PhoneCli {
     /** The port of the machine's Tailscale address the phone lives on: one of the three Funnel allows, beside share's 443, so neither moves the other. */
     static final int TAILSCALE_PORT = 8443;
 
-    static final String USAGE = "usage: researchzosho phone [status | on [--public] [--door N] | on --own-relay --address URL [--sender HEADER] [--door N] | off | pair [name] [--cap DOLLARS|none] [--no-wait] | list | cap <name> <DOLLARS|none> | remove <name>]";
+    static final String USAGE = "usage: researchzosho phone [status | on [--public] [--door N] | on --own-relay --address URL [--sender HEADER] [--door N] | off | pair [name] [--cap DOLLARS|none] [--no-wait] | list | cap <name> <DOLLARS|none> | cap --default [DOLLARS|none] | remove <name>]";
 
     static Share.Outcome run(LibraryStore store, List<String> args, PrintStream out) throws IOException {
         Hosted.machine();   // a library under an account service is reached through the service alone
@@ -134,13 +134,17 @@ final class PhoneCli {
         if (!PhoneDoor.kind().equals("off")) b.append("  door: 127.0.0.1:").append(PhoneDoor.configuredPort()).append(Share.serviceRunning.getAsBoolean() ? " (the service is running)" : " (no service runs here: researchzosho service install)").append('\n');
         int n = Phones.list().size();
         b.append("  paired phones: ").append(n).append(n == 0 ? " (researchzosho phone pair)" : " (researchzosho phone list)").append('\n');
+        b.append("  cap for a newly paired phone: ").append(Phones.capSaid(Phones.defaultCap(), Chrome.ENGLISH)).append(" (researchzosho phone cap --default changes it)\n");
         return b.toString();
     }
+
+    /** The line that says what a newly paired phone may spend: the list here, the Settings page's Phone section. */
+    static final String DEFAULT_LINE = "Cap on paid models for a newly paired phone: {0} (researchzosho phone cap --default changes it).";
 
     // ---------------------------------------------------------------- pairing
 
     static Share.Outcome pair(List<String> args, PrintStream out) throws IOException {
-        String name = ""; Double cap = Phones.DEFAULT_CAP; boolean waitFor = Interaction.interactive();
+        String name = ""; Double cap = null; boolean waitFor = Interaction.interactive();   // no --cap: the library's default
         for (int i = 0; i < args.size(); i++) {
             String a = args.get(i);
             switch (a) {
@@ -151,7 +155,7 @@ final class PhoneCli {
             }
         }
         if (PhoneDoor.kind().equals("off") || PhoneDoor.address().isEmpty()) return new Share.Outcome(1, "The phone door is off, so a phone could not reach the pairing link. Turn it on first: researchzosho phone on");
-        Phones.Made m = Phones.pairingCode(name, cap);
+        Phones.Made m = cap == null ? Phones.pairingCode(name) : Phones.pairingCode(name, cap);
         String link = PhoneDoor.address() + "/m/pair?c=" + m.code();
         StringBuilder b = new StringBuilder();
         b.append("Scan this with the phone's camera to pair it as \"").append(m.name()).append("\":\n\n").append(terminalQr(link)).append('\n');
@@ -201,7 +205,8 @@ final class PhoneCli {
 
     static String list(LibraryStore store) throws IOException {
         List<Phones.Phone> all = Phones.list();
-        if (all.isEmpty()) return "No phone is paired. researchzosho phone pair shows the code to scan.";
+        String newOnes = Chrome.ENGLISH.t(DEFAULT_LINE, Phones.capSaid(Phones.defaultCap(), Chrome.ENGLISH));
+        if (all.isEmpty()) return "No phone is paired. researchzosho phone pair shows the code to scan.\n  " + newOnes;
         StringBuilder b = new StringBuilder();
         for (Phones.Phone p : all) {
             double spent = Spend.phoneMonth(store, p.id());
@@ -209,11 +214,12 @@ final class PhoneCli {
              .append(", ").append(p.keys().size() == 1 ? "1 browser" : p.keys().size() + " browsers")
              .append("; this month ").append(Spend.dollars(spent)).append(" on paid models, cap ").append(Phones.capSaid(p.cap(), Chrome.ENGLISH)).append('\n');
         }
-        b.append("  To remove one: researchzosho phone remove <name>. To change a cap: researchzosho phone cap <name> <dollars|none>.");
+        b.append("  To remove one: researchzosho phone remove <name>. To change a cap: researchzosho phone cap <name> <dollars|none>.\n  ").append(newOnes);
         return b.toString();
     }
 
     static Share.Outcome cap(LibraryStore store, List<String> args) throws IOException {
+        if (!args.isEmpty() && args.get(0).equals("--default")) return defaultCap(args.subList(1, args.size()));   // no phone is called --default (Phones.cleanName); one called "default" is a phone
         if (args.size() < 2) return new Share.Outcome(2, "usage: researchzosho phone cap <name> <dollars a month | 0 for no paid model | none for no limit>");
         Double dollars = Phones.capOf(args.get(args.size() - 1));
         if (dollars == null) return new Share.Outcome(2, "A cap is dollars a month (10, 2.50), 0 for no paid model, or none (or -1) for no limit.");
@@ -222,6 +228,19 @@ final class PhoneCli {
         if (p == null) return new Share.Outcome(1, "No phone is called " + name + ". researchzosho phone list shows them.");
         return new Share.Outcome(0, p.name() + ": the cap on paid models is now " + Phones.capSaid(p.cap(), Chrome.ENGLISH) + "; this month so far " + Spend.dollars(Spend.phoneMonth(store, p.id())) + "."
                 + (p.cap() < 0 ? " Nothing from this phone is refused or stopped for spending; a model entry's own cap still holds." : ""));
+    }
+
+    /** {@code phone cap --default [dollars|0|none]}: what a newly paired phone may spend when its pairing names no cap, said, or set. */
+    static Share.Outcome defaultCap(List<String> args) throws IOException {
+        String keep = "Phones already paired keep the cap they have; to change one: researchzosho phone cap <name> <dollars|0|none> (researchzosho phone list shows them).";
+        if (args.isEmpty()) return new Share.Outcome(0, Chrome.ENGLISH.t(DEFAULT_LINE, Phones.capSaid(Phones.defaultCap(), Chrome.ENGLISH)) + "\n  " + keep);
+        if (args.size() > 1) return new Share.Outcome(2, "usage: researchzosho phone cap --default [<dollars a month | 0 for no paid model | none for no limit>]");
+        Double dollars = Phones.capOf(args.get(0));
+        if (dollars == null) return new Share.Outcome(2, "The cap for a newly paired phone is dollars a month (10, 2.50), 0 for no paid model, or none (or -1) for no limit.");
+        Phones.setDefaultCap(dollars);
+        double now = Phones.defaultCap();
+        return new Share.Outcome(0, "A phone paired from now on gets the cap on paid models: " + Phones.capSaid(now, Chrome.ENGLISH) + ", unless its pairing names another (researchzosho phone pair --cap)."
+                + (now < 0 ? " Nothing from such a phone is refused or stopped for spending; a model entry's own cap still holds." : "") + "\n  " + keep);
     }
 
     static Share.Outcome remove(List<String> args) throws IOException {

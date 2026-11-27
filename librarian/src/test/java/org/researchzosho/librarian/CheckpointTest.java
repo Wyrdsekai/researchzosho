@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -54,7 +55,8 @@ class CheckpointTest {
 
     final AtomicInteger scored = new AtomicInteger();
     @BeforeEach void scorers() { TranslationScores.SCORERS = () -> new TranslationScores.Scorers(counted(scored), null); Translation.SETUP_SAID = () -> ""; }
-    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; }
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
+    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = setupSaidWas; }
 
     /** A document of 140 short paragraphs: six batches to translate, three steps of scores; every seventh carries a 7 the stand-in drops, so it is flagged and revised. */
     static Path longDoc(Path dir) throws IOException {

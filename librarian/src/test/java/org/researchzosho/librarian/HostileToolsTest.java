@@ -631,7 +631,8 @@ class HostileToolsTest {
                 Map.entry("library_sources.address", "web or words"),   // an address when it is written with its scheme; else the words of a search to run again, as the tool's own description says
                 Map.entry("library_survey.url", "web"), Map.entry("library_repo.url", "web"),
                 Map.entry("library_mcp.url", "web"),                    // an MCP server's address: where a library's questions would go
-                Map.entry("library_subscribe.url", "web"), Map.entry("library_unsubscribe.url", "web")));   // where every change of the library would be posted
+                Map.entry("library_subscribe.url", "web"), Map.entry("library_unsubscribe.url", "web"),   // where every change of the library would be posted
+                Map.entry("library_career.address", "web")));   // with op=board: the address of an employer's board or careers page, which every search then reads (0.8.4)
         for (String k : found.keySet()) assertTrue(listed.containsKey(k), k + " is an argument named address or url of a tool that is not on the list: say whether its value is an address of the web; all found: " + found.keySet());
         for (Map.Entry<String, String> e : listed.entrySet()) {
             if (!found.containsKey(e.getKey())) continue;   // a tool of a field that is not on this table

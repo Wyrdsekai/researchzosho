@@ -99,8 +99,13 @@ public final class Fetch {
             .followRedirects(HttpClient.Redirect.NEVER)
             .build());
 
-    /** A fetched document: the final URL after redirects, the status, and the decompressed body (capped). */
-    public record Result(String url, int status, byte[] body, String contentType) { }
+    /**
+     * A fetched document: the final URL after redirects, the status, and the decompressed body (capped); {@code retryAfter}: what a server
+     * that answered "later" (429, 503) said of when to ask again, its Retry-After as given, "" when it said nothing.
+     */
+    public record Result(String url, int status, byte[] body, String contentType, String retryAfter) {
+        public Result(String url, int status, byte[] body, String contentType) { this(url, status, body, contentType, ""); }
+    }
 
     /** Tests point this at a local server; production never does. */
     static volatile boolean allowLoopback = false;
@@ -279,7 +284,7 @@ public final class Fetch {
                 } finally { g.rethrow(site); }
             }
             if (body.length > maxBytes) throw new IllegalStateException("the body exceeds " + maxBytes + " bytes; not read");
-            return new Result(canonical(current), status, decode(body, enc), resp.headers().firstValue("Content-Type").orElse(""));
+            return new Result(canonical(current), status, decode(body, enc), resp.headers().firstValue("Content-Type").orElse(""), resp.headers().firstValue("Retry-After").orElse(""));
         }
         throw new IllegalStateException("too many redirects from " + url);
     }

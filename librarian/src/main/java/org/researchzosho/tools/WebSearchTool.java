@@ -26,6 +26,7 @@ import org.researchzosho.Stopping;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import org.researchzosho.librarian.Fence;
@@ -122,6 +123,12 @@ public final class WebSearchTool implements Tool {
         return caps.size() >= 4;
     }
 
+    /** Whether a paid web search is set: a first place (Exa or Tavily), a Google key (Serper, SerpApi) or a Brave key. */
+    public static boolean paidSet() { return !firstPlace().isEmpty() || googleConfigured() || !blank(Config.get("RESEARCHZOSHO_BRAVE_KEY")); }
+
+    /** How {@link #ANSWERED} names the built-in fallback. */
+    public static final String FALLBACK_NAME = "the built-in fallback";
+
     /** Session-wide count of searches that found NO backend at all (SearXNG down, no Brave key, fallback off): the report says so. */
     public static final AtomicInteger UNREACHABLE = new AtomicInteger();
     /** Which backend answered, session-wide: the report says which one a run searched through. */
@@ -192,6 +199,8 @@ public final class WebSearchTool implements Tool {
     public static boolean searxConfigured() { String e = Config.get("RESEARCHZOSHO_SEARXNG"); return e != null && !e.isBlank(); }
     /** Whether SearXNG failed to answer within the last hour. */
     public static boolean searxDownLately() { return searxDownAt > 0 && System.currentTimeMillis() - searxDownAt < 3_600_000L; }
+    /** Forgets that SearXNG failed; for tests, so one that stops it leaves the next its own start. */
+    static void searxUp() { searxDownAt = 0; }
 
     /** The built-in fallback (Wikipedia's search, no key, no install) is on unless RESEARCHZOSHO_FALLBACK_SEARCH=off. */
     public static boolean fallbackOn() { return fallbackOn(Config.get("RESEARCHZOSHO_FALLBACK_SEARCH")); }
@@ -587,7 +596,14 @@ public final class WebSearchTool implements Tool {
         return null;
     }
 
+    /**
+     * Which engine answered this thread's last search, in words a person reads ("Brave", "SearXNG", "Google, through Serper", "the
+     * built-in fallback"); "" when none did. A caller that counts its searches by engine (the career search) reads it after each one.
+     */
+    public static final ThreadLocal<String> ANSWERED = ThreadLocal.withInitial(() -> "");
+
     @Override public String execute(JsonNode args) throws Exception {
+        ANSWERED.set("");
         List<String> said = new ArrayList<>();
         String out = ladder(args, said);
         return said.isEmpty() ? out : out + (out.endsWith("\n") ? "" : "\n") + "(" + String.join(" ", said) + ")\n";
@@ -603,11 +619,18 @@ public final class WebSearchTool implements Tool {
                     + "Use a DIFFERENT query, web_fetch one of the results you have not read yet, or write your "
                     + "answer and call task_done.";
         boolean paid = endpointOverride == null && !keyless;   // a test's local server and a keyless search never reach the paid rungs
+        boolean freeAsked = paid && lookingUp();
+        if (freeAsked) {   // a look-up: the free engine first, the paid places only for what it leaves empty
+            String free = searxFirst(query, limit);
+            if (free != null) return steered(query, free);
+        }
         String brave = paid ? firstRung(query, limit) : null;   // the paid place the keeper put first (web_first), else Google
-        if (brave == null && paid) brave = serperSearch(query, limit, said);   // Google first, through the key the person set: Serper, else SerpApi
-        if (brave == null && paid) brave = serpApiSearch(query, limit, said);
-        if (brave == null && paid) brave = braveSearch(query, limit, said);
+        String by = brave == null ? "" : firstPlace().equals("exa") ? "Exa" : "Tavily";
+        if (brave == null && paid) { brave = serperSearch(query, limit, said); by = "Google, through Serper"; }   // Google first, through the key the person set: Serper, else SerpApi
+        if (brave == null && paid) { brave = serpApiSearch(query, limit, said); by = "Google, through SerpApi"; }
+        if (brave == null && paid) { brave = braveSearch(query, limit, said); by = "Brave"; }
         if (brave != null) {
+            ANSWERED.set(by);
             if (!sweepNoted && looksBatched(query)) {
                 sweepNoted = true;
                 brave += "\nNOTE: this query names several distinct items at once: engines require ALL "
@@ -617,9 +640,13 @@ public final class WebSearchTool implements Tool {
             }
             return steered(query, brave);
         }
+        if (freeAsked) {   // SearXNG was asked above and no paid place answered: nothing. Never the fallback: Wikipedia and the papers hold no employer's careers page, and their answer would be taken for a search that found none
+            queried.remove(query.strip().toLowerCase());
+            return "no results for: " + query;
+        }
         if (endpointOverride == null && System.currentTimeMillis() - searxDownAt < 60_000) {
             String fb = fallbackSearch(query, limit);
-            if (fb != null) return steered(query, fb);
+            if (fb != null) { ANSWERED.set(FALLBACK_NAME); return steered(query, fb); }
         }
         String url = searxUrl(query, safeSearch());
         JsonNode body = null;
@@ -638,7 +665,7 @@ public final class WebSearchTool implements Tool {
             } catch (Exception e) {
                 searxDownAt = System.currentTimeMillis();
                 String fb = fallbackSearch(query, limit);
-                if (fb != null) return steered(query, fb);
+                if (fb != null) { ANSWERED.set(FALLBACK_NAME); return steered(query, fb); }
                 queried.remove(query.strip().toLowerCase());   // a failed search must stay retryable
                 UNREACHABLE.incrementAndGet();
                 return "ERROR: search backend unreachable at " + endpoint() + " (" + e + "). Is the SearXNG "
@@ -659,7 +686,7 @@ public final class WebSearchTool implements Tool {
         JsonNode results = body.path("results");
         if (!results.isArray() || results.isEmpty()) {
             String fb = fallbackSearch(query, limit);
-            if (fb != null) return steered(query, fb);
+            if (fb != null) { ANSWERED.set(FALLBACK_NAME); return steered(query, fb); }
             // A failed search must not burn its slot in the repetition guard — the query was never answered.
             queried.remove(query.strip().toLowerCase());
             String down = degradedEngines(body);
@@ -673,7 +700,13 @@ public final class WebSearchTool implements Tool {
             }
             return "no results for: " + query;
         }
+        return steered(query, searxAnswer(query, results, limit));
+    }
+
+    /** SearXNG's results as the tool gives them, counted as answered by it. */
+    private String searxAnswer(String query, JsonNode results, int limit) {
         SEARXNG_USED.incrementAndGet();
+        ANSWERED.set("SearXNG");
         SearchTally.count("SearXNG", 0);
         StringBuilder sb = new StringBuilder("results for \"" + query + "\":\n" + Fence.open("SEARCH RESULTS") + "\n");
         int shown = 0, refused = 0, listed = 0;
@@ -698,6 +731,51 @@ public final class WebSearchTool implements Tool {
                     + "items (\"list of …\" / \"comparison of …\"), or query ONE item at a time.");
         }
         sb.append(Fence.close("SEARCH RESULTS")).append('\n').append(Fence.rule("SEARCH RESULTS")).append('\n');
-        return steered(query, sb.toString());
+        return sb.toString();
+    }
+
+    // ---------------------------------------------------------------- a look-up (0.8.4)
+
+    /**
+     * Whether the searches on this thread are look-ups: a known name's careers page, website or size, which the career search asks of
+     * every employer it reads. A free engine answers those as well as a paid one (the career search measured on 2026-11-26: of 190
+     * employers looked up both ways, 180 came out the same, and SearXNG's answer was never empty), so a look-up asks SearXNG first and a
+     * paid place only when SearXNG gives nothing; never the built-in fallback, whose encyclopedia pages and papers hold no careers page.
+     * Where SearXNG is not running it asks the paid places as any search does, within the most its work may make.
+     */
+    private static final ThreadLocal<Boolean> LOOKUP = new ThreadLocal<>();
+
+    /** {@code search} run as a look-up: its web searches ask the free engine first. */
+    public static <T> T lookup(Supplier<T> search) {
+        Boolean was = LOOKUP.get();
+        LOOKUP.set(Boolean.TRUE);
+        try { return search.get(); } finally { if (was == null) LOOKUP.remove(); else LOOKUP.set(was); }
+    }
+
+    static boolean lookingUp() { return Boolean.TRUE.equals(LOOKUP.get()); }
+
+    /** SearXNG's answer to a look-up, its results as the tool gives them; null when it is down, refuses, or gives nothing. Never the fallback. */
+    private String searxFirst(String query, int limit) {
+        if (System.currentTimeMillis() - searxDownAt < 60_000) return null;   // it failed a moment ago: the paid places answer, as for any search
+        try {
+            for (int attempt = 1; attempt <= 2; attempt++) {
+                HttpResponse<String> resp = Stopping.send(HTTP, HttpRequest.newBuilder(URI.create(searxUrl(query, safeSearch())))
+                        .timeout(Duration.ofSeconds(30)).header("Accept", "application/json").GET().build(),
+                        HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(30), "the search service at " + endpoint());
+                if (resp.statusCode() != 200) return null;
+                JsonNode parsed = M.readTree(resp.body());
+                JsonNode results = parsed.path("results");
+                if (results.isArray() && !results.isEmpty()) return searxAnswer(query, results, limit);
+                if (attempt == 2 || parsed.path("unresponsive_engines").size() == 0) return null;
+                Thread.sleep(4000);   // engines were suspended a moment ago; give the cooldown a chance, as any search does
+            }
+        } catch (Stopping.Requested stop) {
+            throw stop;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            searxDownAt = System.currentTimeMillis();
+        }
+        return null;
     }
 }

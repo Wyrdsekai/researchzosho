@@ -114,6 +114,7 @@ public final class Settings {
             new Setting("RESEARCHZOSHO_CAREER_READINGS", Kind.number, "How many of the openings that pass the model reads in one career search, the nearest to what you want first, about a minute each (40 unless set).", "40"),
             new Setting("RESEARCHZOSHO_CAREER_CARDS", Kind.number, "How many company cards a career search files, and a night when the watch is on: each a research run of about eight minutes on the library's model, three questions, for a company whose openings pass and has no card from the last month (3 unless set; 0 turns them off).", "3"),
             new Setting("RESEARCHZOSHO_CAREER_BOARDS", Kind.text, "Portfolio job boards the career search reads for your place besides the ones it knows, each as a name and the board's address: Pillar VC=https://jobs.pillar.vc, …", "Pillar VC=https://jobs.pillar.vc"),
+            new Setting(CareerFind.EXA_KEY, Kind.number, "How many searches through Exa one career search may make, when an Exa key is set: each a search by meaning for one of the titles the search looks for, in your place, on the hiring systems' own job pages, for postings of the last 30 days; only the title and the place are sent (3 unless set, one for each title, about two cents at Exa's price; 0 turns them off). The nightly watch makes none; each counts against exa_monthly_limit.", "3"),
             new Setting("RESEARCHZOSHO_CAREER_WATCH_READINGS", Kind.number, "How many new openings the model reads each night for a person who has the career watch on (10 unless set).", "10"),
             new Setting("RESEARCHZOSHO_USAJOBS_KEY", Kind.secret, "A USAJobs API key (developer.usajobs.gov, free): federal openings in the career search.", ""),
             new Setting("RESEARCHZOSHO_USAJOBS_EMAIL", Kind.text, "The email address the USAJobs key was issued to; USAJobs asks for it with every request.", ""),
@@ -239,14 +240,24 @@ public final class Settings {
     }
 
     /**
-     * A value as it may be shown: a secret only as set or not, and its last three characters; any other value without the password an
+     * A value as it may be shown: a secret only as set or not, and its last three characters when it is long enough ({@link #end}); any other value without the password an
      * address in it carries ({@link #withoutPasswords}). What is shown here is read by the chat's model too (0.8.1: a database's address
      * with its password in it was a setting of the text kind, and was shown whole).
      */
     public static String shown(Setting s, String value) {
         if (value == null || value.isBlank()) return "";
         if (s.kind() != Kind.secret) return withoutPasswords(value);
-        return "set (ends with …" + value.substring(Math.max(0, value.length() - 3)) + ")";
+        String end = end(value);
+        return end.isEmpty() ? "set" : "set (ends with " + end + ")";
+    }
+
+    /** The fewest characters a secret has before its last three are shown: of a shorter one they would be much of it, or all (0.8.4). */
+    static final int END_SHOWN_FROM = 12;
+
+    /** How a secret ends, as it may be shown ("…xyz"), so a person can tell which key is set; "" for a secret too short to show any of. */
+    public static String end(String value) {
+        String v = value == null ? "" : value.strip();
+        return v.length() < END_SHOWN_FROM ? "" : "…" + v.substring(v.length() - 3);
     }
 
     private static final Pattern USER_PART = Pattern.compile("(://[^\\s:/@]*):[^\\s@/]*@"),

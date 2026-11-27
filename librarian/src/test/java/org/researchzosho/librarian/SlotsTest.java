@@ -52,7 +52,7 @@ class SlotsTest {
 
     /** An install as an earlier release wrote it: the row with the slot of then, its files, its plan; {@code extra} goes on the plan. */
     static ModelServer.Row earlier(ModelServer.Row now, int ctx, int parallel) {
-        return new ModelServer.Row(now.name(), now.minGb(), now.hf(), now.file(), now.sha256(), ctx, parallel, now.extra(), now.moe());
+        return new ModelServer.Row(now.name(), now.minGb(), now.hf(), now.revision(), now.file(), now.sha256(), now.bytes(), ctx, parallel, now.extra(), now.moe());
     }
 
     static void install(Path dir, ModelServer.Row row, String extra) throws Exception {

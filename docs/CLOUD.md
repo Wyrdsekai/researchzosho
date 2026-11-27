@@ -128,7 +128,7 @@ so it reads them:
 
 ```
 docker exec rz-alpha researchzosho settings set helpers http://<helpers machine>:8217
-docker exec rz-alpha researchzosho settings set helpers_secret <the secret>
+docker exec -i rz-alpha researchzosho settings set helpers_secret --file /dev/stdin < helpers-secret.txt   # the file holds the secret alone
 docker restart rz-alpha
 ```
 

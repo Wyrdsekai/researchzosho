@@ -42,8 +42,9 @@ class ComicPlanTest {
         installed = ComicHelper.INSTALLED; install = ComicHelper.INSTALL; reader = ComicHelper.READER; answers = Translation.DRIVE_ANSWERS; seats = Translation.SEATS;
         ComicHelper.INSTALLED = () -> false;
     }
+    final Function<ModelEntries.Entry, Vision.Probe> probeWas = LibraryProtocol.VISION_PROBE;
     @AfterEach void restore() {
-        System.setProperty("user.home", home); Config.invalidate();
+        System.setProperty("user.home", home); Config.invalidate(); LibraryProtocol.VISION_PROBE = probeWas;   // put back also when a test fails before its own last line
         ComicHelper.INSTALLED = installed; ComicHelper.INSTALL = install; ComicHelper.READER = reader; Translation.DRIVE_ANSWERS = answers; Translation.SEATS = seats;
         ComicHelper.manifestFrom(null);
         Interaction.OVERRIDE = null; Interaction.INPUT = null;

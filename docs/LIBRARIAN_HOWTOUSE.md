@@ -112,8 +112,8 @@ programmers. The protocol for programs is in [LIBRARY_PROTOCOL.md](LIBRARY_PROTO
 
 Which hosted model is worth it is measured: [MODELS.md](MODELS.md) has the picks and the table, after the
 local list. A hosted model needs an address and a key, which setup asks for, or which you set with
-`researchzosho settings set drive <address>` and `settings set api_key <key>`, and `settings set model
-<name>`. What to know for each:
+`researchzosho settings set drive <address>` and `settings set api_key --file <file>` (a file that holds the key
+alone, on one line), and `settings set model <name>`. What to know for each:
 
 - **Anthropic (Claude).** Address `https://api.anthropic.com` (setup takes the word `anthropic`), a key
   from platform.claude.com, a model such as `claude-sonnet-5-5`, `claude-haiku-5-5` or `claude-opus-5-5`.
@@ -301,7 +301,8 @@ and the library stops at a number of searches a month for each, so it never spen
 714 for Exa, which keeps it under $5 at its price on 2026-11-04, and 1,000 for Tavily, its free allowance
 (`exa_monthly_limit`, `tavily_monthly_limit`). At that number the place is left off until the month turns;
 the Keep page shows the month's searches beside it, and the dollars for Exa. A run uses Exa or Tavily only
-when it picks them, unless you put one first in every web search with `web_first`. You can also point the
+when it picks them, unless you put one first in every web search with `web_first`; a career search asks Exa a few
+times of its own for job postings (`career_exa`, in "Looking for work"). You can also point the
 library at a search service of your own, at home or anywhere: its address with `{q}` where the words go
 (`custom_search_url`), a name for it (`custom_search_name`), and a key if it wants one (`custom_search_key`,
 sent as a bearer token or in the header named in `custom_search_header`). The library reads the answer when
@@ -324,7 +325,13 @@ uses other words, or another language. It needs an embeddings server. The settin
 `RESEARCHZOSHO_EMBED`: the address of any server that answers the OpenAI embeddings call, or `off`.
 `researchzosho embed status` says what is configured. `embed start` runs one with Docker. `embed test`
 measures it. `embed stop` stops it. `researchzosho status` says in one line whether search by meaning is on — and
-says so when a server is configured but not answering, since searches are by words only until it is. After starting one, run `researchzosho rebuild` to index the
+says so when a server is configured but not answering, since searches are by words only until it is. The running library's status
+(`library_status`, `GET /v1/status`, the Help page) says the same from its last look at the server, which it makes when it starts and
+once a minute after that, so it answers at once even when the server is down. An embeddings server the library runs in Docker
+is stopped after its idle minutes without a search (five unless set) and started again by the next one (that search goes by words); the status says
+`asleep` then, not `not answering`; `stopped` when its container is not running and nothing says why (an upgrade from before
+0.8.4, a restart of the machine, a stop by hand), and the next search starts it too; a start that failed says so, with what the
+server said last. After starting one, run `researchzosho rebuild` to index the
 library with it. The nightly housekeeping would do that the next night.
 
 When the embeddings server's address changes, `researchzosho refresh` asks the new one for one sentence's vector and
@@ -1105,6 +1112,14 @@ re-check against it.
 
 Adding a folder makes a collection. With `--register`, the housekeeping checks the folder for new or
 changed files.
+
+The program's own folders are never read: ResearchZosho's `~/.researchzosho` (your settings and keys, the
+paired phones, the model's files, the logs), CodeZaiku's `~/.codezaiku` and the old `~/.codeplane`. Adding a
+file inside one, or a link that leads there, is refused with one sentence that names the folder; adding your
+home folder reads it without them and says so. A document that holds the exact value of a key the library
+keeps (a setting of the secret kind, a key kept for a host or an MCP server, a database's password) is not
+kept either, and the answer names the setting, never the value. SECURITY.md, "The library's own keys", has
+the rest.
 
 An archive (zip, tar, tar.gz or tgz) is unpacked into a folder of the library's own and shelved as a folder
 is, under a collection named for the archive unless `--collection` names one. The folder is removed after.
@@ -2336,8 +2351,8 @@ key. Sign up at https://api.podcastindex.org/signup with an email address and a 
 are building; the key and the secret come by email at once. Then:
 
 ```
-researchzosho settings set podcastindex_key <key>
-researchzosho settings set podcastindex_secret <secret>
+researchzosho settings set podcastindex_key --file ~/keys/podcastindex-key.txt       # each file holds one value
+researchzosho settings set podcastindex_secret --file ~/keys/podcastindex-secret.txt
 ```
 
 or paste them into `researchzosho setup`, or on the Settings page, or tell the chat. The index's terms
@@ -2387,6 +2402,7 @@ Every setting the library has can be read and changed in three places, which all
 
 ```
 researchzosho settings                       # every setting, what it is for, its value
+researchzosho settings set exa_key --file ~/keys/exa.txt   # a key: read from a file that holds it alone
 researchzosho settings set whisper http://gpu-box:18890
 researchzosho settings unset whisper
 ```
@@ -2396,6 +2412,14 @@ http://gpu-box:18890"). A key is shown only as set or not, never its value. Chan
 write access; the chat asks before it writes. A change takes effect at once, except the number of
 workers, which takes effect at the service's next restart. The settings live in the library's config
 file, which you may also edit by hand.
+
+Give a key with `--file`: the key then never stands on the command line, in the shell's history or in
+the list of programs running. The file holds the key alone, on one line; a file with more than one line
+of text, an empty file or a missing one is refused, and nothing in it is shown. The command says which file
+it read. `settings set <name> <key>` takes the key typed. A word that begins with two dashes is not taken
+as a value; a value that really begins so goes after `--`: `researchzosho settings set <name> -- --value`.
+Only the command line reads a file: the Settings page, the chat, MCP and the API take a value as it is
+given. `models key`, `records key`, `connect` and `peer add` take `--file <file>` in the key's place too.
 
 ## 10d-2. Sources and keys
 
@@ -2488,7 +2512,7 @@ and a brand, iFixit for repairability, the recall feeds the library keeps, and t
 Japan no shop answers without a key the library does not have yet, and the run points at the shop's own page instead.
 
 ```
-researchzosho settings set yahoo_jp_client_id …      # or from the Settings page, or in the chat
+researchzosho settings set yahoo_jp_client_id --file ~/keys/yahoo-jp.txt   # or typed, from the Settings page, or in the chat
 researchzosho research "which USB-C hub for a laptop with one port, under 5000 yen"
 ```
 
@@ -2847,7 +2871,7 @@ researchzosho model install                 # the measured model for this machin
 researchzosho model status                  # the proxy, the model, the embeddings server, whether the memory is in use right now
 researchzosho model stop                    # unload now; the next request starts it again
 researchzosho model uninstall               # remove the service; the model files in ~/models stay; the drive goes back
-researchzosho model check                   # every model file and pinned build still resolves where the rows say
+researchzosho model check                   # every pinned file is the one pinned, at its revision; says when one has a newer upload
 researchzosho model use http://192.168.1.20:8080 qwen3.8-27b   # use another model server, now
 ```
 
@@ -2870,7 +2894,8 @@ embeddings' idle minutes with nothing using them, stopped by their names, and st
 use. A release before 0.8.0 kept the model 20 minutes and the embeddings model always; its install moves
 to these at the next start of the service, unless its idle minutes were your own.
 
-Every download is checked against a recorded sha256 and refused on a mismatch, like the one-line
+Every download is taken at a fixed revision of its repository and checked against a recorded size and
+sha256 before it is put in place; a mismatch is refused and nothing of it is kept, like the one-line
 installer does. Uninstall refuses while CodeZaiku's settings still point at the proxy, unless you pass
 `--force`.
 
@@ -3106,7 +3131,9 @@ without the model:
 ```
 
 The Help page does the same and opens each document whole. A program that uses the library asks it
-with `library_help`. The fields' own commands, such as `/family`, work in the browser chat as at the
+with `library_help`. What Help says of the model and the web search is what the library last found,
+shown at once; when one of them does not answer, Help says when it last looked, looks again every few
+seconds while you are reading it, and the next ask a few seconds later has the fresh answer. The fields' own commands, such as `/family`, work in the browser chat as at the
 terminal; there, the family commands that change the family's facts are for the library's owner.
 
 ## 12c. Bridges: questions that connect two subjects
@@ -3264,7 +3291,7 @@ collection of records at a time.
 ```
 researchzosho records                                  the sources, and which need a key
 researchzosho records test ndl-fulltext 高峰譲吉          search one now
-researchzosho records key europeana <key>              save a key for a source that needs one
+researchzosho records key europeana --file <file>     save a key for a source that needs one (or the key typed)
 ```
 
 Each hit has a date, a link, and a line that says how to cite the record. The words shown beside a hit
@@ -3299,7 +3326,7 @@ entries like this one:
 - A source that signs in with a key and a secret (OAuth's "client credentials", as the European Patent
   Office does) has `"key"`, `"secret": "MY_SECRET_NAME"` and `"token_url"`, the address where the two are
   exchanged for a short-lived token. The search then carries the token. Set both with
-  `researchzosho records key <source> <key> <secret>`.
+  `researchzosho records key <source> <key> <secret>`, where each may be `--file <file>` instead.
 - `"accept": "application/json"` asks a source for that format. `"empty_status": 404` is for a source that
   answers "nothing found" with that status: it is then a search that found nothing, not a failure.
 - An answer made from XML is read as it comes: a list of one may be written as the one thing, a title may
@@ -3633,7 +3660,7 @@ do on this computer changes: the pages at `127.0.0.1:4649` work as before.
 **From another computer.** With ResearchZosho installed there too, and no library of its own needed:
 
 ```
-researchzosho connect https://mylibrary.tail1234.ts.net <token>   # the address share printed, a token from reader token
+researchzosho connect https://mylibrary.tail1234.ts.net --file token.txt   # the address share printed; a token from reader token
 researchzosho ask how were the gears cut                            # and search, get, read, established, research ask,
 researchzosho research ask "…"                                       #   jobs, status, changes, subjects, questions, map,
 researchzosho connect                                               #   perspectives, inbox: they all go to that library
@@ -3653,6 +3680,7 @@ researchzosho phone on --public          # the same address, reachable without T
 researchzosho phone pair                 # a QR code to scan with the phone's camera: good once, for 10 minutes
 researchzosho phone list                 # the paired phones, what each spent this month on paid models, and its cap
 researchzosho phone cap pixel 20         # this phone may spend $20 a month on paid models; 0 for none, none for no limit
+researchzosho phone cap --default none   # what a phone paired from now on may spend, when its pairing names no --cap
 researchzosho phone remove pixel         # out at once
 researchzosho phone off                  # the address closed; the phones stay paired
 ```
@@ -3687,8 +3715,11 @@ again after its browser's data is cleared, or after the address changed (the mac
 the tailnet's name changed); remove the old one then. From the phone you can ask, research (with "use deepseek",
 "from the shelves only", "30 minutes at most" and the rest), save a link, a note or a photo, read, and stop a
 run you started there. Settings, sharing, models, keys, sources and readers are changed on the machine: from
-the phone the library says so in one sentence. Each phone has its own monthly cap on paid models, $10 unless
-you set another; a model on your own machines is never counted. SECURITY.md, "The phone door", has the rest.
+the phone the library says so in one sentence. Each phone has its own monthly cap on paid models. A new phone gets
+$10 unless you set another default with `phone cap --default` (`0`, an amount, or `none` for no limit) or name one when
+you pair it (`phone pair --cap 25`); the phones already paired keep the cap they have, and `phone cap <name>` changes one.
+`phone status`, `phone list` and the Settings page show the default. A model on your own machines is never counted.
+SECURITY.md, "The phone door", has the rest.
 
 ## 15b. Heavy helpers on another machine
 
@@ -4009,7 +4040,7 @@ researchzosho mcp add docs https://docs.example.org/mcp --header-key mcp_docs_ke
 The second asks for the key the server wants and keeps it in the setting `mcp_docs_key`. The library
 never prints a key. Two search engines need no address: `researchzosho mcp add exa` and
 `researchzosho mcp add tavily`. Both work without a key, slower and with a limit, and use yours once
-you set `exa_key` or `tavily_key` with `researchzosho settings set`.
+you set `exa_key` or `tavily_key` with `researchzosho settings set exa_key --file <file>`.
 
 `researchzosho mcp list` shows each server, whether it answers, and which of its tools research may
 call. `researchzosho mcp tools <name>` goes through a server's tools one by one. The Keep page has the
@@ -4059,7 +4090,8 @@ A program can subscribe itself with `library_subscribe`.
 
 ## 20. Other libraries
 
-If the keeper of another library has given you a reader token, your library can ask theirs.
+If the keeper of another library has given you a reader token, your library can ask theirs. `--file <file>` in the
+token's place reads it from a file.
 
 ```
 researchzosho peer add ana https://ana.example <token> --group family
@@ -4463,7 +4495,9 @@ Words given to `sources add` instead of an address are a search to run again: th
 
 ## 26b. Looking for work
 
-The Career page reads your working life and looks for what comes next. Nothing about you leaves the library.
+The Career page reads your working life and looks for what comes next. What it keeps about you stays in the library: a
+search sends out only the words it searches for, the titles and the field you want, your place and the names of the
+employers it looks at, never your name, your working life or what you wrote.
 
 More than one person can be kept: the Career page lists everyone whose working life the library holds, and its "A new person" form opens a page for a new one from their name and a resume, a LinkedIn file or their words; at the command line, `researchzosho career provide <file> --name "Their Name"` does the same from a resume or a LinkedIn file.
 
@@ -4554,11 +4588,33 @@ such employers, each kept as a source you can see on the Sources page and take o
 place, the employers on the job boards for that place that are hiring for a title you want; the library knows a
 few boards and `career_boards` adds others, and a board you add on the Sources page is read too. Then employers
 hiring right now for the titles you want, found by searching the hiring systems' own job pages and kept only when
-the employer's own board still lists the posting. Last, a few the model chooses among the employers the records
+the employer's own board still lists the posting. The search looks for the whole titles of the role in your own words
+("Security Engineer" and "Security Architect" for "security engineer or security architect, hands-on"), and in the language
+of your place's postings when that is another: up to three titles, each in three searches that name the commonest hiring
+systems the library reads, three in each (Ashby, Greenhouse, Lever, Workable, Workday, Recruitee, Personio and
+SmartRecruiters; Greenhouse's two hosts as one), so at most nine searches, three seconds apart, each asking for 20
+results, so that a search engine is not asked too often. With a key of yours for a search service, the search of the
+hiring sites costs nine searches at most and Exa three at most. Looking the employers up (an employer's careers
+page by its name, its website and its size) asks the library's free search engine first and pays for at most 20
+searches; with the lists of employers (at most 8) and the research of a decided field (at most 10, once a month), a
+career search pays for at most 47 web searches, and 3 more through Exa when its key is set. The other hiring systems
+the library reads are reached through Exa and through the employers' own lists. The search of the hiring sites keeps
+a third of the list for itself and Exa a sixth (20 and 10 of 60), which the sources before them cannot take; what one
+leaves goes to the next. When a source was not asked, or the hiring sites gave nothing, the search's log and summary
+say so and why; a search of the hiring sites that no search engine answered counts as not made, never as one that
+found nothing. The summary also says why its web searches went where they went: a paid service left off at its
+month's limit, or no key for one set. `career cut search_titles Security Engineer, Security
+Architect` sets the titles yourself. With an Exa key set (`exa_key`), the search also asks Exa, the web searched by meaning,
+for postings like the one you want on every hiring system the library reads, published in the last 30 days: one search for each title, at
+most `career_exa` of them (3 unless set, about two cents; 0 turns them off), counted against `exa_monthly_limit`. Exa is sent
+the title and your place, nothing else, and an employer it names is checked like any other, by its own board. The nightly
+watch never asks Exa. The search's summary and the Searches table say how many of the openings that fit came from the search
+of the hiring sites and how many from Exa. Last, a few the model chooses among the employers the records
 list in your place that the search has not put on the list, each with a sentence on why; it never names an
 employer the records did not list, so a short list is normal, and none at all when the records give nothing.
 The library reads each employer's openings from the employer's own hiring pages: the hiring systems that publish
-them (Greenhouse, Lever, Ashby, Workable, Recruitee, Personio and Workday), the portals hospitals, universities
+them (Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, Workday, SmartRecruiters, Teamtailor, Rippling,
+Paylocity, Pinpoint, BambooHR and JazzHR), the portals hospitals, universities
 and public bodies hire through (a health system's own careers site, Oracle, iCIMS, Taleo, PeopleAdmin), or else
 the job data or the job links on its careers page. A hospital, a school or a lab that a register listed with no
 site of its own is read through the organisation it belongs to: the parent Wikidata names when it names one, else
@@ -4571,11 +4627,51 @@ USAJobs when you set a key for it (free at developer.usajobs.gov; the settings `
 Some hospitals and public bodies still keep their openings in systems the library does not read, or behind a
 wall a plain fetch cannot pass, and then the openings page says so and names each employer for you to open
 yourself. Every request names researchzosho.org, each site's robots rules are kept, and a site gets at most one
-request a second.
+request a second. A posting a search turns up counts only while the system still lists that very posting: its own
+address says so (Workday, SmartRecruiters, Rippling, BambooHR), or the employer's list, read then, carries its number.
+Where a site's robots rules refuse readers, as some employers' own career sites do, the library does not read it.
+An opening in several places shows them all: where Workday's list says only "8 Locations", the library reads the
+posting's own page for its places, for openings whose title has a word you want (at most 30 for one employer); the
+others show their first place and how many more. A remote opening open only to some countries names them. An employer
+found by one of its Workday postings is named as that posting names its employer. A hiring system's own demonstration
+board is not taken for an employer. A site that answers that it is busy or asked too often is not asked again before the
+time it names: the search goes on with the other sites, and a posting it found there is checked once at the end of
+the search of the hiring sites if that time has come by then, or kept unchecked, said so on the list, and checked at
+the next search; its employers keep their boards and are read at the next search, and a board guessed by an
+employer's name there is not known yet, never none. A whole search waits at most a minute on such sites. Past a
+board's list, the library reads a posting's own page (the places of a row in several, a posting's day) only for an
+opening whose title the cut lets through and whose place, when the list names one, it lets through too: at most 30
+for one employer and 60 in a search, a second apart on each site; sites are read side by side.
 
-What counts as a fit is what you decided: words a title must have (and, when what you decided has two sides, such
-as a founding role that is an engineering one, a second set it must have as well), words that rule a title out,
-places, and whether remote counts. The model turns your decided topics into those words once. After that the
+For an employer that came with no board, the search looks its careers page up by its name, and for each employer whose
+board it reads, the website and the size. What it learns is kept for the whole library with the day it learnt it: a board, or
+that a search found none it can read, for a month; a website and a size for three months. A later search, another
+person's search and the nightly watch read what is kept instead of searching again, and a kept board that stops answering
+is looked up again at once. These look-ups ask the library's free search engine first (`researchzosho search start` runs
+one) and a paid one only for what the free one leaves empty, at most 20 paid look-ups in one search; an employer past those
+is looked up by the next search. The search's summary ends with how many web searches it made, through which engine, how
+many were paid, and how many look-ups what the library already knew answered.
+
+What counts as a fit is what you decided: the titles of your role, words that rule a title out, places, and whether
+remote counts. A title passes when it holds every word of one of the titles the search looks for, in any order and
+with other words between, a level such as Senior aside: "Senior Security Software Engineer" and "Engineer, Cloud
+Security" for "Security Engineer", "RN - ICU" for "Registered Nurse", but not "Platform Engineer" or "Registered
+Dietitian". The model also names the other titles under which employers post the same work ("Inpatient Pharmacist" and
+"Oncology Pharmacist" for a hospital pharmacist). A title that holds one of those passes too, and the page lists it
+in a group of its own after the openings that fit, since those titles are the model's guess at your work. The
+openings that fit, and the summary's count of them, are what the titles you search for pass. To drop one of the
+other titles, take it out on the openings page, or set them yourself with `career cut also_titles …`. Two capitals stand for one of them only
+as a title's first word ("AD, Brand Campaigns" for Art Director, not the "PE" of "Traffic Engineer, PE"). A Hacker
+News "Who is hiring" post that names several roles ("Software Engineer & Data Scientist") passes on a role it names,
+never on words taken from two of them. When you set the title words yourself (`career cut titles …`),
+your words decide as you set them: a title passes when it has any one of them (and, when what you decided has two
+sides, such as a founding role that is an engineering one, a second set it must have as well). With no place
+decided, openings of every place pass, and those in or near the place your record gives come first, as a group of
+their own on the page and in the summary; a guessed place never drops an opening. A remote opening counts when it
+is based in a country you named or in that of your place (the place you decided, else the one your record gives),
+as postings write it (its name and its codes, "Australia", "AU", "AUS"); when nothing names a country, it counts
+wherever it says it is open. Remote is read in the program's languages ("Homeoffice", "Télétravail").
+The model turns your decided topics into those words once. After that the
 sorting is plain matching, so thousands of openings are sorted in a moment, and the same openings always sort the
 same way. A guess never drops an opening; it only puts some ahead of others, and a role beside an executive, a
 field CTO or an office of the CEO, goes after the executives. Change what counts as a fit on the openings page, or
@@ -4601,8 +4697,9 @@ after those within, and a company whose own board lists a hundred openings is cu
 
 The model then reads the 40 openings nearest to what you want, at most three from one company before a fourth
 from any, and writes three lines for each: what fits, what goes against what you want, and what the opening
-does not say. That is the slow part, about a minute an opening on a local model, so a search takes half an hour
-to three quarters of an hour. The rest are sorted by how closely each matches the role and the place, as you
+does not say, a few seconds to a minute an opening depending on the model. A search takes about ten to fifteen
+minutes; the first search in a month for the field you decided also researches that field's employers, about
+eight minutes more, longer when the model is busy. The rest are sorted by how closely each matches the role and the place, as you
 decided them or, until you do, as the library guesses them: the ones that match both are listed open, by employer;
 the near misses (the role elsewhere or remote, or the place with another role), the rest, and what your decisions
 set aside, each with its reason, are closed with their counts and open with a click. A big employer's board shows
@@ -4702,7 +4799,10 @@ data is the mappers' (© OpenStreetMap contributors).
 
 Any employer's or institution's own board, with no person on the shelves: `researchzosho career board "<name>"` finds
 its careers page, the hiring system behind it or the organisation it belongs to, and prints the openings; `/career` on
-the Career page has the same form, and a program asks `library_board`.
+the Career page has the same form, and a program asks `library_board`. It also says what the library keeps of the
+employer and takes your word on it: the address of its board or careers page (`career board "<name>" https://…`), its
+website (`--site example.com`), its size (`--size 120`), or `--forget`, after which the next search looks it up again.
+What you set stays until you change it, and every search reads it.
 
 ## 26c. Reading Reddit and the Stack Exchange sites
 

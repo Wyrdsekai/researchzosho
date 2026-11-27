@@ -34,6 +34,7 @@ class ModelServerShutInTest {
     final Predicate<String> realHealth = ModelServer.health;
     final ModelServer.Asker realAsker = ModelServer.asker;
     final Map<String, String> realSums = new HashMap<>(ModelServer.sums);
+    final Map<String, Long> realSizes = new HashMap<>(ModelServer.sizes);
     final String realHome = System.getProperty("user.home");
     Path realDrm = Gpu.SYS_DRM, realKfd = Gpu.SYS_KFD, realDev = Gpu.DEV;
 
@@ -107,7 +108,7 @@ class ModelServerShutInTest {
             ModelServer.runner = this::run;
             ModelServer.downloader = (url, dest) -> {
                 fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "x");
-                ModelServer.sums.put(dest.getFileName().toString(), SHA_X); ModelServer.sums.put(dest.getParent().getFileName() + "/" + dest.getFileName(), SHA_X);
+                ModelServerTest.standsFor(dest);
             };
             ModelServer.health = base -> started && (proxyUpWhenShut || !shutNow());
             ModelServer.asker = new ModelServer.Asker() {
@@ -136,7 +137,7 @@ class ModelServerShutInTest {
 
     @AfterEach void restore() {
         Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev;
-        ModelServer.sums.clear(); ModelServer.sums.putAll(realSums);
+        ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.sizes.clear(); ModelServer.sizes.putAll(realSizes);
         ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.asker = realAsker; ModelServer.SECOND_MS = 1000;
         System.setProperty("user.home", realHome);
         Config.invalidate();

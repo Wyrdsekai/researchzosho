@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -35,7 +36,9 @@ class TranslationRecordJobsTest {
         store = new LibraryStore(tmp.resolve("lib")); store.init();
     }
 
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
     @AfterEach void down() {
+        Translation.SETUP_SAID = setupSaidWas;
         if (d != null) d.stop();
         Chrome.clear();
         TranslationScores.SCORERS = TranslationScores::configured;

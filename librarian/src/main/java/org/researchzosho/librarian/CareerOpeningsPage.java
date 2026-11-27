@@ -19,6 +19,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.researchzosho.librarian.Pages.t;
+
 /**
  * The Career page's openings list (docs/DESIGN_CAREER.md, step 3): what the last search found, the cut that made it, the openings the
  * library read with its readings, the rest that pass by company, the companies with what each gave, and the person's reactions. Every
@@ -42,7 +44,7 @@ public final class CareerOpeningsPage {
         if (v.companies().isEmpty() && v.openings() == 0) {
             b.append("<p>There has been no search yet. A search lists the employers for you, the ones you named first, then those the public records and the lists for your work and place name, ")
                     .append("reads their openings from their own hiring pages, keeps the ones that fit what you decided, and has the model read the ").append(CareerFind.readingsMax())
-                    .append(" nearest to what you want. It takes about half an hour to three quarters of an hour.</p>");
+                    .append(" nearest to what you want. ").append(CareerFind.TAKES).append("</p>");
             if (writer && running.isEmpty()) b.append(searchForm(s, "Search now"));
             return b.toString();
         }
@@ -56,6 +58,10 @@ public final class CareerOpeningsPage {
                 .append(v.cut().cutsNothing() && !v.passing().isEmpty() ? "</b> read, at " : (v.passing().size() == 1 ? " fits</b> what you decided, at " : " fit</b> what you decided, at ")).append(passAt.size()).append(passAt.size() == 1 ? " employer" : " employers").append("; the library read ").append(read).append(".")
                 .append(v.cut().cutsNothing() && !v.passing().isEmpty() ? " The role and the place are not decided yet, so the library sorted them by its guesses; the ones that match both come first, and the rest stay closed below." : "").append("</p>");
         if (looked > 0 && readable == 0) b.append("<p class=\"notice\">The library found employers for you but could read the openings of none of them: their hiring pages are built in the browser or kept by a hiring system the library does not read yet. The list below names each employer; open its own page for its openings, and tell the library the address of its careers page with the Keep box below to have it tried again.</p>");
+        else if (CareerFind.almostNoneThrough(v) != null) {
+            int[] none = CareerFind.almostNoneThrough(v);
+            b.append("<p class=\"notice\">").append(Pages.esc(Chrome.now().t("The cut let {0} of the {1} openings read through: {2}. If that keeps out titles you want, change it below.", none[0], none[1], CareerCut.summary(v.cut())))).append("</p>");
+        }
         else if (readable > 0 && v.passing().isEmpty()) b.append("<p class=\"notice\">The library read openings at ").append(readable).append(readable == 1 ? " employer" : " employers").append(" and none fits what you decided. What counts as a fit is below, with a way to change it; the employers' table says what each had.</p>");
         CareerShape.Shape shape = CareerShape.kept(store, s);
         if (shape != null) b.append("<p class=\"k\">").append(Pages.esc(CareerShape.text(shape))).append(" <a href=\"/career?seeker=").append(Pages.esc(s.slug())).append("\">Say it in your own words on the career page.</a></p>");
@@ -124,14 +130,14 @@ public final class CareerOpeningsPage {
 
     static void openingsSections(StringBuilder b, List<Row> rows, List<Row> aside, Cut cut, Career.Seeker s, Map<String, String> from, Map<String, ObjectNode> byCompany, boolean writer, List<Row> passed) {
         List<Row> readRows = new ArrayList<>(), liked = new ArrayList<>();
-        List<Row> fit = new ArrayList<>(), nearly = new ArrayList<>(), far = new ArrayList<>();   // the unread, by how closely each matches the role and the place
+        List<Row> fit = new ArrayList<>(), same = new ArrayList<>(), nearly = new ArrayList<>(), far = new ArrayList<>();   // the unread, by how closely each matches the role and the place
         for (Row r : rows) {
             switch (r.reactionWord()) {
                 case "like" -> liked.add(r);
                 case "pass" -> passed.add(r);
                 default -> {
                     if (r.read()) readRows.add(r);
-                    else switch (CareerCut.tier(cut, r.opening())) { case 0 -> fit.add(r); case 1 -> nearly.add(r); default -> far.add(r); }
+                    else switch (CareerCut.group(cut, r.opening())) { case 0 -> fit.add(r); case 1 -> same.add(r); case 2 -> nearly.add(r); default -> far.add(r); }
                 }
             }
         }
@@ -145,14 +151,20 @@ public final class CareerOpeningsPage {
             b.append("<p class=\"k\">The openings nearest to what you want, at most three from one company before a fourth from any. The reading says what fits, what goes against what you want, and what the opening does not say.</p>");
             for (Row r : readRows) b.append(card(r, s, from, byCompany, writer));
         }
-        if (!fit.isEmpty() || !nearly.isEmpty() || !far.isEmpty()) {
+        if (!fit.isEmpty() || !same.isEmpty() || !nearly.isEmpty() || !far.isEmpty()) {
             String as = cut.cutsNothing() ? "as the library guesses them until you decide" : "as you decided them";
             b.append("<h2>Openings that fit</h2>");
             if (fit.isEmpty()) b.append("<p>None of the unread openings matches both the role and the place, ").append(as).append(". The near misses are below.</p>");
-            else b.append("<p class=\"k\">").append(fit.size()).append(fit.size() == 1 ? " opening matches" : " openings match").append(" both the role and the place, ").append(as).append("; the library has not read these yet. By employer, nearest first.</p>")
+            else b.append("<p class=\"k\">").append(!cut.guessedPlace().isEmpty() ? Pages.esc(t("{0} unread openings match the role you decided in or near {1}, where your record says you are; you have not decided where you want to work, so the others follow. By employer, nearest first.", fit.size(), cut.guessedPlace()))
+                    : fit.size() + (fit.size() == 1 ? " opening matches" : " openings match") + " both the role and the place, " + as + "; the library has not read these yet. By employer, nearest first.").append("</p>")
                     .append(byEmployer(fit, true, 15, 300, s, from, writer));
+            if (!same.isEmpty()) b.append("<details open><summary><b>").append(Pages.esc(t("Other titles of the same work"))).append("</b> <span class=\"k\">").append(same.size()).append(same.size() == 1 ? " opening" : " openings")
+                    .append("</span></summary><p class=\"k\">").append(Pages.esc(t(cut.by().equals("library")
+                            ? "These carry one of the other titles the library takes for the same work ({0}), not a title you search for. The library guessed these titles; to drop one, take it out of the other titles of the same work in the form below."
+                            : "These carry one of the other titles of the same work in your cut ({0}), not a title you search for. To drop one, take it out of the other titles of the same work in the form below.", String.join(", ", otherTitles(cut)))))
+                    .append("</p>").append(byEmployer(same, true, 15, 300, s, from, writer)).append("</details>");
             if (!nearly.isEmpty()) b.append("<details><summary><b>Near misses</b> <span class=\"k\">").append(nearly.size()).append(nearly.size() == 1 ? " opening" : " openings")
-                    .append(": the role elsewhere or remote, or the place with another role</span></summary>").append(byEmployer(nearly, false, 8, 300, s, from, writer)).append("</details>");
+                    .append(": the role elsewhere or remote, or the place with another role, or no place given</span></summary>").append(byEmployer(nearly, false, 8, 300, s, from, writer)).append("</details>");
             if (!far.isEmpty()) b.append("<details><summary><b>The rest</b> <span class=\"k\">").append(far.size()).append(far.size() == 1 ? " opening" : " openings")
                     .append(": neither the role nor the place</span></summary>").append(byEmployer(far, false, 5, 200, s, from, writer)).append("</details>");
         }
@@ -165,6 +177,18 @@ public final class CareerOpeningsPage {
             }
             b.append("</ul></details>");
         }
+    }
+
+    /** The cut's other titles of the same work that are not titles the search looks for. */
+    static List<String> otherTitles(Cut c) { return c.alsoTitles().stream().filter(t -> c.searchTitles().stream().noneMatch(x -> x.equalsIgnoreCase(t))).toList(); }
+
+    /** How many of a past search's passing openings came by each way of finding employers, from its record: "" when none came by either. */
+    static String ways(JsonNode run) {
+        int search = run.path("ways").path("search").asInt(0), exa = run.path("ways").path("exa").asInt(0);
+        List<String> parts = new ArrayList<>();
+        if (search > 0) parts.add(search + (search == 1 ? " at an employer" : " at employers") + " found by searching the hiring sites");
+        if (exa > 0) parts.add(exa + (exa == 1 ? " at an employer" : " at employers") + " found by Exa's search by meaning");
+        return parts.isEmpty() ? "" : " (" + String.join(", ", parts) + ")";
     }
 
     /**
@@ -204,7 +228,9 @@ public final class CareerOpeningsPage {
         b.append("<h2>The search of ").append(Pages.esc(j.path("at").asText("").replace("T", " "))).append("</h2>");
         if (!j.path("vary").asText("").isEmpty()) b.append("<p class=\"notice\"><b>For that search only:</b> ").append(Pages.esc(j.path("vary").asText())).append(". What you decided stood as it was; the openings here are judged by that search's own cut.</p>");
         b.append("<p>It looked at ").append(looked).append(looked == 1 ? " employer" : " employers").append(research > 0 ? ", " + research + " of them named by the library's research," : "").append(" and could read the openings of ").append(readable)
-         .append(". <b>").append(then.size()).append(then.size() == 1 ? " opening passed" : " openings passed").append("</b> what counted as a fit then; the library read ").append(readThen.size()).append(". ")
+         .append(". <b>").append(then.size()).append(then.size() == 1 ? " opening passed" : " openings passed").append("</b> what counted as a fit then")
+         .append(ways(j))
+         .append("; the library read ").append(readThen.size()).append(". ")
          .append("Of those, ").append(rows.size()).append(own ? " still pass that search's cut" : " still pass what you decided now").append(aside.isEmpty() ? "" : ", " + aside.size() + " are set aside by it").append(left > 0 ? ", and " + left + " have left the boards since" : "").append(". ")
          .append(link).append("The openings as they stand</a>.</p>");
         b.append("<p class=\"k\">What counted as a fit then: ").append(Pages.esc(Career.cap(j.path("cut").asText("")))).append(".</p>");
@@ -314,10 +340,15 @@ public final class CareerOpeningsPage {
         else if (c.by().equals("you")) b.append("Set by you on ").append(Pages.esc(c.at())).append(". A change in what you want leaves it as you set it, until you have the library set it again.");
         else b.append("Set by the library on ").append(Pages.esc(c.at())).append(" from what you decided; set again when what you want changes.");
         b.append(" Only what you decided keeps or drops an opening; the library's guesses only put some ahead of others.</p>");
+        String hides = CareerCut.hides(c);
+        if (!hides.isEmpty()) b.append("<p class=\"notice\">").append(Pages.esc(hides)).append("</p>");
         if (c.cutsNothing() && !c.at().isEmpty()) b.append("<p class=\"notice\">Nothing about the role or the place is decided yet, so every opening counts as a fit and the guesses only put some ahead of others. ")
                 .append("Decide the role or the place on <a href=\"/career?seeker=").append(Pages.esc(s.slug())).append("\">your career page</a>, or set the words below.</p>");
         if (!writer) return b.toString();
         b.append("<details><summary>Change what counts as a fit</summary><form method=\"post\" action=\"/career/openings\">").append(hidden("op", "cut")).append(hidden("seeker", s.slug())).append("<table>");
+        field(b, "search_titles", t("Titles that hold every word of one of"), c.searchTitles(), "Security Engineer, Security Architect");
+        field(b, "also_titles", t("or of one of these other titles of the same work"), c.alsoTitles(), "DevSecOps Engineer, Cloud Security Engineer");
+        b.append("<tr><td></td><td class=\"k\">").append(t("With titles above, they decide which titles pass, and the words below that a title must have count only when both are empty.")).append("</td></tr>");
         field(b, "titles", "Titles with any of", c.titles(), "VP, Head of, Director");
         field(b, "titles_also", "and with any of", c.titlesAlso(), "Engineering, CTO");
         field(b, "titles_not", "Titles without", c.titlesNot(), "Intern, Junior");

@@ -8,6 +8,7 @@ import org.researchzosho.Config;
 
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -66,7 +67,9 @@ class HostedPagesTest {
         start(tmp);
         AccountService.Made ann = svc.newAccount("Ann Example", "", true, "the test");
         AccountServiceTest.Caller a = AccountServiceTest.join(svc, ann.code(), "ann's long password");
-        synchronized (Pages.DRIVE_UP) { Pages.DRIVE_UP[1] = 0; }
+        Pages.DRIVE_UP.settle(Duration.ofSeconds(60)); Pages.DRIVE_UP.forget();
+        a.get("/");   // the first home starts the look at the model, off its request
+        Pages.DRIVE_UP.settle(Duration.ofSeconds(60));
         String home = a.get("/").body();
         assertTrue(home.contains("<div class=\"first\"><div class=\"connect\"><h2 class=\"plain\">The model does not answer</h2>"), "no model has answered: the chat's home says so first: " + home);
         assertTrue(home.contains("This library uses the model of the service it runs under, and that model does not answer now. Whoever runs the service has to look into it."), home);

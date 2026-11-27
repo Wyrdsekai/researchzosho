@@ -1,0 +1,12 @@
+User-Agent: aihitdata
+Disallow: /
+
+User-Agent: *
+Disallow: /app/
+Disallow: /messages/
+Disallow: /messenger/
+Disallow: /facebook/tab/
+Disallow: /jobs/internal/
+Content-Signal: search=yes, ai-train=no, ai-input=yes
+
+Sitemap: https://statsperform.teamtailor.com/sitemap.xml

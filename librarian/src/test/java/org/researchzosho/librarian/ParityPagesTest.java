@@ -17,6 +17,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
+import java.util.function.BiFunction;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -35,7 +36,8 @@ class ParityPagesTest {
         realHome = System.getProperty("user.home"); System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
         LibraryProtocol.LEADS = (subject, text) -> List.of();
     }
-    @AfterEach void back() { System.setProperty("user.home", realHome); Config.invalidate(); }
+    final BiFunction<String, String, List<String>> leadsWas = LibraryProtocol.LEADS;
+    @AfterEach void back() { System.setProperty("user.home", realHome); Config.invalidate(); LibraryProtocol.LEADS = leadsWas; }
 
     LibraryStore library() throws Exception {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();

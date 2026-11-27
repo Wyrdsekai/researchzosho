@@ -86,6 +86,11 @@ public final class CareerWatch {
 
     /** One person's watch: the feeds read again, the open listings, the cut, the readings of what is new. */
     static String watch(LibraryStore store, Career.Seeker s, boolean modelAnswers, BooleanSupplier stop) throws IOException {
+        CareerLookups.Run lookups = CareerLookups.begin(store);   // its look-ups of employers: through what the library keeps, the free engine first (0.8.4)
+        try { return watchOnce(store, s, modelAnswers, stop); } finally { CareerLookups.end(lookups); CareerSources.WANTED.remove(); }
+    }
+
+    private static String watchOnce(LibraryStore store, Career.Seeker s, boolean modelAnswers, BooleanSupplier stop) throws IOException {
         String today = LocalDate.now().toString();
         Cut cut = CareerCut.kept(store, s);
         if (cut == null || (!cut.by().equals("you") && !cut.basis().equals(CareerCut.basis(store, s)) && modelAnswers)) cut = CareerCut.current(store, s);
@@ -94,6 +99,7 @@ public final class CareerWatch {
         Set<String> wasListed = new HashSet<>();
         for (ObjectNode c : CareerFind.companies(store, s)) wasListed.add(CareerSearch.key(c.path("name").asText()));
         List<ObjectNode> list;
+        CareerSources.WANTED.set(CareerFind.wanted(cut, CareerSearch.keepOut(store, s)));   // tonight's boards are read for what the cut can show, as a search reads them (0.8.4); taken off in watch()
         try { list = modelAnswers ? CareerFind.companyList(store, s, cut) : CareerFind.companies(store, s); }   // the boards and the hiring sites looked at again for companies new tonight
         catch (RuntimeException e) { list = CareerFind.companies(store, s); }
         Map<String, ObjectNode> all = CareerFind.openings(store, s);

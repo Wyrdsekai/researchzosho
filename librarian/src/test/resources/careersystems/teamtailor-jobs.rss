@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:tt="https://teamtailor.com/locations">
+  <channel>
+    <title>Stats Perform</title>
+    <description/>
+    <link>https://statsperform.teamtailor.com/jobs</link>
+        <item>
+      <title>Payroll Administrator</title>
+      <description>&lt;p&gt;&lt;span&gt;&lt;strong&gt;Overview&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&lt;span&gt;Stats Perform is the market leader in sports tech.  We provide the most trusted sports data to some of the world's biggest organizations, across sports, media, and broadcasting.  &lt;/span&gt;&lt;/p&gt;</description>
+      <pubDate>Tue, 27 Oct 2026 05:35:58 +0000</pubDate>
+      <link>https://statsperform.teamtailor.com/jobs/8621163-payroll-administrator</link>
+      <remoteStatus>hybrid</remoteStatus>
+      <guid>29148770-0ec7-475b-bbc3-38a8b30ba6fd</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Paddington Office</tt:name>
+          <tt:address>Stats Perform</tt:address>
+          <tt:zip>W2 1AF</tt:zip>
+          <tt:city>London</tt:city>
+          <tt:country>United Kingdom</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Human Resources</tt:department>
+      <tt:role/>
+    </item>
+    <item>
+      <title>Data Collection Analyst (Performance Data)</title>
+      <description>&lt;p&gt;&lt;span&gt;&lt;strong&gt;Overview&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&lt;span&gt;Stats Perform is the market leader in sports tech.  We provide the most trusted sports data to some of the world's biggest organizations, across sports, media, and broadcasting.  &lt;/span&gt;&lt;/p&gt;</description>
+      <pubDate>Wed, 18 Nov 2026 15:07:49 +0000</pubDate>
+      <link>https://statsperform.teamtailor.com/jobs/8762990-data-collection-analyst-performance-data</link>
+      <remoteStatus>none</remoteStatus>
+      <guid>98fd4b37-ce31-41b8-9389-9e84253a5ef5</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Aveiro - Portugal</tt:name>
+          <tt:address>R. das Cardadeiras 64</tt:address>
+          <tt:zip>3800</tt:zip>
+          <tt:city>Aveiro</tt:city>
+          <tt:country>Portugal</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Operations</tt:department>
+      <tt:role/>
+    </item>
+    <item>
+      <title>Director of Sales</title>
+      <description>&lt;p&gt;&lt;span&gt;&lt;strong&gt;Overview&lt;/strong&gt;&lt;/span&gt;&lt;/p&gt;&lt;p&gt;&lt;span&gt;Stats Perform is the market leader in sports tech.  We provide the most trusted sports data to some of the world's biggest organizations, across sports, media, and broadcasting.  &lt;/span&gt;&lt;/p&gt;</description>
+      <pubDate>Wed, 11 Nov 2026 22:59:55 +0000</pubDate>
+      <link>https://statsperform.teamtailor.com/jobs/8706879-director-of-sales</link>
+      <remoteStatus>none</remoteStatus>
+      <guid>0394e777-b40f-436e-88d4-d4dc2404d296</guid>
+      <tt:locations>
+        <tt:location>
+          <tt:name>Prague - Czech Republic</tt:name>
+          <tt:address>Dock In Four</tt:address>
+          <tt:zip>180 00</tt:zip>
+          <tt:city>Praha 8-Palmovka</tt:city>
+          <tt:country>Czechia</tt:country>
+        </tt:location>
+      </tt:locations>
+      <tt:department>Commercial</tt:department>
+      <tt:role/>
+    </item>
+  </channel>
+</rss>

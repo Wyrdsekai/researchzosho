@@ -87,6 +87,7 @@ import org.researchzosho.librarian.GeniFamily;
 import org.researchzosho.librarian.Graph;
 import org.researchzosho.librarian.Jobs;
 import org.researchzosho.librarian.LibraryProtocol;
+import org.researchzosho.librarian.OwnFolders;
 import org.researchzosho.librarian.RawCapture;
 import org.researchzosho.records.RecordSources;
 import org.researchzosho.tools.ContentPolicy;
@@ -683,11 +684,16 @@ public final class GenealogyProfile implements Profile {
         if (rest.isEmpty()) { System.err.println("usage: researchzosho genealogy read <file|url> [--by \"who wrote it\"] [--family 髙橋,Takahashi]\n       researchzosho genealogy tell \"<what you know, in sentences>\" [--by \"your name\"]"); return 2; }
         String givenBy = by;
         Path file;
+        if (args[2].equals("read") && !rest.get(0).matches("(?i)https?://.+")) {   // the programs' own folders: their settings and keys are never read
+            String no = OwnFolders.refusal(Path.of(rest.get(0)), store);
+            if (no != null) { System.err.println(no); return 2; }
+        }
         if (args[2].equals("read") && Files.isDirectory(Path.of(rest.get(0)))) return folder(store, Path.of(rest.get(0)), by, families, listOnly, again, skip, only);
         if (args[2].equals("read") && rest.get(0).matches("(?i)https?://.+")) {
             if (GeniFamily.guidOf(rest.get(0)) != null) return geni(store, rest.get(0));
             // a page that tells a family (an encyclopedia article's 家族 section, a local society's page): read like any account, and cited as that page
             Object[] got = Corpus.addUrl(store, rest.get(0), "family");
+            if (got[0] == null) { System.err.println(RawCapture.refused().isEmpty() ? "The page was read but not saved to the library." : RawCapture.refused()); return 1; }
             String[] page = RawCapture.read((Path) got[0]);
             if (by.isBlank()) by = String.valueOf(got[1]).isBlank() ? rest.get(0) : got[1] + " (" + URI.create(page[0]).getHost() + ")";
             int rc = fileAccount(store, page[2], page[0], by);
@@ -2738,6 +2744,8 @@ public final class GenealogyProfile implements Profile {
         switch (args[2]) {
             case "import" -> {
                 if (args.length < 4) { System.err.println("usage: researchzosho genealogy import <file.ged> [--dry]"); return 2; }
+                String own = OwnFolders.refusal(Path.of(args[3]), store);   // the programs' own folders: never read
+                if (own != null) { System.err.println(own); return 2; }
                 if (Arrays.asList(args).contains("--dry")) { System.out.print(Gedcom.dryRun(store, Path.of(args[3]))); return 0; }
                 // filed under the one lock an answer typed beside the reading is filed under
                 Set<String> before;

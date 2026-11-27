@@ -1,0 +1,23 @@
+{
+ "total": 3,
+ "jobPostings": [
+  {
+   "title": "Software Engineer",
+   "externalPath": "/job/Illinois/Software-Engineer_26-0246",
+   "locationsText": "23 Locations",
+   "postedOn": "Posted 9 Days Ago"
+  },
+  {
+   "title": "Principal Engineer",
+   "externalPath": "/job/Illinois/Principal-Engineer_26-0277",
+   "locationsText": "Illinois",
+   "postedOn": "Posted 30+ Days Ago"
+  },
+  {
+   "title": "Staff Full Stack Software Engineer – Engineering Platform",
+   "externalPath": "/job/Krakw/Staff-Software-Engineer---Engineering-Platform_26-0487-1",
+   "locationsText": "8 Locations",
+   "postedOn": "Posted 8 Days Ago"
+  }
+ ]
+}

@@ -14,6 +14,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -70,6 +71,9 @@ class AccountsOffTest {
             KeyPair anyone = Statement.newKey();
             String statement = Statement.sign(anyone.getPrivate(), "k1", Statement.Claims.now("http://accounts.test", store.identity().id(), "a1", "Ann", Statement.KEEPER, Statement.SESSION));
             String add = "{\"op\":\"add\",\"question\":\"What did the first reader ask for at the desk on the day the library opened?\"}";
+            // the looks at other servers the status and the home start, off their requests, end before two answers are compared: both say what one look found
+            send(c, HttpRequest.newBuilder(URI.create(base + "/v1/status"))); send(c, HttpRequest.newBuilder(URI.create(base + "/")));
+            SearchByMeaning.settle(); Pages.DRIVE_UP.settle(Duration.ofSeconds(60));
             for (String[] ask : new String[][]{{"GET", "/v1/status", ""}, {"POST", "/v1/frontier", add}, {"POST", "/v1/settings", "{\"op\":\"list\"}"}, {"GET", "/", ""}, {"GET", "/keep", ""}}) {
                 HttpRequest.Builder plain = HttpRequest.newBuilder(URI.create(base + ask[1])), claimed = HttpRequest.newBuilder(URI.create(base + ask[1])).header(Statement.HEADER, statement);
                 if (ask[0].equals("POST")) { plain.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(ask[2])); claimed.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(ask[2])); }

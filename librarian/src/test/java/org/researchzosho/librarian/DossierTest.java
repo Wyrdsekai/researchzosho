@@ -13,9 +13,14 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.util.ArrayList;
+import java.util.function.BiFunction;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.AfterEach;
 /** The dossier (0.6.6): a view over everything the shelves hold on a subject; and telling the library, a told claim whose leads join the open questions. */
 class DossierTest {
+    final BiFunction<String, String, List<String>> leadsWas = LibraryProtocol.LEADS;
+    @AfterEach void back() { LibraryProtocol.LEADS = leadsWas; }   // the model's leads as they were: a test below stands one in
+
     @Test
     void thePatternOfLifeIsComputedFromTheClaims() {
         List<Finding> claims = new ArrayList<>();

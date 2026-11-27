@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,17 +48,47 @@ public final class CareerCut {
      * opening may be based, [] for anywhere; {@code preferTitles}, {@code preferPlaces}: from the guesses, for the order only.
      * {@code by}: library or you; {@code at}: the day it was made; {@code basis}: what it was made from, to tell when it is out of date.
      * {@code nearby}: the towns within {@code nearKm} of each city the places name, from Wikidata, which the place also matches; a place
-     * decided as a city means the city and what is near it, not the city's name alone.
+     * decided as a city means the city and what is near it, not the city's name alone. {@code searchTitles}: the whole titles the search
+     * looks for on the hiring systems' pages, the person's own words for the role and the same title in the language of their place's
+     * postings (0.8.4). {@code alsoTitles}: the other whole titles under which postings offer the same work, which the cut lets through and
+     * the search does not look for. When the cut has whole titles, a posting's title has the role when it holds every word that tells one
+     * kind of work from another of one of them, in any order, with other words between ({@link #holdsTitle}); the single words in
+     * {@code titles} then serve the readers' searches, and a cut with no whole titles (one the person set in their own words) is judged by
+     * them as before.
      */
     public record Cut(List<String> titles, List<String> titlesAlso, List<String> titlesNot, List<String> areas, List<String> places, String remote, List<String> remoteWhere,
-                      List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis, List<String> nearby, int nearKm) {
+                      List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis, List<String> nearby, int nearKm,
+                      List<String> searchTitles, List<String> alsoTitles, String placeGuess) {
+        public Cut(List<String> titles, List<String> titlesAlso, List<String> titlesNot, List<String> areas, List<String> places, String remote, List<String> remoteWhere,
+                   List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis, List<String> nearby, int nearKm,
+                   List<String> searchTitles, List<String> alsoTitles) {
+            this(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, nearby, nearKm, searchTitles, alsoTitles, "");
+        }
+        public Cut(List<String> titles, List<String> titlesAlso, List<String> titlesNot, List<String> areas, List<String> places, String remote, List<String> remoteWhere,
+                   List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis, List<String> nearby, int nearKm,
+                   List<String> searchTitles) {
+            this(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, nearby, nearKm, searchTitles, List.of());
+        }
+        public Cut(List<String> titles, List<String> titlesAlso, List<String> titlesNot, List<String> areas, List<String> places, String remote, List<String> remoteWhere,
+                   List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis, List<String> nearby, int nearKm) {
+            this(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, nearby, nearKm, List.of(), List.of());
+        }
         public Cut(List<String> titles, List<String> titlesAlso, List<String> titlesNot, List<String> areas, List<String> places, String remote, List<String> remoteWhere,
                    List<String> preferTitles, List<String> preferPlaces, int maxPeople, int minPeople, String by, String at, String basis) {
             this(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, List.of(), 0);
         }
         public static final Cut NONE = new Cut(List.of(), List.of(), List.of(), List.of(), List.of(), "", List.of(), List.of(), List.of(), 0, 0, "library", "", "");
         /** The same cut with the towns near its cities. */
-        Cut near(List<String> towns, int km) { return new Cut(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, towns, km); }
+        Cut near(List<String> towns, int km) { return new Cut(titles, titlesAlso, titlesNot, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, towns, km, searchTitles, alsoTitles, placeGuess); }
+        /** The same cut with other words kept out. */
+        Cut keepingOut(List<String> not) { return new Cut(titles, titlesAlso, not, areas, places, remote, remoteWhere, preferTitles, preferPlaces, maxPeople, minPeople, by, at, basis, nearby, nearKm, searchTitles, alsoTitles, placeGuess); }
+        /**
+         * The place the library guesses from the person's record while they have decided none (0.8.4): "" when a place is decided, when
+         * the record gives none, or when remote only is decided. It cuts nothing; the openings there come first, as their own group.
+         */
+        public String guessedPlace() { return places.isEmpty() && !remote.equals("only") ? placeGuess : ""; }
+        /** The whole titles that count as the role: those the search looks for, then the others for the same work. */
+        public List<String> wholeTitles() { List<String> w = new ArrayList<>(searchTitles); for (String t : alsoTitles) if (w.stream().noneMatch(x -> x.equalsIgnoreCase(t))) w.add(t); return w; }
         /** Whether nothing about the role or the place cuts: every opening passes, and the guesses only order them. */
         public boolean cutsNothing() { return titles.isEmpty() && titlesAlso.isEmpty() && places.isEmpty() && remote.isEmpty(); }
     }
@@ -71,9 +102,10 @@ public final class CareerCut {
         JsonNode j = M.readTree(f.toFile());
         String remote = j.path("remote").asText("");
         if (remote.equals("only") && j.path("places").size() > 0 && j.path("remote_where").size() == 0 && j.path("by").asText("library").equals("library")) remote = "fine";   // a place and remote both: remote counts beside the place; "only" is the person's to say
-        return new Cut(list(j.path("titles")), list(j.path("titles_also")), list(j.path("titles_not")), list(j.path("areas")), list(j.path("places")), remote, list(j.path("remote_where")),
+        Cut c = new Cut(list(j.path("titles")), list(j.path("titles_also")), list(j.path("titles_not")), list(j.path("areas")), list(j.path("places")), remote, list(j.path("remote_where")),
                 list(j.path("prefer_titles")), list(j.path("prefer_places")), j.path("max_people").asInt(0), j.path("min_people").asInt(0), j.path("by").asText("library"), j.path("at").asText(""), j.path("basis").asText(""),
-                list(j.path("nearby")), j.path("near_km").asInt(0));
+                list(j.path("nearby")), j.path("near_km").asInt(0), list(j.path("search_titles")), list(j.path("also_titles")), j.path("place_guess").asText(""));
+        return c.by().equals("library") ? withoutContradictions(c) : c;   // one the model wrote before 0.8.4's check; the person's own stands as they set it, and is said
     }
 
     static void save(LibraryStore store, Career.Seeker s, Cut c) throws IOException {
@@ -87,6 +119,9 @@ public final class CareerCut {
         put(o, "titles", c.titles()); put(o, "titles_also", c.titlesAlso()); put(o, "titles_not", c.titlesNot()); put(o, "areas", c.areas()); put(o, "places", c.places()); o.put("remote", c.remote()); put(o, "remote_where", c.remoteWhere());
         put(o, "prefer_titles", c.preferTitles()); put(o, "prefer_places", c.preferPlaces()); o.put("max_people", c.maxPeople()).put("min_people", c.minPeople()).put("by", c.by()).put("at", c.at()).put("basis", c.basis());
         put(o, "nearby", c.nearby()); o.put("near_km", c.nearKm()).put("near_lookup", NEAR_LOOKUP);
+        put(o, "search_titles", c.searchTitles());
+        put(o, "also_titles", c.alsoTitles());
+        o.put("place_guess", c.placeGuess());
         return o;
     }
 
@@ -94,7 +129,7 @@ public final class CareerCut {
     public static Cut fromJson(JsonNode j) {
         return new Cut(list(j.path("titles")), list(j.path("titles_also")), list(j.path("titles_not")), list(j.path("areas")), list(j.path("places")), j.path("remote").asText(""), list(j.path("remote_where")),
                 list(j.path("prefer_titles")), list(j.path("prefer_places")), j.path("max_people").asInt(0), j.path("min_people").asInt(0), j.path("by").asText("library"), j.path("at").asText(""), j.path("basis").asText(""),
-                list(j.path("nearby")), j.path("near_km").asInt(0));
+                list(j.path("nearby")), j.path("near_km").asInt(0), list(j.path("search_titles")), list(j.path("also_titles")), j.path("place_guess").asText(""));
     }
 
     /** What the cut is made from: the topics with their states and words, and what is kept out. A change in it makes the library's cut again. */
@@ -104,7 +139,7 @@ public final class CareerCut {
         for (String k : CareerSearch.keepOut(store, s)) b.append("out|").append(k).append('\n');
         JsonNode iv = CareerInterview.state(store, s);
         for (CareerInterview.Question q : CareerInterview.questions(iv)) if (q.tag().equals(CareerInterview.LOOK_FOR)) b.append("asked|").append(CareerInterview.answerOf(iv, q.n())).append('\n');
-        b.append("made|2\n");   // how the library makes a cut: a change here makes every library-made cut again, once
+        b.append("made|4\n");   // how the library makes a cut: a change here makes every library-made cut again, once (3: with the whole titles the search looks for; 4: the other titles of the same work, and a title judged whole, 0.8.4)
         return CareerSources.id(b.toString());
     }
 
@@ -199,12 +234,22 @@ public final class CareerCut {
                 + "- remote_where: where a remote opening may be based for them, as postings write it (\"US\", \"USA\", \"United States\", \"North "
                 + "America\", \"Anywhere\"). [] when anywhere.\n"
                 + "- max_people, min_people: the company size they decided, as numbers of people: \"not bigger than 200\" gives max_people 200; \"a "
-                + "small company\" 50; \"small to medium\" 500; \"at least a thousand\" min_people 1000. 0 when size is not decided or gives no number.\n\n"
+                + "small company\" 50; \"small to medium\" 500; \"at least a thousand\" min_people 1000. 0 when size is not decided or gives no number.\n"
+                + "- search_titles: the whole job titles a search for openings types for their decided role, as postings write them: the person's own "
+                + "words for the role, cut to the title and without a level word such as Senior, Junior or Lead (\"senior hospital pharmacist or "
+                + "clinical pharmacist, nights\" gives \"Hospital Pharmacist\" and \"Clinical Pharmacist\"); a rank with its area (\"VP of Engineering\"); "
+                + "and, where job postings in their decided place are written in another language, the same title in that language as well. At most "
+                + "four, the person's own words first. When the role is only a guess, the title the guess names. [] when no role is decided or guessed.\n"
+                + "- also_titles: the other whole titles under which other employers post the same work as the role in search_titles, each a title a "
+                + "person doing exactly that work would apply to (for the pharmacist above: \"Staff Pharmacist\", \"Inpatient Pharmacist\", "
+                + "\"Pharmacist\"). Each holds the word that names this work, as Pharmacist does, so that a posting for other work sharing one of its "
+                + "words does not count. The field they want to work in orders what passes through prefer_titles and makes no title here. At most "
+                + "six. [] when search_titles is [].\n\n"
                 + "From the GUESSES, the library's and not yet confirmed, the same as preferences, which order what passes and never cut:\n"
                 + "- prefer_titles: the words of the area their past roles name, so that when they asked for a VP, a VP of Engineering comes before a VP "
                 + "of Sales (\"Engineering\", \"Technology\", \"Product\", \"Research\"); prefer_places.\n\n"
                 + "Answer with one JSON object and nothing else: {\"role_titles\": [...], \"ownership_titles\": [...], \"titles_not\": [...], \"areas\": [...], \"places\": [...], \"remote\": \"...\", "
-                + "\"remote_where\": [...], \"max_people\": 0, \"min_people\": 0, \"prefer_titles\": [...], \"prefer_places\": [...]}\n\n"
+                + "\"remote_where\": [...], \"max_people\": 0, \"min_people\": 0, \"search_titles\": [...], \"also_titles\": [...], \"prefer_titles\": [...], \"prefer_places\": [...]}\n\n"
                 + "WHAT THE PERSON WANTS\n" + (wants.isEmpty() ? "(nothing decided or guessed yet)\n" : wants)
                 + (asked.isEmpty() ? "" : "\nWHAT THEY ASKED THE SEARCH TO LOOK FOR, in their own words\n" + asked)
                 + (held.isEmpty() ? "" : "\nTHE ROLES THEY HAVE HELD, newest first\n- " + String.join("\n- ", held) + "\n")
@@ -230,8 +275,18 @@ public final class CareerCut {
             owner = List.of();
         }
         Cut c = new Cut(role, owner, words(j.path("titles_not"), 40), words(j.path("areas"), 20), words(j.path("places"), 40), remote, words(j.path("remote_where"), 40),
-                prefer, words(j.path("prefer_places"), 40), Math.max(0, j.path("max_people").asInt(0)), Math.max(0, j.path("min_people").asInt(0)), "library", LocalDate.now().toString(), basis);
+                prefer, words(j.path("prefer_places"), 40), Math.max(0, j.path("max_people").asInt(0)), Math.max(0, j.path("min_people").asInt(0)), "library", LocalDate.now().toString(), basis,
+                List.of(), 0, words(j.path("search_titles"), 4), naming(words(j.path("also_titles"), 6), role));
+        Map<String, List<String>> bad = contradictions(c);
+        if (!bad.isEmpty()) {   // a word the cut wants cannot be a word it keeps out (0.8.4)
+            c = withoutContradictions(c);
+            List<String> holding = heldBy(bad);
+            Career.log(store, s, "The cut the model wrote kept out " + and(List.copyOf(bad.keySet())) + ", which is in the titles it wants (" + String.join(", ", holding)
+                    + "): a word kept out cuts every title that has it, so the library took " + (bad.size() == 1 ? "it" : "them") + " out of the words kept out.");
+        }
         c = withNearby(store, s, c, radiusWanted(store, s));
+        c = withGuessedPlace(store, s, c, radiusWanted(store, s));
+        c = withRemoteCountry(store, s, c);
         if (keep) { save(store, s, c); Career.log(store, s, "The library made the search's cut from what you decided: " + summary(c) + "."); }
         else Career.log(store, s, "The library made this search's own cut from what you decided and what you said for this search: " + summary(c) + ". What you decided stands as it was.");
         return c;
@@ -250,7 +305,7 @@ public final class CareerCut {
     /** A city named for a lookup, with the words that say which one: the other places the person named, and where their record puts them. */
     public interface Near { Towns apply(String city, List<String> within, int km); }
     /** The towns within the kilometres of the city, from Wikidata; a test puts its own here. */
-    static volatile Near NEAR = CareerCut::nearFromWikidata;
+    public static volatile Near NEAR = CareerCut::nearFromWikidata;
 
     /** The distance the person named with their place ("within 30 km of Lyon", "20 miles from Boston"), in kilometres; the default when they named none. */
     static int radiusWanted(LibraryStore store, Career.Seeker s) throws IOException {
@@ -284,6 +339,107 @@ public final class CareerCut {
             if (!added.isEmpty()) Career.log(store, s, "Near " + p + (found.where().isEmpty() ? "" : " (" + found.where() + ")") + ", within " + km + " km, these count as the place too: " + String.join(", ", added.subList(0, Math.min(added.size(), 40))) + (added.size() > 40 ? " and " + (added.size() - 40) + " more" : "") + " (from Wikidata).");
         }
         return c.near(towns, towns.isEmpty() ? 0 : km);
+    }
+
+    /**
+     * While no place is decided, the place the person's record gives (0.8.4): its city first in the order, and the towns near it with it,
+     * so the openings there are a group of their own on the page and in the summary. It never cuts; the library knows it without the model
+     * having to name it. Unchanged when a place is decided, when remote only is, or when the record gives no place.
+     */
+    static Cut withGuessedPlace(LibraryStore store, Career.Seeker s, Cut c, int km) throws IOException {
+        if (!c.places().isEmpty() || c.remote().equals("only")) return c;
+        String where = Career.location(store, s).strip();
+        if (where.isEmpty()) return c;
+        String[] parts = where.split(",");
+        String city = parts[0].strip();
+        if (city.isEmpty()) return c;
+        List<String> rest = new ArrayList<>();
+        for (int i = 1; i < parts.length; i++) if (!parts[i].isBlank()) rest.add(parts[i].strip());
+        List<String> prefer = new ArrayList<>(c.preferPlaces());
+        if (prefer.stream().noneMatch(x -> x.equalsIgnoreCase(city))) prefer.add(0, city);
+        List<String> towns = new ArrayList<>(c.nearby());
+        Towns found = city.length() <= 3 || city.equals(city.toUpperCase(Locale.ROOT)) ? new Towns("", List.of()) : near(store, city, List.of(), rest, km);
+        for (String t : found.towns()) if (!t.equalsIgnoreCase(city) && towns.stream().noneMatch(x -> x.equalsIgnoreCase(t))) towns.add(t);
+        Career.log(store, s, "You have not decided where you want to work, so the openings in or near " + where + ", where your record says you are, come first"
+                + (found.towns().isEmpty() ? "" : " (with " + found.towns().size() + " towns within " + km + " km)") + "; the others are listed after them, none cut.");
+        return new Cut(c.titles(), c.titlesAlso(), c.titlesNot(), c.areas(), c.places(), c.remote(), c.remoteWhere(), c.preferTitles(), prefer, c.maxPeople(), c.minPeople(), c.by(), c.at(), c.basis(),
+                towns, towns.isEmpty() ? c.nearKm() : km, c.searchTitles(), c.alsoTitles(), where);
+    }
+
+    /**
+     * Where a remote opening may be based, from the person (0.8.4): the model's words are kept when the person wrote them, when they name
+     * the person's country, or when they are its initials ("UK" beside "United Kingdom"); the country is the one the person named, else
+     * that of the place they decided, else that of the place their record gives, written as its name and its ISO codes. A country the
+     * model brought from nowhere ("US" for a person in Perth who named none) is dropped. With no country known, remote counts wherever the
+     * posting says it is open, and the log says why.
+     */
+    static Cut withRemoteCountry(LibraryStore store, Career.Seeker s, Cut c) throws IOException {
+        if (!c.remote().equals("fine") && !c.remote().equals("only") || c.remoteWhere().isEmpty()) return c;   // remote not decided, or anywhere
+        StringBuilder said = new StringBuilder();
+        for (JsonNode d : Career.wantsKept(store, s).path("dimensions"))
+            if (d.path("state").asText("").equals("decided") && List.of("remote", "place").contains(d.path("dimension").asText(""))) said.append(d.path("want").asText("")).append(" \n ");
+        String country = "";
+        {   // the decided place's city, else the record's: the country Wikidata puts it in
+            List<String> cities = new ArrayList<>();
+            for (String p : c.places()) if (p.strip().length() > 3 && !p.strip().equals(p.strip().toUpperCase(Locale.ROOT))) cities.add(p.strip());
+            String rec = Career.location(store, s).split(",")[0].strip();
+            if (cities.isEmpty() && !rec.isEmpty()) cities.add(rec);
+            for (String city : cities.subList(0, Math.min(1, cities.size()))) {
+                List<String> other = new ArrayList<>();
+                for (String x : c.places()) if (!x.strip().equalsIgnoreCase(city)) other.add(x.strip());
+                for (String x : Career.location(store, s).split(",")) if (!x.strip().isEmpty() && !x.strip().equalsIgnoreCase(city)) other.add(x.strip());
+                Towns t = near(store, city, List.of(), other, NEAR_KM);
+                country = countryNamed(t.where().split(",")[0]);
+            }
+        }
+        boolean fromWords = false;
+        if (country.isEmpty()) { country = countryNamed(said.toString()); fromWords = !country.isEmpty(); }   // no place known: a country the person wrote
+        List<String> forms = countryForms(country);
+        List<String> out = new ArrayList<>();
+        for (String w : c.remoteWhere()) {
+            Predicate<String> named = x -> has(said.toString(), x) || forms.stream().anyMatch(f -> f.equalsIgnoreCase(x));   // the person's own word, or a form of their country
+            boolean grounded = named.test(w) || c.remoteWhere().stream().filter(x -> !x.equalsIgnoreCase(w) && named.test(x))
+                    .anyMatch(x -> initialsOf(x).equalsIgnoreCase(w) || initialsOf(w).equalsIgnoreCase(x));   // or the initials of one, or the name whose initials one is: UK, United States
+            if (grounded && out.stream().noneMatch(x -> x.equalsIgnoreCase(w))) out.add(w);
+        }
+        for (String f : forms) if (out.stream().noneMatch(x -> x.equalsIgnoreCase(f))) out.add(f);
+        if (out.equals(c.remoteWhere())) return c;
+        List<String> dropped = c.remoteWhere().stream().filter(w -> out.stream().noneMatch(x -> x.equalsIgnoreCase(w))).toList();
+        Career.log(store, s, out.isEmpty() ? "No country is known for you: neither what you decided nor your record names one, so remote openings count wherever they say they are open."
+                : "Remote openings count when based in " + or(out) + ", from " + (fromWords || forms.isEmpty() ? "what you said" : c.places().isEmpty() ? "the place your record gives" : "the place you decided")
+                + (dropped.isEmpty() ? "" : "; " + or(dropped) + (dropped.size() == 1 ? " is" : " are") + " left out, as nothing you said or your record names it") + ".");
+        return new Cut(c.titles(), c.titlesAlso(), c.titlesNot(), c.areas(), c.places(), c.remote(), out, c.preferTitles(), c.preferPlaces(), c.maxPeople(), c.minPeople(), c.by(), c.at(), c.basis(),
+                c.nearby(), c.nearKm(), c.searchTitles(), c.alsoTitles(), c.placeGuess());
+    }
+
+    /** The English name of a country a text names, by the names the platform knows (no list of our own): the longest it holds; "" when none. */
+    static String countryNamed(String text) {
+        if (text == null || text.isBlank()) return "";
+        String best = "";
+        for (String code : Locale.getISOCountries()) {
+            String name = Locale.of("", code).getDisplayCountry(Locale.ENGLISH);
+            if (name.length() > 3 && name.length() > best.length() && has(text, name)) best = name;
+        }
+        return best;
+    }
+
+    /** A country as remote postings write it: its English name and its ISO codes (United States, US, USA); [] for "". */
+    static List<String> countryForms(String name) {
+        if (name == null || name.isEmpty()) return List.of();
+        for (String code : Locale.getISOCountries()) {
+            Locale l = Locale.of("", code);
+            if (l.getDisplayCountry(Locale.ENGLISH).equalsIgnoreCase(name)) return List.of(l.getDisplayCountry(Locale.ENGLISH), code, l.getISO3Country());
+        }
+        return List.of(name);
+    }
+
+    /** The initials of a name of several words, capitals: "UK" for "United Kingdom"; "" for one word. */
+    private static String initialsOf(String name) {
+        List<String> ws = titleTokens(name);
+        if (ws.size() < 2) return "";
+        StringBuilder b = new StringBuilder();
+        for (String w : ws) b.appendCodePoint(Character.toUpperCase(w.codePointAt(0)));
+        return b.toString();
     }
 
     /** The towns near a city, kept with the library for a month; nothing when the name is no city's. */
@@ -432,6 +588,21 @@ public final class CareerCut {
     /** Words that are no role on their own: "Executive" is in Account Executive, "Officer" in every C-level title, "Chief" in Chief of Staff. */
     static final Set<String> NOT_A_ROLE = Set.of("executive", "officer", "chief", "senior", "staff", "level");
 
+    /**
+     * The model's other titles of the same work that name it: one whose every telling word is a level or one of the cut's own single
+     * words ("Senior Designer", "Design Lead" beside the word Designer) names no work of its own and would let every such title through,
+     * so it is left out; "UI Designer", "Product Designer" and "Joiner" stay.
+     */
+    static List<String> naming(List<String> also, List<String> roleWords) {
+        List<String> out = new ArrayList<>();
+        for (String t : also) {
+            List<String> tell = telling(t);
+            boolean generic = tell.stream().allMatch(w -> roleWords.stream().map(r -> r.toLowerCase(Locale.ROOT)).anyMatch(r -> r.startsWith(w) || w.startsWith(r)));
+            if (!tell.isEmpty() && !generic) out.add(t);
+        }
+        return out;
+    }
+
     /** The model's title words, with each abbreviation's long form beside it and the words that are no role on their own left out. */
     static List<String> titleWords(List<String> words) {
         List<String> out = new ArrayList<>();
@@ -447,18 +618,84 @@ public final class CareerCut {
     }
 
     /** The person sets the cut's words themselves: each field a list in their words, separated by commas; the cut is theirs from then on. */
-    public static Cut set(LibraryStore store, Career.Seeker s, Map<String, String> f) throws IOException {
+    public static Cut set(LibraryStore store, Career.Seeker s, Map<String, String> f) throws IOException { return setting(store, s, f).cut(); }
+
+    /** A cut the person set, and what the answer says of it beside the cut's sentence: "" or the contradiction in their words and what the cut does. */
+    public record Setting(Cut cut, String said) { }
+
+    /**
+     * As {@link #set}, saying a contradiction in the person's own words (0.8.4): their latest word wins. Words kept out given now that
+     * titles they want hold stay, and the answer says which titles they now hide; titles given now that hold a word kept out before take
+     * that word out of the words kept out, and the answer says so.
+     */
+    public static Setting setting(LibraryStore store, Career.Seeker s, Map<String, String> f) throws IOException {
         Cut was = kept(store, s);
         if (was == null) was = Cut.NONE;
         String remote = f.containsKey("remote") ? f.get("remote").strip().toLowerCase(Locale.ROOT) : was.remote();
         if (!List.of("only", "fine", "no", "").contains(remote)) throw new IllegalArgumentException("Remote is one of only, fine, no, or empty for not decided.");
+        // title words of the person's own: they decide what passes and what is searched, so the library's whole titles go unless given with them
+        boolean mine = f.containsKey("titles") && !f.containsKey("search_titles") && !f.containsKey("also_titles");
         Cut c = new Cut(field(f, "titles", was.titles()), field(f, "titles_also", was.titlesAlso()), field(f, "titles_not", was.titlesNot()), field(f, "areas", was.areas()), field(f, "places", was.places()), remote, field(f, "remote_where", was.remoteWhere()),
                 field(f, "prefer_titles", was.preferTitles()), field(f, "prefer_places", was.preferPlaces()), count(f, "max_people", was.maxPeople()), count(f, "min_people", was.minPeople()), "you", LocalDate.now().toString(), basis(store, s),
-                was.nearby(), was.nearKm());
+                was.nearby(), was.nearKm(), field(f, "search_titles", mine ? List.of() : was.searchTitles()), field(f, "also_titles", mine ? List.of() : was.alsoTitles()), was.placeGuess());
         if (f.containsKey("places")) c = withNearby(store, s, c.near(List.of(), 0), f.containsKey("near_km") ? count(f, "near_km", NEAR_KM) : radiusWanted(store, s));
+        Map<String, List<String>> bad = contradictions(c);
+        String said = "";
+        if (!bad.isEmpty() && !f.containsKey("titles_not")) {   // the titles are their latest word: what was kept out before gives way
+            c = withoutContradictions(c);
+            said = Chrome.now().t("The cut kept out {0}, which is in the titles you want ({1}): your latest word wins, so the cut no longer keeps out {0}.", and(List.copyOf(bad.keySet())), String.join(", ", heldBy(bad)));
+        } else if (!bad.isEmpty()) said = hides(bad);
         save(store, s, c);
-        Career.log(store, s, "You set the search's cut: " + summary(c) + ".");
-        return c;
+        Career.log(store, s, "You set the search's cut: " + summary(c) + "." + (said.isEmpty() ? "" : " " + said));
+        return new Setting(c, said);
+    }
+
+    /** What a person's own contradiction hides, for every door that shows their cut: "" when it has none. */
+    public static String hides(Cut c) { return c == null || c.by().equals("library") ? "" : hides(contradictions(c)); }
+
+    private static String hides(Map<String, List<String>> bad) {
+        if (bad.isEmpty()) return "";
+        return Chrome.now().t("You keep out {0}, which is in the titles you want ({1}): the cut keeps your latest word, so openings with those titles do not pass. Take one of the two out to change it.",
+                and(List.copyOf(bad.keySet())), String.join(", ", heldBy(bad)));
+    }
+
+    /**
+     * The words the cut keeps out that a title or word it wants holds, each with the wanted ones that hold it (0.8.4). A word kept out
+     * cuts every title that has it, so such a word keeps out the very titles the cut wants: "UX", "UI" and "Product" kept out beside "UX
+     * Designer", "UI Designer" and "Product Designer" (the 27B on 2026-11-27, in two setups of three of one seeker's decisions). Initials
+     * count as the judge reads them: "UX" kept out is in "User Experience Designer", "User Experience" in "UX Designer". A kept-out phrase
+     * that holds a wanted title and more ("Junior UX Designer" beside "UX Designer", "Field CTO" beside "CTO") names other work: it stays.
+     */
+    static Map<String, List<String>> contradictions(Cut c) {
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        List<String> wanted = new ArrayList<>(c.wholeTitles());
+        for (List<String> ws : List.of(c.titles(), c.titlesAlso(), c.areas())) for (String w : ws) if (wanted.stream().noneMatch(x -> x.equalsIgnoreCase(w))) wanted.add(w);
+        for (String k : c.titlesNot()) for (String t : wanted) if (wantedHolds(t, k)) out.computeIfAbsent(k, x -> new ArrayList<>()).add(t);
+        return out;
+    }
+
+    /** Whether a title or word the cut wants has a word it keeps out: as words, or as the initials of its words, or spelled out from its initials. */
+    static boolean wantedHolds(String wanted, String kept) {
+        if (has(wanted, kept)) return true;
+        List<String> tw = titleTokens(wanted), kw = titleTokens(kept);
+        if (kw.size() == 1 && !capitals(kept).isEmpty())   // initials kept out, "UX": in a title of the words they stand for
+            for (int i = 0; i < tw.size(); i++) for (int j = i + 2; j <= tw.size(); j++) if (initials(kw.get(0), tw.subList(i, j))) return true;
+        if (kw.size() >= 2) for (String x : capitals(wanted)) if (initials(x, kw)) return true;   // words kept out, "User Experience": in a title of their initials
+        return false;
+    }
+
+    /** The cut without the words it keeps out that a title or word it wants holds. */
+    static Cut withoutContradictions(Cut c) {
+        Map<String, List<String>> bad = contradictions(c);
+        if (bad.isEmpty()) return c;
+        return c.keepingOut(c.titlesNot().stream().filter(k -> !bad.containsKey(k)).toList());
+    }
+
+    /** The wanted titles and words that hold the contradicting words, once each, in order. */
+    private static List<String> heldBy(Map<String, List<String>> bad) {
+        List<String> out = new ArrayList<>();
+        for (List<String> ts : bad.values()) for (String t : ts) if (out.stream().noneMatch(x -> x.equalsIgnoreCase(t))) out.add(t);
+        return out;
     }
 
     // ---------------------------------------------------------------- applying the cut
@@ -480,19 +717,26 @@ public final class CareerCut {
             if (has(o.company(), k) || CareerSearch.key(o.company()).equals(CareerSearch.key(k))) return new Verdict(false, "the company, " + o.company() + ", is one you keep out, or where you work now", false, List.of());
             if (has(o.title(), k)) return new Verdict(false, "its title has " + k + ", which you keep out", false, List.of());
         }
-        for (String w : c.titlesNot()) if (has(o.title(), w)) return new Verdict(false, "its title has " + w, false, List.of());
-        if (!c.titles().isEmpty() && c.titles().stream().noneMatch(w -> has(o.title(), w))) return new Verdict(false, "its title has none of the words you want", false, List.of());
+        List<String> open = openRoles(c, o);
+        if (open.isEmpty()) { for (String w : c.titlesNot()) if (has(o.title(), w)) return new Verdict(false, "its title has " + w, false, List.of()); }
+        List<String> whole = c.wholeTitles();
+        if (!whole.isEmpty()) {   // the role as whole titles: every word that tells this work from another, of one of them (0.8.4)
+            if (held(c, o) == Held.NONE) return new Verdict(false, "its title is none of the titles you want (" + String.join(", ", whole) + ")", false, List.of());
+        } else {   // a cut the person set in their own words: any of its words, as before
+            if (!c.titles().isEmpty() && c.titles().stream().noneMatch(w -> has(o.title(), w))) return new Verdict(false, "its title has none of the words you want", false, List.of());
+            if (!c.areas().isEmpty() && !c.titles().isEmpty() && c.titles().stream().filter(w -> has(o.title(), w)).allMatch(w -> GENERIC.matcher(w).matches())
+                    && c.areas().stream().noneMatch(a -> has(o.title(), a))) return new Verdict(false, "its title gives a rank without the area you work in", false, List.of());
+        }
         if (!c.titlesAlso().isEmpty() && c.titlesAlso().stream().noneMatch(w -> has(o.title(), w))) return new Verdict(false, "its title has none of the second words you want", false, List.of());
-        if (!c.areas().isEmpty() && !c.titles().isEmpty() && c.titles().stream().filter(w -> has(o.title(), w)).allMatch(w -> GENERIC.matcher(w).matches())
-                && c.areas().stream().noneMatch(a -> has(o.title(), a))) return new Verdict(false, "its title gives a rank without the area you work in", false, List.of());
         String loc = o.location();
-        boolean unknown = loc.isBlank() && !o.remote();
+        boolean remote = o.remote() || CareerSources.remote(loc);   // a reader that read remote in English only: the place's own words, in the program's languages
+        boolean unknown = loc.isBlank() && !remote;
         boolean inPlace = c.places().stream().anyMatch(p -> has(loc, p)) || c.nearby().stream().anyMatch(t -> has(loc, t));
-        boolean remoteHere = o.remote() && (c.remoteWhere().isEmpty() || bareRemote(loc) || c.remoteWhere().stream().anyMatch(w -> has(loc, w)));
+        boolean remoteHere = remote && (c.remoteWhere().isEmpty() || bareRemote(loc) || c.remoteWhere().stream().anyMatch(w -> has(loc, w)));
         if (!unknown) {
             switch (c.remote()) {
-                case "only" -> { if (!remoteHere) return new Verdict(false, o.remote() ? "it is remote from a place you did not name" : "it is not remote", false, List.of()); }
-                case "no" -> { if (!c.places().isEmpty() && !inPlace) return new Verdict(false, "it is not in a place you want", false, List.of()); if (c.places().isEmpty() && o.remote() && bareRemote(loc)) return new Verdict(false, "it is remote", false, List.of()); }
+                case "only" -> { if (!remoteHere) return new Verdict(false, remote ? "it is remote from a place you did not name" : "it is not remote", false, List.of()); }
+                case "no" -> { if (!c.places().isEmpty() && !inPlace) return new Verdict(false, "it is not in a place you want", false, List.of()); if (c.places().isEmpty() && remote && bareRemote(loc)) return new Verdict(false, "it is remote", false, List.of()); }
                 default -> { if (!c.places().isEmpty() && !inPlace && !(c.remote().equals("fine") && remoteHere)) return new Verdict(false, "it is not in a place you want", false, List.of()); }
             }
         }
@@ -515,8 +759,188 @@ public final class CareerCut {
 
     /** Whether a place says only that the work is remote: "Remote", "Remote (flexible)", not "Remote, EMEA". */
     static boolean bareRemote(String loc) {
-        String rest = (loc == null ? "" : loc).toLowerCase(Locale.ROOT).replaceAll("\\b(remote|first|friendly|flexible|option|ok|anywhere|fully|100%|work from home)\\b", "").replaceAll("[^\\p{L}\\p{N}]+", "");
+        String rest = CareerSources.REMOTE_WORDS.matcher((loc == null ? "" : loc).toLowerCase(Locale.ROOT)).replaceAll("");
+        for (String r : CareerSources.REMOTE_RUNS) rest = rest.replace(r, "");
+        rest = rest.replaceAll("\\b(first|friendly|flexible|option|ok|fully|100%)\\b", "").replaceAll("[^\\p{L}\\p{N}]+", "");   // any language's word for remote, and the words beside it that name no place
         return rest.isEmpty();
+    }
+
+    /** Levels, which postings write every way and which say nothing of the kind of work: they are no word a title must hold. */
+    static final Set<String> LEVELS = Set.of("senior", "sr", "junior", "jr", "lead", "staff", "principal", "i", "ii", "iii", "iv", "v", "entry", "level", "mid");
+    /** The small words of a title in the languages the library meets: "VP of Engineering", "Ingénieur de recherche", "Leiter der Abteilung". */
+    static final Set<String> SMALL = Set.of("of", "the", "and", "for", "in", "at", "a", "an", "to", "on", "with", "de", "du", "des", "la", "le", "les", "et", "en", "y", "el",
+            "los", "las", "und", "der", "die", "das", "für", "e", "do", "da", "di", "del", "della", "il", "lo", "&");
+
+    /** A title's words, lower case: letters and digits, with + and # kept (C++, C#). */
+    static List<String> titleTokens(String t) {
+        List<String> out = new ArrayList<>();
+        Matcher m = TOKEN.matcher(t == null ? "" : t.toLowerCase(Locale.ROOT));
+        while (m.find()) out.add(m.group());
+        return out;
+    }
+    private static final Pattern TOKEN = Pattern.compile("[\\p{L}\\p{N}+#]+");
+
+    /** The words of a whole title that tell one kind of work from another: every word but a level and a small word. */
+    static List<String> telling(String title) {
+        List<String> out = new ArrayList<>();
+        for (String w : titleTokens(title)) if (!LEVELS.contains(w) && !SMALL.contains(w)) out.add(w);
+        return out;
+    }
+
+    /**
+     * Whether a posting's title holds a wanted whole title (0.8.4): every word of it that tells one kind of work from another, in any
+     * order, with other words between. "Senior Security Software Engineer" and "Engineer, Cloud Security" hold "Security Engineer";
+     * "Registered Nurse - ICU" holds "Registered Nurse" and "Registered Dietitian" does not. A word is held as it is, with an ending
+     * ("Engineering" for "Engineer", "Nurses" for "Nurse"), or at the end of a longer word ("Cybersecurity" for "Security"); a run of two
+     * or more words may stand as their initials and initials as their words ("RN", "UX", "SRE", "VP" either way).
+     */
+    static boolean holdsTitle(String title, String wanted) { return holdsTitle(title, wanted, false); }
+
+    /**
+     * As above, for one of the other titles of the same work when {@code other} (0.8.4): two capitals stand for the whole of it only as
+     * the title's first word ("AD, Brand Campaigns" for Art Director). "PE" after "Traffic Engineer" is a Professional Engineer, "PA" a
+     * state and "ID" a requisition's id, not "Platform Engineer", "Platform Architect" or "Interaction Designer" (the saved runs of
+     * 2026-11-27: five such postings, none of that work). A title the search looks for keeps every way it is held: "RN - ICU".
+     */
+    static boolean holdsTitle(String title, String wanted, boolean other) {
+        List<String> need = telling(wanted), tw = titleTokens(title);
+        if (need.isEmpty() || tw.isEmpty()) return false;
+        if (heldAll(tw, need)) return true;
+        List<String> caps = capitals(title), wantedCaps = capitals(wanted);   // initials are written in capitals: RN, UX, SRE; "Ad" in "Ad Creative" is a word
+        for (int i = 0; i < need.size(); i++)   // a run of the wanted words written as its initials in the posting
+            for (int j = i + 2; j <= need.size(); j++) {
+                List<String> run = need.subList(i, j);
+                List<String> rest = new ArrayList<>(need.subList(0, i)); rest.addAll(need.subList(j, need.size()));
+                if (!heldAll(tw, rest)) continue;
+                for (String x : caps) {
+                    if (!initials(x, run)) continue;
+                    if (other && rest.isEmpty() && run.size() == 2 && !x.equals(tw.get(0))) continue;   // two capitals for a whole other title only at the title's head
+                    return true;
+                }
+            }
+        List<String> spelled = new ArrayList<>();   // initials among the wanted words, spelled out by a run of the posting's words
+        for (String w : need) {
+            String run = w.length() >= 2 && w.length() <= 4 && wantedCaps.contains(w) ? runFor(tw, w) : null;
+            spelled.add(run != null ? run : w);
+        }
+        return !spelled.equals(need) && heldAll(tw, spelled.stream().filter(w -> !w.contains(" ")).toList());
+    }
+
+    /**
+     * A wanted title whose words are held by the posting's title and its employer's name together, one at least by the title: a firm whose
+     * name is the specialty drops it from its titles, so "SecOps Engineer" at a firm named for security holds "Security Engineer" (on the
+     * saved runs of 2026-11-26 this kept ten security seats at one such firm and let in no opening of other work).
+     */
+    static boolean heldWithEmployer(String title, String company, String wanted) {
+        List<String> need = telling(wanted), tw = titleTokens(title), cw = titleTokens(company);
+        if (need.size() < 2) return false;
+        boolean inTitle = false;
+        for (String w : need) {
+            if (heldWord(tw, w)) inTitle = true;
+            else if (!heldWord(cw, w)) return false;
+        }
+        return inTitle;
+    }
+
+    /** The posting's run of words whose initials are {@code ini}, joined by spaces, so that it counts as held; null when there is none. */
+    private static String runFor(List<String> tw, String ini) {
+        for (int i = 0; i + ini.length() <= tw.size(); i++)
+            if (ini.length() >= 2 && initials(ini, tw.subList(i, i + ini.length()))) return String.join(" ", tw.subList(i, i + ini.length()));
+        return null;
+    }
+
+    /** The words of a title written in capitals, two letters or more (RN, UX, SRE, AI), lower case. */
+    private static List<String> capitals(String title) {
+        List<String> out = new ArrayList<>();
+        Matcher m = TOKEN.matcher(title == null ? "" : title);
+        while (m.find()) { String w = m.group(); if (w.codePointCount(0, w.length()) >= 2 && w.equals(w.toUpperCase(Locale.ROOT)) && !w.equals(w.toLowerCase(Locale.ROOT))) out.add(w.toLowerCase(Locale.ROOT)); }
+        return out;
+    }
+
+    /** Whether {@code x} is the initials of {@code words}: each letter the first of its word, or an x for a word that begins ex, as UX is User eXperience. */
+    private static boolean initials(String x, List<String> words) {
+        if (x.codePointCount(0, x.length()) != words.size()) return false;
+        int[] cps = x.codePoints().toArray();
+        for (int k = 0; k < cps.length; k++) {
+            String w = words.get(k);
+            if (w.codePointAt(0) != cps[k] && !(cps[k] == 'x' && w.startsWith("ex"))) return false;
+        }
+        return true;
+    }
+
+    private static boolean heldAll(List<String> tw, List<String> need) {
+        for (String w : need) if (!heldWord(tw, w)) return false;
+        return true;
+    }
+
+    private static boolean heldWord(List<String> tw, String w) {
+        boolean ideographic = w.codePoints().anyMatch(cp -> Character.isIdeographic(cp) || Character.UnicodeScript.of(cp) == Character.UnicodeScript.HIRAGANA || Character.UnicodeScript.of(cp) == Character.UnicodeScript.KATAKANA || Character.UnicodeScript.of(cp) == Character.UnicodeScript.HANGUL);
+        for (String x : tw) {
+            if (x.equals(w)) return true;
+            if (ideographic && x.contains(w)) return true;   // a script with no spaces between its words: the word inside the run
+            if (w.length() >= 3 && x.startsWith(w) && x.length() - w.length() <= 3) return true;   // an ending: Engineering, Nurses, Designers
+            if (w.length() >= 4 && x.length() > w.length() && x.endsWith(w)) return true;   // the end of a longer word: Cybersecurity
+        }
+        return false;
+    }
+
+    /** How an opening's title is held by the cut's whole titles: by one the search looks for, only by one of the other titles of the same work, or by none. */
+    enum Held { SEARCHED, OTHER, NONE }
+
+    /**
+     * How the roles of an opening's title that no word kept out cuts are held by the cut's whole titles (0.8.4). A title the search looks
+     * for is the person's own word for the role; the other titles of the same work are the model's guess at it, and the page lists what
+     * passes only by one of them as a group of its own, after the openings that fit.
+     */
+    static Held held(Cut c, Opening o) {
+        List<String> roles = openRoles(c, o);
+        for (String t : roles) for (String w : c.searchTitles()) if (holdsTitle(t, w) || heldWithEmployer(t, o.company(), w)) return Held.SEARCHED;
+        for (String t : roles) for (String w : c.alsoTitles()) if (holdsTitle(t, w, true) || heldWithEmployer(t, o.company(), w)) return Held.OTHER;
+        return Held.NONE;
+    }
+
+    /** Whether an opening passes only by one of the other titles of the same work, not by a title the search looks for. */
+    public static boolean byOtherTitleOnly(Cut c, Opening o) { return !c.wholeTitles().isEmpty() && held(c, o) == Held.OTHER; }
+
+    /**
+     * The roles an opening's title names that no word the cut keeps out cuts (0.8.4). A Hacker News "Who is hiring" post writes the roles
+     * it hires for in one line, "Software Engineer & Data Scientist", "AI tech leads, Software and Platform engineers": each is a title of
+     * its own, so the post passes on a role that fits and never on words taken from two of them. A list in brackets names kinds of the
+     * role before it and stays with it. Any other title is one role.
+     */
+    static List<String> openRoles(Cut c, Opening o) {
+        List<String> out = new ArrayList<>();
+        for (String t : roles(o)) if (c.titlesNot().stream().noneMatch(w -> has(t, w))) out.add(t);
+        return out;
+    }
+
+    static List<String> roles(Opening o) {
+        String t = o.title() == null ? "" : o.title();
+        if (o.source() == null || !o.source().startsWith("hn:")) return List.of(t);
+        List<String> out = new ArrayList<>();
+        StringBuilder part = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < t.length(); i++) {
+            char ch = t.charAt(i);
+            if (ch == '(' || ch == '[') depth++;
+            if (ch == ')' || ch == ']') depth = Math.max(0, depth - 1);
+            int cut = 0;
+            if (depth == 0) for (String b : ROLE_BREAK) if (t.regionMatches(true, i, b, 0, b.length())) { cut = b.length(); break; }
+            if (cut > 0) { if (!part.toString().isBlank()) out.add(part.toString().strip()); part.setLength(0); i += cut - 1; continue; }
+            part.append(ch);
+        }
+        if (!part.toString().isBlank()) out.add(part.toString().strip());
+        return out.size() > 1 ? out : List.of(t);
+    }
+    private static final List<String> ROLE_BREAK = List.of(", ", "; ", " & ", " + ", " and ");
+
+    /**
+     * The page's group of a passing opening (0.8.4): 0 the openings that fit (a title the search looks for, or the person's own words, and
+     * the place), 1 those that pass only by one of the other titles of the same work, in the place, 2 the near misses, 3 the rest.
+     */
+    public static int group(Cut c, Opening o) {
+        int tier = tier(c, o);
+        return tier == 0 ? (byOtherTitleOnly(c, o) ? 1 : 0) : tier + 1;
     }
 
     /** Whether {@code text} has {@code phrase} as words: "VP" in "VP, Engineering", not in "MVP"; case aside. */
@@ -552,6 +976,7 @@ public final class CareerCut {
         if (c.preferPlaces().stream().anyMatch(p -> has(o.location(), p))) r += 1;
         if (!v.mentions().isEmpty()) r -= 5;
         if (BESIDE.matcher(o.title()).find()) r -= 4;   // a role beside an executive, without the power: read after the executives
+        if (byOtherTitleOnly(c, o)) r -= 2;   // only by the model's guess at another title of the same work: after the person's own titles (0.8.4)
         if (!o.posted().isBlank()) {
             try {
                 long age = today.toEpochDay() - LocalDate.parse(o.posted()).toEpochDay();
@@ -570,8 +995,10 @@ public final class CareerCut {
     public static int tier(Cut c, Opening o) {
         List<String> titleWords = new ArrayList<>(c.titles()); titleWords.addAll(c.titlesAlso()); titleWords.addAll(c.preferTitles());
         List<String> placeWords = new ArrayList<>(c.places()); placeWords.addAll(c.preferPlaces()); placeWords.addAll(c.nearby());
-        boolean title = titleWords.isEmpty() || titleWords.stream().anyMatch(w -> has(o.title(), w));
-        boolean remoteOk = o.remote() && (c.remote().equals("fine") || c.remote().equals("only"))
+        List<String> whole = c.wholeTitles();   // the role as whole titles (0.8.4): held as the judge holds them, a guessed word beside them
+        boolean title = !whole.isEmpty() ? held(c, o) != Held.NONE || c.preferTitles().stream().anyMatch(w -> has(o.title(), w))
+                : titleWords.isEmpty() || titleWords.stream().anyMatch(w -> has(o.title(), w));
+        boolean remoteOk = (o.remote() || CareerSources.remote(o.location())) && (c.remote().equals("fine") || c.remote().equals("only"))
                 && (c.remoteWhere().isEmpty() || bareRemote(o.location()) || c.remoteWhere().stream().anyMatch(w -> has(o.location(), w)));
         boolean place = (placeWords.isEmpty() && c.remote().isEmpty()) || placeWords.stream().anyMatch(p -> has(o.location(), p)) || remoteOk;
         return (title ? 0 : 1) + (place ? 0 : 1);
@@ -598,7 +1025,11 @@ public final class CareerCut {
     /** The cut in a sentence's parts, for the log and the page. */
     public static String summary(Cut c) {
         List<String> parts = new ArrayList<>();
-        if (!c.titles().isEmpty()) {
+        if (!c.wholeTitles().isEmpty()) {   // the role as whole titles (0.8.4): what passes, said as the judge reads it
+            parts.add("titles that hold every word of " + or(c.searchTitles().isEmpty() ? c.alsoTitles() : c.searchTitles())
+                    + (c.searchTitles().isEmpty() || c.alsoTitles().isEmpty() ? "" : ", or of " + or(c.alsoTitles()))
+                    + ", in any order, a level such as Senior aside" + (c.titlesAlso().isEmpty() ? "" : ", and with " + or(shortForms(c.titlesAlso()))));
+        } else if (!c.titles().isEmpty()) {
             List<String> ranks = new ArrayList<>(), roles = new ArrayList<>();
             for (String w : shortForms(c.titles())) (GENERIC.matcher(w).matches() && !c.areas().isEmpty() ? ranks : roles).add(w);
             String t = roles.isEmpty() ? "" : "titles with " + or(roles);
@@ -608,9 +1039,10 @@ public final class CareerCut {
         else if (!c.titlesAlso().isEmpty()) parts.add("titles with " + or(c.titlesAlso()));
         if (!c.titlesNot().isEmpty()) parts.add("titles without " + or(c.titlesNot()));
         if (!c.places().isEmpty()) parts.add("in " + or(c.places()) + (c.nearby().isEmpty() ? "" : ", or one of " + c.nearby().size() + " towns within " + c.nearKm() + " km"));
+        else if (!c.guessedPlace().isEmpty()) parts.add("every place, " + c.guessedPlace() + " and the towns near it first, as no place is decided");
         switch (c.remote()) {
-            case "only" -> parts.add("remote only" + (c.remoteWhere().isEmpty() ? "" : ", based in " + or(c.remoteWhere())));
-            case "fine" -> parts.add("remote counts" + (c.remoteWhere().isEmpty() ? "" : " when based in " + or(c.remoteWhere())));
+            case "only" -> parts.add("remote only" + (c.remoteWhere().isEmpty() ? ", wherever the posting says it is open" : ", based in " + or(c.remoteWhere())));
+            case "fine" -> parts.add("remote counts" + (c.remoteWhere().isEmpty() ? " wherever the posting says it is open" : " when based in " + or(c.remoteWhere())));
             case "no" -> parts.add("not remote");
             default -> { }
         }
@@ -627,6 +1059,11 @@ public final class CareerCut {
         List<String> out = new ArrayList<>();
         for (String x : xs) { boolean isLong = LONG.entrySet().stream().anyMatch(e -> e.getValue().equalsIgnoreCase(x) && xs.stream().anyMatch(y -> y.equalsIgnoreCase(e.getKey()))); if (!isLong) out.add(x); }
         return out;
+    }
+
+    static String and(List<String> xs) {
+        if (xs.size() <= 1) return xs.isEmpty() ? "" : xs.get(0);
+        return String.join(", ", xs.subList(0, xs.size() - 1)) + " and " + xs.get(xs.size() - 1);
     }
 
     static String or(List<String> xs) {

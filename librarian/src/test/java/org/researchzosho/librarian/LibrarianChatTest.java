@@ -205,7 +205,11 @@ class LibrarianChatFitTest {
         // tests left (a shelf, once), and the prompt grew past the window's share (1 of 1,854, 2026-10-11)
         String home0 = System.getProperty("user.home");
         System.setProperty("user.home", tmp.resolve("home").toString()); Config.invalidate();
-        try { fitted(tmp); } finally { System.setProperty("user.home", home0); Config.invalidate(); }
+        // and the token estimate is the one before any server corrected it: the correction is the process's, and a test before this one in
+        // its fork whose stand-in refused a request as too long left it about two and a half times long (a prompt of 14,438 characters read 9,005 tokens, 2026-11-26)
+        double scaleWas = Researcher.tokenScale;
+        Researcher.tokenScale = 1.0;
+        try { fitted(tmp); } finally { System.setProperty("user.home", home0); Config.invalidate(); Researcher.tokenScale = scaleWas; }
     }
 
     private void fitted(Path tmp) throws Exception {

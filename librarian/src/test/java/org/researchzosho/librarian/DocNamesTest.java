@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.function.UnaryOperator;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -35,7 +36,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class DocNamesTest {
     @BeforeEach void scorers() { TranslationScores.SCORERS = () -> new TranslationScores.Scorers(TranslationTest.labseStandIn(), null); Translation.SETUP_SAID = () -> ""; }
-    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Chrome.clear(); }
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
+    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = setupSaidWas; Chrome.clear(); }
 
     // ---- the finder ----
 

@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Supplier;
 
 /**
  * How many searches and page reads the library made through each service, by month, with the credits the paid ones charged and the
@@ -42,6 +43,7 @@ public final class SearchTally {
 
     /** The same, with the dollars the service said the call cost (0 when it says nothing). */
     public static synchronized void count(String service, int credits, double dollars) {
+        countInWork(service);
         try {
             Path f = file();
             ObjectNode all = Files.isRegularFile(f) ? (ObjectNode) M.readTree(f.toFile()) : M.createObjectNode();
@@ -190,30 +192,125 @@ public final class SearchTally {
     /** Whether a service with a monthly limit is left off for this thread's run, because the run asked for no paid service, or is a phone's and the place has no limit set. */
     private static boolean offForThisRun(String service) { return limitOf(service) != null && (paidOff() || (phoneRun() && limit(service) < 0)); }
 
-    /** Whether this month's calls through a service have reached its limit, or the run on this thread asked for no paid service. */
+    // ---------------------------------------------------------------- one piece of work's own count (0.8.4)
+
+    /**
+     * The searches one piece of work made (a career search), by the service that answered, and the most it may make through the paid
+     * search places: begun on the work's thread when it starts and ended when it ends; a thread the work starts counts for it too, as
+     * for {@link #paidOff}. A work begun inside another (a career search's look-ups of employers) counts in both and holds to both
+     * mosts. A paid place past a work's most is left off for the rest of that work, as at its month's limit, and says so.
+     */
+    public static final class Work {
+        private final String what;
+        private final int paidMost;
+        private final Work outer;
+        private final Map<String, Integer> calls = new TreeMap<>();
+        private int paid, underWay;
+        private volatile boolean ended;
+
+        private Work(String what, int paidMost, Work outer) { this.what = what; this.paidMost = paidMost; this.outer = outer; }
+
+        /** A work inside this one, counted in both; it counts on a thread only while {@link #during} runs there. */
+        public Work inner(String what, int paidMost) { return new Work(what, paidMost, this); }
+
+        /** The calls made for this work, by the service that answered. */
+        public synchronized Map<String, Integer> calls() { return new TreeMap<>(calls); }
+
+        /** The calls made for this work through the paid search places. */
+        public synchronized int paid() { return paid; }
+
+        /** The most paid calls it may make; -1 for no most. */
+        public int paidMost() { return paidMost; }
+
+        /** What the work is, as a sentence names it: "this career search". */
+        public String what() { return what; }
+
+        private synchronized boolean full() { return paidMost >= 0 && paid + underWay >= paidMost; }
+        private synchronized void hold(int n) { underWay = Math.max(0, underWay + n); }
+        private synchronized void add(String service, boolean paidPlace) { calls.merge(service, 1, Integer::sum); if (paidPlace) paid++; }
+    }
+
+    private static final InheritableThreadLocal<Work> WORK = new InheritableThreadLocal<>();
+
+    /** Work begun on this thread from now, and on the threads it starts; inside the work the thread was doing, when it was doing one. */
+    public static Work begin(String what, int paidMost) {
+        Work w = new Work(what, paidMost, current());
+        WORK.set(w);
+        return w;
+    }
+
+    /** A work inside the one this thread does (alone when it does none), counted in both; it counts on a thread only while {@link #during} runs there. */
+    public static Work within(String what, int paidMost) {
+        Work cur = current();
+        return cur == null ? new Work(what, paidMost, null) : cur.inner(what, paidMost);
+    }
+
+    /** The work is over: its counts stay readable; this thread goes back to the work it was doing, and a thread that outlives it counts for it no more. */
+    public static void end(Work w) {
+        if (w == null) return;
+        w.ended = true;
+        Work back = current();
+        if (back == null) WORK.remove(); else WORK.set(back);
+    }
+
+    /** {@code body} on this thread as part of {@code w}, then the thread's own work again. */
+    public static <T> T during(Work w, Supplier<T> body) {
+        Work was = WORK.get();
+        if (w == null) WORK.remove(); else WORK.set(w);
+        try { return body.get(); } finally { if (was == null) WORK.remove(); else WORK.set(was); }
+    }
+
+    /** The work this thread counts for, the innermost that has not ended; null for none. */
+    static Work current() { Work w = WORK.get(); while (w != null && w.ended) w = w.outer; return w; }
+
+    /** Whether a work's most counts this service: the paid search places, not Firecrawl's pages. */
+    private static boolean searchPaid(String service) { return limitOf(service) != null && !Firecrawl.TALLY.equals(service); }
+
+    /** The work on this thread whose most of paid searches is reached, the innermost first; null when none is. */
+    private static Work fullWork(String service) {
+        if (!searchPaid(service)) return null;
+        for (Work w = current(); w != null; w = w.outer) if (!w.ended && w.full()) return w;
+        return null;
+    }
+
+    private static void holdInWork(String service, int n) {
+        if (!searchPaid(service)) return;
+        for (Work w = current(); w != null; w = w.outer) if (!w.ended) w.hold(n);
+    }
+
+    private static void countInWork(String service) {
+        for (Work w = current(); w != null; w = w.outer) if (!w.ended) w.add(service, searchPaid(service));
+    }
+
+    /** Whether this month's calls through a service have reached its limit, the run on this thread asked for no paid service, or the work on it made the paid searches it may make. */
     public static boolean reached(String service) {
-        if (offForThisRun(service)) return true;
+        if (offForThisRun(service) || fullWork(service) != null) return true;
         int l = limit(service);
         return l >= 0 && used(service) >= l;
     }
 
-    /** One call through a service may go: true, held until {@link #settle}; false when this month's limit is reached, or the run on this thread asked for no paid service. */
+    /** One call through a service may go: true, held until {@link #settle}; false when this month's limit is reached, the run on this thread asked for no paid service, or the work on it made the paid searches it may make. */
     public static synchronized boolean reserve(String service) {
-        if (offForThisRun(service)) return false;
+        if (offForThisRun(service) || fullWork(service) != null) return false;
         int l = limit(service);
         if (l >= 0 && used(service) >= l) return false;
         UNDER_WAY.merge(service, 1, Integer::sum);
+        holdInWork(service, 1);
         return true;
     }
 
     /** The reserved call is over: counted when it was made (the service answered and charged), with its credits and dollars. */
     public static synchronized void settle(String service, boolean made, int credits, double dollars) {
         UNDER_WAY.computeIfPresent(service, (k, v) -> v <= 1 ? null : v - 1);
+        holdInWork(service, -1);
         if (made) count(service, credits, dollars);
     }
 
-    /** What a place says, in one sentence, when this month's calls through its service are used: searches, or for Firecrawl pages; or that this run asked for no paid service. */
+    /** What a place says, in one sentence, when this month's calls through its service are used: searches, or for Firecrawl pages; or that this run asked for no paid service, or that the work on this thread made the paid searches it may make. */
     public static String usedUp(String service, String place) {
+        Work full = offForThisRun(service) ? null : fullWork(service);
+        if (full != null) return Character.toUpperCase(full.what().charAt(0)) + full.what().substring(1) + " made the " + full.paidMost() + (full.paidMost() == 1 ? " paid search" : " paid searches")
+                + " it may make, so " + place + " is left off for the rest of it.";
         if (offForThisRun(service)) return paidOff() ? "This run asked for no paid service, so " + place + " is left off for it."
                 : "This run was filed from a phone, and " + place + " has no monthly limit set, so it is left off for it; the library's keeper sets one with " + limitOf(service).shortName() + " in the settings.";
         Limit l = limitOf(service);

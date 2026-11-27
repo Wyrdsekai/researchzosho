@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * archive tool, a Python and pip through ({@link Searx#runner}, and the model server's {@link ModelServer#runner}) are, in the test
  * process, stand-ins that answer as a machine without the tool; and the machine's own servers, its LaBSE
  * ({@link TranslationScores#LOCAL_LABSE}) and the containers the idle rule looks after ({@link ModelsAwake#CONTAINERS}), are ports where
- * nothing listens. Both are set
+ * nothing listens; so is every address a download of a pinned file or the release's check asks ({@link ModelServer#reach}). Both are set
  * when the test process opens its session, before any test class is made (registered as a launcher session listener in
  * META-INF/services), and again before every test (registered for all of them, with autodetection on, as {@code NoLiveChecks} is). A
  * test that needs a tool's answers or a LaBSE sets its own and puts back the one it found; one that leaves another in place fails by
@@ -49,11 +49,14 @@ public final class NoMachineTools implements LauncherSessionListener, BeforeEach
     /** The suite's reading of what a model proxy has loaded: nothing, and no proxy of the machine is asked. */
     public static final Function<String, String> NOTHING_LOADED = base -> "";
 
+    /** Where the suite's requests for a pinned file go (the model server's downloads and its release check): a port of the loopback where nothing listens. */
+    public static final Function<String, String> NOWHERE = url -> "http://127.0.0.1:6/" + url.replaceFirst("^[a-z]+://", "");
+
     @Override public void launcherSessionOpened(LauncherSession session) { standIn(); }
 
     @Override public void beforeEach(ExtensionContext context) { standIn(); }
 
-    static void standIn() { Searx.runner = NOT_HERE; ModelServer.runner = MODEL_NOT_HERE; TranslationScores.LOCAL_LABSE = NO_LABSE; ModelsAwake.CONTAINERS = NO_CONTAINERS; ModelServer.loaded = NOTHING_LOADED; ModelNetworks.forget(); }   // ModelNetworks: read again from this test's own home
+    static void standIn() { Searx.runner = NOT_HERE; ModelServer.runner = MODEL_NOT_HERE; TranslationScores.LOCAL_LABSE = NO_LABSE; ModelsAwake.CONTAINERS = NO_CONTAINERS; ModelServer.loaded = NOTHING_LOADED; ModelServer.reach = NOWHERE; ModelNetworks.forget(); }   // ModelNetworks: read again from this test's own home
 
     @Override public void afterEach(ExtensionContext context) {
         String said = leftOver(context.getRequiredTestClass().getSimpleName() + "." + context.getDisplayName());
@@ -68,6 +71,7 @@ public final class NoMachineTools implements LauncherSessionListener, BeforeEach
         if (!NO_LABSE.equals(TranslationScores.LOCAL_LABSE)) { TranslationScores.LOCAL_LABSE = NO_LABSE; left.add("TranslationScores.LOCAL_LABSE"); }
         if (ModelsAwake.CONTAINERS != NO_CONTAINERS) { ModelsAwake.CONTAINERS = NO_CONTAINERS; left.add("ModelsAwake.CONTAINERS"); }
         if (ModelServer.loaded != NOTHING_LOADED) { ModelServer.loaded = NOTHING_LOADED; left.add("ModelServer.loaded"); }
+        if (ModelServer.reach != NOWHERE) { ModelServer.reach = NOWHERE; left.add("ModelServer.reach"); }
         return left.isEmpty() ? null : test + " left " + String.join(", ", left) + " in place of the suite's, which reach nothing of the machine: a test that stands in for a tool or a server puts back the one it found";
     }
 }

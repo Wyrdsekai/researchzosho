@@ -26,6 +26,10 @@ class RunBrainTest {
 
     /** Each worker: search by place, open the address, pursue a sub-goal, file a question, ask the person, note, done. The writer: one section, done. */
     static class Drive implements Researcher.Drive {
+        // the page its worker opens, as a real search would have named it, given here as ResearcherTest's scripted drive gives it: the library
+        // opens for a model only an address a result gave, and this test passed only in a fork where that drive had been made before it
+        // (alone, and 8th in a fork of the seed-11 order, the open was refused, 2026-11-27)
+        { GivenAddresses.received("1. Example source — https://example.org/gears"); }
         final List<List<String>> offered = new CopyOnWriteArrayList<>();
         final List<ArrayNode> histories = new CopyOnWriteArrayList<>();
         @Override public ObjectNode chat(ArrayNode history, ArrayNode tools, int maxTokens, String toolChoice) {

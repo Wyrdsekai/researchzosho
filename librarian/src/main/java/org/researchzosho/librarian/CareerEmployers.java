@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
+import org.researchzosho.tools.SearchTally;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
 
@@ -30,6 +31,12 @@ public final class CareerEmployers {
     /** How long the run may take, in minutes; its turns; how long its answer serves; the most employers taken from it. */
     public static final int MINUTES = Config.getInt("RESEARCHZOSHO_CAREER_EMPLOYERS_MINUTES", 8), TURNS = 12, DAYS = 30, MOST = 40;
 
+    /**
+     * The most paid searches the research makes (0.8.4): it made 0 to 10 in each of the twelve career searches measured on 2026-11-26.
+     * Past them its searches go to the free engine, as at a paid place's month's limit.
+     */
+    public static final int PAID_MOST = 10;
+
     /** An employer the research named: its name as written, its website when given, where it is, and the answer's reason. */
     public record Named(String name, String site, String where, String why) { }
 
@@ -51,7 +58,7 @@ public final class CareerEmployers {
         progress.at("Researching the employers in the field of " + field + where + ", about " + MINUTES + " minutes");
         Researcher.Ask ask = new Researcher.Ask(question(field, role, place), "broad", TURNS, subQuestions(field, role, place), "web", List.of(), MINUTES, List.of(), List.of());
         String answer;
-        try { answer = RESEARCH.answer(store, ask, "Employers in the field of " + field + where, stop); }
+        try { answer = SearchTally.during(SearchTally.within("this career search's research of the employers in the field", PAID_MOST), () -> RESEARCH.answer(store, ask, "Employers in the field of " + field + where, stop)); }
         catch (RuntimeException e) { Career.log(store, s, "The library could not research the employers in your field this time: " + e.getMessage()); return List.of(); }
         List<Named> named = answer == null || answer.isBlank() ? List.of() : extract(answer, field, place);
         ObjectNode o = M.createObjectNode().put("key", key).put("field", field).put("role", role).put("place", place).put("at", LocalDate.now().toString());

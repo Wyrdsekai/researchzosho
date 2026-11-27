@@ -191,7 +191,7 @@ final class ModelsTurn {
         if (e.hosted() && !ModelEntries.keyKept(e)) return ModelEntries.noKey(e, c) + " " + c.t("Nothing was changed.");
         String before = ModelEntries.where(d, c);
         ModelEntries.useAsDefault(e);
-        synchronized (Pages.DRIVE_UP) { Pages.DRIVE_UP[1] = 0; }   // the pages ask the new server whether it answers, not the old one's cached answer
+        Pages.DRIVE_UP.forget();   // the pages ask the new server whether it answers, not the old one's kept answer
         return c.t("The default is now {0}: {1}. It was {2}. Runs and chats that name no model use it from now on; a run going now finishes on the model it started with.", e.name(), ModelEntries.where(e, c), before);
     }
 }

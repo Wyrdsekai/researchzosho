@@ -29,6 +29,15 @@ powershell -File scripts\verify-platform.ps1 -Dist <dir> -Ver X.Y.Z   # Windows
 cd npm && LAUNCHER_TEST_DIST=../dist npm test    # the npm launcher against the built release
 ```
 
+Before it builds, `release-build.sh` runs `researchzosho model check`. For every file the program downloads by a pin
+(the model rows and their picture files, the embeddings model, the comic helper's models, fonts and word lists) it asks
+Hugging Face for the file at the pinned revision and compares the sha256 and size Hugging Face gives with the pin; a file
+on GitHub is compared by its size, and each llama-swap and llama.cpp build by the sha256 in its release's listing. A pin
+that does not resolve or does not match stops the release. A file whose `main` has a newer upload is said in a `note`
+line and does not stop it: that is how a newer quantization is learned of, and a pin moves only after the new file is
+measured. On 2026-11-26 the 27B's `main` carried such a note (its file was replaced on 2026-11-11); before 0.8.4 the check
+only asked whether each file at `main` answered, so it passed while every install of the 27B failed.
+
 The platform pass installs through the one-line installer from a local server, drives the verbs on a
 fresh library, fetches the pages, installs the service, installs a fake next version beside the
 running one through `update now`, installs the runtime build and updates it too, and uninstalls. On a Mac it also
@@ -45,8 +54,9 @@ python3 scripts/chat-templates.py           # each template in full
 ```
 
 A model file is numbers, except for its chat template: a small text the model server follows to lay a conversation out for
-the model. `model install` pins each file by its checksum, so a template cannot change without the pin failing. When a row
-of `ModelServer.ROWS` is added, or a row's checksum changes, read that file's template before the release. It should hold
+the model. `model install` pins each file to a revision of its repository and by its checksum, so a template cannot change
+without the pin failing; the script reads each file at its row's revision. When a row of `ModelServer.ROWS` is added, or a
+row's revision or checksum changes, read that file's template before the release. It should hold
 nothing but the laying out of a conversation (`if`, `for`, `set`, `macro`, the string helpers) and no address.
 
 As read for 0.8.1 on 2026-11-20 (six files, five templates; the two Gemma files share one):

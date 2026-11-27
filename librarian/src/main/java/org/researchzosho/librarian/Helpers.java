@@ -345,6 +345,9 @@ public final class Helpers {
         return at != null && NOW.getAsLong() - at < AWAY_MS;
     }
 
+    /** The machine at an address is to be asked again at once: a container of this machine's started there now, so what it gave before says nothing. */
+    static void reached(String address) { String o = origin(address); if (!o.isEmpty()) AWAY.remove(o); }
+
     /**
      * Notes a call that failed, begun at {@code startedMs}: when no connection was made (it timed out, or the machine could not be
      * reached or found) and the failure took its time, the machine is taken as away for {@link #AWAY_MS}. An answer of any kind, a

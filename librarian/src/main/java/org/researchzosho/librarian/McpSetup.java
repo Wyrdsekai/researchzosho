@@ -291,6 +291,7 @@ final class McpSetup {
         String value = args.path("header_value").asText("").strip();
         if (!value.isEmpty()) {
             if (s.keySetting.isEmpty()) throw ProtocolError.invalidArgs("A key needs the setting it is kept in: header_key, such as mcp_" + name.replace('-', '_') + "_key.");
+            if (CommandValue.fileForm(value)) throw ProtocolError.invalidArgs(CommandValue.onlyOnTheCommandLine("researchzosho settings set " + shortName(s.keySetting) + " --file <path>"));   // no door reads a file (0.8.4)
             Config.set(s.keySetting, value);   // a secret: kept in the settings, never returned
         }
         McpServers.put(store, s);

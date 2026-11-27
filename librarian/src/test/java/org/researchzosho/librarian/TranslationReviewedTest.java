@@ -21,6 +21,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -31,7 +32,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 class TranslationReviewedTest {
     @BeforeEach void standIns() { TranslationScores.SCORERS = () -> new TranslationScores.Scorers(TranslationTest.labseStandIn(), null); Translation.SETUP_SAID = () -> ""; }
-    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; }
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
+    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = setupSaidWas; }
 
     static DocNames.Compared byReader(String s, List<Integer> holders, String chosen, Map<String, Integer> forms) {
         return new DocNames.Compared(s, holders, chosen, "organisation", forms.getOrDefault(chosen, 0), List.of(), "", 1, "", DocNames.BY_READER, forms, "reader", chosen);

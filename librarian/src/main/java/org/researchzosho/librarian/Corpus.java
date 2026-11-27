@@ -93,12 +93,17 @@ public final class Corpus {
 
     private Corpus() { }
 
-    /** The documents under a folder, sorted, by extension. */
-    static List<Path> documents(Path dir, boolean recursive) throws IOException {
+    /**
+     * The documents under a folder, sorted, by extension; never a file of the programs' own folders (2026-11-26): a folder that holds one
+     * (a person's home folder) is read without it, and a link to a file inside one is not followed ({@link OwnFolders}).
+     */
+    static List<Path> documents(LibraryStore store, Path dir, boolean recursive) throws IOException {
         if (!Files.isDirectory(dir)) throw new IOException(dir + " is not a directory");
+        if (OwnFolders.holding(dir, store) != null) return List.of();   // the doors refuse it with its sentence; a folder registered before is read as empty
+        OwnFolders.Walk own = OwnFolders.walk(store);
         try (Stream<Path> s = recursive ? Files.walk(dir) : Files.list(dir)) {
             boolean pictures = WITH_PICTURES.get();
-            return s.filter(Files::isRegularFile).filter(p -> EXTENSIONS.contains(ext(p)) || (pictures && PICTURES.contains(ext(p)))).sorted().toList();
+            return s.filter(Files::isRegularFile).filter(p -> EXTENSIONS.contains(ext(p)) || (pictures && PICTURES.contains(ext(p)))).filter(own::allows).sorted().toList();
         }
     }
 
@@ -111,7 +116,7 @@ public final class Corpus {
      * the free space on that disk.
      */
     public static Survey survey(LibraryStore store, Path dir, boolean recursive) throws IOException {
-        List<Path> files = documents(dir, recursive);
+        List<Path> files = documents(store, dir, recursive);
         Map<String, Integer> byType = new TreeMap<>();
         Map<String, long[]> sampled = new HashMap<>();   // ext → [bytes, text bytes, files sampled]
         long bytes = 0;
@@ -161,7 +166,7 @@ public final class Corpus {
     public static Outcome addFolder(LibraryStore store, Path dir, String collection, boolean recursive, boolean link) throws IOException {
         List<String> problems = new ArrayList<>();
         int seen = 0, added = 0, unchanged = 0, skipped = 0, changed = 0;
-        List<Path> files = documents(dir, recursive);
+        List<Path> files = documents(store, dir, recursive);
         for (Path f : files) {
             seen++;
             try {
@@ -187,6 +192,8 @@ public final class Corpus {
                 DocText.Doc doc = DocText.convert(bytes, f.getFileName().toString());
                 if (doc.text().isBlank() || doc.kind().startsWith("pdf-unreadable")) { skipped++; problems.add(f.getFileName() + ": no text (" + doc.kind() + ")"); continue; }
                 String title = doc.title().isBlank() ? f.getFileName().toString().replaceAll("\\.[A-Za-z0-9]+$", "").replace('_', ' ') : doc.title();
+                String no = RawCapture.whyNot(store, locator, doc.text(), title);   // before its pictures are kept: a secret this library keeps
+                if (no != null) { skipped++; problems.add(f.getFileName() + ": " + no); continue; }
                 Path p;
                 if (link) {
                     boolean wasChanged = have != null && RawCapture.linkedFile(have) != null;
@@ -199,7 +206,7 @@ public final class Corpus {
                     if (have != null && RawCapture.linkedFile(have) == null && RawCapture.read(have)[2].strip().equals(text.strip())) { unchanged++; continue; }
                     p = RawCapture.capture(store, locator, text, title, "corpus:" + collection, collection, "", readingHead(doc));
                 }
-                if (p == null) { skipped++; problems.add(f.getFileName() + ": not captured"); continue; }
+                if (p == null) { skipped++; problems.add(f.getFileName() + ": " + (RawCapture.refused().isEmpty() ? "not captured" : RawCapture.refused())); continue; }
                 added++;
             } catch (Exception e) {
                 skipped++; problems.add(f.getFileName() + ": " + e.getMessage());
@@ -243,11 +250,13 @@ public final class Corpus {
     /** One file, kept or linked, into a collection ("" for none). Returns the raw/ path, or null when it has no text. */
     public static Path addFile(LibraryStore store, Path file, String collection, boolean link) throws IOException {
         Path f = file.toAbsolutePath().normalize();
+        OwnFolders.refuse(f, store);   // a file of the programs' own folders is not read at all
         byte[] bytes = Files.readAllBytes(f);
         DocText.Doc doc = DocText.convert(bytes, f.getFileName().toString());
         WHY_NO_TEXT.set(doc.text().isBlank() && doc.kind().contains(": ") ? doc.kind().substring(doc.kind().indexOf(": ") + 2) : "");
         if (doc.text().isBlank()) return null;
         String title = doc.title().isBlank() ? f.getFileName().toString().replaceAll("\\.[A-Za-z0-9]+$", "").replace('_', ' ') : doc.title();
+        if (RawCapture.whyNot(store, "file://" + f, doc.text(), title) != null) return null;   // RawCapture.refused() says why; nothing of it is kept, its pictures neither
         String by = collection == null || collection.isBlank() ? "researchzosho-add" : "corpus:" + collection;
         // the document's pictures (0.7.0): kept with entries of their own, and the text's picture lines pointed at the library's copies; a
         // linked file's text is read from the file each time, so its pictures are kept and not placed in it
@@ -363,6 +372,7 @@ public final class Corpus {
     public static void register(LibraryStore store, String name, Path dir) throws IOException { register(store, name, dir, false); }
 
     public static void register(LibraryStore store, String name, Path dir, boolean link) throws IOException {
+        if (!dir.toString().startsWith(URLS)) OwnFolders.refuse(dir, store);
         Map<String, Path> all = registered(store);
         Set<String> linked = linked(store);
         all.put(name, dir.toString().startsWith(URLS) ? dir : dir.toAbsolutePath().normalize());

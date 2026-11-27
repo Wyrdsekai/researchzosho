@@ -11,6 +11,8 @@ import org.researchzosho.librarian.CareerSources.Found;
 import org.researchzosho.librarian.CareerSources.Hit;
 import org.researchzosho.librarian.CareerSources.Opening;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -28,7 +30,7 @@ class CareerSourcesTest {
     static final ObjectMapper M = new ObjectMapper();
     final Map<String, String> pages = new HashMap<>(), posts = new HashMap<>();
     final Map<String, List<Hit>> searches = new HashMap<>();
-    final List<String> asked = new ArrayList<>();
+    final List<String> asked = new ArrayList<>(), queries = new ArrayList<>();
     Function<String, String> usaJobsWas;
 
     @BeforeEach void standIns() {
@@ -39,11 +41,13 @@ class CareerSourcesTest {
             asked.add("POST " + url);
             try { var j = M.readTree(json); return posts.get(url + "|" + j.path("searchText").asText() + "|" + j.path("offset").asInt()); } catch (Exception e) { return null; }
         };
-        CareerSources.SEARCH = q -> searches.getOrDefault(q, List.of());
+        CareerSources.SEARCH = q -> { queries.add(q); return searches.getOrDefault(q, List.of()); };
         usaJobsWas = CareerSources.USAJOBS;
+        CareerSources.RAW_PAGE = (url, headers) -> { asked.add(url); String b = pages.get(url); return b == null ? null : new CareerSources.Page(url, 200, b); };   // 0.8.4
     }
 
     @AfterEach void back() {
+        CareerSources.RAW_PAGE = CareerSources::fetchPage;   // 0.8.4
         CareerSources.RAW = CareerSources::fetch; CareerSources.RAW_POST = CareerSources::post; CareerSources.SEARCH = CareerSources::search;
         CareerSources.USAJOBS = usaJobsWas; CareerSources.POLITE_MS = 1000; CareerSources.reset();
     }
@@ -213,14 +217,15 @@ class CareerSourcesTest {
     }
 
     @Test void companiesHiringForTheTitlesWantedAreFoundOnTheHiringSitesOwnPages() {
-        searches.put("\"Founding\" (\"Boston\" OR \"Remote\") site:jobs.ashbyhq.com", List.of(
+        // one search names three systems of the table (0.8.4): Ashby, Greenhouse by its domain (both its hosts) and Lever first, then Workable, Workday and Recruitee
+        searches.put("\"Founding\" (\"Boston\" OR \"Remote\") (site:jobs.ashbyhq.com OR site:greenhouse.io OR site:jobs.lever.co)", List.of(
                 new Hit("Executive Assistant - Founder & CEO @ Resolve", "https://jobs.ashbyhq.com/resolve/7d1c2b3a-1111"),
                 new Hit("Founding Engineer @ Tiny Robots", "https://jobs.ashbyhq.com/tinyrobots/3f2a9c1b-0aa1"),
-                new Hit("Founding Designer @ Tiny Robots", "https://jobs.ashbyhq.com/tinyrobots/9e8d7c6b-0bb2")));
-        searches.put("\"Founding\" (\"Boston\" OR \"Remote\") site:job-boards.greenhouse.io", List.of(new Hit("Jobs at Xapo Bank", "https://job-boards.greenhouse.io/xapo61"),
-                new Hit("Job Application for Founding Engineer at Kiln Labs", "https://job-boards.greenhouse.io/kilnlabs/jobs/77")));
-        searches.put("\"Founding\" (\"Boston\" OR \"Remote\") site:jobs.lever.co", List.of(new Hit("Gearbox - Founding Engineer", "https://jobs.lever.co/gearbox/5c4b3a29-aa10"),
-                new Hit("Some blog post", "https://blog.example/founding")));
+                new Hit("Founding Designer @ Tiny Robots", "https://jobs.ashbyhq.com/tinyrobots/9e8d7c6b-0bb2"),
+                new Hit("Jobs at Xapo Bank", "https://job-boards.greenhouse.io/xapo61"),
+                new Hit("Job Application for Founding Engineer at Kiln Labs", "https://job-boards.greenhouse.io/kilnlabs/jobs/77"),
+                new Hit("Gearbox - Founding Engineer", "https://jobs.lever.co/gearbox/5c4b3a29-aa10")));
+        searches.put("\"Founding\" (\"Boston\" OR \"Remote\") (site:apply.workable.com OR site:myworkdayjobs.com OR site:recruitee.com)", List.of(new Hit("Some blog post", "https://blog.example/founding")));
         pages.put("https://boards-api.greenhouse.io/v1/boards/kilnlabs", "{\"name\": \"Kiln Labs, Inc.\"}");
         List<CareerSources.Discovered> ds = CareerSources.discover(List.of("\"Founding\""), List.of("Boston", "Remote"), 10);
         assertEquals(List.of("Tiny Robots", "Kiln Labs, Inc.", "Gearbox"), ds.stream().map(CareerSources.Discovered::company).toList(),
@@ -315,6 +320,151 @@ class CareerSourcesTest {
             assertEquals("$180000 to $200000 per year", us.get(0).pay()); assertTrue(us.get(0).remote());
             assertEquals("2026-10-10", us.get(0).posted()); assertTrue(us.get(0).text().contains("Department: Executive Office"));
         } finally { System.setProperty("user.home", realHome); Config.invalidate(); }
+    }
+
+    /** An answer recorded once from a hiring system's real public posting or list (2026-11-26) and trimmed to what the readers need. */
+    static String recorded(String name) {
+        try (InputStream in = CareerSourcesTest.class.getResourceAsStream("/careersystems/" + name)) { return new String(in.readAllBytes(), StandardCharsets.UTF_8); }
+        catch (Exception e) { throw new IllegalStateException(name, e); }
+    }
+
+    @Test void theSystemsReadSince084AreKnownByTheirAddressesAndALookAlikeHostIsNot() {
+        // the addresses the trial of 2026-11-26 met on systems the library could not read, each naming its employer's board
+        List<Feed> fs = CareerSources.boardsIn("""
+                https://jobs.smartrecruiters.com/Xplor/744000159338802-senior-software-engineer
+                https://statsperform.teamtailor.com/jobs/8621163-payroll-administrator
+                https://ats.rippling.com/audyence/jobs/ae2c5f14-7f62-414b-b679-89e7c77cf66a
+                https://recruiting.paylocity.com/recruiting/jobs/All/a341e991-6fa2-40f7-b961-8a5b22284904/Gifthealth-Inc
+                https://ravelin.pinpointhq.com/en/postings/520579c4-e328-46e7-bed5-37e422daf4fe
+                https://proximo.bamboohr.com/careers/152
+                https://wrshealth.applytojob.com/apply/YVXpmbuHmi/Security-Engineer
+                https://jobs.eu.lever.co/ivcevidensia/1ac7283a-9b6c-4e87-8579-f25813346852
+                https://job-boards.eu.greenhouse.io/feverup/jobs/4964072101
+                https://expedia.wd108.myworkdayjobs.com/en-US/search/job/Senior-Product-Designer---Vrbo_R-110581-2
+                https://cnoinc.wd5.myworkdayjobs.com/en-US/Careers/job/Lead-IT-Security-Architect_JR170493""", "t");
+        assertEquals(List.of("greenhouse:feverup", "workday:expedia/wd108/search", "workday:cnoinc/wd5/Careers", "smartrecruiters:Xplor", "teamtailor:statsperform", "rippling:audyence",
+                        "paylocity:a341e991-6fa2-40f7-b961-8a5b22284904", "pinpoint:ravelin", "bamboohr:proximo", "jazzhr:wrshealth", "levereu:ivcevidensia"),
+                fs.stream().map(Feed::label).toList(), "a Workday site may be named search or Careers; in a posting's address it is the site");
+        assertEquals("SmartRecruiters", fs.get(3).system()); assertEquals("Lever", fs.get(10).system());
+        for (String u : List.of("https://jobs.smartrecruiters.com/Xplor/744000159338802-senior-software-engineer", "https://statsperform.teamtailor.com/jobs/8621163-payroll-administrator",
+                "https://ats.rippling.com/audyence/jobs/ae2c5f14-7f62-414b-b679-89e7c77cf66a", "https://recruiting.paylocity.com/Recruiting/Jobs/Details/4506061",
+                "https://ravelin.pinpointhq.com/en/postings/520579c4-e328-46e7-bed5-37e422daf4fe", "https://proximo.bamboohr.com/careers/152", "https://wrshealth.applytojob.com/apply/YVXpmbuHmi/Security-Engineer",
+                "https://jobs.eu.lever.co/ivcevidensia/1ac7283a-9b6c-4e87-8579-f25813346852", "https://apply.workable.com/j/ECCDD755DA",
+                "https://expedia.wd108.myworkdayjobs.com/en-US/search/job/Senior-Product-Designer---Vrbo_R-110581-2"))
+            assertTrue(CareerSources.posting(u), "one posting: " + u);
+        for (String u : List.of("https://careers.smartrecruiters.com/Xplor", "https://statsperform.teamtailor.com/jobs", "https://ats.rippling.com/audyence/jobs", "https://ravelin.pinpointhq.com/",
+                "https://proximo.bamboohr.com/careers", "https://wrshealth.applytojob.com/apply", "https://www.smartrecruiters.com/blog/1234567-hiring"))
+            assertFalse(CareerSources.posting(u), "a board's front page or the system's own site is no posting: " + u);
+        // hosts that only look like a system's: its name before another domain, or inside another site's name
+        for (String u : List.of("https://jobs.smartrecruiters.com.jobs-mirror.example/Xplor/744000159338802", "https://statsperform.teamtailor.com.example.net/jobs/8621163",
+                "https://ats.rippling.com.example.org/audyence/jobs/ae2c5f14-7f62-414b-b679-89e7c77cf66a", "https://notpaylocity.example/recruiting/jobs/Details/4506061",
+                "https://acme.wd5.myworkdayjobs.com.example.org/Careers/job/Engineer_R1", "https://proximo.bamboohr.com.example.org/careers/152")) {
+            assertFalse(CareerSources.posting(u), u);
+            assertTrue(CareerSources.boardsIn(u, "t").isEmpty(), u);
+        }
+    }
+
+    @Test void theListsOfTheSystemsReadSince084AreReadInTheirOwnShapes() {
+        pages.put("https://statsperform.teamtailor.com/jobs.rss", recorded("teamtailor-jobs.rss"));
+        Found tt = CareerSources.read(new Feed("teamtailor", "statsperform", "t"), "Stats", List.of());
+        assertEquals(3, tt.openings().size());
+        Opening p = tt.openings().get(0);
+        assertEquals("Stats Perform", p.company(), "the career site's own name"); assertEquals("Payroll Administrator", p.title());
+        assertEquals("London, United Kingdom", p.location()); assertEquals("2026-10-27", p.posted()); assertFalse(p.remote(), "hybrid is not remote");
+        assertEquals("https://statsperform.teamtailor.com/jobs/8621163-payroll-administrator", p.url()); assertTrue(p.text().startsWith("Overview\nStats Perform is the market leader"), p.text());
+
+        pages.put("https://api.rippling.com/platform/api/ats/v1/board/arkeuscareer/jobs", recorded("rippling-board.json"));
+        Found rp = CareerSources.read(new Feed("rippling", "arkeuscareer", "t"), "Arkeus", List.of());
+        assertEquals(4, rp.openings().size(), "a posting listed once a place is one opening");
+        assertTrue(rp.openings().get(0).remote()); assertEquals("Remote (United States)", rp.openings().get(0).location());
+        assertEquals("Port Melbourne, Australia; Ormeau, Australia", rp.openings().get(2).location());
+
+        pages.put("https://recruiting.paylocity.com/recruiting/jobs/All/a341e991-6fa2-40f7-b961-8a5b22284904", recorded("paylocity-list.html"));
+        Found pl = CareerSources.read(new Feed("paylocity", "a341e991-6fa2-40f7-b961-8a5b22284904", "t"), "Gifthealth", List.of());
+        assertEquals(4, pl.openings().size());
+        assertEquals("Gifthealth Inc", pl.openings().get(0).company()); assertEquals("Machine Learning Operations Engineer", pl.openings().get(0).title());
+        assertEquals("2026-11-24", pl.openings().get(0).posted()); assertTrue(pl.openings().get(0).remote()); assertFalse(pl.openings().get(1).remote());
+        assertEquals("https://recruiting.paylocity.com/Recruiting/Jobs/Details/4690762", pl.openings().get(0).url());
+
+        pages.put("https://ravelin.pinpointhq.com/postings.json", recorded("pinpoint-postings.json"));
+        Found pp = CareerSources.read(new Feed("pinpoint", "ravelin", "t"), "Ravelin", List.of());
+        assertEquals(List.of("Front End Engineer", "Senior Machine Learning Engineer", "Channel Partner Manager"), pp.openings().stream().map(Opening::title).toList());
+        assertFalse(pp.openings().get(0).remote()); assertTrue(pp.openings().get(1).remote(), "fully remote");
+        assertEquals("London", pp.openings().get(0).location(), "a hybrid post in London whose location record is named Remote is in London");
+        assertTrue(pp.openings().get(1).text().contains("Key Responsibilities\nLead the design"), pp.openings().get(1).text());
+
+        pages.put("https://proximo.bamboohr.com/careers/list", recorded("bamboohr-list.json"));
+        Found bh = CareerSources.read(new Feed("bamboohr", "proximo", "t"), "Proximo", List.of());
+        assertEquals(3, bh.openings().size()); assertEquals("Claims Advisor", bh.openings().get(1).title()); assertEquals("Chester", bh.openings().get(1).location());
+        assertEquals("https://proximo.bamboohr.com/careers/152", bh.openings().get(1).url());
+
+        pages.put("https://wrshealth.applytojob.com/apply", recorded("jazzhr-list.html"));
+        Found jz = CareerSources.read(new Feed("jazzhr", "wrshealth", "t"), "WRS", List.of());
+        assertEquals(3, jz.openings().size(), "two postings with one title are two openings");
+        assertEquals("WRS Health", jz.openings().get(0).company()); assertEquals("Security Engineer", jz.openings().get(0).title()); assertTrue(jz.openings().get(0).remote());
+        assertEquals("Goshen, NY", jz.openings().get(1).location());
+
+        pages.put("https://careers.smartrecruiters.com/Xplor", recorded("smartrecruiters-careers.html"));
+        pages.put("https://careers.smartrecruiters.com/Xplor/api/groups?page=1", recorded("smartrecruiters-careers-page1.html"));
+        Found sr = CareerSources.read(new Feed("smartrecruiters", "Xplor", "t"), "Xplor", List.of());
+        assertEquals(11, sr.openings().size(), "the first page's ten and the second page's one");
+        Opening remote = sr.openings().stream().filter(o -> o.location().equals("Remote, OR")).findFirst().orElseThrow();
+        assertTrue(remote.remote()); assertEquals("Senior Software Engineer", remote.title()); assertEquals("Xplor", remote.company());
+        assertEquals("Senior IT Support Engineer", sr.openings().get(10).title());
+
+        pages.put("https://api.eu.lever.co/v0/postings/ivcevidensia?mode=json", "[" + recorded("levereu-posting.json") + "]");
+        Found lv = CareerSources.read(new Feed("levereu", "ivcevidensia", "t"), "IVC Evidensia", List.of());
+        assertEquals("3PL & Carrier Manager", lv.openings().get(0).title()); assertEquals("Keynsham, Bristol, England", lv.openings().get(0).location());
+        assertFalse(asked.contains("https://api.lever.co/v0/postings/ivcevidensia?mode=json"), "a European board is read on Lever's European host");
+
+        pages.put("https://boards-api.greenhouse.io/v1/boards/feverup/jobs?content=true", recorded("greenhouse-eu-board.json"));
+        List<Feed> eu = CareerSources.boardsIn("https://job-boards.eu.greenhouse.io/feverup/jobs/4964072101", "t");
+        assertEquals(1, eu.size(), "a board on Greenhouse's European host");
+        assertEquals("Senior Hardware Engineer", CareerSources.read(eu.get(0), "Fever", List.of()).openings().get(0).title(), "Greenhouse serves its European boards through the same service");
+    }
+
+    @Test void aRemotePostingOpenOnlyToSomeCountriesSaysWhichAndIsNotRemoteFromAnywhere() {
+        // WRS Health's JazzHR posting (2026-11-26): remote, applicants from PH; Ravelin's Pinpoint posting: London, remote from the United Kingdom
+        Opening ph = CareerSources.jobPostings(recorded("jazzhr-posting.html"), "https://wrshealth.applytojob.com/apply/YVXpmbuHmi/Security-Engineer", "WRS Health").get(0);
+        assertTrue(ph.remote()); assertEquals("Remote, Philippines", ph.location());
+        Opening uk = CareerSources.jobPostings(recorded("pinpoint-posting.html"), "https://ravelin.pinpointhq.com/en/postings/520579c4-e328-46e7-bed5-37e422daf4fe", "Ravelin").get(0);
+        assertEquals("London, London, GB; Remote, United Kingdom", uk.location());
+        CareerCut.Cut fromUk = new CareerCut.Cut(List.of("Engineer"), List.of(), List.of(), List.of(), List.of(), "only", List.of("United Kingdom", "UK"), List.of(), List.of(), 0, 0, "you", "", "");
+        assertFalse(CareerCut.judge(fromUk, ph, List.of()).passes(), "a seat open only to the Philippines is not one to work remotely from the UK");
+        assertTrue(CareerCut.judge(fromUk, uk, List.of()).passes());
+    }
+
+    @Test void aPostingIsStillListedByItsOwnIdNotByAnotherPostingWithTheSameTitle() {
+        // a board that lists other postings under the same title: JazzHR lists two "ABA Therapist" postings, and a third one taken down is not listed by theirs
+        pages.put("https://wrshealth.applytojob.com/apply", recorded("jazzhr-list.html"));
+        assertFalse(CareerSources.stillListed(new CareerSources.Discovered("WRS Health", new Feed("jazzhr", "wrshealth", "t"), "ABA Therapist", "https://wrshealth.applytojob.com/apply/ZZZZ999999/ABA-Therapist"), List.of()));
+        assertTrue(CareerSources.stillListed(new CareerSources.Discovered("WRS Health", new Feed("jazzhr", "wrshealth", "t"), "ABA Therapist", "https://wrshealth.applytojob.com/apply/v2GgMRLFpS/ABA-Therapist"), List.of()));
+        // the same on a system read before 0.8.4: a Greenhouse posting whose number the board no longer lists
+        pages.put("https://boards-api.greenhouse.io/v1/boards/acme/jobs?content=true", """
+                {"jobs": [{"id": 222, "title": "Staff Engineer", "location": {"name": "Remote"}, "absolute_url": "https://job-boards.greenhouse.io/acme/jobs/222"}]}""");
+        assertFalse(CareerSources.stillListed(new CareerSources.Discovered("Acme", new Feed("greenhouse", "acme", "t"), "Staff Engineer", "https://job-boards.greenhouse.io/acme/jobs/111"), List.of()));
+        assertTrue(CareerSources.stillListed(new CareerSources.Discovered("Acme", new Feed("greenhouse", "acme", "t"), "Staff Engineer", "https://job-boards.greenhouse.io/acme/jobs/222"), List.of()));
+        assertTrue(CareerSources.stillListed(new CareerSources.Discovered("Acme", new Feed("greenhouse", "acme", "t"), "Staff Engineer", "https://acme.example/careers/staff"), List.of()),
+                "an address with no id of the board's is matched by its title, as before");
+    }
+
+    @Test void theSearchBySiteNamesTheCommonestSystemsThreeAtATimeAndLeavesTheRestToExa() {
+        // the bound (0.8.4): a title gets three searches, each naming three systems of the table, Greenhouse's two hosts as one domain, so
+        // SmartRecruiters is the ninth; the systems after it are not named: Exa's includeDomains does (CareerExaPassTest), and their postings
+        // are checked on their boards the same way (theSystemsReadSince084AreReachedByExaAndCheckedOnTheirOwnBoards there)
+        searches.put("\"Payroll\" (site:apply.workable.com OR site:myworkdayjobs.com OR site:recruitee.com)", List.of(new Hit("Payroll Administrator - Stats Perform", "https://statsperform.teamtailor.com/jobs/8621163-payroll-administrator")));
+        pages.put("https://statsperform.teamtailor.com/jobs.rss", recorded("teamtailor-jobs.rss"));
+        List<CareerSources.Discovered> ds = CareerSources.discover(List.of("\"Payroll\""), List.of(), 5, t -> true, d -> CareerSources.stillListed(d, List.of()));
+        assertEquals(List.of("\"Payroll\" (site:jobs.ashbyhq.com OR site:greenhouse.io OR site:jobs.lever.co)",
+                "\"Payroll\" (site:apply.workable.com OR site:myworkdayjobs.com OR site:recruitee.com)",
+                "\"Payroll\" (site:jobs.personio.de OR site:jobs.personio.com OR site:jobs.smartrecruiters.com)"), queries, "three searches, whatever the table holds");
+        for (String host : List.of("teamtailor.com", "ats.rippling.com", "recruiting.paylocity.com", "pinpointhq.com", "applytojob.com", "bamboohr.com"))
+            assertTrue(queries.stream().noneMatch(q -> q.contains(host)), "not searched by site: " + host);
+        assertEquals(List.of("Stats Perform"), ds.stream().map(CareerSources.Discovered::company).toList(), "a posting a search turns up on a system read since 0.8.4 is taken all the same, its board read now and listing it");
+        assertEquals("teamtailor:statsperform", ds.get(0).feed().label());
+        assertTrue(ds.get(0).feed().how().startsWith("found hiring: a search of Teamtailor's job pages for Payroll"), ds.get(0).feed().how());
+        assertTrue(CareerSources.siteHosts().containsAll(List.of("*.myworkdayjobs.com", "jobs.smartrecruiters.com", "*.teamtailor.com", "ats.rippling.com", "recruiting.paylocity.com", "*.pinpointhq.com", "*.applytojob.com", "*.bamboohr.com")),
+                "every row's host goes to Exa, a \"*.\" host as Exa takes it: " + CareerSources.siteHosts());
     }
 
     @Test void theFeedAddressesAPageNamesAreFound() {

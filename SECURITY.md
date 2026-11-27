@@ -39,7 +39,7 @@ them a research run over a private document, the model server sent no packet to 
 up no name.
 
 A model file is numbers, with one exception: its chat template, a small text the model server follows to lay a conversation
-out for the model. `model install` pins every file it fetches by its checksum, and the template of each pinned file is read
+out for the model. `model install` pins every file it fetches to a revision of its repository and by its size and checksum, and the template of each pinned file is read
 before a release (`scripts/chat-templates.py` prints them). A template can shape the text the model is given; the server
 gives it no way to open a file or an address.
 
@@ -130,6 +130,15 @@ an avoided place the file loads.
 With a key for a search service set (Brave, Serper, SerpApi, Exa, Tavily), searches go to that service first, and the
 search service on your machine is the fallback. `researchzosho search status` says the order.
 
+The career search sends out the words it searches for and nothing else about the person: the titles of the role and the
+field they want, their place, and the names of the employers it looks at, to the search service and to the registers and
+hiring systems it reads. Their name, their working life and what they wrote stay in the library. With an Exa key set, a
+career search also asks Exa up to `career_exa` times (3 unless set; the nightly watch never does), each time with a
+description made from one title and the place ("Job posting for a Security Engineer in Columbus, Ohio, or remote"), the
+hosts of the hiring systems the library reads, and a date thirty days back. A page Exa names is a page from outside like any
+other: one on the site list or your refused list is dropped, and an employer joins the list only when its own board, read
+by the library, still lists the posting.
+
 ### The library itself
 
 These are the hosts the library's own process connected to in the two sessions measured on 2026-11-20, and why.
@@ -146,6 +155,14 @@ These are the hosts the library's own process connected to in the two sessions m
 
 The other places the library can ask are the services its search places are written for (PubMed, Open Library, the Library
 of Congress and the like), each with the words of the search and nothing else of your library.
+
+The career search reads openings from the hiring systems' own public services and job pages, each with an employer's name in
+the address (Workday, and the portals hospitals and universities use, list an employer's openings only by search, so they
+are sent the titles you want as the search's words): `boards-api.greenhouse.io`, `api.lever.co` and `api.eu.lever.co`,
+`api.ashbyhq.com`, `apply.workable.com`, `*.recruitee.com`, `*.jobs.personio.de` and `.com`, `*.myworkdayjobs.com`,
+`jobs.smartrecruiters.com` and `careers.smartrecruiters.com`, `*.teamtailor.com` (or the employer's own domain its career
+site moved to), `api.rippling.com`, `recruiting.paylocity.com`, `*.pinpointhq.com`, `*.bamboohr.com` and `*.applytojob.com`.
+Each site's robots rules are kept and it gets at most one request a second.
 
 The library refuses to fetch addresses on your own machine, link-local addresses and the addresses of its own services,
 whoever asks. `RESEARCHZOSHO_FETCH_PRIVATE=deny` makes it refuse your whole private network too.
@@ -302,8 +319,11 @@ A run started from the phone queries no database of yours and uses none of your 
 phone, which a stranger may hold.
 
 **Spending.** Each phone has its own monthly cap on paid models, $10 unless you set another: `researchzosho phone cap <name>
-<dollars>`, `0` for no paid model, `none` for no limit. Every run and every chat turn of that phone counts. A model on this
-machine or another machine of your network costs nothing and is never counted or refused. The cap is checked when a run is
+<dollars>`, `0` for no paid model, `none` for no limit. `researchzosho phone cap --default <dollars>` sets what a phone paired
+from then on gets when its pairing names no cap; the phones already paired keep theirs. The default is kept with the phones
+in `phones.json`, not among the settings, so no page, chat or program can change it: only the command on this machine.
+Every run and every chat turn of that phone counts. A model on this machine or another machine of your network costs
+nothing and is never counted or refused. The cap is checked when a run is
 filed, when it starts, and every two seconds while it runs, since a run counts its tokens as it goes. At the cap the run is
 stopped as your own stop stops it, and its record and the phone say why. It can pass the cap by the calls it had under way at
 that moment. A paid model whose prices the library does not know cannot be counted, so the phone does not use it unless its cap
@@ -364,6 +384,41 @@ the list of models say so. They say so too when it is run by a company registere
 such a place, while `avoid_by_owner` is on: Moonshot's `api.moonshot.ai`, where the host words `moonshot` and `kimi` point,
 is run by Moonshot AI PTE. LTD. in Singapore, and the company gives its address in Beijing (both on its own pages, read
 2026-11-25).
+
+### The library's own keys
+
+The settings file holds your API keys, and what the library keeps can be quoted into a hosted model's prompt. Two rules keep
+the keys out of what it keeps.
+
+**By place.** No file inside the program's own folders is read for the library or for a model: ResearchZosho's
+(`~/.researchzosho`: the settings, `phones.json`, the tokens, the model folder, the logs), CodeZaiku's `~/.codezaiku` and the
+old `~/.codeplane`. This holds for every way a path comes in: adding a file or a folder (kept, linked, surveyed, an archive),
+the chat's tools on your yes or with `/go`, MCP and `/v1`, the Read in page, a document to translate, a picture to describe,
+the career field's files, purchase records, preferences, packs and family files. A path counts by where it really leads, so a
+link into one of the folders is refused too. A folder that holds one of them, such as your home folder, is read without it,
+and the answer says what was left out. A file you post from the browser and the library's own files are not affected.
+
+**By value.** Before any text is kept as a document (a file, each file of an archive, a page from the web, a note, a claim),
+the library looks in it for an exact copy of a secret it keeps: the settings of the secret kind, the keys kept for hosts and
+MCP servers, the token of a library this machine connects to, the password in a database's or a setting's address, and the
+helpers' secret. A document that holds one is not kept, a linked file that comes to hold one is not read again, and the
+answer names the setting, never the value. A value shorter than 16 characters is not looked for, since ordinary text can hold
+one by chance; no key of a service the program uses is that short. Only an exact copy is found: the library does not look for
+things that look like keys, so someone else's key, or a key written in another form, is kept as any text is. Reader tokens,
+account keys, sessions and the phones' secrets are kept only as hashes and cannot be looked for.
+
+Not checked: documents kept before this version, what you type into the chat (the conversation keeps it, and the chat's model
+reads it), and the reports a run writes.
+
+**Giving a key.** `researchzosho settings set <name> --file <path>` reads a key from a file you name, so that it does not stand
+on the command line, in the shell's history or in the list of programs running; `models key`, `records key`, `connect` and
+`peer add` take `--file <path>` in the key's place too. The file is read once, by the command you typed. Its one line goes into
+the setting and nowhere else, and the command says the setting is set and which file it read, never the key. A file with more
+than one line of text is refused, as are an empty file and a missing one, and nothing in it is shown. A file inside the
+program's own folders may be named here, since it is your own command on your own computer. The chat, the web app, the phone,
+MCP and the API read no file: a value written as `--file …` is refused there. `settings` and `settings set` show a key as set,
+with its last three characters when it is at least 12 characters long. The settings file the program makes is readable only by
+you; a settings file that was already there keeps its permissions.
 
 ### The places your library avoids
 

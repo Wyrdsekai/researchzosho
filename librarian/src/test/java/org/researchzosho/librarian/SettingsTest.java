@@ -58,7 +58,8 @@ class SettingsTest {
         assertTrue(Settings.refuse(Settings.named("transcribe_minutes"), "two hours").contains("number"));
         assertTrue(Settings.refuse(Settings.named("update"), "sometimes").contains("check, auto, off"));
         assertEquals("", Settings.refuse(Settings.named("update"), "AUTO"));
-        assertEquals("set (ends with …xyz)", Settings.shown(Settings.named("brave_key"), "abcxyz"));
+        assertEquals("set (ends with …xyz)", Settings.shown(Settings.named("brave_key"), "made-up-abcxyz"));
+        assertEquals("set", Settings.shown(Settings.named("brave_key"), "abcxyz"), "of a short secret not even the end: three characters would be half of it");
         assertEquals("http://x", Settings.shown(Settings.named("searxng"), "http://x"));
         assertEquals("RESEARCHZOSHO_MARKET", Settings.named("market").key());
         assertTrue(Settings.refuse(Settings.named("market"), "Japan").contains("two letters"));

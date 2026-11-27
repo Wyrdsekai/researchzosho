@@ -46,6 +46,7 @@ import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiPredicate;
+import java.util.function.BooleanSupplier;
 import java.util.function.LongSupplier;
 import org.researchzosho.tools.Addresses;
 import org.researchzosho.tools.ContentPolicy;
@@ -303,7 +304,7 @@ final class Pages {
                         Patrons.check(store, patron, Patrons.Level.write);
                         Hosted.machine();
                         if (PhoneDoor.kind().equals("off") || PhoneDoor.address().isEmpty()) redirect(x, "/settings?note=" + enc(t(PHONE_OFF)) + "#phone");
-                        else { Phones.Made m = Phones.pairingCode(form.getOrDefault("name", "")); send(x, 200, settings(store, p, patron, Map.of(), PhoneDoor.address() + "/m/pair?c=" + m.code())); }   // the code is shown once, on the page, never in an address
+                        else { Phones.Made m = Phones.pairingCode(form.getOrDefault("name", "")); send(x, 200, settings(store, p, patron, Map.of(), m)); }   // the library's default cap; the code is shown once, on the page, never in an address
                     }
                     else if ("POST".equals(method) && op.equals("phone-remove")) {
                         Patrons.check(store, patron, Patrons.Level.write);
@@ -860,22 +861,30 @@ final class Pages {
     /** The file that says a model has answered this library once: from then on the chat is the home whatever the model does today. */
     static Path answeredMarker(LibraryStore store) { return store.root().resolve("catalog").resolve("model-answered"); }
 
-    static final long[] DRIVE_UP = {0, 0};   // [answers: 1 or 0, the moment it was asked]
-
     /**
-     * Whether a model has ever answered this library, or answers it now: the marker once a model answered; else the drive probed with a
-     * short timeout, at most once a minute, a model still loading counting as answering, and a rented model with its key kept counting too.
+     * The look behind the first screen: whether the library's model answers now, with a short timeout, a model still loading counting as
+     * answering, and a rented model with its key kept counting too. A test stands it in.
      */
-    static boolean modelAnswers(LibraryStore store) {
-        if (Files.exists(answeredMarker(store))) return true;
-        long now = System.currentTimeMillis();
-        synchronized (DRIVE_UP) { if (now - DRIVE_UP[1] < 60_000) return DRIVE_UP[0] == 1; }
+    static volatile BooleanSupplier DRIVE_ANSWERS = () -> {
         boolean up;
         try { up = Crews.driveState(DRIVE_NOW.get(), Config.get("RESEARCHZOSHO_MODEL", "local-model"), Duration.ofSeconds(3)) != Crews.DriveState.DOWN; } catch (RuntimeException e) { up = false; }
         if (!up) for (ModelEntries.Entry e : ModelEntries.all().values()) if (e.hosted() && DriveClient.hostKey(e.host()) != null) { up = true; break; }
-        if (up) modelAnswered(store);
-        synchronized (DRIVE_UP) { DRIVE_UP[0] = up ? 1 : 0; DRIVE_UP[1] = now; }
         return up;
+    };
+    /** That look, made off the request at most once a minute (0.8.4): the chat's home used to make it while the page waited. */
+    static final KeptLook<Boolean> DRIVE_UP = new KeptLook<>("first-screen-look", 60_000, () -> DRIVE_ANSWERS.getAsBoolean());
+
+    /**
+     * Whether the chat's home opens with the first screen: never once a model has answered this library (the marker); else when the last
+     * look found no model answering. Before the first look has ended it does not: the screen would say what is not known yet, and the
+     * page that comes after the look knows. A look that finds the model answering is written down as its answer.
+     */
+    static boolean firstScreen(LibraryStore store) {
+        if (Files.exists(answeredMarker(store))) return false;
+        KeptLook.Seen<Boolean> s = DRIVE_UP.known();
+        if (s == null) return false;
+        if (s.value()) { modelAnswered(store); return false; }
+        return true;
     }
 
     /** A model answered: written down once, so the chat is the home from now on. */
@@ -987,7 +996,7 @@ final class Pages {
                         Map<String, String> set = new LinkedHashMap<>(); set.put("name", "RESEARCHZOSHO_DRIVE"); set.put("value", address);
                         String note = settingsPost(p, patron, set);
                         if (!model.isEmpty()) { set.put("name", "RESEARCHZOSHO_MODEL"); set.put("value", model); note = note + " " + settingsPost(p, patron, set); }
-                        synchronized (DRIVE_UP) { DRIVE_UP[1] = 0; }
+                        DRIVE_UP.forget();   // the next home looks at the new address, off its request, and shows the chat until that look has ended
                         result = note + " " + testLine(address, model);
                     }
                 }
@@ -1001,7 +1010,7 @@ final class Pages {
                         if (!key.isEmpty()) { a.put("op", "key"); a.put("host", host.equals("address") ? DriveClient.hostOf(address) : host); a.put("value", key); note.append(p.models(a).path("note").asText()).append(' '); }
                         ObjectNode add = args(patron); add.put("op", "add"); add.put("name", (host.equals("address") ? DriveClient.hostOf(address) : host) + "-" + model.replaceAll("[^A-Za-z0-9.-]+", "-")); add.put("drive", driveWord); add.put("model", model);
                         try { note.append(p.models(add).path("note").asText()); } catch (ProtocolError e) { note.append(e.getMessage()); }
-                        synchronized (DRIVE_UP) { DRIVE_UP[1] = 0; }
+                        DRIVE_UP.forget();   // the next home looks at the new address, off its request, and shows the chat until that look has ended
                         result = note + " " + testLine(ModelEntries.hostAddress(driveWord) == null ? driveWord : ModelEntries.hostAddress(driveWord), model);
                     }
                 }
@@ -2064,10 +2073,10 @@ final class Pages {
 
     /** POST /remove: the first post shows the plan with a Confirm button; the post with confirm=1 and an unspent token removes. */
     /** The settings page (0.5.5): every setting with what it is for and its value, a key only as set or not, and a form to change one. */
-    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException { return settings(store, p, patron, q, ""); }
+    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q) throws IOException { return settings(store, p, patron, q, null); }
 
-    /** The same, with a phone's pairing link just made ({@code phoneLink}), shown once as its QR code; never read from an address. */
-    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q, String phoneLink) throws IOException {
+    /** The same, with a phone's pairing code just made ({@code paired}), its link shown once as its QR code with the cap the phone gets; never read from an address. */
+    static String settings(LibraryStore store, LibraryProtocol p, Patrons.Patron patron, Map<String, String> q, Phones.Made paired) throws IOException {
         if (Hosted.on(store)) return hostedSettings(store, p, patron, q, t("Settings"));
         ObjectNode a = M.createObjectNode(); a.put("op", "list"); a.set("patron", LibrarianDaemon.patronNode(patron));
         JsonNode r = p.settings(a);
@@ -2078,7 +2087,7 @@ final class Pages {
         b.append(modelsSection(store)).append(spendSection(store));
         b.append(settingsForm(r));
         b.append(readersSection(store, patron, q));
-        b.append(phoneSection(store, phoneLink));
+        b.append(phoneSection(store, paired));
         return page(store, patron, t("Settings"), b.toString(), 0, null, true);
     }
 
@@ -2087,18 +2096,22 @@ final class Pages {
 
     /**
      * The Settings page's Phone section, the keeper's as the page is: where the phone door is, a button that makes a pairing code (its QR
-     * code shown once, here), and the paired phones with what each spent this month and a Remove button.
+     * code shown once, here, with the cap the phone gets), the cap a newly paired phone gets, and the paired phones with what each spent
+     * this month and a Remove button.
      */
-    static String phoneSection(LibraryStore store, String phoneLink) throws IOException {
+    static String phoneSection(LibraryStore store, Phones.Made paired) throws IOException {
         StringBuilder b = new StringBuilder("<h2 id=\"phone\">").append(t("Phone")).append("</h2>");
         String k = PhoneDoor.kind(), a = PhoneDoor.address();
         b.append("<p class=\"k\">").append(esc(k.equals("tailnet") ? t("On your tailnet at {0}.", a) : k.equals("public") ? t("Public at {0} (Tailscale Funnel).", a) : k.equals("own") ? t("Behind your own relay at {0}.", a) : t(PHONE_OFF))).append("</p>");
-        if (phoneLink != null && !phoneLink.isBlank()) {
-            b.append("<div class=\"qr\">").append(QrCode.svg(phoneLink, 5)).append("</div><p class=\"k\">").append(esc(phoneLink)).append("</p><p>")
-             .append(esc(t("Scan this with the phone's camera. The link works once, for {0} minutes.", Phones.CODE_MS / 60_000))).append("</p>");
+        if (paired != null) {
+            String link = PhoneDoor.address() + "/m/pair?c=" + paired.code();
+            b.append("<div class=\"qr\">").append(QrCode.svg(link, 5)).append("</div><p class=\"k\">").append(esc(link)).append("</p><p>")
+             .append(esc(t("Scan this with the phone's camera. The link works once, for {0} minutes.", Phones.CODE_MS / 60_000))).append(" ")
+             .append(esc(t("Its cap on paid models: {0} (researchzosho phone cap changes it).", Phones.capSaid(paired.cap(), Chrome.now())))).append("</p>");
         }
         if (!k.equals("off") && !a.isEmpty()) b.append("<form method=\"post\" action=\"/settings\"><input type=\"hidden\" name=\"op\" value=\"phone-pair\"><input name=\"name\" placeholder=\"")
              .append(esc(t("Name of the phone"))).append("\" maxlength=\"40\"> <button class=\"btn\">").append(t("Pair a phone")).append("</button></form>");
+        b.append("<p class=\"k\">").append(esc(t(PhoneCli.DEFAULT_LINE, Phones.capSaid(Phones.defaultCap(), Chrome.now())))).append("</p>");
         List<Phones.Phone> all = Phones.list();
         if (all.isEmpty()) b.append("<p class=\"k\">").append(t("No phone is paired yet.")).append("</p>");
         else {
@@ -3730,7 +3743,7 @@ final class Pages {
          .append("<a class=\"small k3\" href=\"/chat?new=1\">").append(t("new conversation")).append("</a>").append(Files.exists(s.file) ? deleteForm(s.id, s.id) : "").append("<span class=\"small k3 counts\">").append(counts(lp, patron)).append("</span></div>");   // a conversation with nothing in it yet is on no list, and has nothing to delete
         JsonNode back = LibraryPlaces.broughtBack(store);   // a library brought back from its copy says which copy, for a week
         if (back != null) b.append("<p class=\"notice\">").append(esc(broughtBackSaid(back))).append("</p>");
-        boolean first = !modelAnswers(store);   // the first screen, until a model answers once; the composer does not take the focus then, or the page would scroll past the screen
+        boolean first = firstScreen(store);   // the first screen, until a model answers once; the composer does not take the focus then, or the page would scroll past the screen
         if (first) b.append("<div class=\"first\">").append(connectBlock(store, patron, "", false)).append("</div>");
         b.append("<div id=\"chat-view\" class=\"chat-view\">").append(chatView(store, lp, patron, s, note)).append("</div>");
         b.append("<div class=\"dropcue\" id=\"chat-drop\" hidden>").append(t("Drop to attach")).append("</div>");   // shown by the page's script while files are dragged over the page

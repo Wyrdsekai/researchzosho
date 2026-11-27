@@ -36,8 +36,9 @@ class ComicPythonTest {
         ComicHelper.FREE = () -> 100L << 30;
     }
 
+    final Boolean interactionWas = Interaction.OVERRIDE;
     @AfterEach void restore() {
-        System.setProperty("user.home", home); Config.invalidate();
+        System.setProperty("user.home", home); Config.invalidate(); Interaction.OVERRIDE = interactionWas;
         ComicHelper.RUN = run; ComicHelper.FREE = free; ComicHelper.INSTALLED = installed; ComicHelper.PYTHONS = pythons; ComicHelper.INSTALL = install;
     }
 

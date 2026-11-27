@@ -5,6 +5,7 @@ import org.researchzosho.librarian.Career;
 import java.util.ArrayList;
 import org.researchzosho.librarian.VideoRecallPage;
 import org.researchzosho.librarian.CareerSources;
+import org.researchzosho.librarian.CareerLookups;
 import org.researchzosho.librarian.CareerPortals;
 import org.researchzosho.librarian.CareerInterview;
 import org.researchzosho.librarian.CareerPage;
@@ -96,8 +97,11 @@ public final class CareerProfile implements Profile {
                         String employer = form.getOrDefault("employer", "").strip();
                         if (employer.isEmpty()) throw new IllegalArgumentException("Give the employer's or institution's name.");
                         List<String> towns = new ArrayList<>(); for (String t : form.getOrDefault("towns", "").split(",")) if (!t.isBlank()) towns.add(t.strip());
-                        CareerSources.Found f = CareerPortals.inTowns(CareerPortals.find(employer, towns, List.of(), towns), towns);
-                        return new Page(Chrome.now().t("The board of {0}", employer), "<p>" + VideoRecallPage.esc(CareerPortals.boardText(employer, f, towns)).replace("\n", "<br>") + "</p><p><a href=\"/career\">" + Chrome.now().t("Back to the Career page") + "</a></p>", false, null);
+                        CareerLookups.Run lookups = CareerLookups.begin(store);   // through what the library keeps of the employer, and keeping what is found (0.8.4)
+                        CareerSources.Found f;
+                        try { f = CareerPortals.inTowns(CareerPortals.find(employer, towns, List.of(), towns), towns); } finally { CareerLookups.end(lookups); }
+                        String keeps = CareerLookups.said(store, employer);
+                        return new Page(Chrome.now().t("The board of {0}", employer), "<p>" + VideoRecallPage.esc(CareerPortals.boardText(employer, f, towns) + (keeps.isEmpty() ? "" : "\n" + keeps)).replace("\n", "<br>") + "</p><p><a href=\"/career\">" + Chrome.now().t("Back to the Career page") + "</a></p>", false, null);
                     }
                     case "answers" -> {
                         if (s != null) {
@@ -140,7 +144,7 @@ public final class CareerProfile implements Profile {
                     }
                     case "cut" -> {
                         Map<String, String> f = new LinkedHashMap<>();
-                        for (String k : List.of("titles", "titles_also", "titles_not", "areas", "places", "remote", "remote_where", "max_people", "min_people", "prefer_titles", "prefer_places")) if (form.containsKey(k)) f.put(k, form.get(k));
+                        for (String k : List.of("search_titles", "also_titles", "titles", "titles_also", "titles_not", "areas", "places", "remote", "remote_where", "max_people", "min_people", "prefer_titles", "prefer_places")) if (form.containsKey(k)) f.put(k, form.get(k));
                         CareerCut.set(store, s, f);
                     }
                     case "remake" -> CareerCut.make(store, s);
@@ -291,12 +295,13 @@ public final class CareerProfile implements Profile {
                 }
                 case "cut" -> {
                     Career.Seeker s = who(store, ""); if (s == null) return nobody(store, "");
-                    if (tail.isEmpty()) { CareerCut.Cut c = CareerCut.kept(store, s); return c == null ? "There is no cut yet: the first search makes it from what you decided." : "The cut: " + CareerCut.summary(c) + ".\nTo change it, type /career cut, then titles, titles-also, titles-not, areas, places, remote, remote-where, prefer-titles or prefer-places, then the words separated by commas. /career cut again has the library make it again from what you want."; }
+                    if (tail.isEmpty()) { CareerCut.Cut c = CareerCut.kept(store, s); return c == null ? "There is no cut yet: the first search makes it from what you decided." : "The cut: " + CareerCut.summary(c) + "." + (CareerCut.hides(c).isEmpty() ? "" : " " + CareerCut.hides(c)) + "\nTo change it, type /career cut, then search-titles, also-titles, titles, titles-also, titles-not, areas, places, remote, remote-where, prefer-titles or prefer-places, then the words separated by commas. /career cut again has the library make it again from what you want."; }
                     if (tail.equals("again")) return "The cut, made again from what you want: " + CareerCut.summary(CareerCut.make(store, s)) + ".";
                     String[] w = tail.split("\\s+", 2);
                     String field = w[0].replace('-', '_');
-                    if (!List.of("titles", "titles_also", "titles_not", "areas", "places", "remote", "remote_where", "max_people", "min_people", "prefer_titles", "prefer_places").contains(field)) return "The cut's parts are titles, titles-also, titles-not, areas, places, remote, max-people, min-people, remote-where, prefer-titles and prefer-places.";
-                    return "The cut, as you set it: " + CareerCut.summary(CareerCut.set(store, s, Map.of(field, w.length > 1 ? w[1] : ""))) + ".";
+                    if (!List.of("search_titles", "also_titles", "titles", "titles_also", "titles_not", "areas", "places", "remote", "remote_where", "max_people", "min_people", "prefer_titles", "prefer_places").contains(field)) return "The cut's parts are search-titles, also-titles, titles, titles-also, titles-not, areas, places, remote, max-people, min-people, remote-where, prefer-titles and prefer-places.";
+                    CareerCut.Setting set = CareerCut.setting(store, s, Map.of(field, w.length > 1 ? w[1] : ""));
+                    return "The cut, as you set it: " + CareerCut.summary(set.cut()) + "." + (set.said().isEmpty() ? "" : " " + set.said());
                 }
                 case "want" -> {
                     String[] p = tail.split("\\s+");

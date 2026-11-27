@@ -105,6 +105,7 @@ public final class Owned {
 
     /** Reads one file or folder into the ledger. {@code kind}: auto (by the file's shape), amazon, mail or bank. */
     public static Summary importPath(LibraryStore store, Path path, String kind, String currency) throws IOException {
+        OwnFolders.refuse(path, store);   // the programs' own folders are never read; a folder that holds them is read without them
         if (!Files.exists(path)) throw ProtocolError.notFound("There is no file or folder at " + path);
         String k = kind == null || kind.isBlank() || kind.equals("auto") ? detect(path) : kind.toLowerCase(Locale.ROOT);
         String now = DateTimeFormatter.ISO_INSTANT.format(Instant.now().atZone(ZoneOffset.UTC).withNano(0));
@@ -176,7 +177,7 @@ public final class Owned {
             return head.contains("asin") || head.contains("order id") || head.contains("product name") ? "amazon" : "bank";
         }
         if (Files.isDirectory(path)) {
-            try (Stream<Path> s = Files.list(path)) {
+            try (Stream<Path> s = Files.list(path).filter(OwnFolders::allowed)) {
                 if (s.anyMatch(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).contains("orderhistory") || p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".csv"))) return "amazon";
             }
             return "mail";
@@ -234,7 +235,7 @@ public final class Owned {
                 }
             }
         } else if (Files.isDirectory(path)) {
-            try (Stream<Path> s = Files.walk(path)) {
+            try (Stream<Path> s = Files.walk(path).filter(OwnFolders::allowed)) {
                 for (Path p : s.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".csv")).toList()) amazonCsv(p.getFileName().toString(), text(Files.readAllBytes(p)), c);
             }
         } else {
@@ -380,11 +381,11 @@ public final class Owned {
                 for (String sub : new String[]{"cur", "new"}) {
                     Path d = path.resolve(sub);
                     if (!Files.isDirectory(d)) continue;
-                    try (Stream<Path> s = Files.list(d)) { for (Path p : s.filter(Files::isRegularFile).sorted().toList()) message(Files.readAllBytes(p), p.getFileName().toString(), c, currency); }
+                    try (Stream<Path> s = Files.list(d).filter(OwnFolders::allowed)) { for (Path p : s.filter(Files::isRegularFile).sorted().toList()) message(Files.readAllBytes(p), p.getFileName().toString(), c, currency); }
                 }
                 return;
             }
-            try (Stream<Path> s = Files.walk(path)) {
+            try (Stream<Path> s = Files.walk(path).filter(OwnFolders::allowed)) {
                 for (Path p : s.filter(Files::isRegularFile).sorted().toList()) {
                     String n = p.getFileName().toString().toLowerCase(Locale.ROOT);
                     if (n.endsWith(".msf") || n.endsWith(".sqlite") || n.endsWith(".json") || n.endsWith(".jsonlz4") || n.endsWith(".dat") || n.endsWith(".js") || n.endsWith(".ini") || n.endsWith(".db")) continue;
@@ -676,7 +677,7 @@ public final class Owned {
     /** Takeout's "Google Play Store" folder: Purchase History.json and Order History.json, a list of purchases with a document and a price. */
     static void readGoogle(Path path, Collector c, String currency) throws IOException {
         List<Path> files = new ArrayList<>();
-        if (Files.isDirectory(path)) { try (Stream<Path> s = Files.walk(path)) { files.addAll(s.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json")).sorted().toList()); } }
+        if (Files.isDirectory(path)) { try (Stream<Path> s = Files.walk(path).filter(OwnFolders::allowed)) { files.addAll(s.filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json")).sorted().toList()); } }
         else files.add(path);
         int n = 0;
         for (Path f : files) {

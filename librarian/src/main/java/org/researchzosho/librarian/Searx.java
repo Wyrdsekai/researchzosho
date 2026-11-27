@@ -22,6 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -44,18 +48,46 @@ public final class Searx {
     public static final int DEFAULT_PORT = 8888;
 
     /** Runs a command line; stdout+stderr and the exit code. Tests replace it. */
-    public interface Runner { Result run(List<String> cmd) throws Exception; }
+    public interface Runner {
+        Result run(List<String> cmd) throws Exception;
+
+        /**
+         * The same within {@code bound}: a command that has not ended by then answers {@link #TIMED_OUT}. This one waits for a stand-in on
+         * a thread of its own; the machine's runner ends the command itself.
+         */
+        default Result run(List<String> cmd, Duration bound) throws Exception {
+            CompletableFuture<Result> f = new CompletableFuture<>();
+            Thread.ofVirtual().start(() -> { try { f.complete(run(cmd)); } catch (Throwable e) { f.completeExceptionally(e); } });
+            try { return f.get(bound.toMillis(), TimeUnit.MILLISECONDS); }
+            catch (TimeoutException e) { return new Result(TIMED_OUT, ""); }
+            catch (ExecutionException e) { throw e.getCause() instanceof Exception x ? x : e; }
+        }
+    }
     public record Result(int code, String out) { }
+    /** The code of a command that did not end within its bound, as {@code timeout} gives it. */
+    public static final int TIMED_OUT = 124;
+
+    /** The machine's commands, as processes. A bounded one that has not ended in time is ended, so a daemon that hangs leaves nothing waiting. */
+    private static final class Machine implements Runner {
+        @Override public Result run(List<String> cmd) throws Exception {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            String o = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            return new Result(p.waitFor(), o);
+        }
+        @Override public Result run(List<String> cmd, Duration bound) throws Exception {
+            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
+            CompletableFuture<String> out = new CompletableFuture<>();
+            Thread.ofVirtual().start(() -> { try { out.complete(new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8)); } catch (IOException e) { out.complete(""); } });
+            if (!p.waitFor(bound.toMillis(), TimeUnit.MILLISECONDS)) { p.destroyForcibly(); return new Result(TIMED_OUT, ""); }
+            try { return new Result(p.exitValue(), out.get(1, TimeUnit.SECONDS)); } catch (TimeoutException e) { return new Result(p.exitValue(), ""); }
+        }
+    }
     /**
      * The runner of the machine's commands (docker, nvidia-smi, an archive tool, a Python, pip). Where the property
      * {@code researchzosho.commands} is {@code off} (the test task sets it, and a process this one starts is given it), it runs none, and
      * answers every command as a machine without the program does.
      */
-    static volatile Runner runner = "off".equals(System.getProperty("researchzosho.commands")) ? cmd -> { throw new IOException("Cannot run program \"" + (cmd.isEmpty() ? "" : cmd.get(0)) + "\": no command of the machine is run here (researchzosho.commands=off)"); } : cmd -> {
-        Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-        String o = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        return new Result(p.waitFor(), o);
-    };
+    static volatile Runner runner = "off".equals(System.getProperty("researchzosho.commands")) ? cmd -> { throw new IOException("Cannot run program \"" + (cmd.isEmpty() ? "" : cmd.get(0)) + "\": no command of the machine is run here (researchzosho.commands=off)"); } : new Machine();
 
     private Searx() { }
 
@@ -525,6 +557,22 @@ public final class Searx {
     /** The white space Python's {@code \s} matches in text: what SearXNG splits a search's words on. */
     private static final String SPACE = "\\t\\n\\x0B\\f\\r\\x1C-\\x1F \\x85\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000";
     private static final Pattern COMMAND = Pattern.compile("(^|[" + SPACE + "])[!:<]+");
+
+    /** What {@link #state(Duration)} says when Docker did not answer within its bound. */
+    public static final String NOT_KNOWN = "not known";
+
+    /**
+     * {@link #state()} within {@code bound} (Help's look, 0.8.4): {@link #NOT_KNOWN} when Docker has not answered by then (a daemon that
+     * hangs; its command is ended), else as {@link #state()}. A machine without Docker answers at once: absent.
+     */
+    public static String state(Duration bound) {
+        try {
+            Result r = runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", CONTAINER), bound);
+            if (r.code() == TIMED_OUT) return NOT_KNOWN;
+            if (r.code() != 0) return "absent";
+            return r.out().strip().equals("true") ? "running" : "stopped";
+        } catch (Exception e) { return "absent"; }
+    }
 
     /** "running", "stopped" (exists, not running), or "absent". */
     public static String state() {

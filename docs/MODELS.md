@@ -93,8 +93,13 @@ small coloured square and keeps the answer, and `researchzosho models` shows it.
 picture file (llama.cpp's `--mmproj`) loaded beside it; without the file the same model answers as if no picture were
 sent.
 
-The files are the ones Hugging Face lists under `unsloth/<model>-GGUF`. `researchzosho model install`
-checks every download against a recorded sha256 and refuses a mismatch.
+The files are the ones Hugging Face lists under `unsloth/<model>-GGUF`, each at a fixed revision of its
+repository: the one the measurements ran on. `researchzosho model install` downloads every file at its
+revision, checks its size and sha256 before it puts it in place, and refuses a mismatch and keeps nothing of
+it. A newer file uploaded under the same name changes nothing for the install: the 27B's file was replaced
+that way on 2026-11-11, and versions before 0.8.4 downloaded the new one and refused it. A file at the
+model's name that is not the pinned one is not used as the model: the install says so and leaves it where
+it is. `researchzosho model check` says when a file has a newer upload.
 
 ## Measured and not recommended
 

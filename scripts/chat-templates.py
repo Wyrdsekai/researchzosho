@@ -2,11 +2,12 @@
 """Prints the chat template of every model file the program installs, for a person to read before a release.
 
 A model file (GGUF) is numbers, with one exception: its chat template, a small program in the Jinja language that the model
-server runs to lay a conversation out for the model. `model install` pins every file by its SHA-256, so a template cannot change
-without the pin failing; this prints each one, so that what is pinned has been read.
+server runs to lay a conversation out for the model. `model install` pins every file to a revision of its repository and by its
+SHA-256, so a template cannot change without the pin failing; this prints each one, so that what is pinned has been read.
 
-The rows come from ModelServer.java itself (name, repository, file). Each file's first megabytes are fetched from Hugging Face
-(a file is many gigabytes; the template stands in the header), or read from --dir when the files are on this machine.
+The rows come from ModelServer.java itself (name, repository, revision, file). Each file's first megabytes are fetched from Hugging
+Face at the row's revision, the file `model install` fetches (a file is many gigabytes; the template stands in the header), or read
+from --dir when the files are on this machine.
 
     python3 scripts/chat-templates.py              # every template, in full
     python3 scripts/chat-templates.py --sums       # one line per file: the template's length and SHA-256
@@ -22,7 +23,7 @@ SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
 
 def rows():
     text = open(SOURCE, encoding="utf-8").read()
-    return re.findall(r'new Row\("([^"]+)",\s*\d+,\s*"([^"]+)",\s*"([^"]+\.gguf)",\s*"([0-9a-f]{64})"', text)
+    return re.findall(r'new Row\("([^"]+)",\s*\d+,\s*"([^"]+)",\s*"([0-9a-f]{40})",\s*"([^"]+\.gguf)",\s*"([0-9a-f]{64})"', text)
 
 
 class Short(Exception):
@@ -66,11 +67,11 @@ def template(head):
     return None
 
 
-def head_of(repo, name, folder, size):
+def head_of(repo, revision, name, folder, size):
     if folder:
         with open(os.path.join(os.path.expanduser(folder), name), "rb") as f:
             return f.read(size)
-    req = urllib.request.Request("https://huggingface.co/%s/resolve/main/%s" % (repo, name), headers={"User-Agent": AGENT, "Range": "bytes=0-%d" % (size - 1)})
+    req = urllib.request.Request("https://huggingface.co/%s/resolve/%s/%s" % (repo, revision, name), headers={"User-Agent": AGENT, "Range": "bytes=0-%d" % (size - 1)})
     with urllib.request.urlopen(req, timeout=180) as r:
         return r.read()
 
@@ -79,12 +80,15 @@ def main():
     folder = sys.argv[sys.argv.index("--dir") + 1] if "--dir" in sys.argv else None
     sums = "--sums" in sys.argv
     failed = 0
-    for name, repo, file, sha in rows():
+    found = rows()
+    if not found:
+        print("no model rows found in %s: the pattern this script reads them by no longer matches" % SOURCE); return 1
+    for name, repo, revision, file, sha in found:
         size, text = 16 << 20, None
         try:
             while True:
                 try:
-                    text = template(head_of(repo, file, folder, size)); break
+                    text = template(head_of(repo, revision, file, folder, size)); break
                 except Short:
                     if size >= 512 << 20: raise ValueError("no end of the header in the first 512 MB")
                     size *= 2
@@ -93,7 +97,7 @@ def main():
         if text is None:
             print("%s  %s: the file has no chat template (the server falls back to its own)" % (name, file)); continue
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-        print("%s  %s  (file pinned at %s…)  template: %d characters, sha256 %s" % (name, file, sha[:12], len(text), digest))
+        print("%s  %s  (file pinned at revision %s, sha256 %s…)  template: %d characters, sha256 %s" % (name, file, revision[:12], sha[:12], len(text), digest))
         if not sums:
             print("-" * 100); print(text); print("-" * 100); print()
     return 1 if failed else 0

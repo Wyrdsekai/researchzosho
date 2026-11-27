@@ -17,8 +17,9 @@ import java.util.regex.Pattern;
 /**
  * How many people work at a company (docs/DESIGN_CAREER.md, the company's state): a want such as "not bigger than 200" is answered by
  * the company's record, never by the posting's words. A number is taken only when it is tied to the company's own website, since by name
- * alone a search finds namesakes: the company's own pages first; then the LinkedIn page for it, which a search result shows with the
- * website it names; then Wikidata, when the website it records is the same. Each number keeps its source and the day it was read.
+ * alone a search finds namesakes: the company's own pages first; then Wikidata, when the website it records is the same; then the
+ * LinkedIn page for it, which a search result shows with the website it names. Wikidata comes before the search since 0.8.4: both
+ * are tied to the site, and Wikidata costs no search. Each number keeps its source and the day it was read.
  */
 public final class CareerSize {
     private CareerSize() { }
@@ -40,20 +41,27 @@ public final class CareerSize {
 
     /**
      * The company's website, from where its openings were read when that was its own careers page, else found by a search for its name
-     * and confirmed by the page linking the same hiring board; "" when nothing confirms a site.
+     * and confirmed by the page linking the same hiring board; "" when nothing confirms a site. The search for its careers page comes
+     * first, and the search for the name alone only when that one confirmed nothing (0.8.4: in the twelve searches measured on
+     * 2026-11-26 the first held 70 of the 72 sites confirmed, the second 2 of 59 it was asked for).
      */
     public static String findSite(String company, Feed feed) {
         if (feed == null) return "";
         if (feed.kind().equals("jobposting") || feed.kind().equals("links")) return CareerSources.registrable(site(feed.token()));
         Matcher m = Pattern.compile("careers page, (https?://\\S+)").matcher(feed.how());
         if (m.find()) return CareerSources.registrable(site(m.group(1)));
-        int tried = 0;
-        List<Hit> hits = new ArrayList<>(CareerSources.SEARCH.apply(company + " careers jobs"));   // its careers page links its board; its front page seldom does
-        hits.addAll(CareerSources.SEARCH.apply(company));
+        int[] tried = {0};
+        String found = confirmed(CareerLookups.search(company + " careers jobs"), feed, tried);   // its careers page links its board; its front page seldom does
+        if (found.isEmpty() && tried[0] < 4) found = confirmed(CareerLookups.search(company), feed, tried);
+        return found;
+    }
+
+    /** The site of the first page among the hits that links the same board, at most four pages read in all; "" when none does. */
+    private static String confirmed(List<Hit> hits, Feed feed, int[] tried) {
         for (Hit h : hits) {
-            if (CareerSources.aggregator(h.url()) || CareerSources.host(h.url()).matches(".*(wikipedia|linkedin|crunchbase|pitchbook|zoominfo|x\\.com|twitter|facebook|youtube|github|glassdoor|indeed)\\..*") || tried >= 4) continue;
+            if (CareerSources.aggregator(h.url()) || CareerSources.host(h.url()).matches(".*(wikipedia|linkedin|crunchbase|pitchbook|zoominfo|x\\.com|twitter|facebook|youtube|github|glassdoor|indeed)\\..*") || tried[0] >= 4) continue;
             if (!CareerSources.boardsIn(h.url(), "").isEmpty()) continue;
-            tried++;
+            tried[0]++;
             String page = CareerSources.get(h.url());
             if (page == null) continue;
             for (Feed f : CareerSources.boardsIn(page, "")) if (f.label().equals(feed.label())) return CareerSources.registrable(site(h.url()));   // the page links the same board: the company's own
@@ -72,7 +80,9 @@ public final class CareerSize {
             if (p == null) p = fromWords(CareerSources.plain(page.replaceAll("(?is)<(script|style)[^>]*>.*?</\\1>", "")), "its own site, " + site, today, true);
             if (p != null) return p;
         }
-        for (Hit h : CareerSources.SEARCH.apply(company + " employees")) {   // the LinkedIn page for it, which a result shows with the website it names
+        People wd = fromWikidata(company, site, today);   // free, and tied to the site as the search's answer is
+        if (wd != null) return wd;
+        for (Hit h : CareerLookups.search(company + " employees")) {   // the LinkedIn page for it, which a result shows with the website it names
             String host = CareerSources.host(h.url());
             if (host.endsWith("linkedin.com") && h.url().contains("/company/") && h.snippet().toLowerCase(Locale.ROOT).contains(site.toLowerCase(Locale.ROOT))) {
                 People p = fromWords(h.snippet(), "its LinkedIn page", today, false);
@@ -80,7 +90,7 @@ public final class CareerSize {
             }
             if (host.equals(site) || host.endsWith("." + site)) { People p = fromWords(h.snippet(), "its own site, " + site, today, false); if (p != null) return p; }
         }
-        return fromWikidata(company, site, today);
+        return null;
     }
 
     /** schema.org Organization data on a page: numberOfEmployees as a number or a range. */

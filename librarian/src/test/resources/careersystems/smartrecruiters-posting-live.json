@@ -1,0 +1,25 @@
+{
+ "uuid": "076c5ee9-5f5d-491d-892f-74e2a7f3a7ed",
+ "applyUrl": "https://jobs.smartrecruiters.com/Xplor/744000159338802-senior-software-engineer",
+ "jobAdLanguageCode": "en",
+ "jobTitle": "Senior Software Engineer",
+ "jobAdLocation": "97458 Remote, OR, United States",
+ "employmentType": "Full-time",
+ "content": {
+  "sections": {
+   "jobDescription": {
+    "title": "Job Description",
+    "text": "<p>We’re looking for a back end platform software engineer who can design and write code in a multi-tenant SaaS environment. The candidate needs to be highly collaborative, productive in a dynamic development environment and be willing to utilize AI in their d"
+   },
+   "qualifications": {
+    "title": "Qualifications",
+    "text": "<p><strong>Must-haves</strong></p><ul><li>Successful collaboration in a remote environment</li><li>Python and Django (REST APIs, models, migrations)</li><li>PostgreSQL and comfort writing / reasoning about SQL</li><li>Multi-tenant SaaS (tenant isolation, share"
+   }
+  }
+ },
+ "company": {
+  "name": "Xplor"
+ },
+ "isApplyAvailable": true,
+ "postedDate": "2026-11-03T09:46:27.236Z"
+}

@@ -68,7 +68,25 @@ tasks.test {
     // and it must never WRITE it either: every test runs with a scratch user.home under the build folder
     // (the settings tests set and cleared keys in the developer's real config file until 0.6.0)
     val testHome = layout.buildDirectory.dir("test-home").get().asFile
-    doFirst { testHome.mkdirs() }
+    // emptied at every run's start: a run stopped in the middle of a test never reaches its @AfterEach, and what that test had set in
+    // its fork's home (a setting, a lock, a pid record) was found by the next run's fork of the same number (2026-11-26: the nights
+    // left off by a stopped run turned AccountsCliTest red in the next whole run). ForkHomeTest pins that each fork starts empty.
+    doFirst { testHome.deleteRecursively(); testHome.mkdirs() }
+    // and the libraries a stopped run left running are ended: a test that starts libraries in processes of their own (ChildLibraries) and is
+    // stopped in its middle leaves them running, their parent gone, each holding its port and its folder (2026-11-26: three after three
+    // stopped workers). Such a process is known by what it carries: this tree's test classes on its class path, which only a test JVM and
+    // what it starts have, and no parent of its own (handed to init or to a user's systemd). A live run's children have their test JVM as
+    // parent and are left alone, and so is anything of another tree.
+    doFirst {
+        val testClasses = layout.buildDirectory.dir("classes/java/test").get().asFile.path
+        fun orphan(p: ProcessHandle): Boolean {
+            val parent = p.parent().orElse(null) ?: return true
+            if (parent.pid() == 1L) return true
+            return parent.info().command().map { it.endsWith("/systemd") }.orElse(false)
+        }
+        ProcessHandle.allProcesses().filter { p -> p.pid() != ProcessHandle.current().pid() && p.info().commandLine().map { it.contains(testClasses) }.orElse(false) && orphan(p) }
+            .forEach { p -> logger.lifecycle("Ending process ${p.pid()}, which a stopped test run of this tree left running."); p.destroy() }
+    }
     // and a drive at a closed port is OFFERED to every test (a _DEFAULT is read only when nothing else is set, so a test's own
     // Config.set still wins): a test that sets no drive would otherwise ask whatever answers at the box's default address (nothing
     // on a CI runner; a 9B on the Mac mini, which read a fixture book for one test and would judge a short question for another,

@@ -4,10 +4,13 @@ import org.junit.jupiter.api.extension.BeforeEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.researchzosho.drive.ContentJudge;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.librarian.CareerCut;
 import org.researchzosho.tools.ImageText;
 import org.researchzosho.tools.Outbound;
 import org.researchzosho.tools.PageCheck;
 import org.researchzosho.tools.SiteList;
+
+import java.util.List;
 
 /**
  * Before every test in the suite (registered for all of them in META-INF/services, with autodetection on in
@@ -31,6 +34,7 @@ public final class NoLiveChecks implements BeforeEachCallback {
         SiteList.use(SiteList.bundled());
         Version.refreshes = false;   // no test asks GitHub which release is the latest, whatever home it makes for itself
         ContentJudge.use(NO);
+        CareerCut.NEAR = (city, within, km) -> new CareerCut.Towns("", List.of());   // no test asks Wikidata for the towns near a city, the record's own among them, unless it sets its own
         ImageText.useChecker(null);
         PageCheck.useGetter(null);
         // the hosts an earlier test said were the owner's, and its stand-ins, kept by host and port: a stub server of this test that the

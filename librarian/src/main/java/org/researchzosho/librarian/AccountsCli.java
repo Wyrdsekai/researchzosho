@@ -437,19 +437,24 @@ public final class AccountsCli {
                 out.println("  " + s.path("name").asText() + (v.isEmpty() ? "  (not set)" : "  = " + v));
                 out.println("      " + s.path("what").asText());
             }
-            out.println("researchzosho settings set <name> <value> changes one; unset <name> removes it.");
+            out.println("researchzosho settings set <name> <value> changes one, settings set <name> --file <path> reads it from a file (for a key); unset <name> removes it.");
             return 0;
         }
-        if (!op.equals("set") && !op.equals("unset")) { err.println("usage: researchzosho settings [list | set <name> <value> | unset <name>]"); return 2; }
-        if (args.length < (op.equals("set") ? 5 : 4)) { err.println("usage: researchzosho settings " + op + " <name>" + (op.equals("set") ? " <value>" : "")); return 2; }
+        if (!op.equals("set") && !op.equals("unset")) { err.println("usage: researchzosho settings [list | set <name> <value> | set <name> --file <path> | unset <name>]"); return 2; }
+        if (args.length < 4 || args[3].startsWith("--")) { err.println("researchzosho settings " + op + " takes the setting's name first.\n" + (op.equals("set") ? LibrarianCli.SET_USAGE : "usage: researchzosho settings unset <name>") + "\nNothing was changed."); return 2; }
+        if (op.equals("unset") && args.length > 4) { err.println("researchzosho settings unset takes the setting's name alone.\nusage: researchzosho settings unset <name>\nNothing was changed."); return 2; }
+        CommandValue.Given given = op.equals("set") ? CommandValue.rest(args, 4, "researchzosho settings set") : CommandValue.Given.typed("", 0);   // typed, or read from a file (0.8.4)
+        if (!given.ok()) { err.println(given.refused() + (given.usage() ? "\n" + LibrarianCli.SET_USAGE + "\nNothing was changed." : "")); return given.usage() ? 2 : 1; }
         Settings.Setting s = Settings.named(args[3]);
         if (s == null) { err.println("No setting is named " + args[3] + ". researchzosho settings lists them all."); return 1; }
-        String value = op.equals("unset") ? "" : String.join(" ", List.of(args).subList(4, args.length));
+        String value = given.value();
+        if (CommandValue.fileForm(value)) { err.println(CommandValue.onlyOnTheCommandLine("researchzosho settings set " + s.shortName() + " --file <path>")); return 1; }
         String why = Settings.refuse(s, value);
         if (!why.isEmpty()) { err.println(why); return 1; }
         Settings.set(s, value);
         String kept = Config.stored(s.key());
-        out.println(value.isBlank() ? s.shortName() + " is unset." : s.shortName() + " is set." + (kept == null || kept.isBlank() ? "" : " (" + Settings.shown(s, kept) + ")"));
+        out.println((value.isBlank() ? s.shortName() + " is unset." : s.shortName() + " is set." + (kept == null || kept.isBlank() ? "" : " (" + Settings.shown(s, kept) + ")"))
+                + (given.file().isEmpty() ? "" : " The value was read from " + given.file() + "."));
         return 0;
     }
 

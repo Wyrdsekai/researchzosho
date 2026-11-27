@@ -1,0 +1,27 @@
+{
+ "uuid": "ae2c5f14-7f62-414b-b679-89e7c77cf66a",
+ "name": "Sr. Product Designer",
+ "workLocations": [
+  "Austin, TX"
+ ],
+ "department": {
+  "name": "Product & Engineering",
+  "base_department": "Product & Engineering",
+  "department_tree": [
+   "Product & Engineering"
+  ]
+ },
+ "employmentType": {
+  "label": "SALARIED_FT",
+  "id": "Salaried, full-time"
+ },
+ "createdOn": "2026-09-29T08:28:10.716000-07:00",
+ "url": "https://ats.rippling.com/audyence/jobs/ae2c5f14-7f62-414b-b679-89e7c77cf66a",
+ "payRangeDetails": [],
+ "companyName": "Audyence",
+ "unlistedFromSearch": false,
+ "description": {
+  "company": "<div><body><p style='font-family:\"Basel Grotesk\",Arial,sans-serif;font-size:11pt;font-weight:400;line-height:1.6;letter-spacing:0.25px;margin:4px 0px;padding:0px;'><span style=\"white-space:pre-wrap;\">Based in Austin or w</p>",
+  "role": "<div><body><p style='font-family:\"Basel Grotesk\",Arial,sans-serif;font-size:11pt;font-weight:400;line-height:1.6;letter-spacing:0.25px;margin:4px 0px;padding:0px;'><b><strong style=\"font-size:18pt;white-space:pre-wrap;\">Role Overview</strong></b></p></p>"
+ }
+}

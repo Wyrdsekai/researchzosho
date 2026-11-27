@@ -275,8 +275,9 @@ public final class FamilyFolder {
     public static List<Item> plan(LibraryStore store, Path dir) throws IOException {
         Set<String> before = readBefore(store);
         List<Item> out = new ArrayList<>();
+        OwnFolders.Walk own = OwnFolders.walk(store);   // a folder that holds the programs' own folders is read without them
         try (var s = Files.walk(dir, 3)) {
-            for (Path p : s.filter(Files::isRegularFile).sorted().toList()) {
+            for (Path p : s.filter(Files::isRegularFile).filter(own::allows).sorted().toList()) {
                 if (!reads(p)) continue;
                 String ext = Corpus.ext(p);
                 long size = Files.size(p);

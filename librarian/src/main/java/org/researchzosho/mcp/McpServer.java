@@ -982,6 +982,10 @@ public final class McpServer {
                         prop("want", "string", "With want: what is wanted for the topic."),
                         prop("employer", "string", "With board: the employer's or institution's name."),
                         arrayProp("towns", "With board, optional: towns the openings are cut to."),
+                        prop("address", "string", "With board, optional: the address of the employer's board or careers page, which the library then reads in every search (write)."),
+                        prop("site", "string", "With board, optional: the employer's website, which the library then takes as its own (write)."),
+                        prop("people", "integer", "With board, optional: how many people work there, which the library then takes as its size (write)."),
+                        prop("forget", "boolean", "With board, optional: forget what the library keeps of the employer, so the next search looks it up again (write)."),
                         patronProp())));
         tools.add(tool("library_job",
                 "One job from the ledger ({job}: state queued|running|done|failed|stopped|offered, elapsed_s, result when finished; while it may still change, "

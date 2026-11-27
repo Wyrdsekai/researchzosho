@@ -8,6 +8,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -471,8 +472,12 @@ public final class Config {
             lines.add(shorthand(want) + " = " + value);
         }
         Path tmp = cfg.resolveSibling(cfg.getFileName() + ".writing-" + ProcessHandle.current().pid());
+        // the file holds keys: a new one is readable only by its owner from its first byte (0.8.4: before, a settings file the first
+        // `settings set` made was as readable as any new file, by every user of the machine where the umask allows it), and a file
+        // that was there keeps its permissions
+        Files.deleteIfExists(tmp);
+        try { Files.createFile(tmp, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"))); } catch (UnsupportedOperationException notPosix) { /* Windows: the home folder is the person's own */ }
         Files.writeString(tmp, String.join("\n", lines) + "\n");
-        // the file holds keys: the new one keeps the old one's permissions, which a freshly made file would not
         try { if (Files.exists(cfg)) Files.setPosixFilePermissions(tmp, Files.getPosixFilePermissions(cfg)); } catch (UnsupportedOperationException ignored) { }
         try { Files.move(tmp, cfg, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE); }
         catch (AtomicMoveNotSupportedException e) { Files.move(tmp, cfg, StandardCopyOption.REPLACE_EXISTING); }

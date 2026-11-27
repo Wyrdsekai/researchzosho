@@ -33,7 +33,7 @@ public final class CareerPage {
         List<Career.Seeker> all = Career.seekers(store);
         if (s == null) {   // the front door, as the dossier's: open a person by name, the people on the shelves, and a new one
             b.append("<form class=\"big\" action=\"/career\"><input name=\"seeker\" placeholder=\"").append(Pages.esc(t("A person looking for work…"))).append("\" autofocus aria-label=\"").append(Pages.esc(t("the person's name"))).append("\"> <button>").append(t("Open")).append("</button></form>");
-            b.append("<p class=\"k\">").append(t("For each person: their working life read from what they handed over, what they want next, how jobs like theirs are filled, the employers of their place and the openings that fit. Nothing here leaves the library.")).append("</p>");
+            b.append("<p class=\"k\">").append(t("For each person: their working life read from what they handed over, what they want next, how jobs like theirs are filled, the employers of their place and the openings that fit. What is kept here stays in the library; a search sends out only the words it searches for: the titles and the field wanted, the place, and the names of the employers it looks at.")).append("</p>");
             b.append("<h2 id=\"board\">").append(t("An employer's board")).append("</h2><p class=\"k\">").append(t("Any employer or institution by name: its own careers board, found from its careers page or the organisation it belongs to, and the openings on it.")).append("</p>")
              .append("<form method=\"post\" action=\"/career\" class=\"inline\"><input type=\"hidden\" name=\"op\" value=\"board\"><input name=\"employer\" size=\"40\" placeholder=\"").append(Pages.esc(t("an employer's or institution's name"))).append("\" aria-label=\"").append(Pages.esc(t("the employer"))).append("\"> <input name=\"towns\" size=\"24\" placeholder=\"").append(Pages.esc(t("towns, comma-separated (optional)"))).append("\" aria-label=\"").append(Pages.esc(t("towns"))).append("\"> <button>").append(t("Read its board")).append("</button></form>");
             if (all.isEmpty()) b.append("<p>").append(writer ? t("Nobody's working life is kept here yet. Start one below.") : t("Nobody's working life is kept here yet.")).append("</p>");
@@ -225,7 +225,7 @@ public final class CareerPage {
         if (!running.isEmpty()) return "<div class=\"notice\"><b>" + t("The search is on.") + "</b> " + Pages.esc(running) + " " + t("{0} fills as it goes; {1} shows how far it has come.", link + t("The openings list") + "</a>", "<a href=\"/jobs\">" + t("the runs page") + "</a>") + "</div>";
         CareerFind.View v = CareerFind.view(store, s);
         if (v.companies().isEmpty() && v.openings() == 0) {
-            return "<div class=\"notice\"><b>" + t("No search yet.") + "</b> " + t("A search lists the employers of your place, the ones you named first, reads their openings, keeps the ones that fit what you decided, and has the model read the nearest; it takes half an hour to three quarters of an hour.") + " "
+            return "<div class=\"notice\"><b>" + t("No search yet.") + "</b> " + t("A search lists the employers of your place, the ones you named first, reads their openings, keeps the ones that fit what you decided, and has the model read the nearest; it takes about ten to fifteen minutes, and the first search in a month for the field you decided also researches that field's employers, about eight minutes more, longer when the model is busy.") + " "
                     + t("The more the library knows of you below, the better it looks.") + " " + (writer ? searchButton(s, t("Look for openings")) : "") + "</div>";
         }
         Set<String> at = new HashSet<>();
@@ -270,10 +270,19 @@ public final class CareerPage {
             }
             String when = j.path("at").asText("").replace("T", " "), stem = p.getFileName().toString().replaceFirst("\\.json$", "");
             b.append("<tr><td><a href=\"/career/openings?seeker=").append(Pages.esc(s.slug())).append("&amp;run=").append(Pages.esc(stem)).append("\">").append(Pages.esc(Chrome.now().day(when))).append("</a></td><td class=\"k\">").append(Pages.esc(j.path("vary").asText(""))).append("</td><td>").append(looked).append(research > 0 ? " <span class=\"k\">(" + t("{0} by the library's research", research) + ")</span>" : "").append("</td><td>").append(readable)
-             .append("</td><td>").append(j.path("passing").size()).append("</td><td>").append(j.path("read").size()).append("</td><td class=\"k\">").append(Pages.esc(Career.cap(j.path("cut").asText("")))).append("</td></tr>");
+             .append("</td><td>").append(j.path("passing").size()).append(ways(j)).append("</td><td>").append(j.path("read").size()).append("</td><td class=\"k\">").append(Pages.esc(Career.cap(j.path("cut").asText("")))).append("</td></tr>");
             if (!names.isEmpty()) b.append("<tr><td colspan=\"7\"><details><summary class=\"k\">").append(t("The employers it looked at")).append("</summary><p class=\"k\">").append(Pages.esc(String.join(" · ", names))).append("</p></details></td></tr>");
         }
         return b.append("</table>").toString();
+    }
+
+    /** How many of a search's passing openings came by each way of finding employers, from its record: "" when none came by either. */
+    static String ways(JsonNode run) {
+        int search = run.path("ways").path("search").asInt(0), exa = run.path("ways").path("exa").asInt(0);
+        List<String> parts = new ArrayList<>();
+        if (search > 0) parts.add(t("{0} by the search of the hiring sites", search));
+        if (exa > 0) parts.add(t("{0} by Exa", exa));
+        return parts.isEmpty() ? "" : " <span class=\"k\">(" + Pages.esc(String.join(", ", parts)) + ")</span>";
     }
 
     /** The companies of the person's place from the public records, in a line, with the page that lists them. */
@@ -301,7 +310,7 @@ public final class CareerPage {
         String link = "<a href=\"/career/openings?seeker=" + Pages.esc(s.slug()) + "\">";
         if (!running.isEmpty()) b.append("<p class=\"notice\">").append(Pages.esc(running)).append(" ").append(t("{0} fills as it goes.", link + t("The openings list") + "</a>")).append("</p>");
         if (v.companies().isEmpty() && v.openings() == 0) {
-            b.append("<p>").append(t("No search yet.")).append(" ").append(t("A search lists the employers for you, the ones you named first, then those the public records and the lists for your work and place name, reads their openings from their own hiring pages, keeps the ones that fit what you decided, and has the model read the nearest. It takes half an hour to three quarters of an hour.")).append("</p>");
+            b.append("<p>").append(t("No search yet.")).append(" ").append(t("A search lists the employers for you, the ones you named first, then those the public records and the lists for your work and place name, reads their openings from their own hiring pages, keeps the ones that fit what you decided, and has the model read the nearest. It takes about ten to fifteen minutes; the first search in a month for the field you decided also researches that field's employers, about eight minutes more, longer when the model is busy.")).append("</p>");
             if (writer && running.isEmpty()) b.append(searchButton(s, t("Look for openings")));
             return b.toString();
         }

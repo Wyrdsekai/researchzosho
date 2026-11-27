@@ -1,0 +1,36 @@
+{
+ "name": "Civica",
+ "description": "",
+ "jobs": [
+  {
+   "title": "NHS Payroll Controller",
+   "shortcode": "ECCDD755DA",
+   "employment_type": "Full-time",
+   "telecommuting": false,
+   "department": "Customer",
+   "url": "https://apply.workable.com/j/ECCDD755DA",
+   "shortlink": "https://apply.workable.com/j/ECCDD755DA",
+   "application_url": "https://apply.workable.com/j/ECCDD755DA/apply",
+   "published_on": "2026-10-21",
+   "created_at": "2026-09-30",
+   "country": "United Kingdom",
+   "city": "Birmingham",
+   "state": "England"
+  },
+  {
+   "title": "Account Manager - Medical Billing",
+   "shortcode": "4A7874E492",
+   "employment_type": null,
+   "telecommuting": true,
+   "department": "Customer",
+   "url": "https://apply.workable.com/j/4A7874E492",
+   "shortlink": "https://apply.workable.com/j/4A7874E492",
+   "application_url": "https://apply.workable.com/j/4A7874E492/apply",
+   "published_on": "2026-10-12",
+   "created_at": "2026-09-22",
+   "country": "United Kingdom",
+   "city": "",
+   "state": ""
+  }
+ ]
+}

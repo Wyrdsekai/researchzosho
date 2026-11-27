@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
 import org.researchzosho.drive.DriveClient;
+import org.researchzosho.tools.ExaSearchTool;
+import org.researchzosho.tools.SearchTally;
+import org.researchzosho.tools.WebSearchTool;
 import org.researchzosho.librarian.CareerCut.Cut;
 import org.researchzosho.librarian.CareerCut.Verdict;
 import org.researchzosho.librarian.CareerSources.Found;
@@ -39,6 +42,8 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.math.BigDecimal;
 
 /**
  * The career search (docs/DESIGN_CAREER.md, step 3): the companies to look at, their openings, the cut, and the model's reading of the
@@ -60,6 +65,13 @@ public final class CareerFind {
     static int readingsMax() { return Math.max(0, Math.min(400, Config.getInt(READINGS_KEY, 40))); }
     /** How many new openings the model reads each night for a person who watches. */
     static int watchReadingsMax() { return Math.max(0, Math.min(100, Config.getInt(WATCH_READINGS_KEY, 10))); }
+    /** The setting for the searches through Exa one career search may make (career_exa). */
+    public static final String EXA_KEY = "RESEARCHZOSHO_CAREER_EXA";
+    /**
+     * How many searches through Exa one career search may make, when an Exa key is set: one for each title searched, three at most unless
+     * set (0 turns them off; at $0.007 a search three cost two cents). The nightly watch makes none.
+     */
+    static int exaSearches() { return Math.max(0, Math.min(10, Config.getInt(EXA_KEY, CareerSources.SEARCH_TITLES))); }
     /** At most this many openings from one company are read before a further one from any. */
     static final int PER_COMPANY = 3;
     /** The most companies the model proposes in one search: it cannot know who is hiring, and asked for more it names the famous. */
@@ -201,7 +213,23 @@ public final class CareerFind {
      * the standing record with the words applied, kept with the run's record and never as the person's decisions.
      */
     public static String run(LibraryStore store, Career.Seeker s, Progress progress, BooleanSupplier stop, String vary) throws IOException {
+        SearchTally.Work searches = SearchTally.begin("this career search", paidMost());   // what it searched, by the engine that answered, and the most it pays for
+        CareerLookups.Run lookups = CareerLookups.begin(store);   // its look-ups of employers: asked once, kept for the library, the free engine first
+        try { return search(store, s, progress, stop, vary, searches, lookups); }
+        finally { CareerLookups.end(lookups); SearchTally.end(searches); }
+    }
+
+    /**
+     * The most paid searches one career search makes (0.8.4): the search by site's, the lists' of employers, the research of a decided
+     * field's (once a month), the look-ups' of employers, and Exa's when its key is set: 9, 8, 10, 20 and 3. Each part holds to its own
+     * most; this is their sum, held to as a whole too.
+     */
+    static int paidMost() { return CareerSources.discoverQueries() + CareerTargets.SEARCHES + CareerEmployers.PAID_MOST + CareerLookups.PAID_MOST + (ExaSearchTool.keySet() ? exaSearches() : 0); }
+
+    private static String search(LibraryStore store, Career.Seeker s, Progress progress, BooleanSupplier stop, String vary, SearchTally.Work searches, CareerLookups.Run lookups) throws IOException {
         String today = LocalDate.now().toString();
+        CareerSources.forgetNotes();   // what the web search says of a paid engine it passed over, said once in the summary
+        SAID.remove();
         CareerVariation.Variation var = null;
         if (vary != null && !vary.isBlank()) {
             progress.at("Reading what you said for this search");
@@ -228,7 +256,10 @@ public final class CareerFind {
             if (known > 0 && var == null) { progress.at("Reading the companies of your place against what you want"); readCompanies = CareerCompanies.read(store, s, cut, 60, stop); }   // the readings are against what the person decided; a change for one search leaves them
         } catch (RuntimeException e) { Career.log(store, s, "The companies of your place could not be gathered: " + e.getMessage()); }
         progress.at("Choosing the companies to look at");
-        List<ObjectNode> list = companyList(store, s, cut, shape, progress, stop, var, true);
+        CareerSources.Wanted wanted = wanted(cut, var == null ? CareerSearch.keepOut(store, s) : var.keepOut());   // what the boards are read for, from the cut, for the whole search
+        List<ObjectNode> list;
+        CareerSources.WANTED.set(wanted);   // a found posting's check reads its board as the employer's read will, once
+        try { list = companyList(store, s, cut, shape, progress, stop, var, true); } finally { CareerSources.WANTED.remove(); }
         List<ObjectNode> look = new ArrayList<>();
         for (ObjectNode c : list) if (lookedAt(c)) look.add(c);
         Map<String, ObjectNode> all = openings(store, s);
@@ -244,7 +275,10 @@ public final class CareerFind {
                 DriveClient.useFor(purse);
                 if (stop.getAsBoolean()) return null;
                 String name = c.path("name").asText();
-                Found f = readCompany(c, cut, towns);
+                progress.at("Reading the openings of " + name + (c.has("feed") ? " on " + c.path("feed").path("system").asText("its board") : ", looking for its careers page first") + "; " + done.get() + " of " + look.size() + " employers done");
+                CareerSources.WANTED.set(wanted);
+                Found f;
+                try { f = readCompany(c, cut, towns); } finally { CareerSources.WANTED.remove(); }
                 sizeOf(store, c, f, today);
                 synchronized (c) {
                     c.put("read_at", today).put("openings", f.openings().size()).put("note", f.note());
@@ -259,6 +293,11 @@ public final class CareerFind {
             }));
             for (Future<?> f : fs) { try { f.get(); } catch (Exception e) { /* one company's failure is its own note, never the search's */ } }
         } finally { pool.shutdownNow(); }
+        int past = CareerSources.EXTRA_READS_MAX - Math.max(0, wanted.reads().get());
+        if (past > 0) Career.log(store, s, "The search read " + past + (past == 1 ? " posting's own page" : " postings' own pages") + " past their boards' lists, for the places of a row in several or a posting's day, "
+                + "each for an opening whose title can be shown; it reads at most " + CareerSources.EXTRA_READS_MAX + " in a search.");
+        String later = laterLine(wanted);
+        if (!later.isEmpty()) { Career.log(store, s, later); SAID.get().add(later); }
         saveCompanies(store, s, list);
         try {   // what the cards and the sites said of the companies of the place goes back to their record, and those are read again with it
             Set<String> learned = new LinkedHashSet<>(CareerCompanies.learn(store, s, list));
@@ -288,7 +327,10 @@ public final class CareerFind {
         int read = stop.getAsBoolean() ? 0 : readSome(store, s, v, readingsMax(), progress, stop);
         v = view(store, s, cut, var == null ? null : var.keepOut());
         snapshot(store, s, v, cut, var == null ? "" : var.words());
-        String said = summary(v, look.size(), hn, usa, read) + (known > 0 ? " The public records give " + known + " employers of your place; the model read " + readCompanies + " of them against what you want this time." : "");
+        String why = whyLine(CareerSources.notesSoFar(), searches.calls().values().stream().mapToInt(Integer::intValue).sum(), searches.paid(), WebSearchTool.paidSet());   // one closing statement: the look-ups' count of the searches, then why that engine
+        String said = summary(v, look.size(), hn, usa, read) + (known > 0 ? " The public records give " + known + " employers of your place; the model read " + readCompanies + " of them against what you want this time." : "")
+                + (SAID.get().isEmpty() ? "" : " " + String.join(" ", SAID.get())) + " " + CareerLookups.line(searches, lookups) + (why.isEmpty() ? "" : " " + why);
+        SAID.remove();
         Career.log(store, s, said);
         return said + (stop.getAsBoolean() ? " The search was stopped before it finished." : "");
     }
@@ -318,7 +360,36 @@ public final class CareerFind {
     }
 
     /** A company's openings: from the feed an earlier search found, when it still answers; else found again through a search for its careers page. */
+    /** How long a search takes, as measured on 2026-11-27 (seeker 34, free engine): about eleven minutes, the field's research besides (0.8.4). */
+    static final String TAKES = "It takes about ten to fifteen minutes; the first search in a month for the field you decided also researches that field's employers, about eight minutes more, longer when the model is busy.";
+
     static Found readCompany(ObjectNode c, Cut cut) { return readCompany(c, cut, towns(cut, List.of())); }
+
+    /**
+     * What a search says of the hiring systems that asked the library to come back later (0.8.4): "Workable asked the library to come
+     * back later, so the employers on it keep their boards and are read at the next search; the search did not wait for it." "" when none did.
+     */
+    static String laterLine(CareerSources.Wanted w) {
+        Set<String> systems = new LinkedHashSet<>();
+        for (String h : w.laterSites().keySet()) { CareerSources.Site site = CareerSources.siteOf("https://" + h + "/"); systems.add(site != null ? site.system() : h); }
+        if (systems.isEmpty()) return "";
+        return Career.and(new ArrayList<>(systems)) + " asked the library to come back later, so the employers on " + (systems.size() == 1 ? "it" : "them")
+                + " keep their boards and are read at the next search; the search waited at most a minute for " + (systems.size() == 1 ? "it" : "them") + " in all.";
+    }
+
+    /**
+     * What a search reads the boards for (0.8.4): the openings whose title the cut lets through (judged as the page judges it, with
+     * the keep-outs) and, for a row whose list line names a place, those in a place the cut lets through; a read past a board's list
+     * (a row's own record or page) is made only for such a row, at most {@link CareerSources#EXTRA_READS_MAX} in the whole search.
+     */
+    static CareerSources.Wanted wanted(Cut cut, List<String> keepOut) {
+        Cut places = new Cut(List.of(), List.of(), List.of(), List.of(), cut.places(), cut.remote(), cut.remoteWhere(), List.of(), List.of(), 0, 0, cut.by(), cut.at(), cut.basis(),
+                cut.nearby(), cut.nearKm(), List.of(), List.of(), cut.placeGuess());
+        return new CareerSources.Wanted(
+                title -> CareerCut.judge(cut, CareerSources.opening("", title, "", false, "about:" + title, "", "", "", "", "", ""), keepOut, List.of()).passes(),
+                place -> CareerCut.judge(places, CareerSources.opening("", "", place, CareerSources.remote(place), "about:" + place, "", "", "", "", "", ""), List.of(), List.of()).passes(),
+                CareerSources.EXTRA_READS_MAX);
+    }
 
     /** The towns an institution's openings are cut to: the places decided and those around them, else the library's guess, else the record's own. */
     static List<String> towns(Cut cut, List<String> recordPlace) {
@@ -335,8 +406,10 @@ public final class CareerFind {
         for (JsonNode a : c.path("anchors")) if (!a.asText("").isBlank()) anchors.add(a.asText());
         JsonNode feed = c.path("feed");
         if (feed.isObject()) {
-            Found f = CareerSources.read(new CareerSources.Feed(feed.path("kind").asText(), feed.path("token").asText(), feed.path("how").asText()), name, cut.titles());
+            CareerSources.Feed had = new CareerSources.Feed(feed.path("kind").asText(), feed.path("token").asText(), feed.path("how").asText());
+            Found f = CareerSources.read(had, name, cut.titles());
             if (f != null && (anchors.isEmpty() || f.feed() == null || CareerSources.anchored(f, anchors))) return f;
+            if (f == null) CareerLookups.boardFailed(had);   // it did not answer: not read again in this search, and the employer is looked up by its name
             if (f != null) synchronized (c) {   // a board kept from before that names none of the record's words: a namesake's, with the site and the size that came from it
                 c.remove("feed"); c.remove("site"); c.remove("site_at");
                 if (!c.path("people").path("source").asText("").startsWith("its company card")) c.remove("people");
@@ -360,19 +433,39 @@ public final class CareerFind {
         c.put("why", "A search of the hiring sites found its page for " + posting + ", but its own board no longer lists that opening.");
     }
 
-    /** The company's website and its size, looked up once a month: the size is tied to the site, so a namesake's never passes for the company's. */
+    /**
+     * The company's website and its size, the size tied to the site, so a namesake's never passes for the company's. Each is looked up
+     * once for the whole library and kept ({@link CareerLookups}): a search reads what is kept while it serves, and a size the person
+     * set comes before every other.
+     */
     static void sizeOf(LibraryStore store, ObjectNode c, Found f, String today) {
-        String name = c.path("name").asText();
+        String name = c.path("name").asText(), as = CareerLookups.nameOf(name, f.feed());   // what is kept of it: under its name, or under its board's other spelling
+        if (f.feed() != null && (f.note() == null || f.note().isEmpty())) CareerLookups.boardSeen(as, f.feed());
         if (c.path("site").asText("").isEmpty() && f.feed() != null) {
-            String site = CareerSize.findSite(name, f.feed());
+            String kept = CareerLookups.site(as), site;   // the website confirmed for this employer lately; "-" when none was
+            if (!kept.isEmpty()) { site = kept.equals("-") ? "" : kept; CareerLookups.fromKept(); }
+            else {
+                CareerLookups.Asked asked = CareerLookups.asking();
+                site = CareerSize.findSite(name, f.feed());
+                if (!site.isEmpty() || !asked.unanswered()) CareerLookups.siteFound(as, site);   // that none was confirmed, only after searches that answered
+            }
             synchronized (c) { c.put("site", site).put("site_at", today); }
         }
-        CareerSize.People fromCard = CareerCompany.people(store, name);   // the dossier's claims first: each with its source and its class
+        CareerSize.People kept = CareerLookups.people(as);
+        boolean yours = kept != null && kept.source().equals("you");
+        CareerSize.People fromCard = yours ? null : CareerCompany.people(store, name);   // the dossier's claims first, after the person's own word: each with its source and its class
         if (c.path("stage").asText("").isEmpty()) { String st = CareerCompany.stage(store, name); if (!st.isEmpty()) synchronized (c) { c.put("stage", st).put("stage_by", "its company card"); } }
-        if (fromCard != null) { synchronized (c) { c.remove("people_none_at"); c.putObject("people").put("low", fromCard.low()).put("high", fromCard.high()).put("source", fromCard.source()).put("at", fromCard.at()); } return; }
+        CareerSize.People first = yours ? kept : fromCard;
+        if (first != null) { synchronized (c) { c.remove("people_none_at"); c.putObject("people").put("low", first.low()).put("high", first.high()).put("source", first.source()).put("at", first.at()); } return; }
         String site = c.path("site").asText("");
         if (site.isEmpty() || (c.has("people") && !monthOld(c.path("people").path("at").asText(""))) || (c.has("people_none_at") && !monthOld(c.path("people_none_at").asText("")))) return;
-        CareerSize.People p = CareerSize.lookup(name, site);
+        CareerSize.People p;
+        if (kept != null || CareerLookups.noPeople(as)) { p = kept; CareerLookups.fromKept(); }
+        else {
+            CareerLookups.Asked asked = CareerLookups.asking();
+            p = CareerSize.lookup(name, site);
+            if (p != null || !asked.unanswered()) CareerLookups.peopleFound(as, p);
+        }
         synchronized (c) {
             if (p == null) { c.put("people_none_at", today); return; }
             c.remove("people_none_at");
@@ -455,6 +548,12 @@ public final class CareerFind {
         }
         long looked = out.stream().filter(CareerFind::lookedAt).count();
         int room = (int) Math.max(0, companiesMax() - looked);
+        // the search by site and Exa look for the very titles the person wants, the best evidence the list has: each keeps a part of the list
+        // of its own, a third and a sixth of it (20 and 10 of 60), which the sources before them cannot take; what one leaves goes on (0.8.4)
+        boolean exaOn = research && exaSearches() > 0 && ExaSearchTool.keySet();
+        int siteOwn = shape.posted() ? Math.min(companiesMax() / 3, room) : 0;
+        int exaOwn = shape.posted() && exaOn ? Math.min(companiesMax() / 6, room - siteOwn) : 0;
+        room -= siteOwn + exaOwn;
         Set<String> listed = new HashSet<>(), feeds = new HashSet<>();
         for (ObjectNode c : out) { listed.add(CareerSearch.key(c.path("name").asText())); if (c.has("feed")) feeds.add(c.path("feed").path("kind").asText() + ":" + c.path("feed").path("token").asText()); }
         Predicate<String> titleOk = title -> CareerCut.judge(cut, CareerSources.opening("", title, "", false, "about:" + title, "", "", "", "", "", ""), keepOut, List.of()).passes();
@@ -531,18 +630,54 @@ public final class CareerFind {
             }
             if (!bf.notes().isEmpty()) Career.log(store, s, "The portfolio boards read, those known for your place and those read for any place: " + String.join("; ", bf.notes()) + ".");
         }
-        if (room > 0 && shape.posted()) {   // companies hiring now for the titles wanted, found on the hiring systems' own pages: evidence before the model's proposals; only where seats are posted openly
-            int share = Math.max(1, room * 2 / 3);   // the model's proposals keep a third of the room
-            for (CareerSources.Discovered d : CareerSources.discover(searchTerms(cut), searchPlaces(cut), share, titleOk, d -> CareerSources.stillListed(d, cut.titles()))) {
-                String k = CareerSearch.key(d.company());
-                if (k.isEmpty() || listed.contains(k) || d.feed() == null || !feeds.add(d.feed().label()) || keptOut(d.company(), keepOut)) continue;
-                ObjectNode c = M.createObjectNode().put("name", d.company()).put("by", "library").put("why", "It is hiring for " + CareerSources.clip(d.posting(), 120) + ", found in a search of the hiring sites.")
-                        .put("state", "").put("first_listed", byKey.containsKey(k) ? byKey.get(k).path("first_listed").asText(LocalDate.now().toString()) : LocalDate.now().toString());
-                c.putObject("feed").put("kind", d.feed().kind()).put("token", d.feed().token()).put("how", d.feed().how()).put("system", d.feed().system());
-                listed.add(k);
-                out.add(c);
-                room--;
-                if (--share == 0) break;
+        if (!shape.posted()) said(store, s, "The hiring sites were not searched, since seats like yours are not posted openly, by how the search reads such seats are filled.");
+        else if (siteOwn == 0) said(store, s, "The hiring sites were not searched: the employers you named fill the list (career_companies, " + companiesMax() + ").");
+        if (shape.posted() && siteOwn > 0) {   // companies hiring now for the titles wanted, found on the hiring systems' own pages: evidence before the model's proposals; only where seats are posted openly
+            int share = siteOwn + room * 2 / 3;   // its own part, and two thirds of what the sources before it left: the model's proposals keep a third
+            Map<String, CareerCompanies.Want> wanted = var == null ? CareerCompanies.wantsOf(store, s) : CareerCompanies.wantsOf(var.wants());
+            CareerCompanies.Want role = wanted.get("role");
+            List<String> titles = searchTitles(cut, role != null && role.decided() ? role.text() : Career.latestTitle(store, s));
+            List<String> terms = titles.isEmpty() ? searchTerms(cut) : quoted(titles);
+            List<List<CareerSources.Site>> groups = CareerSources.siteGroups(CareerSources.SITES);
+            Predicate<CareerSources.Discovered> live = d -> CareerSources.stillListed(d, cut.titles());
+            int[] made = new int[2];
+            int found = 0, later = 0;
+            for (CareerSources.Discovered d : CareerSources.discover(terms, searchPlaces(cut), share, titleOk, live, made)) {
+                if (!listHiring(d, "found in a search of the hiring sites", "search", listed, feeds, keepOut, byKey, out)) continue;
+                found++;
+                if (!d.checked()) later++;
+                if (found == share) break;
+            }
+            room = Math.max(0, room - Math.max(0, found - siteOwn)) + Math.max(0, siteOwn - found);   // what it took beyond its own part, and what it left of it
+            boolean unanswered = made[0] > 0 && made[1] == made[0];   // every search by site went unanswered: not made, not one that found nothing
+            if (found == 0) SAID.get().add(unanswered ? "The hiring sites could not be searched this time: no search engine answered."
+                    : "The search of the hiring sites for the titles you want gave no employer this time.");
+            Career.log(store, s, "The search looked for " + (titles.isEmpty() ? "titles with " + String.join(" or ", terms) : Career.and(titles)) + " on the hiring systems' own job pages (" + groups.stream().flatMap(List::stream).map(CareerSources.Site::system).distinct().collect(Collectors.joining(", "))
+                    + "): " + made[0] + (made[0] == 1 ? " search, " : " searches, ") + BigDecimal.valueOf(CareerSources.searchGap() / 1000.0).stripTrailingZeros().toPlainString() + " seconds apart"
+                    + (made[1] == 0 ? "" : ", " + (made[1] == made[0] ? "none of them" : made[1] + " of them not") + " answered by a search engine") + ", and "
+                    + (found - later == 0 ? "they gave no employer with a posting of a title you want that its own board still lists" : "they gave " + (found - later) + (found - later == 1 ? " employer" : " employers") + " with a posting of a title you want that its own board still lists")
+                    + (later == 0 ? "." : (found - later == 0 ? "; " : ", and ") + later + (later == 1 ? " more whose board" : " more whose boards") + " could not be read this time: kept, checked at the next search."));
+            if (!exaOn) {
+                if (research) Career.log(store, s, "Exa, the search by meaning, was not asked: " + (exaSearches() == 0 ? "career_exa is 0." : "no Exa key is set (exa_key)."));
+            } else {
+                List<String> queries = exaQueries(cut, titles.isEmpty() ? unquoted(terms) : titles, exaSearches());
+                progress.at("Searching by meaning through Exa for postings like yours");
+                int exaShare = exaOwn + room / 2;
+                CareerSources.ByMeaning bm = CareerSources.byMeaning(queries, Math.max(1, exaShare), titleOk, live);
+                int added = 0, exaLater = 0;
+                for (CareerSources.Discovered d : bm.found()) {
+                    if (added == exaShare) break;
+                    if (!listHiring(d, "found by a search by meaning through Exa", "exa", listed, feeds, keepOut, byKey, out)) continue;
+                    added++;
+                    if (!d.checked()) exaLater++;
+                }
+                room = Math.max(0, room - Math.max(0, added - exaOwn)) + Math.max(0, exaOwn - added);
+                Career.log(store, s, bm.searches() == 0 ? "Exa was not asked: " + bm.note()
+                        : "Exa was asked " + bm.searches() + (bm.searches() == 1 ? " time" : " times") + " for postings on the hiring systems the library reads, published in the last " + CareerSources.EXA_DAYS + " days, and gave "
+                        + (added == 0 ? "no employer the search had not found already with a posting of a title you want that its own board still lists"
+                                : added + (added == 1 ? " employer" : " employers") + " more, each with a posting of a title you want that its own board still lists; whether their openings are in your place is judged when they are read with the rest")
+                        + "." + (exaLater == 0 ? "" : " Of them, " + exaLater + (exaLater == 1 ? " has a board that" : " have boards that") + " could not be read this time: kept, checked at the next search.")
+                        + (bm.note().isEmpty() ? "" : " " + bm.note()));
             }
         }
         room = Math.min(room, PROPOSALS_MAX);   // the model's choice is the weakest source: a few, for the person to try, never the list
@@ -580,6 +715,85 @@ public final class CareerFind {
         return out;
     }
 
+
+    /**
+     * The whole titles the discovery looks for (0.8.4): the ones the cut names for the role (the person's own words, and the title in the
+     * language of their place's postings), else the titles in the words they decided for the role, else none, and the cut's title words
+     * are searched as before. At most {@link CareerSources#SEARCH_TITLES}.
+     */
+    static List<String> searchTitles(Cut cut, String roleWords) {
+        List<String> out = new ArrayList<>();
+        for (String t : cut.searchTitles().isEmpty() ? titlesIn(roleWords, cut) : cut.searchTitles()) {
+            String x = t.replace("\"", "").replaceAll("\\s+", " ").strip();
+            if (!x.isEmpty() && out.stream().noneMatch(y -> y.equalsIgnoreCase(x))) out.add(x);
+            if (out.size() == CareerSources.SEARCH_TITLES) break;
+        }
+        return out;
+    }
+
+    /** Words that end a title in what a person writes of the role: "CTO at a seed-stage startup", "engineer (hands-on)". */
+    static final Pattern TITLE_ENDS = Pattern.compile("(?i)\\s+(?:at|in|for|with|without|who|where|that|on)\\s.*$|\\s*[(\\[].*$|\\s+[-–—]\\s.*$");
+    /** A level at the head of a title, which postings write every way: Senior, Junior, Lead, Staff, Principal. */
+    static final Pattern LEVEL = Pattern.compile("(?i)^(?:senior|sr\\.?|junior|jr\\.?|lead|staff|principal)\\s+");
+
+    /**
+     * The titles in the words a person decided for the role, when the cut names none: each part of what they wrote (between commas,
+     * semicolons, slashes and "or", in the languages the library meets) that holds one of the cut's title words, or any part when the cut
+     * has none, cut where the title ends and without a level at its head; a part of more than six words is a sentence, not a title.
+     */
+    static List<String> titlesIn(String roleWords, Cut cut) {
+        List<String> out = new ArrayList<>();
+        if (roleWords == null || roleWords.isBlank()) return out;
+        List<String> words = new ArrayList<>(cut.titles());
+        words.addAll(cut.preferTitles());
+        for (String part : roleWords.split("(?i)\\s*(?:[,;/]|\\b(?:or|oder|ou|o|или)\\b)\\s*")) {
+            String t = LEVEL.matcher(TITLE_ENDS.matcher(part.strip()).replaceFirst("").strip()).replaceFirst("").strip().replaceAll("[.!?:]+$", "");
+            if (t.isEmpty() || t.split("\\s+").length > 6) continue;
+            if (!words.isEmpty() && words.stream().noneMatch(w -> CareerCut.has(t, w))) continue;
+            if (out.stream().noneMatch(x -> x.equalsIgnoreCase(t))) out.add(t);
+        }
+        return out;
+    }
+
+    static List<String> quoted(List<String> titles) { List<String> out = new ArrayList<>(); for (String t : titles) out.add("\"" + t + "\""); return out; }
+    static List<String> unquoted(List<String> terms) { List<String> out = new ArrayList<>(); for (String t : terms) out.add(t.replace("\"", "").strip()); return out; }
+
+    /**
+     * What is sent to Exa (0.8.4): for each title, a description of the posting wanted, from the title and the place the person decided and
+     * whether remote counts, as the search by site sends them to a search engine; nothing else of the person's, not their name, their
+     * employers, their history or their words. "Security Engineer job posting in Columbus, Ohio, or remote". At most {@code max}.
+     */
+    static List<String> exaQueries(Cut cut, List<String> titles, int max) {
+        List<String> out = new ArrayList<>();
+        String place = String.join(", ", cut.places().subList(0, Math.min(2, cut.places().size())));
+        String where = cut.remoteWhere().isEmpty() ? "" : cut.remoteWhere().get(0);
+        for (String t : titles) {
+            if (out.size() >= max) break;
+            String q = switch (cut.remote()) {   // the title first, so no article is needed: "an User Experience Designer", "a ML Engineer" were wrong
+                case "only" -> t + " job posting, fully remote" + (where.isEmpty() ? "" : ", open to candidates in " + where);
+                case "fine" -> t + " job posting" + (place.isEmpty() ? ", remote" : " in " + place + ", or remote") + (where.isEmpty() ? "" : " in " + where);
+                default -> t + " job posting" + (place.isEmpty() ? "" : " in " + place);
+            };
+            if (!out.contains(q)) out.add(q);
+        }
+        return out;
+    }
+
+    /**
+     * A company a discovery found hiring, put on the list with the posting that showed it, its feed and the way it was found; false when it
+     * is listed already, its feed is, or it is kept out.
+     */
+    static boolean listHiring(CareerSources.Discovered d, String found, String way, Set<String> listed, Set<String> feeds, List<String> keepOut, Map<String, ObjectNode> byKey, List<ObjectNode> out) {
+        String k = CareerSearch.key(d.company());
+        if (k.isEmpty() || listed.contains(k) || d.feed() == null || !feeds.add(d.feed().label()) || keptOut(d.company(), keepOut)) return false;
+        ObjectNode c = M.createObjectNode().put("name", d.company()).put("by", "library").put("from", way).put("why", "It is hiring for " + CareerSources.clip(d.posting(), 120) + ", " + found
+                + (d.checked() ? "." : "; its board could not be read this time (it asked the library to come back later, or did not answer), so whether it still lists that posting is checked at the next search."))
+                .put("state", "").put("first_listed", byKey.containsKey(k) ? byKey.get(k).path("first_listed").asText(LocalDate.now().toString()) : LocalDate.now().toString());
+        c.putObject("feed").put("kind", d.feed().kind()).put("token", d.feed().token()).put("how", d.feed().how()).put("system", d.feed().system());
+        listed.add(k);
+        out.add(c);
+        return true;
+    }
 
     /** Where the discovery searches: only a place the person decided, with remote when remote counts; a guessed place never narrows what is found. */
     static List<String> searchPlaces(Cut cut) {
@@ -879,23 +1093,98 @@ public final class CareerFind {
                 .put("system", c.path("feed").path("system").asText("")).put("note", c.path("note").asText("")).put("looked", lookedAt(c)).put("state", c.path("state").asText(""));
         ArrayNode ps = o.putArray("passing"), rs = o.putArray("read");
         for (Row r : v.passing()) { ps.add(r.opening().id()); if (r.read()) rs.add(r.opening().id()); }
+        int[] ways = ways(v);
+        o.putObject("ways").put("search", ways[0]).put("exa", ways[1]);   // the openings that passed, by the way their employer was found
         write(dir(store, s).resolve("runs").resolve(o.path("at").asText().replace(":", "") + ".json"), o);
     }
+
+    /**
+     * The openings the cut let through and the openings read, when the cut let almost none of many through (0.8.4): at least
+     * {@value #MANY_READ} read and at most one in {@value #MANY_READ} through; null otherwise. A cut that keeps out its own titles looks
+     * like this (a UX designer's cut that kept out UX, UI and Product let 1 of 996 through, 2026-11-27), and so does a rare role among
+     * boards of other work: either way the person is shown the cut, to see which it is.
+     */
+    static int[] almostNoneThrough(View v) {
+        if (v.cut().cutsNothing()) return null;
+        int read = 0;
+        for (ObjectNode c : v.companies()) if (lookedAt(c) && c.has("feed")) read += c.path("openings").asInt(0);
+        int through = v.passing().size();
+        return read >= MANY_READ && (long) through * MANY_READ <= read ? new int[]{through, read} : null;
+    }
+
+    /** How many openings read are many, for {@link #almostNoneThrough}. */
+    static final int MANY_READ = 200;
 
     static String summary(View v, int looked, int hn, int usa, int read) {
         int readable = 0;
         for (ObjectNode c : v.companies()) if (lookedAt(c) && c.has("feed")) readable++;
+        List<Row> fit = new ArrayList<>();   // the page's own groups (0.8.4): an opening with no place given, or the role elsewhere, is a near miss there and here
+        int same = 0, near = 0, far = 0;
+        for (Row r : v.passing()) switch (CareerCut.group(v.cut(), r.opening())) { case 0 -> fit.add(r); case 1 -> same++; case 2 -> near++; default -> far++; }
         Set<String> at = new HashSet<>();
-        for (Row r : v.passing()) at.add(CareerSearch.key(r.opening().company()));
+        for (Row r : fit) at.add(CareerSearch.key(r.opening().company()));
         int research = 0;
         for (ObjectNode c : v.companies()) if (lookedAt(c) && c.path("from").asText("").equals("research")) research++;
         StringBuilder b = new StringBuilder("The search looked at " + looked + (looked == 1 ? " employer" : " employers") + (research > 0 ? ", " + research + " of them in your field by the library's research," : "") + " and could read the openings of " + (readable == 0 && looked > 0 ? "none of them" : readable + " of them"));
         if (hn > 0) b.append(", and ").append(hn).append(" posts in Hacker News's Who is hiring");
         if (usa > 0) b.append(", and ").append(usa).append(" federal openings on USAJobs");
-        b.append(". ").append(v.passing().size()).append(v.passing().size() == 1 ? " opening fits" : " openings fit").append(" what you decided, at ").append(at.size()).append(at.size() == 1 ? " employer" : " employers").append('.');
+        String guess = v.cut().guessedPlace();   // no place decided: the record's place is the first group, the rest come after it, none cut
+        b.append(". ").append(fit.size()).append(fit.size() == 1 ? " opening fits" : " openings fit").append(" what you decided").append(guess.isEmpty() ? "," : " in or near " + guess + ", where your record says you are,")
+                .append(" at ").append(at.size()).append(at.size() == 1 ? " employer" : " employers").append('.');
+        if (same > 0) b.append(' ').append(same).append(same == 1 ? " more carries" : " more carry").append(" another title of the same work (")
+                .append(String.join(", ", CareerOpeningsPage.otherTitles(v.cut()))).append(v.cut().by().equals("library") ? "), the library's guess at the titles of your work." : ").");
+        if (near > 0 && !guess.isEmpty()) b.append(' ').append(near).append(near == 1 ? " more is elsewhere or gives no place" : " more are elsewhere or give no place")
+                .append(", because you have not decided where you want to work: decide it and the search keeps to it.");
+        else if (near > 0) b.append(' ').append(near).append(near == 1 ? " more is a near miss" : " more are near misses").append(": the role elsewhere or remote, or the place with another role, or no place given.");
+        if (far > 0) b.append(' ').append(far).append(far == 1 ? " more matches" : " more match").append(" neither the role nor the place.");
+        int[] ways = ways(v, fit);
+        if (ways[0] + ways[1] > 0) b.append(' ').append(ways[0] + ways[1]).append(" of them came ").append(ways[0] == 0 ? "" : "from searching the hiring sites for the titles you want").append(ways[0] > 0 && ways[1] > 0 ? " (" + ways[0] + ") and " : "")
+                .append(ways[1] == 0 ? "" : "from Exa's search by meaning" + (ways[0] > 0 ? " (" + ways[1] + ")" : "")).append('.');
+        int[] none = almostNoneThrough(v);
+        if (none != null) b.append(" The cut let ").append(none[0]).append(" of the ").append(none[1]).append(" openings read through: ").append(CareerCut.summary(v.cut()))
+                .append(". If that keeps out titles you want, change it.");
         if (readable == 0 && looked > 0) b.append(" Their hiring pages are built in the browser or kept by a hiring system the library does not read yet; the list names each employer for you to open, and the address of a careers page you give is tried next time.");
-        if (read > 0) b.append(" The library read ").append(read).append(" of them nearest to what you want.");
+        if (read > 0) b.append(" The library read ").append(read).append(read == 1 ? " opening" : " openings").append(" nearest to what you want.");
+        if (v.cut().places().isEmpty() && !v.cut().remote().equals("only") && guess.isEmpty() && !v.passing().isEmpty())   // a guess never cuts: said, so a long list from everywhere is not taken for a list of the person's place
+            b.append(" No place is decided, so openings of every place pass; decide where you work and the search keeps to it.");
         return b.toString();
+    }
+
+    /** What the run's summary says of a source not asked or that gave nothing (0.8.4), gathered as the list is made. */
+    static final ThreadLocal<List<String>> SAID = ThreadLocal.withInitial(ArrayList::new);
+
+    /** A source not asked, and why: in the log, and in the run's summary. */
+    static void said(LibraryStore store, Career.Seeker s, String line) throws IOException { Career.log(store, s, line); SAID.get().add(line); }
+
+    /**
+     * Why the search's web searches went where they went, after the look-ups' count of them (CareerLookups.line), so that the person reads
+     * one closing statement (0.8.4): a paid engine passed over at its month's limit says so in the web search's own words; with no paid
+     * search set and none made, the free one answered because no key is set. "" when there is nothing to add.
+     */
+    static String whyLine(Set<String> notes, int all, int paid, boolean paidSet) {
+        StringBuilder b = new StringBuilder();
+        for (String n : notes) b.append(b.length() > 0 ? " " : "").append(Career.cap(n.endsWith(".") ? n : n + "."));
+        if (all > 0 && paid == 0 && notes.isEmpty() && !paidSet) b.append("No key for a paid search service is set, so the free one answered them.");
+        return b.toString();
+    }
+
+    /**
+     * How many of the openings that pass are at employers each way of finding them listed (0.8.4): [0] a search of the hiring sites for
+     * the titles wanted, [1] a search by meaning through Exa.
+     */
+    static int[] ways(View v) { return ways(v, v.passing()); }
+
+    /** As above, for some of the view's rows: the summary counts the ones that fit. */
+    static int[] ways(View v, List<Row> rows) {
+        Map<String, String> way = new HashMap<>();
+        for (ObjectNode c : v.companies()) way.put(CareerSearch.key(c.path("name").asText()), c.path("from").asText(""));
+        int[] n = new int[2];
+        for (Row r : rows) {
+            String w = way.getOrDefault(CareerSearch.key(r.kept() == null ? r.opening().company() : r.kept().path("listed").asText(r.opening().company())), "");   // the employer as the list names it
+            if (w.equals("search")) n[0]++;
+            else if (w.equals("exa")) n[1]++;
+        }
+        return n;
     }
 
     // ---------------------------------------------------------------- the person's reactions
@@ -976,7 +1265,7 @@ public final class CareerFind {
         String id = jobs.submit(kind, patronDid, args);
         String what = kind.equals("career-read") ? "The library will read " + readingsMax() + " more of the openings that pass, nearest first, about a minute each."
                 : "The search looks at up to " + companiesMax() + " employers, those you named first, reads their openings, keeps the ones that fit what you decided, and has the model read the "
-                + readingsMax() + " nearest to what you want. On this library's model that takes about half an hour to three quarters of an hour.";
+                + readingsMax() + " nearest to what you want. " + TAKES;
         return what + (vary != null && !vary.isBlank() ? " For this search only: " + vary.strip() + "; what you decided stands as it is." : "") + " It is filed as " + id + "; the runs page shows how far it has come, and the Career page's openings list fills as it goes."
                 + (Share.serviceRunning.getAsBoolean() ? "" : " The library's service is not running, so it starts when the service does: researchzosho service start.");
     }

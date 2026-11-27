@@ -20,6 +20,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -217,6 +220,96 @@ final class ModelsAwake {
         } catch (IOException | RuntimeException e) { /* the next use writes it */ }
     }
 
+    // ---- what is known of a container's rest (0.8.4): asleep, starting, or a start that failed ----
+
+    /**
+     * Where the idle rule writes that it stopped a container (its time; the idle minutes inside), and where a start made for a request
+     * writes how it ended (its time; "" when it answered, the reason when it did not, {@link #STARTING} while it is under way). Both beside
+     * the use's stamp, shared by every process of this machine.
+     */
+    static Path stoppedMark(String container) { return Config.home().resolve("idle").resolve(container + ".stopped"); }
+    static Path wokeMark(String container) { return Config.home().resolve("idle").resolve(container + ".woke"); }
+    static final String STARTING = "starting";
+    /** The time of day a person reads beside a stop or a start. */
+    static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault());
+
+    private static void mark(Path p, String text) {
+        try { Files.createDirectories(p.getParent()); Files.writeString(p, text, StandardCharsets.UTF_8); } catch (IOException | RuntimeException e) { /* said as not known */ }
+    }
+    private static long mtime(Path p) { try { return Files.getLastModifiedTime(p).toMillis(); } catch (IOException e) { return 0; } }
+    private static String read(Path p) { try { return Files.readString(p, StandardCharsets.UTF_8).strip(); } catch (IOException e) { return ""; } }
+
+    /**
+     * What the library knows of a container of this machine's that it puts to sleep: {@code ASLEEP} (the idle rule stopped it, {@code at},
+     * after {@code minutes} without use, and nothing has used or started it since), {@code STARTING} (a start made for a request is under
+     * way), {@code FAILED} (the last start, {@code at}, did not bring it up: {@code why}); null when none of these holds (it runs, it is
+     * not one of this machine's, or it was stopped by someone else).
+     */
+    record Rest(String kind, long at, int minutes, String why) {
+        static final String ASLEEP = "asleep", STARTING = "starting", FAILED = "failed", STOPPED = "stopped";
+        boolean asleep() { return kind.equals(ASLEEP); }
+        /** Not running, with no record of why (stopped before this version kept one, a machine that restarted, a person): the next search starts it. */
+        boolean stopped() { return kind.equals(STOPPED); }
+        boolean starting() { return kind.equals(STARTING); }
+        boolean failed() { return kind.equals(FAILED); }
+    }
+
+    /** How long a look gives Docker to say whether a container runs; a daemon that does not answer leaves the written record to say. */
+    static final Duration INSPECT_BOUND = Duration.ofSeconds(5);
+
+    /**
+     * The rest of the container at {@code url}, from what this install wrote down and one bounded {@code docker inspect}. Nothing is
+     * started and no use is written: a look at a sleeping server leaves it asleep.
+     */
+    static Rest rest(String url) {
+        String name = containerAt(url);
+        if (name == null) return null;
+        if (WAKING.containsKey(name)) return new Rest(Rest.STARTING, System.currentTimeMillis(), 0, "");
+        long used = mtime(stamp(name)), stopped = mtime(stoppedMark(name)), woke = mtime(wokeMark(name));
+        String outcome = woke > 0 ? read(wokeMark(name)) : "";
+        if (outcome.equals(STARTING) && System.currentTimeMillis() - woke < WAKE_WAIT.toMillis() + 60_000) return new Rest(Rest.STARTING, woke, 0, "");   // another process starts it now
+        if (stopped > 0 && stopped >= used && woke < stopped) {   // the idle rule stopped it, and nothing used or started it since
+            String running = null;
+            try { Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name), INSPECT_BOUND); if (r.code() == 0) running = r.out().strip(); }
+            catch (Exception e) { /* the record says */ }
+            if (!"true".equals(running)) {   // stopped, or Docker did not say: the record stands
+                int minutes; try { minutes = Integer.parseInt(read(stoppedMark(name))); } catch (NumberFormatException e) { minutes = embedIdleMinutes(); }
+                return new Rest(Rest.ASLEEP, stopped, minutes, "");
+            }
+            return null;   // started by hand since
+        }
+        if (woke >= stopped && !outcome.isEmpty() && !outcome.equals(STARTING)) return new Rest(Rest.FAILED, woke, 0, outcome);
+        // no record that says: Docker is asked whether it runs; a stopped one is started by the next search, as one the idle rule stopped
+        try {
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name), INSPECT_BOUND);
+            if (r.code() == 0 && r.out().strip().equals("false")) return new Rest(Rest.STOPPED, 0, 0, "");
+        } catch (Exception e) { /* not known: the look asks the server */ }
+        return null;
+    }
+
+    /**
+     * What a container that did not come up said last: its exit code and the last line of its log that reads as an error (else its
+     * last line), as text from outside, quoted and cut; "" when it runs or Docker does not say within its bound.
+     */
+    static String lastWords(String name) {
+        try {
+            Searx.Result st = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}} {{.State.ExitCode}}", name), INSPECT_BOUND);
+            String[] f = st.out().strip().split("\\s+");
+            if (st.code() != 0 || f.length < 2 || f[0].equals("true")) return "";
+            Searx.Result logs = Searx.runner.run(List.of("docker", "logs", "--tail", "20", name), INSPECT_BOUND);
+            String last = "", error = "";
+            for (String l : logs.out().split("\\R")) {
+                String t = l.replaceAll("\\p{Cntrl}", " ").replaceAll("\\s+", " ").strip();
+                if (t.isEmpty()) continue;
+                last = t;
+                if (t.matches("(?i).*(error|fail|out of memory|cannot|unable).*")) error = t;
+            }
+            String said = error.isEmpty() ? last : error;
+            if (said.length() > 160) said = said.substring(0, 160) + "…";
+            return "; it ended with code " + f[1] + (said.isEmpty() ? "" : ", its log ending «" + said + "»");
+        } catch (Exception e) { return ""; }
+    }
+
     /** A call made to a model server's address: when it is one of this machine's containers, its use written down. */
     static void used(String url) { String c = containerAt(url); if (c != null) touchStamp(c); }
 
@@ -253,7 +346,10 @@ final class ModelsAwake {
         String said = null;
         try { said = wakeNow(name, address); }
         catch (RuntimeException e) { LOG.debug("The container {} could not be woken: {}", name, e.getMessage()); }
-        finally { WAKING.remove(name, mine); mine.complete(said); }
+        finally {
+            if (said != null) mark(wokeMark(name), said.isEmpty() ? "" : said + lastWords(name));   // a start made: how it ended, for the status and Help
+            WAKING.remove(name, mine); mine.complete(said);
+        }
         return said;
     }
 
@@ -269,7 +365,7 @@ final class ModelsAwake {
         if (name == null) return false;
         if (WAKING.containsKey(name)) return true;
         try {
-            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
+            Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name), INSPECT_BOUND);   // a daemon that hangs holds no search
             if (r.code() != 0 || !r.out().strip().equals("false")) return false;   // absent, or running and not answering: nothing to start
         } catch (Exception e) { return false; }
         wakeInBackground(name, base(url));
@@ -284,9 +380,11 @@ final class ModelsAwake {
         try {
             Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
             if (r.code() != 0 || !r.out().strip().equals("false")) return null;
+            mark(wokeMark(name), STARTING);   // a start under way, for another process that asks (the command line)
             Searx.Result s = Searx.runner.run(List.of("docker", "start", name));
             if (s.code() != 0) return "not loaded: its container is stopped and could not be started (" + s.out().strip() + ")";
         } catch (Exception e) { return null; }
+        Helpers.reached(address);   // started now: that its address gave no connection while it was stopped says nothing more, to this wait or to a search
         touchStamp(name);
         LOG.info("The container {} was stopped and was asked for, so it is started again.", name);
         long until = System.currentTimeMillis() + WAKE_WAIT.toMillis();
@@ -305,6 +403,9 @@ final class ModelsAwake {
      */
     static String restingLine(String name) {
         if (WAKING.containsKey(name)) return "not loaded yet: starting now";
+        long stopped = mtime(stoppedMark(name)), woke = mtime(wokeMark(name));
+        String outcome = woke > 0 ? read(wokeMark(name)) : "";
+        if (woke >= stopped && !outcome.isEmpty() && !outcome.equals(STARTING)) return outcome + " (at " + HH_MM.format(Instant.ofEpochMilli(woke)) + "); the next request starts it again";
         try {
             Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
             if (r.code() != 0 || !r.out().strip().equals("false")) return null;
@@ -333,7 +434,8 @@ final class ModelsAwake {
             try {
                 Searx.Result r = Searx.runner.run(List.of("docker", "inspect", "-f", "{{.State.Running}}", name));
                 if (r.code() != 0 || !r.out().strip().equals("true")) continue;
-                Searx.runner.run(List.of("docker", "stop", name));
+                Searx.Result st = Searx.runner.run(List.of("docker", "stop", name));
+                if (st.code() == 0) mark(stoppedMark(name), String.valueOf(idle));   // asleep from now: what the status and Help say of it
                 stopped++;
                 LOG.info("The container {} was not used for {} minutes, so it is stopped; its next use starts it again.", name, idle);
             } catch (Exception e) { LOG.debug("The container {} could not be looked at: {}", name, e.getMessage()); }

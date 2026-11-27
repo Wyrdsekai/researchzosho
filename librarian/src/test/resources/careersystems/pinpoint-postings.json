@@ -1,0 +1,103 @@
+{
+ "data": [
+  {
+   "id": "491839",
+   "title": "Front End Engineer",
+   "url": "https://ravelin.pinpointhq.com/en/postings/1ac451eb-a51c-4a0a-9c8a-7c28aaadfe6d",
+   "path": "/en/postings/1ac451eb-a51c-4a0a-9c8a-7c28aaadfe6d",
+   "workplace_type": "hybrid",
+   "workplace_type_text": "Hybrid",
+   "employment_type": "full_time",
+   "compensation_visible": false,
+   "compensation_minimum": null,
+   "compensation_maximum": null,
+   "compensation_currency": null,
+   "compensation_frequency": null,
+   "deadline_at": null,
+   "location": {
+    "id": "83376",
+    "city": "London",
+    "name": "Remote",
+    "postal_code": "",
+    "province": "London",
+    "street_address": ""
+   },
+   "key_responsibilities_header": "Key Responsibilities",
+   "description": "<div><!--block--><strong><br>Who are we?<br></strong><br></div><div><!--block--><br>Hi! We are Ravelin! We're a fraud detection company using advanced machine learning and network analysis technology ",
+   "key_responsibilities": "<div><!--block--><strong><br></strong>Design and implement intuitive, scalable, and responsive user interfaces for our fraud detection products</div><ul><li>",
+   "job": {
+    "id": "499655",
+    "department": {
+     "id": "67794",
+     "name": "Engineering"
+    }
+   }
+  },
+  {
+   "id": "559462",
+   "title": "Senior Machine Learning Engineer",
+   "url": "https://ravelin.pinpointhq.com/en/postings/520579c4-e328-46e7-bed5-37e422daf4fe",
+   "path": "/en/postings/520579c4-e328-46e7-bed5-37e422daf4fe",
+   "workplace_type": "remote",
+   "workplace_type_text": "Fully remote",
+   "employment_type": "full_time",
+   "compensation_visible": false,
+   "compensation_minimum": null,
+   "compensation_maximum": null,
+   "compensation_currency": null,
+   "compensation_frequency": null,
+   "deadline_at": null,
+   "location": {
+    "id": "83376",
+    "city": "London",
+    "name": "Remote",
+    "postal_code": "",
+    "province": "London",
+    "street_address": ""
+   },
+   "key_responsibilities_header": "Key Responsibilities",
+   "description": "<div><!--block--><br></div><div><!--block-->Hi! 👋 We are Ravelin! We're a fraud detection company using advanced machine learning and network analysis technology to solve big problems. Our goal is to ",
+   "key_responsibilities": "<ul><li><!--block-->Lead the design, architecture, and orchestration of scalable and reliable end-to-end ML pipelines – from raw data extraction and feature eng",
+   "job": {
+    "id": "562428",
+    "department": {
+     "id": "74896",
+     "name": "Detection"
+    }
+   }
+  },
+  {
+   "id": "613710",
+   "title": "Channel Partner Manager",
+   "url": "https://ravelin.pinpointhq.com/en/postings/1b187fbc-5325-4939-879d-01164a553413",
+   "path": "/en/postings/1b187fbc-5325-4939-879d-01164a553413",
+   "workplace_type": "hybrid",
+   "workplace_type_text": "Hybrid",
+   "employment_type": "full_time",
+   "compensation_visible": false,
+   "compensation_minimum": null,
+   "compensation_maximum": null,
+   "compensation_currency": null,
+   "compensation_frequency": null,
+   "deadline_at": null,
+   "location": {
+    "id": "66291",
+    "city": "London",
+    "name": "London",
+    "postal_code": "",
+    "province": "London",
+    "street_address": ""
+   },
+   "key_responsibilities_header": "Responsibilities",
+   "description": "<div><!--block--><strong>Who are we?<br></strong><br></div><div><!--block-->Hi! We are Ravelin! We're a fraud detection company using advanced machine learning and network analysis technology to solve",
+   "key_responsibilities": "<ul><li><!--block--><strong>Relationship management:</strong> Build and maintain trusted relationships with stakeholders at every level of the partner.</li><li>",
+   "job": {
+    "id": "612020",
+    "department": {
+     "id": "74894",
+     "name": "Account Management & Partnerships"
+    }
+   }
+  }
+ ]
+}

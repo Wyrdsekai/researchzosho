@@ -1,0 +1,29 @@
+{
+ "meta": [],
+ "result": {
+  "jobOpening": {
+   "jobOpeningShareUrl": "https://proximo.bamboohr.com/careers/152",
+   "jobOpeningName": "Claims Advisor ",
+   "jobOpeningStatus": "Open",
+   "departmentLabel": "CVS",
+   "employmentStatusLabel": "Full-Time",
+   "location": {
+    "city": "Chester",
+    "state": null,
+    "postalCode": "CH1 4QN",
+    "addressCountry": "United Kingdom"
+   },
+   "atsLocation": {
+    "country": null,
+    "countryId": null,
+    "state": null,
+    "city": null
+   },
+   "compensation": "£27,285.00",
+   "datePosted": "2026-10-12",
+   "minimumExperience": "Entry-level",
+   "locationType": "2",
+   "description": "<p><span style=\"font-size: 12pt; font-weight: bold\"><span style=\"color: black\">Claims Advisor</span></span></p>\n<p><span style=\"font-size: 12pt; font-weight: bold\"><span style=\"color: black\">Chester</span></span></p>\n<p><span style=\"font-size: 12pt\"><span style=\"color: black; font-weight: bold\"></p>"
+  }
+ }
+}

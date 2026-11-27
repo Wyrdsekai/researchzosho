@@ -18,7 +18,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Assumptions;
@@ -34,6 +33,7 @@ class ModelServerTest {
     final Predicate<String> realHealth = ModelServer.health;
     final ModelServer.Detacher realDetach = ModelServer.detach;
     final Map<String, String> realSums = new HashMap<>(ModelServer.sums);
+    final Map<String, Long> realSizes = new HashMap<>(ModelServer.sizes);
     final Function<String, ModelServer.Served> realServedAt = ModelServer.servedAt;
     final ModelServer.Asker realAsker = ModelServer.asker;
     Path realDrm = Gpu.SYS_DRM, realKfd = Gpu.SYS_KFD, realDev = Gpu.DEV;
@@ -44,7 +44,7 @@ class ModelServerTest {
         Gpu.SYS_DRM = sys.resolve("drm"); Gpu.SYS_KFD = sys.resolve("kfd"); Gpu.DEV = sys.resolve("dev");
     }
     @AfterEach void restoreGpu() { Gpu.SYS_DRM = realDrm; Gpu.SYS_KFD = realKfd; Gpu.DEV = realDev; }
-    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; ModelServer.asker = realAsker; }
+    @AfterEach void restore() { ModelServer.sums.clear(); ModelServer.sums.putAll(realSums); ModelServer.sizes.clear(); ModelServer.sizes.putAll(realSizes); ModelServer.os = realOs; ModelServer.runner = realRunner; ModelServer.downloader = realDownloader; ModelServer.health = realHealth; ModelServer.detach = realDetach; ModelServer.servedAt = realServedAt; ModelServer.asker = realAsker; }
 
     @Test
     void anInstallUsesAServerAnotherProgramAlreadyRunsWithAMeasuredModelAndDownloadsNothing(@TempDir Path home) throws Exception {
@@ -143,6 +143,12 @@ class ModelServerTest {
 
     static final String SHA_X = "2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881";   // sha256 of "x", what the fake downloads hold
 
+    /** The fake download at {@code part} (the {@code <file>.part} the install downloads to) is what its file is pinned to: "x", one byte. */
+    static void standsFor(Path part) {
+        String name = part.getFileName().toString().replaceFirst("\\.part$", "");
+        for (String key : List.of(name, part.getParent().getFileName() + "/" + name)) { ModelServer.sums.put(key, SHA_X); ModelServer.sizes.put(key, 1L); }
+    }
+
     /** The machine as the fakes describe it: which commands answer, what the archives unpack to. */
     private List<List<String>> fakeMachine(ModelServer.Os os, boolean[] started, List<String> fetched) {
         List<List<String>> ran = new ArrayList<>();
@@ -187,7 +193,7 @@ class ModelServerTest {
             return new ModelServer.Result(0, "");
         };
         ModelServer.detach = cmd -> { ran.add(cmd); if (cmd.get(0).equals("powershell") && cmd.contains("-File")) started[0] = true; };
-        ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "x"); ModelServer.sums.put(dest.getFileName().toString(), SHA_X); ModelServer.sums.put(dest.getParent().getFileName() + "/" + dest.getFileName(), SHA_X); };
+        ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "x"); standsFor(dest); };
         ModelServer.health = base -> started[0];
         return ran;
     }
@@ -462,7 +468,7 @@ class ModelServerTest {
             assertTrue(Files.exists(dir.resolve("llama").resolve("llama-server")));
             assertTrue(Files.readString(dir.resolve("config.yaml")).contains("llama-server -m " + home.resolve("models/Qwen3.5-9B-Q4_K_M.gguf")));
             // the file that lets the model read pictures comes with it, checked like every download, and the server is started with it
-            assertTrue(fetched.contains("https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/main/mmproj-F16.gguf"), fetched.toString());
+            assertTrue(fetched.contains("https://huggingface.co/unsloth/Qwen3.5-9B-GGUF/resolve/99a1b2185534379e6e8b5ec869da25d3e7b3f73c/mmproj-F16.gguf"), "at the row's revision: " + fetched);
             assertTrue(Files.readString(dir.resolve("config.yaml")).contains(" --mmproj " + home.resolve("models/mmproj-qwen3.5-9b-F16.gguf") + " --host"), Files.readString(dir.resolve("config.yaml")));
             Path plist = home.resolve("Library/LaunchAgents/org.researchzosho.model.plist");
             assertTrue(Files.readString(plist).contains("<string>org.researchzosho.model</string>"));
@@ -640,10 +646,11 @@ class ModelServerTest {
         boolean[] started = {false}; List<String> fetched = new ArrayList<>();
         try {
             fakeMachine(ModelServer.Os.linux, started, fetched);
-            ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "tampered"); };   // the recorded hash stays
+            ModelServer.downloader = (url, dest) -> { fetched.add(url); Files.createDirectories(dest.getParent()); Files.writeString(dest, "tampered"); };   // the recorded hash and size stay
             String r = ModelServer.install(null, "all", 20, false, new PrintStream(new ByteArrayOutputStream()));
-            assertTrue(r.startsWith("!checksum mismatch for gpt-oss-20b-F16.gguf"), r);
+            assertTrue(r.startsWith("!the downloaded gpt-oss-20b-F16.gguf is 8 bytes, not the 13,792,639,168 of the file this version installs"), r);
             assertFalse(Files.exists(home.resolve("models/gpt-oss-20b-F16.gguf")), "nothing kept");
+            assertFalse(Files.exists(home.resolve("models/gpt-oss-20b-F16.gguf.part")), "nor the download");
             assertNull(Config.stored("RESEARCHZOSHO_DRIVE"), "the drive was not touched (the file; the test task offers one through the environment)");
         } finally {
             System.setProperty("user.home", realHome);
@@ -670,32 +677,5 @@ class ModelServerTest {
             System.setProperty("user.home", realHome);
             Config.invalidate();
         }
-    }
-
-    @Test
-    void checkReadsEveryRowAndPinnedBuildAndNamesWhatIsGone() {
-        ModelServer.os = ModelServer.Os.linux;
-        ModelServer.runner = cmd -> new ModelServer.Result(0, cmd.get(cmd.size() - 1).contains("gpt-oss") ? "404" : "200");
-        var out = new ByteArrayOutputStream();
-        assertEquals(1, ModelServer.check(new PrintStream(out, true)));
-        String o = out.toString();
-        assertTrue(o.contains("GONE 404  https://huggingface.co/unsloth/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-F16.gguf"), o);
-        assertTrue(o.contains("ok   200  https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/main/Qwen3.8-27B-UD-Q4_K_M.gguf"), o);
-        assertTrue(o.contains("llama-swap_255_windows_amd64.zip") && o.contains("llama-b10929-bin-win-vulkan-x64.zip"), o);
-        assertTrue(o.contains("1 missing"), o);
-    }
-
-    @Test
-    void checkReadsARateLimitAsUncheckedNotGone() {
-        ModelServer.os = ModelServer.Os.linux;
-        ModelServer.checkBackoffMs = 0;
-        var calls = new AtomicInteger();
-        ModelServer.runner = cmd -> { String u = cmd.get(cmd.size() - 1); if (u.contains("gemma-4-E2B")) calls.incrementAndGet(); return new ModelServer.Result(0, u.contains("gemma-4-E2B") ? "429" : "200"); };
-        var out = new ByteArrayOutputStream();
-        assertEquals(0, ModelServer.check(new PrintStream(out, true)), "a 429 is not a missing file: the release gate does not fail on it");
-        String o = out.toString();
-        assertEquals(3, calls.get(), "asked three times before giving up on the host");
-        assertTrue(o.contains("WAIT 429  https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/gemma-4-E2B-it-Q4_K_M.gguf"), o);
-        assertTrue(o.contains("1 not checked") && !o.contains("GONE") && !o.contains(" missing:"), o);
     }
 }

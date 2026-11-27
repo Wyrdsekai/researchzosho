@@ -132,7 +132,14 @@ public final class TranslationScores {
         if (!Helpers.localAllowed()) return "left out: it is not run on this machine (local_helpers off) and no address names one";
         if (h == Helpers.Helper.LABSE) {
             String s = labseSetupSaid(), local = labseAddress(false);
-            return !s.isEmpty() ? s : local != null ? "scores on this machine, answering at " + local : "scores on this machine; the server is not answering now, and a checked run starts it";
+            if (!s.isEmpty()) return s;
+            if (local != null) return "scores on this machine, answering at " + local;
+            ModelsAwake.Rest rest = ModelsAwake.rest(LOCAL_LABSE);   // the library puts LaBSE's container to sleep too: said as such, a start that failed as a failure
+            if (rest != null && rest.asleep()) return "scores on this machine; the library stopped its server at " + ModelsAwake.HH_MM.format(Instant.ofEpochMilli(rest.at())) + " after " + rest.minutes() + (rest.minutes() == 1 ? " minute" : " minutes") + " without use, and a checked run starts it again";
+            if (rest != null && rest.starting()) return "scores on this machine; its server is being started now";
+            if (rest != null && rest.stopped()) return "scores on this machine; its server is not running, and a checked run starts it";
+            if (rest != null && rest.failed()) return "scores on this machine; the server is not answering, and its last start, at " + ModelsAwake.HH_MM.format(Instant.ofEpochMilli(rest.at())) + ", did not bring it up: " + rest.why();
+            return "scores on this machine; the server is not answering now, and a checked run starts it";
         }
         return metricxInstalled() ? "scores on this machine, installed in " + metricxDir() : METRICX_MISSING_SAID;
     }

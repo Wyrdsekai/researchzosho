@@ -78,7 +78,7 @@ class CareerFindTest {
         Share.serviceRunning = () -> true;
         searches.put("Formlabs careers jobs", List.of(new Hit("Formlabs - Jobs", "https://boards.greenhouse.io/formlabs")));
         // a company found hiring by a search of the hiring sites, whose board no longer lists the posting the search turned up
-        searches.put("\"VP\" \"Hardware\" (\"Boston\" OR \"MA\" OR \"Remote\") site:jobs.ashbyhq.com", List.of(new Hit("VP of Hardware @ Ghost Co", "https://jobs.ashbyhq.com/ghostco/5c4b3a29-aa10-4f00-8d3e-000000000001"),
+        searches.put("\"VP\" \"Hardware\" (\"Boston\" OR \"MA\" OR \"Remote\") (site:jobs.ashbyhq.com OR site:greenhouse.io OR site:jobs.lever.co)", List.of(new Hit("VP of Hardware @ Ghost Co", "https://jobs.ashbyhq.com/ghostco/5c4b3a29-aa10-4f00-8d3e-000000000001"),
                 new Hit("VP of Hardware @ Live Co", "https://jobs.ashbyhq.com/liveco/5c4b3a29-aa10-4f00-8d3e-000000000002")));
         pages.put("https://api.ashbyhq.com/posting-api/job-board/ghostco?includeCompensation=true", """
                 {"jobs": [{"title": "Software Engineer", "location": "Boston", "jobUrl": "https://jobs.ashbyhq.com/ghostco/1", "descriptionPlain": "Ghost Co builds things.", "publishedAt": "%sT00:00:00.000+00:00"}]}""".formatted(RECENT));
@@ -167,17 +167,18 @@ class CareerFindTest {
         assertEquals("the size of the team.", v.passing().get(1).reading().path("unknown").asText());
         String reading = prompts.stream().filter(p -> p.contains("Write a short reading") && p.contains("Title: VP of Engineering")).findFirst().orElseThrow();
         assertTrue(reading.contains(Fence.open("OPENING")) && reading.contains("Lead hardware engineering.") && reading.contains("- domain: a guess: hardware"), reading);
-        assertEquals("The search looked at 4 employers and could read the openings of 3 of them, and 1 posts in Hacker News's Who is hiring. 4 openings fit what you decided, at 4 employers. The library read 4 of them nearest to what you want. The public records give 5 employers of your place; the model read 0 of them against what you want this time.", summary);
+        assertEquals("The search looked at 4 employers and could read the openings of 3 of them, and 1 posts in Hacker News's Who is hiring. 4 openings fit what you decided, at 4 employers. 1 of them came from searching the hiring sites for the titles you want. The library read 4 openings nearest to what you want. The public records give 5 employers of your place; the model read 0 of them against what you want this time."
+                + " Web searches this time: none; a career search pays for at most 47.", summary);
         assertTrue(said.contains("Reading the companies' openings, 4 of 4 done") && said.contains("Reading the openings nearest to what you want, 4 of 4 read"), said.toString());
         assertTrue(Files.list(CareerFind.dir(store, s).resolve("runs")).count() == 1, "a record of the search is kept");
         assertTrue(Files.readString(s.dir(store).resolve("log.jsonl")).contains("Globex is where you work now, so the search leaves it out."), "the employer of the role that runs to now is left out, and the log says so");
         String page = CareerPage.body(store, s, true);   // and the person's page lists it: when, what it looked at and could read, what passed and was read, the cut it used
         int searches = page.indexOf("<details class=\"sec\" id=\"searches\"><summary><h2>Searches</h2></summary>");
-        assertTrue(searches > 0 && searches < page.indexOf("<details class=\"sec\" id=\"reading\">") && page.contains("<td>4</td><td>3</td><td>4</td><td>4</td>") && page.contains("The employers it looked at") && page.contains("<a href=\"#searches\">Searches</a>"), page.substring(Math.max(0, searches)));
+        assertTrue(searches > 0 && searches < page.indexOf("<details class=\"sec\" id=\"reading\">") && page.contains("<td>4</td><td>3</td><td>4 <span class=\"k\">(1 by the search of the hiring sites)</span></td><td>4</td>") && page.contains("The employers it looked at") && page.contains("<a href=\"#searches\">Searches</a>"), page.substring(Math.max(0, searches)));
         String stem = Files.list(CareerFind.dir(store, s).resolve("runs")).findFirst().orElseThrow().getFileName().toString().replaceFirst("\\.json$", "");
         assertTrue(page.contains("&amp;run=" + stem + "\">"), "the date opens that search's results");
         String past = CareerOpeningsPage.body(store, s, true, stem);
-        assertTrue(past.contains("<h2>The search of ") && past.contains("<b>4 openings passed</b> what counted as a fit then; the library read 4. Of those, 4 still pass what you decided now. ") && past.contains("What counted as a fit then: ") && past.contains("VP of Engineering"), past);
+        assertTrue(past.contains("<h2>The search of ") && past.contains("<b>4 openings passed</b> what counted as a fit then (1 at an employer found by searching the hiring sites); the library read 4. Of those, 4 still pass what you decided now. ") && past.contains("What counted as a fit then: ") && past.contains("VP of Engineering"), past);
         assertTrue(CareerOpeningsPage.body(store, s, true, "no-such-run").contains("There is no record of a search called no-such-run."));
 
         // what the person wants changes: the library's cut says it is out of date, and is made again without a new search
@@ -227,6 +228,26 @@ class CareerFindTest {
         String emea = all.values().stream().filter(o -> o.path("title").asText().equals("Director, Hardware")).findFirst().orElseThrow().path("gone").asText();
         assertEquals(LocalDate.now().toString(), emea, "an opening no longer on its company's list is marked gone today");
         assertEquals(1, CareerFind.view(store, s).gone());
+    }
+
+    @Test void aSecondSearchAsksNothingTheFirstLearntOfItsEmployers(@TempDir Path tmp) throws Exception {
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Career.Seeker s = seeker(store, tmp);
+        List<String> asked = new CopyOnWriteArrayList<>();
+        Function<String, List<Hit>> was = CareerSources.SEARCH;
+        CareerSources.SEARCH = q -> {   // every search answers, as a real engine did (the free one gave hits to 623 of 623 look-ups): with a page of news when nothing else
+            asked.add(q);
+            List<Hit> h = was.apply(q);
+            return h.isEmpty() ? List.of(new Hit("In the news", "https://news.example/" + CareerSearch.key(q))) : h;
+        };
+        CareerFind.run(store, s, x -> { }, () -> false);
+        List<String> lookups = asked.stream().filter(q -> q.endsWith(" careers jobs") || q.endsWith(" employees") || !q.contains(" ")).toList();
+        assertTrue(lookups.containsAll(List.of("Whoop careers jobs", "Formlabs careers jobs", "Acme careers jobs")), "the first search looks its employers up: " + asked);
+        assertEquals(lookups.size(), lookups.stream().distinct().count(), "and asks each words once: " + lookups);
+        asked.clear();
+        String again = CareerFind.run(store, s, x -> { }, () -> false);
+        assertEquals(List.of(), asked.stream().filter(lookups::contains).toList(), "the second asks none of them again: " + asked);
+        assertTrue(again.endsWith("Looking up the employers took no search: what the library already knew of the employers answered " + again.replaceAll("(?s).*answered (\\d+) look-ups\\.$", "$1") + " look-ups."), again);
     }
 
     @Test void thePageTheChatTheProtocolAndTheRunsShowAndChangeIt(@TempDir Path tmp) throws Exception {

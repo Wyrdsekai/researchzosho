@@ -102,7 +102,10 @@ tasks.test {
     // question's help check wait out its 30 seconds and the client give up with "unavailable" instead of "too short" (2026-10-11).
     // A scratch home and a drive at a closed port make every box the same as a CI runner.
     val testHome = layout.buildDirectory.dir("test-home").get().asFile
-    doFirst { testHome.mkdirs() }
+    // emptied at every run's start: a run stopped in the middle of a test never reaches its @AfterEach, and what that test had set in
+    // its fork's home (a setting, a lock, a pid record) was found by the next run's fork of the same number (2026-11-26: the nights
+    // left off by a stopped run turned AccountsCliTest red in the next whole run). ForkHomeTest pins that each fork starts empty.
+    doFirst { testHome.deleteRecursively(); testHome.mkdirs() }
     systemProperty("user.home", testHome.path)
     environment("RESEARCHZOSHO_DRIVE", "http://127.0.0.1:1")
     // and, as in the librarian's suite, no command of the machine is run and the machine's own LaBSE is a port where nothing listens: a

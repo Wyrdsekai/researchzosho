@@ -2,10 +2,12 @@ package org.researchzosho.tools;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.researchzosho.Config;
 
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -58,14 +60,33 @@ public final class ExaSearchTool implements Tool {
 
     /** One search, within this month's limit; {@code safe} asks Exa to leave out unsafe content. */
     public static Answer search(String query, int limit, boolean safe) {
+        ObjectNode body = M.createObjectNode().put("query", query).put("type", "auto").put("numResults", Math.min(Math.max(limit, 1), 10)).put("moderation", safe);
+        body.putObject("contents").putObject("highlights").put("maxCharacters", 600);
+        return send(body);
+    }
+
+    /**
+     * One search for job postings, for the career search (0.8.4): by meaning, only on the hosts given (the hiring systems' own job pages,
+     * a "*." host for every employer's own part of it), published on or after {@code since}, ten results, no passages asked for. The
+     * request carries the query, the hosts, the day and the safe-search flag, and nothing else. Counted and limited as every Exa search.
+     */
+    public static Answer postings(String query, List<String> hosts, LocalDate since, boolean safe) {
+        ObjectNode body = M.createObjectNode().put("query", query).put("type", "auto").put("numResults", 10);
+        ArrayNode in = body.putArray("includeDomains");
+        for (String h : hosts) if (h != null && !h.isBlank()) in.add(h.strip());
+        if (since != null) body.put("startPublishedDate", since + "T00:00:00.000Z");
+        body.put("moderation", safe);
+        return send(body);
+    }
+
+    /** A search as Exa takes it, within this month's limit: the key, the count and the dollars settled whatever the answer. */
+    static Answer send(ObjectNode body) {
         String key = Config.get(KEY);
         if (key == null || key.isBlank()) return new Answer(List.of(), -1, closedBecause());
         if (!SearchTally.reserve(TALLY)) return new Answer(List.of(), -1, SearchTally.usedUp(TALLY, "Exa"));
         boolean made = false;
         double cost = 0;
         try {
-            ObjectNode body = M.createObjectNode().put("query", query).put("type", "auto").put("numResults", Math.min(Math.max(limit, 1), 10)).put("moderation", safe);
-            body.putObject("contents").putObject("highlights").put("maxCharacters", 600);
             PlaceHttp.Res r = PlaceHttp.post(BASE.get("search"), Map.of("x-api-key", key.strip()), M.writeValueAsString(body), Duration.ofSeconds(30), "Exa's search");
             if (!r.ok()) return new Answer(List.of(), r.status(), why(r.status()));
             made = true;

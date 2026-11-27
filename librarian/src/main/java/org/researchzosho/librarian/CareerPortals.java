@@ -103,7 +103,7 @@ public final class CareerPortals {
                         StringBuilder org = new StringBuilder(j.path("department").asText("")).append(' ').append(j.path("category").asText(""));
                         for (JsonNode l : j.path("multi_location_array")) org.append(' ').append(l.path("location").asText(""));
                         out.add(CareerSources.opening(company, j.path("title").asText(""), loc.strip(), CareerSources.remote(loc) || j.path("isRemote").asBoolean(false), "https://" + host + "/us/en/job/" + j.path("jobSeqNo").asText(""),
-                                CareerSources.day(j.path("postedDate").asText(j.path("dateCreated").asText(""))), "", f.label(), (org.toString().isBlank() ? "" : org.toString().strip() + ". ") + CareerSources.plain(CareerSources.unescape(j.path("descriptionTeaser").asText(""))), "", ""));
+                                phenomDay(j), "", f.label(), (org.toString().isBlank() ? "" : org.toString().strip() + ". ") + CareerSources.plain(CareerSources.unescape(j.path("descriptionTeaser").asText(""))), "", ""));
                     }
                     if (total > got.size()) note = "Its careers site lists " + total + " openings; the library read the " + got.size() + " nearest the titles you want.";
                 }
@@ -198,6 +198,17 @@ public final class CareerPortals {
         } catch (Exception e) { return null; }
     }
 
+    /**
+     * The day a Phenom careers site's posting was posted: its postedDate, unless that is before the day its record was made (dateCreated),
+     * which a posting cannot be: then the record's day. Battelle's site gives postedDate 2018-04-22 or 2023-11-09 to postings made this
+     * month (2026-11-26), the same few days for hundreds of them.
+     */
+    static String phenomDay(JsonNode j) {
+        String posted = CareerSources.day(j.path("postedDate").asText("")), created = CareerSources.day(j.path("dateCreated").asText(""));
+        if (posted.isEmpty()) return created;
+        return !created.isEmpty() && posted.compareTo(created) < 0 ? created : posted;
+    }
+
     /** iCIMS's search page rows: the job link, its title, and the "Job Locations" line of the row. */
     static List<Opening> icimsRows(String html, String tenant, String company, String source) {
         List<Opening> out = new ArrayList<>();
@@ -213,6 +224,11 @@ public final class CareerPortals {
             String row = html.substring(from, to);
             Matcher lm = Pattern.compile("(?is)Job Locations?\\s*</[^>]+>\\s*<dd[^>]*>(.*?)</dd>").matcher(row);
             String loc = lm.find() ? CareerSources.plain(lm.group(1)).strip() : "";
+            if (loc.isEmpty()) {   // the card layout puts "Job Locations" above the title, in the same card: read it from the card's start
+                int card = html.lastIndexOf("iCIMS_JobCardItem", spans.get(i)[0]);
+                Matcher cm = Pattern.compile("(?is)field-label\">\\s*Job Locations?\\s*</span>\\s*<span[^>]*>(.*?)</span>").matcher(card < 0 ? "" : html.substring(card, spans.get(i)[0]));
+                if (cm.find()) loc = CareerSources.plain(cm.group(1)).strip();
+            }
             Matcher pm = Pattern.compile("(?is)Posted Date\\s*</[^>]+>\\s*<dd[^>]*>(.*?)</dd>").matcher(row);
             String posted = pm.find() ? CareerSources.plain(pm.group(1)).strip() : "";
             out.add(CareerSources.opening(company, title, loc, CareerSources.remote(loc), url, "", posted.isEmpty() ? "" : "posted " + posted, source, "", "", ""));

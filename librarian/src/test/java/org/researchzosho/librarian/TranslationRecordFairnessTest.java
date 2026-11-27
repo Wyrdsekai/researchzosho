@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -29,7 +30,8 @@ class TranslationRecordFairnessTest {
     static final String[] WORDS = {"river", "mill", "bridge", "garden", "lantern", "harbour", "orchard", "meadow", "window", "letter", "winter", "kettle"};
 
     @BeforeEach void standIns() { Translation.SETUP_SAID = () -> ""; }
-    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; }
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
+    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = setupSaidWas; }
 
     /**
      * A scorer that gives every first-pass translation a fresh draw from one distribution (the translations are all of the same quality)

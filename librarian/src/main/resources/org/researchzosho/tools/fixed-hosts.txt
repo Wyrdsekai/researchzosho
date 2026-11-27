@@ -16,6 +16,7 @@ api.deepseek.com
 api.digitalnz.org
 api.dp.la
 api.ebay.com
+api.eu.lever.co
 api.europeana.eu
 api.exa.ai
 api.fda.gov
@@ -39,6 +40,7 @@ api.podcastindex.org
 api.postcodes.io
 api.regulations.gov
 api.rentcast.io
+api.rippling.com
 api.search.brave.com
 api.semanticscholar.org
 api.stackexchange.com
@@ -70,6 +72,7 @@ brasilapi.com.br
 brave.com
 brew.sh
 bsky.app
+careers.smartrecruiters.com
 chevrotain.io
 ci.nii.ac.jp
 cir.nii.ac.jp
@@ -213,6 +216,7 @@ qiita.com
 query.wikidata.org
 raw.githubusercontent.com
 recherche-entreprises.api.gouv.fr
+recruiting.paylocity.com
 registry.npmjs.org
 repo1.maven.org
 researchzosho.org

@@ -12,8 +12,8 @@ class 25
 
 # The classes with a limit of their own, each with what its time goes to: real windows of time, other processes, whole-second waits,
 # processor work. Each limit is what the class took and a fifth, above the limit of any class or below it.
-TakeoverTest 52 two machines of the service, each a process with library processes of its own; a translation taken over between them after a lease runs out
+TakeoverTest 62 two machines of the service, each a process with library processes of its own; a translation taken over between them after a lease runs out
 RateLimitsTest 21 a second service as a process of its own; the limits' real windows (3 per 4 seconds, 10 per 20) let go while the test waits
 FamilyAskingTest 26 the questions' waits are whole seconds by the setting, and a file read while one waits must outlast it
-NodeTest 20 library processes put to sleep and started again, and a start left behind that gives up at its own look at its lease
+NodeTest 24 library processes put to sleep and started again, and a start left behind that gives up at its own look at its lease
 ChatWordsTest 7 every phrase of every language file read as each meaning (CPU: some 20,000 phrase readings; what the words files give is worked out once)

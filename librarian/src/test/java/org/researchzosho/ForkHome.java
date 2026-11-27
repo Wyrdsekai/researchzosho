@@ -19,7 +19,23 @@ public final class ForkHome implements LauncherSessionListener {
         String worker = System.getProperty("org.gradle.test.worker"), home = System.getProperty("user.home");
         if (worker == null || worker.isBlank() || home == null || home.contains("fork-")) return;
         Path own = Path.of(home, "fork-" + worker.strip());
-        try { Files.createDirectories(own); } catch (IOException e) { throw new UncheckedIOException(e); }
+        try {
+            startedEmpty = !Files.exists(own) || isEmpty(own);
+            Files.createDirectories(own);
+        } catch (IOException e) { throw new UncheckedIOException(e); }
         System.setProperty("user.home", own.toString());
+    }
+
+    /**
+     * Whether this JVM's home was empty when the JVM began: true each run, as the test task empties the suite's scratch home first; null
+     * in a JVM Gradle did not start. A home left from an earlier run holds what a test of that run set and never put back when the run
+     * was stopped in its middle (2026-11-26: the nights off).
+     */
+    static volatile Boolean startedEmpty;
+
+    public static Boolean startedEmpty() { return startedEmpty; }
+
+    static boolean isEmpty(Path dir) throws IOException {
+        try (var in = Files.list(dir)) { return in.findAny().isEmpty(); }
     }
 }

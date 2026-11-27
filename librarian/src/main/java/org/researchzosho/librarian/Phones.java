@@ -61,7 +61,10 @@ final class Phones {
         Phone with(String used, String seen, List<Key> keys, double cap) { return new Phone(id, name, paired, used, seen, keys, cap); }
     }
 
-    /** What a phone may spend on paid models in a month when nobody said: ten dollars (the owner's choice, 2026-11-25). */
+    /**
+     * What a newly paired phone may spend on paid models in a month when neither its pairing nor the library's own default
+     * ({@code phone cap --default}) says: ten dollars (the owner's choice, 2026-11-25).
+     */
     static final double DEFAULT_CAP = 10.0;
     /** A cap that is no limit: nothing is refused or stopped for spending from that phone (the owner's word, 2026-11-25: "-1", or "none"). */
     static final double NO_LIMIT = -1;
@@ -80,13 +83,18 @@ final class Phones {
     /** A code: its hash, until when it is good, the name it pairs, the phone it adds a browser to ("" for a QR code), the phone it made once used, and the cap the phone gets. */
     record Code(String hash, long until, String name, String phone, String used, double cap) { }
 
-    record State(List<Phone> phones, List<Code> codes) { }
+    /**
+     * The file's content. {@code defaultCap}: what a newly paired phone may spend when its pairing names no cap, as the person set it
+     * with {@code phone cap --default}; null when nobody did ({@link #DEFAULT_CAP} then). It is kept here and not in the settings
+     * registry, so that no page, chat or program reaches it: only {@code researchzosho phone cap --default} on this machine sets it.
+     */
+    record State(List<Phone> phones, List<Code> codes, Double defaultCap) { }
 
     // ---------------------------------------------------------------- reading and writing
 
     static State read() throws IOException {
         Path f = file();
-        if (!Files.isRegularFile(f)) return new State(new ArrayList<>(), new ArrayList<>());
+        if (!Files.isRegularFile(f)) return new State(new ArrayList<>(), new ArrayList<>(), null);
         JsonNode j;
         try { j = M.readTree(Files.readString(f, StandardCharsets.UTF_8)); }
         catch (IOException e) { throw new IOException("The list of paired phones (" + f + ") cannot be read: " + e.getMessage(), e); }
@@ -98,11 +106,13 @@ final class Phones {
         }
         List<Code> codes = new ArrayList<>();
         for (JsonNode c : j.path("codes")) codes.add(new Code(c.path("hash").asText(""), c.path("until").asLong(0), c.path("name").asText(""), c.path("phone").asText(""), c.path("used").asText(""), c.path("cap").asDouble(DEFAULT_CAP)));
-        return new State(phones, codes);
+        JsonNode d = j.path(DEFAULT_FIELD);   // a file of 0.8.3 has none
+        return new State(phones, codes, d.isNumber() ? (d.asDouble() < 0 ? NO_LIMIT : d.asDouble()) : null);
     }
 
     private static void write(State s) throws IOException {
         ObjectNode o = M.createObjectNode();
+        if (s.defaultCap() != null) o.put(DEFAULT_FIELD, s.defaultCap());   // 0.8.3 reads past it, and leaves it out when it writes the file
         ArrayNode ps = o.putArray("phones");
         for (Phone p : s.phones()) {
             ObjectNode n = ps.addObject().put("id", p.id()).put("name", p.name()).put("paired", p.paired()).put("used", p.used()).put("seen", p.seen()).put("cap", p.cap());
@@ -133,18 +143,40 @@ final class Phones {
     /** A new pairing code for a phone to be called {@code name} (a free name is chosen when it is blank or taken): the code itself, once. */
     record Made(String code, String name, long until, double cap) { }
 
-    static Made pairingCode(String name) throws IOException { return pairingCode(name, DEFAULT_CAP); }
+    /** The same, for a pairing that names no cap: the phone gets the library's default ({@link #defaultCap()}). */
+    static Made pairingCode(String name) throws IOException { return pairing(name, null); }
 
-    /** The same, the phone to be allowed {@code cap} dollars a month on paid models. */
-    static Made pairingCode(String name, double cap) throws IOException {
+    /** The same, the phone to be allowed {@code cap} dollars a month on paid models, whatever the default is. */
+    static Made pairingCode(String name, double cap) throws IOException { return pairing(name, cap); }
+
+    private static Made pairing(String name, Double named) throws IOException {
         return change(() -> {
             State s = read();
+            double cap = named != null ? named : s.defaultCap() != null ? s.defaultCap() : DEFAULT_CAP;
+            if (cap < 0) cap = NO_LIMIT;
             String n = freeName(s, name);
             String code = random(16);
             long until = System.currentTimeMillis() + CODE_MS;
-            s.codes().add(new Code(hash(code), until, n, "", "", cap < 0 ? NO_LIMIT : cap));
+            s.codes().add(new Code(hash(code), until, n, "", "", cap));
             write(s);
-            return new Made(code, n, until, cap < 0 ? NO_LIMIT : cap);
+            return new Made(code, n, until, cap);
+        });
+    }
+
+    // ---------------------------------------------------------------- the default for a new phone
+
+    /** The field of {@code phones.json} that holds the default. */
+    static final String DEFAULT_FIELD = "default_cap";
+
+    /** What a newly paired phone may spend on paid models in a month when its pairing names no cap: the person's choice, else {@link #DEFAULT_CAP}. */
+    static double defaultCap() throws IOException { Double d = read().defaultCap(); return d == null ? DEFAULT_CAP : d; }
+
+    /** The default for a newly paired phone set ({@code phone cap --default}): dollars, 0 for no paid model, below 0 for no limit. The phones already paired keep theirs. */
+    static void setDefaultCap(double dollars) throws IOException {
+        change(() -> {
+            State s = read();
+            write(new State(s.phones(), s.codes(), dollars < 0 ? NO_LIMIT : dollars));
+            return null;
         });
     }
 
@@ -268,9 +300,12 @@ final class Phones {
 
     private static byte[] bytes(int n) { byte[] b = new byte[n]; RANDOM.nextBytes(b); return b; }
 
-    /** A name as a person reads it: printable, one line, at most 40 characters; "phone" when nothing is left. */
+    /**
+     * A name as a person reads it: printable, one line, at most 40 characters, not starting with a dash (so no phone is called
+     * {@code --default}, which {@code phone cap} reads as the default); "phone" when nothing is left.
+     */
     static String cleanName(String name) {
-        String n = name == null ? "" : name.replaceAll("[\\p{Cntrl}\\p{Zl}\\p{Zp}]", " ").replaceAll("\\s+", " ").strip();
+        String n = name == null ? "" : name.replaceAll("[\\p{Cntrl}\\p{Zl}\\p{Zp}]", " ").replaceAll("\\s+", " ").strip().replaceFirst("^[-\\s]+", "");
         if (n.length() > 40) n = n.substring(0, 40).strip();
         return n.isEmpty() ? "phone" : n;
     }

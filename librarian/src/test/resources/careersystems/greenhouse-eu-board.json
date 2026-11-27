@@ -1,0 +1,29 @@
+{
+ "jobs": [
+  {
+   "id": 4964072101,
+   "title": "Senior Hardware Engineer",
+   "absolute_url": "https://job-boards.eu.greenhouse.io/feverup/jobs/4964072101",
+   "location": {
+    "name": "Valencia"
+   },
+   "first_published": "2026-08-31T08:12:16-04:00",
+   "updated_at": "2026-11-26T06:55:51-05:00",
+   "company_name": "FeverUp"
+  },
+  {
+   "id": 5028344101,
+   "title": "Account Development Associate",
+   "absolute_url": "https://job-boards.eu.greenhouse.io/feverup/jobs/5028344101",
+   "location": {
+    "name": "Sydney"
+   },
+   "first_published": "2026-11-05T04:53:56-05:00",
+   "updated_at": "2026-11-26T06:55:51-05:00",
+   "company_name": "FeverUp"
+  }
+ ],
+ "meta": {
+  "total": 2
+ }
+}

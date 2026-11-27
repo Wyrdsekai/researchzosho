@@ -152,10 +152,12 @@ public final class Repos {
         List<Path> sources = new ArrayList<>();
         int[] files = {0};
         try (var top = Files.list(root)) { top.filter(Files::isDirectory).map(p -> p.getFileName().toString()).filter(n -> !SKIP_DIRS.contains(n) && !n.startsWith(".")).sorted().forEach(topDirs::add); }
+        OwnFolders.Walk own = OwnFolders.walk(null);   // a folder that holds the programs' own folders (a home folder) is read without them
         try (var walk = Files.walk(root, 12)) {
             for (Path p : (Iterable<Path>) walk::iterator) {
                 if (Files.isDirectory(p)) continue;
-                if (Files.isSymbolicLink(p)) continue;   // a link is not read or counted, as the code tool reads none: in a repository somebody else made, a link can point at any file of this machine, and git writes it out as the link it is
+                if (Files.isSymbolicLink(p)) continue;
+                if (!own.allows(p)) continue;   // a link is not read or counted, as the code tool reads none: in a repository somebody else made, a link can point at any file of this machine, and git writes it out as the link it is
                 boolean skip = false;
                 for (Path part : root.relativize(p)) if (SKIP_DIRS.contains(part.toString())) { skip = true; break; }
                 if (skip) continue;

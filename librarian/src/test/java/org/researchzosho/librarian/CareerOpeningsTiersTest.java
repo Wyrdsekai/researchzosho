@@ -8,11 +8,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -115,5 +117,48 @@ class CareerOpeningsTiersTest {
         assertTrue(now.contains("<b>1 opening fits</b> what you decided") && now.contains("Set aside by what you decided"), "the openings as they stand keep the standing cut: " + now);
         String person = CareerPage.body(store, s, true);
         assertTrue(person.contains("<td class=\"k\">and New Hampshire as well</td>"), "the Searches table says what that search changed: " + person);
+    }
+
+    /** A cut whose search looks for Machine Learning Engineer and whose model named Data Scientist and AI Engineer as other titles of the same work, in Perth or remote. */
+    static CareerCut.Cut mlCut(String by) {
+        return new CareerCut.Cut(List.of("Engineer", "ML"), List.of(), List.of("Junior", "Intern"), List.of(), List.of("Perth"), "fine", List.of(), List.of(), List.of(), 0, 0, by, "2026-11-27", "",
+                List.of(), 0, List.of("Machine Learning Engineer", "ML Engineer"), List.of("Data Scientist", "AI Engineer"));
+    }
+
+    @Test void whatPassesOnlyByAnOtherTitleOfTheSameWorkIsAGroupOfItsOwnAfterTheFits(@TempDir Path tmp) throws Exception {
+        // seeker 43 on 2026-11-27: of 50 openings that fit, 30 "no", 26 of them by the model's Data Scientist and AI Engineer (0.8.4)
+        LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
+        Career.Seeker s = Career.provide(store, "I am a machine learning engineer in Perth.", "Jane Doe", false).seeker();
+        Map<String, ObjectNode> all = new LinkedHashMap<>();
+        all.put("o1", opening("o1", "Canva", "Senior Machine Learning Engineer", "Perth, WA", false));
+        all.put("o2", opening("o2", "Entefy", "Data Scientist (Remote)", "Remote", true));
+        all.put("o3", opening("o3", "Xero", "Product Engineer - AI Investing", "Perth, WA", false));
+        all.put("o4", opening("o4", "Atlassian", "ML Engineer", "", false));
+        all.put("o5", opening("o5", "Okta", "Account Executive", "Perth, WA", false));
+        CareerFind.saveOpenings(store, s, all, CareerFind.mentionsBasis(List.of()));
+        CareerCut.save(store, s, mlCut("library"));
+        CareerFind.View v = CareerFind.view(store, s);
+        CareerCut.Cut c = v.cut();
+        assertEquals(0, CareerCut.group(c, CareerFind.of(all.get("o1"))), "a title the search looks for, in the place");
+        assertEquals(1, CareerCut.group(c, CareerFind.of(all.get("o2"))), "only by the model's Data Scientist");
+        assertEquals(1, CareerCut.group(c, CareerFind.of(all.get("o3"))), "only by AI Engineer, its words in two parts of the title: kept, in the group");
+        assertEquals(2, CareerCut.group(c, CareerFind.of(all.get("o4"))), "no place given: a near miss");
+        assertEquals(0, CareerCut.tier(c, CareerFind.of(all.get("o2"))), "the tiers as before: the group is the page's");
+        String page = CareerOpeningsPage.body(store, s, true);
+        int fit = page.indexOf("<h2>Openings that fit</h2>"), same = page.indexOf("<summary><b>Other titles of the same work</b>"), near = page.indexOf("<summary><b>Near misses</b>");
+        assertTrue(fit > 0 && same > fit && near > same, page);
+        String group = page.substring(same, near);
+        assertTrue(group.contains("Data Scientist (Remote)") && group.contains("Product Engineer - AI Investing") && !group.contains("Senior Machine Learning Engineer"), group);
+        assertTrue(group.contains("These carry one of the other titles the library takes for the same work (Data Scientist, AI Engineer), not a title you search for. The library guessed these titles; "
+                + "to drop one, take it out of the other titles of the same work in the form below."), group);
+        assertTrue(page.substring(fit, same).contains("1 opening matches both the role and the place"), page.substring(fit, same));
+        String said = CareerFind.summary(v, 5, 0, 0, 0);
+        assertTrue(said.contains("1 opening fits what you decided, at 1 employer. 2 more carry another title of the same work (Data Scientist, AI Engineer), the library's guess at the titles of your work."), said);
+        // the person's own other titles: said as theirs
+        CareerCut.save(store, s, mlCut("you"));
+        assertTrue(CareerOpeningsPage.body(store, s, true).contains("These carry one of the other titles of the same work in your cut (Data Scientist, AI Engineer), not a title you search for."));
+        // the library reads the person's own titles first
+        CareerCut.Verdict ok = CareerCut.judge(c, CareerFind.of(all.get("o1")), List.of());
+        assertTrue(CareerCut.rank(c, CareerFind.of(all.get("o1")), ok, Set.of(), Set.of(), LocalDate.of(2026, 11, 27)) > CareerCut.rank(c, CareerFind.of(all.get("o2")), ok, Set.of(), Set.of(), LocalDate.of(2026, 11, 27)));
     }
 }

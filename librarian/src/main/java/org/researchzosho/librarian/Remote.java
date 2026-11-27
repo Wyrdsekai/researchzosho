@@ -115,7 +115,7 @@ public final class Remote {
         return j;
     }
 
-    /** {@code connect <address> <token>} · {@code connect off} · {@code connect} (where the commands go now). */
+    /** {@code connect <address> <token | --file path>} · {@code connect off} · {@code connect} (where the commands go now). */
     public static int connect(String[] args, PrintStream out, PrintStream err) throws IOException {
         if (args.length >= 3 && args[2].equals("off")) { Config.set("RESEARCHZOSHO_LIBRARY", ""); Config.set(TOKEN, ""); out.println("Back to the library on this computer."); return 0; }
         if (args.length < 3) {
@@ -123,8 +123,13 @@ public final class Remote {
             try { JsonNode s = get("status"); out.println("Connected to " + s.path("library_name").asText("the library") + " at " + address() + " (" + counts(s) + "). researchzosho connect off returns to this computer's own."); return 0; }
             catch (IOException e) { out.println("Connected to " + address() + ", which did not answer: " + e.getMessage()); return 1; }
         }
-        String addr = args[2].strip().replaceAll("/+$", ""), token = args.length > 3 ? args[3].strip() : "";
+        String addr = args[2].strip().replaceAll("/+$", ""), token = "";
         if (!addr.startsWith("http://") && !addr.startsWith("https://")) { err.println("The address starts with https:// (or http:// on your own network), as `researchzosho share` printed it on the library's computer."); return 2; }
+        if (args.length > 3) {   // the token typed, or read from a file with --file <path> (0.8.4: before, the word --file was kept as the token)
+            CommandValue.Given given = CommandValue.one(args, 3, "researchzosho connect");
+            if (!given.ok()) { err.println(given.refused() + (given.usage() ? "\nusage: researchzosho connect <address> <token | --file path>\nNothing was changed." : "")); return given.usage() ? 2 : 1; }
+            token = given.value().strip();
+        }
         String was = Config.get("RESEARCHZOSHO_LIBRARY"), wasToken = Config.get(TOKEN);
         Config.set("RESEARCHZOSHO_LIBRARY", addr); Config.set(TOKEN, token);
         try {

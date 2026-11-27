@@ -52,6 +52,9 @@ public final class Embeddings {
     private static final ObjectMapper M = new ObjectMapper();
     private static final HttpClient HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(10)).build());
+    /** The look's own client (whether the server answers, {@link SearchByMeaning}): a server that gives no connection within its bound is down. */
+    private static final HttpClient LOOK_HTTP = Outbound.client(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(SearchByMeaning.LOOK_CONNECT).build());
 
     private Embeddings() { }
 
@@ -109,6 +112,14 @@ public final class Embeddings {
     public static Embedder http(String endpoint, String model) { return http(endpoint, model, true); }
 
     /**
+     * A search's call to an address that gave no connection a moment ago: its use written down, and the container of this machine's that
+     * serves there started when it is not running (0.8.4). A search always asks for it, whatever a look last found and whatever was or
+     * was not written down: on the live library an upgrade's first status look found the sleeping container's address silent, marked it
+     * away, and the search that came within half a minute went by words with no start asked for.
+     */
+    private static void askForTheContainer(String endpoint) { ModelsAwake.used(endpoint); ModelsAwake.startForCall(endpoint); }
+
+    /**
      * Vectors from an embeddings server at {@code endpoint}. For the library's own work ({@code work}), when the server is a container of
      * this machine under the idle rule, each call writes its use down, so a server somebody keeps searching with is not stopped, and a
      * call that finds it stopped has it started in the background and goes on by words that once ({@link ModelsAwake#startForCall}).
@@ -125,7 +136,8 @@ public final class Embeddings {
                     var slice = texts.subList(from, Math.min(texts.size(), from + BATCH));
                     List<float[]> got = null;
                     long t0 = System.currentTimeMillis();
-                    if (!Helpers.away(endpoint)) try {   // a machine that gave no connection a moment ago is not waited for again
+                    if (Helpers.away(endpoint)) { if (work) askForTheContainer(endpoint); }   // gave no connection a moment ago: not waited for, and a container of this machine's is asked for all the same
+                    else try {   // a machine that gave no connection a moment ago is not waited for again
                         var body = M.createObjectNode();
                         body.put("model", model);
                         var arr = body.putArray("input");
@@ -165,7 +177,7 @@ public final class Embeddings {
 
             @Override public float[] embed(String text) {
                 if (text == null || text.isBlank()) return null;
-                if (Helpers.away(endpoint)) return null;   // the machine gave no connection a moment ago: by words until it is back, with no wait
+                if (Helpers.away(endpoint)) { if (work) askForTheContainer(endpoint); return null; }   // no connection a moment ago: by words with no wait, and a stopped container of this machine's is started all the same
                 String t = text.length() > MAX_CHARS ? text.substring(0, MAX_CHARS) : text;
                 long t0 = System.currentTimeMillis();
                 if (work) ModelsAwake.used(endpoint);   // a search's question is a use too: a server somebody keeps searching with is not stopped
@@ -173,12 +185,13 @@ public final class Embeddings {
                     var body = M.createObjectNode();
                     body.put("model", model);
                     body.put("input", t);
-                    // a search of the shelves inside a research run: the wait ends at the run's stop
-                    HttpResponse<String> resp = Stopping.send(HTTP, Helpers.request(endpoint + "/v1/embeddings")   // with the helpers' secret when a helpers machine serves it
-                            .timeout(Duration.ofSeconds(60))
+                    // a search of the shelves inside a research run: the wait ends at the run's stop; a look waits within its own bounds
+                    Duration answer = work ? Duration.ofSeconds(60) : SearchByMeaning.LOOK_ANSWER;
+                    HttpResponse<String> resp = Stopping.send(work ? HTTP : LOOK_HTTP, Helpers.request(endpoint + "/v1/embeddings")   // with the helpers' secret when a helpers machine serves it
+                            .timeout(answer)
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(M.writeValueAsString(body), StandardCharsets.UTF_8))
-                            .build(), HttpResponse.BodyHandlers.ofString(), Duration.ofSeconds(60), "the embeddings server at " + endpoint);
+                            .build(), HttpResponse.BodyHandlers.ofString(), answer, "the embeddings server at " + endpoint);
                     if (resp.statusCode() != 200) return null;
                     JsonNode arr = M.readTree(resp.body()).path("data").path(0).path("embedding");
                     if (!arr.isArray() || arr.isEmpty()) return null;

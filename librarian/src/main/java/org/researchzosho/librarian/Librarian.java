@@ -1641,7 +1641,7 @@ public class Librarian {
             var e = it.next();
             String k = e.getKey(), v = e.getValue().isTextual() ? e.getValue().asText() : e.getValue().toString();
             if (k.equals("patron") || k.equals("field") || k.equals("allow")) continue;
-            if (k.equals("value") && name.equals("library_models") && op.equals("key")) v = v.length() <= 3 ? "…" : "…" + v.substring(v.length() - 3);
+            if (k.equals("value") && name.equals("library_models") && op.equals("key")) v = Settings.end(v).isEmpty() ? "…" : Settings.end(v);
             if (k.equals("value") && setting != null) v = Settings.shown(setting, v);
             b.append(' ').append(k).append('=').append(v.matches(".*\\s.*") ? "\"" + v + "\"" : v);
         }

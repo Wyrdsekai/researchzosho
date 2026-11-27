@@ -26,6 +26,8 @@ class NoMachineToolsTest {
         assertNull(TranslationScores.labseAddress(true), "so a translation finds no LaBSE of the machine's and starts none");
         assertSame(NoMachineTools.NO_CONTAINERS, ModelsAwake.CONTAINERS, "and the containers the idle rule looks after answer at ports where nothing listens");
         assertFalse(ModelsAwake.startForCall(NoMachineTools.NO_LABSE), "so a call to one starts nothing");
+        assertSame(NoMachineTools.NOWHERE, ModelServer.reach, "and a request for a pinned file (a download, the release's check) goes to a port where nothing listens");
+        assertEquals("http://127.0.0.1:6/huggingface.co/unsloth/x/resolve/main/x.gguf", ModelServer.reach.apply("https://huggingface.co/unsloth/x/resolve/main/x.gguf"));
     }
 
     @Test void aTestThatLeavesItsOwnRunnerIsNamedAndTheSuitesIsPutBack() {

@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -197,5 +198,6 @@ class LanguagesTest {
     static void put(ZipOutputStream z, String name, String text) throws IOException { z.putNextEntry(new ZipEntry(name)); z.write(text.getBytes(StandardCharsets.UTF_8)); z.closeEntry(); }
 
     @BeforeEach void scorers() { TranslationScores.SCORERS = () -> new TranslationScores.Scorers(TranslationTest.labseStandIn(), null); Translation.SETUP_SAID = () -> ""; }
-    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; }
+    final Supplier<String> setupSaidWas = Translation.SETUP_SAID;
+    @AfterEach void back() { TranslationScores.SCORERS = TranslationScores::configured; Translation.SETUP_SAID = setupSaidWas; }
 }

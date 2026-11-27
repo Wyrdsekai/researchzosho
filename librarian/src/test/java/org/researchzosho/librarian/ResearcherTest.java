@@ -655,10 +655,15 @@ class ResearcherTest {
             }
             @Override public int contextWindow() { return 16_384; }
         };
-        List<String> log = new CopyOnWriteArrayList<>();
-        var r = new Researcher(drive, new FakeTools(), log::add, 2).run(new Researcher.Ask("How were the Antikythera gears cut?", "depth", 60, List.of("how?")), "");
-        assertTrue(log.stream().anyMatch(l -> l.contains("over the model's window of 16384 tokens") && l.contains("trying once more")), log.toString());
-        assertTrue(r.answer().contains("The gears were cut by hand"), "the write-up was finished, not cut off: " + r.answer().substring(0, Math.min(200, r.answer().length())));
+        // the refusal corrects the estimate from the server's count (16,403 tokens), and the correction is the process's: put back, or every
+        // test after this one in its fork estimates about two and a half times long (LibrarianChatFitTest's prompt of 14,438 characters read 9,005 tokens, 2026-11-26)
+        double scaleBefore = Researcher.tokenScale;
+        try {
+            List<String> log = new CopyOnWriteArrayList<>();
+            var r = new Researcher(drive, new FakeTools(), log::add, 2).run(new Researcher.Ask("How were the Antikythera gears cut?", "depth", 60, List.of("how?")), "");
+            assertTrue(log.stream().anyMatch(l -> l.contains("over the model's window of 16384 tokens") && l.contains("trying once more")), log.toString());
+            assertTrue(r.answer().contains("The gears were cut by hand"), "the write-up was finished, not cut off: " + r.answer().substring(0, Math.min(200, r.answer().length())));
+        } finally { Researcher.tokenScale = scaleBefore; }
     }
 
     @Test

@@ -714,6 +714,8 @@ public final class Images {
         if (kept != null) return new Fetched(Files.readAllBytes(kept), contentType(kept.getFileName().toString()));
         if (paths) {
             Path p = Path.of(r.replaceFirst("^~", System.getProperty("user.home"))).toAbsolutePath().normalize();
+            String own = OwnFolders.refusal(p, store);   // the programs' own folders: never read, nor shown to the model that sees
+            if (own != null) throw new IOException(own);
             if (!Files.isRegularFile(p)) throw new IOException("Nothing is at " + p + ".");
             if (Files.size(p) > MAX_BYTES) throw new IOException(p.getFileName() + " weighs more than 8 MB; the library reads pictures up to 8 MB.");
             byte[] b = Files.readAllBytes(p);

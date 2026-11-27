@@ -21,7 +21,13 @@ public final class Models {
     static String llama(String hf, String file, int ctx, int parallel, String extra) {
         return "docker run -d --name researchzosho-model --gpus all -p 127.0.0.1:8080:8080 -v ~/models:/m ghcr.io/ggml-org/llama.cpp:server-cuda"
                 + " -m /m/" + file + " --host 0.0.0.0 --port 8080 --jinja -c " + ctx + " --parallel " + parallel + " -ngl 99 --flash-attn on" + (extra.isEmpty() ? "" : " " + extra)
-                + "\n    (the file: https://huggingface.co/" + hf + "/resolve/main/" + file + ")";
+                + "\n    (the file: " + address(hf, file) + ")";
+    }
+
+    /** Where a file is: at the revision a model row pins it to, for a file `model install` installs; on main for the others. */
+    static String address(String hf, String file) {
+        for (ModelServer.Row r : ModelServer.ROWS) if (r.hf().equals(hf) && r.file().equals(file)) return r.url();
+        return "https://huggingface.co/" + hf + "/resolve/main/" + file;
     }
 
     /**

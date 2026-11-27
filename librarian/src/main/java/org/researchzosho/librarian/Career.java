@@ -142,6 +142,8 @@ public final class Career {
         if (mayReadFiles) {
             try { Path p = Path.of(w.startsWith("~/") ? System.getProperty("user.home") + w.substring(1) : w); if (Files.isRegularFile(p)) file = p; }
             catch (RuntimeException ignored) { }
+            String own = file == null ? null : OwnFolders.refusal(file, store);   // the programs' own folders: never read, never kept
+            if (own != null) throw new IllegalArgumentException(own);
         }
         boolean link = file == null && w.matches("https?://\\S+");
         byte[] bytes = file == null ? null : Files.readAllBytes(file);

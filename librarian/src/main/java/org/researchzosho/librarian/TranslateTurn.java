@@ -561,12 +561,15 @@ final class TranslateTurn {
             if (r.failed()) unused = " " + c.t(NOT_USED, ask.leftover());
             ask = ask.read(r.span());
         }
-        Path file = resolve(store, session, patron, ask.what());
-        if (file == null && attachedId == null && !ask.from().isEmpty()) {   // the phrase may belong to the document's own name: read the words without it
-            Ask plain = parse(w, false);
-            Path named = plain == null ? null : resolve(store, session, patron, plain.what());
-            if (named != null) { ask = plain; file = named; name = c.languageName(ask.lang()); }
-        }
+        Path file;
+        try {
+            file = resolve(store, session, patron, ask.what());
+            if (file == null && attachedId == null && !ask.from().isEmpty()) {   // the phrase may belong to the document's own name: read the words without it
+                Ask plain = parse(w, false);
+                Path named = plain == null ? null : resolve(store, session, patron, plain.what());
+                if (named != null) { ask = plain; file = named; name = c.languageName(ask.lang()); }
+            }
+        } catch (ProtocolError ownFolder) { return ownFolder.getMessage(); }   // a file of the programs' own folders: the sentence that says so
         if (file == null && attachedId != null) file = fromShelves(store, attachedId);
         if (file == null) {
             if (session != null) session.translateAsk(ask);   // kept for the file that comes next
@@ -648,6 +651,7 @@ final class TranslateTurn {
         if (w.matches("^(/|~/|[A-Za-z]:\\\\|\\./|\\.\\./).*") || w.contains("/") || w.contains("\\")) {
             if (patron == null || !patron.person()) return null;   // a path on the machine is the keeper's to name
             Path p = Path.of(w.replaceFirst("^~", System.getProperty("user.home")));
+            OwnFolders.refuse(p, store);   // the programs' own folders: never read, never sent to a model
             return Files.isRegularFile(p) ? p : null;
         }
         // a document on the shelves, by its title

@@ -1,0 +1,33 @@
+{
+ "refineSearch": {
+  "totalHits": 2,
+  "data": {
+   "jobs": [
+    {
+     "title": "Electrical Engineer",
+     "jobSeqNo": "BMIBMIUS75921EXTERNALENUS",
+     "city": "Oxnard",
+     "state": "CA",
+     "cityState": "Oxnard, CA",
+     "country": "United States",
+     "postedDate": "2023-11-09T14:46:01.000+0000",
+     "dateCreated": "2025-12-01T20:36:36.016+0000",
+     "category": "Engineering",
+     "descriptionTeaser": "Battelle is currently seeking an Electrical Engineer II. This position is located in Oxnard, CA. The person selected for this position will be responsible for the maintenance, testing, and troubleshoo..."
+    },
+    {
+     "title": "Electrical Engineer",
+     "jobSeqNo": "BMIBMIUS76715EXTERNALENUS",
+     "city": "Columbus",
+     "state": "OH",
+     "cityState": "Columbus, OH",
+     "country": "United States",
+     "postedDate": "2023-11-09T14:46:01.000+0000",
+     "dateCreated": "2026-11-10T20:36:36.734+0000",
+     "category": "Engineering",
+     "descriptionTeaser": "We are currently seeking an Electrical Engineer. This position is a full-time opportunity located in Columbus, OH. This role supports two critical technical domains within Battelle's defense programs...."
+    }
+   ]
+  }
+ }
+}

@@ -53,6 +53,7 @@ class HelpTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         store.write(new Finding(store.nextFindingId("A claim"), "A claim the library holds", List.of(), Finding.State.accepted, Finding.ClaimType.extraction, Finding.Confidence.high, "patron:test",
                 Instant.now().toString(), "2026-10-28", Finding.Volatility.stable, "", List.of(new Finding.Source("https://example.org/a", "n/a", "a page")), List.of(), null, "A claim the library holds.\n"));
+        Help.forgetLooks(); Help.state(store); Help.settleLooks();   // the looks at the model and the search engine, made off the ask, have ended
         String st = Help.state(store);
         assertTrue(st.startsWith("ResearchZosho " + Version.string() + " is running here."), st);
         assertTrue(st.contains("This library holds claims: 1,") && st.contains("The model it talks to by default is") && st.contains("Web search:")
@@ -78,6 +79,7 @@ class HelpTest {
         LibraryStore store = new LibraryStore(tmp.resolve("lib")); store.init();
         Chrome ja = Chrome.in("ja");
         Chrome.MISSING.clear();
+        Help.forgetLooks(); Help.state(store, ja); Help.settleLooks();   // the looks made off the ask have ended: the state says what they found
         String st = Help.state(store, ja), page = Help.lookup(store, "", ja), look = Help.lookup(store, "how do I update", ja);
         assertTrue(st.startsWith("ResearchZosho " + Version.string() + " がここで動いています。") && st.contains("このライブラリにあるもの：主張 0件、レポート 0件、ウェブから保存したページ 0件。"), st);
         assertTrue(st.contains("既定で話すモデルは") && st.contains("いまは応答しません") && st.contains("ウェブ検索：") && st.contains("有効な分野：") && st.contains("系譜（親族関係、GEDCOM の読み込みと書き出し）")
